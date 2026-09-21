@@ -61,7 +61,7 @@ import { NotificationsToasts } from '../../workbench/browser/parts/notifications
 import { IMarkdownRendererService } from '../../platform/markdown/browser/markdownRenderer.js';
 import { EditorMarkdownCodeBlockRenderer } from '../../editor/browser/widget/markdownRenderer/browser/editorMarkdownCodeBlockRenderer.js';
 import { SyncDescriptor } from '../../platform/instantiation/common/descriptors.js';
-import { ReviewTitleService } from './parts/reviewTitlebarPart.js';
+import { MainReviewTitlebarPart, ReviewTitleService } from './parts/reviewTitlebarPart.js';
 import { IContextKeyService, RawContextKey } from '../../platform/contextkey/common/contextkey.js';
 import { IsReviewWindowContext } from '../../workbench/common/contextkeys.js';
 import {
@@ -149,6 +149,8 @@ export interface IAgentWorkbenchLayoutService extends IWorkbenchLayoutService {
 
 export const IAgentWorkbenchLayoutService = refineServiceDecorator<IWorkbenchLayoutService, IAgentWorkbenchLayoutService>(IWorkbenchLayoutService);
 
+
+const REVIEW_CHROME_INSET_PROPERTIES = ['--review-chrome-left-width', '--review-chrome-right-width', '--review-explorer-width'] as const;
 export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayoutService {
 
 	declare readonly _serviceBrand: undefined;
@@ -304,7 +306,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 	private _restoreAttachedEditorMaximizedOnShow = false;
 	protected _editorPartAutoVisibilitySuppressionCount = 0;
 	protected _hasAppliedInitialEditorSplit = false;
-	private reviewChromeInsetElement: HTMLElement | undefined;
+	private readonly reviewChromeTabStrips: HTMLElement[] = [];
 	private readonly reviewChromeDragListeners = this._register(new DisposableStore());
 	private readonly reviewChromeInsetScheduler = this._register(new RunOnceScheduler(() => this.updateReviewChromeInset(), 0));
 
@@ -870,7 +872,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 		this._editorPartContainer = editorPartContainer;
 
 		mark('code/willCreatePart/workbench.parts.editor');
-		this.getPart(Parts.EDITOR_PART).create(editorPartContainer, { restorePreviousState: false });
+		this.getPart(Parts.EDITOR_PART).create(editorPartContainer, { restorePreviousState: true });
 		mark('code/didCreatePart/workbench.parts.editor');
 
 		this.mainContainer.appendChild(editorPartContainer);
@@ -943,6 +945,10 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		const editorMainPart = this.editorGroupService.mainPart;
 		this._register(editorMainPart.onDidLayout(() => this.reviewChromeInsetScheduler.schedule()));
+		const titlebarPart = this.getPart(Parts.TITLEBAR_PART);
+		if (titlebarPart instanceof MainReviewTitlebarPart) {
+			this._register(titlebarPart.onDidChangeChromeInsets(() => this.reviewChromeInsetScheduler.schedule()));
+		}
 		this._register(editorMainPart.onDidAddGroup(() => this.reviewChromeInsetScheduler.schedule()));
 		this._register(editorMainPart.onDidRemoveGroup(() => this.reviewChromeInsetScheduler.schedule()));
 		this._register(editorMainPart.onDidMoveGroup(() => this.reviewChromeInsetScheduler.schedule()));
@@ -1139,11 +1145,31 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 		}
 	}
 
+	/**
+	 * Written on the tab strip that reads them, not the workbench root: a
+	 * changed inherited custom property restyles every element below it, and
+	 * with a canvas full of peek editors that was a ~200ms stall per explorer
+	 * show, hide or sash move.
+	 */
+	private publishReviewChromeInset(tabStrip: HTMLElement): void {
+		const titlebarPart = this.getPart(Parts.TITLEBAR_PART);
+		const insets = titlebarPart instanceof MainReviewTitlebarPart ? titlebarPart.chromeInsets : { left: 0, right: 0 };
+		const explorerWidth = this.isVisible(Parts.REVIEW_EXPLORER_PART) ? this.getSize(Parts.REVIEW_EXPLORER_PART).width : 0;
+		tabStrip.style.setProperty('--review-chrome-left-width', `${insets.left}px`);
+		tabStrip.style.setProperty('--review-chrome-right-width', `${insets.right}px`);
+		tabStrip.style.setProperty('--review-explorer-width', `${explorerWidth}px`);
+	}
+
 	private updateReviewChromeInset(): void {
 		this.reviewChromeDragListeners.clear();
 		this.mainContainer.classList.remove('review-tab-dragging');
-		this.reviewChromeInsetElement?.classList.remove('review-chrome-inset');
-		this.reviewChromeInsetElement = undefined;
+		for (const tabStrip of this.reviewChromeTabStrips) {
+			tabStrip.classList.remove('review-chrome-tab-strip', 'review-chrome-inset');
+			for (const property of REVIEW_CHROME_INSET_PROPERTIES) {
+				tabStrip.style.removeProperty(property);
+			}
+		}
+		this.reviewChromeTabStrips.length = 0;
 
 		const editorPartContainer = this._editorPartContainer;
 		if (!editorPartContainer) {
@@ -1152,6 +1178,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		let topLeftGroup: HTMLElement | undefined;
 		let topLeftRect: DOMRect | undefined;
+		const visibleGroups: { group: HTMLElement; rect: DOMRect }[] = [];
 		const groups = editorPartContainer.getElementsByClassName('editor-group-container');
 		for (let index = 0; index < groups.length; index++) {
 			const group = groups[index];
@@ -1164,28 +1191,41 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 				continue;
 			}
 
+			visibleGroups.push({ group, rect });
+
 			if (!topLeftRect || rect.top < topLeftRect.top - 1 || (Math.abs(rect.top - topLeftRect.top) <= 1 && rect.left < topLeftRect.left)) {
 				topLeftGroup = group;
 				topLeftRect = rect;
 			}
 		}
 
-		if (!topLeftGroup) {
+		if (!topLeftGroup || !topLeftRect) {
 			return;
 		}
 
-		const tabStrips = topLeftGroup.getElementsByClassName('tabs-and-actions-container');
-		for (let index = 0; index < tabStrips.length; index++) {
-			const tabStrip = tabStrips[index];
-			if (isHTMLElement(tabStrip)) {
-				this.reviewChromeInsetElement = tabStrip;
-				tabStrip.classList.add('review-chrome-inset');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
-				const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
-				break;
+		const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
+
+		// Every top-row group shares window dragging. Only the leftmost group
+		// needs the navigation inset.
+		for (const { group, rect } of visibleGroups) {
+			if (Math.abs(rect.top - topLeftRect.top) > 1) {
+				continue;
 			}
+
+			const tabStrip = group.querySelector(':scope > .title > .tabs-and-actions-container');
+			if (!isHTMLElement(tabStrip)) {
+				continue;
+			}
+
+			this.reviewChromeTabStrips.push(tabStrip);
+			tabStrip.classList.add('review-chrome-tab-strip');
+			if (group === topLeftGroup) {
+				tabStrip.classList.add('review-chrome-inset');
+				this.publishReviewChromeInset(tabStrip);
+			}
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
 		}
 	}
 

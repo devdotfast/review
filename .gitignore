@@ -1,8 +1,8 @@
 # Node
 node_modules/
 dist/
-packages/progressive-review/tutorial/.bundle/
-packages/progressive-review/tutorial/git-stub/
+packages/review/tutorial/.bundle/
+packages/review/tutorial/git-stub/
 *.tsbuildinfo
 
 # pnpm
@@ -47,6 +47,7 @@ packages/code-graph/canvas/public/snapshot*.json
 .dev/software-maps/
 
 # Local agent/context files
+/tasks/
 .claude/
 .pi-subagents/
 .claude-context
@@ -60,7 +61,10 @@ packages/code-graph/canvas/public/snapshot*.json
 packages/code-graph/.ci-tools/
 packages/code-graph/fixtures/indexing/rust/target/
 packages/code-graph/fixtures/semantic-baseline/rust/target/
-packages/progressive-review/.playwright-cli/
+packages/review/.playwright-cli/
+packages/review/.vitest-attachments/
+packages/review/**/__screenshots__/
+packages/review/**/__traces__/
 
 .playwright-mcp
 backups/
@@ -85,3 +89,5 @@ backend.hcl
 .dev/evidence/
 artifacts/devbox/
 scripts/acceptance/evidence/
+
+packages/review/tutorial/pins.json

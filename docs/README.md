@@ -13,7 +13,7 @@ directory as a reference.
 - [Quickstart](quickstart.md) — install Review, add authoring guidance, and
   complete a first review.
 - [How Review works](how-review-works.md) — understand documents, live code,
-  maps, threads, and the review lifecycle.
+  maps, and the review lifecycle.
 - [Coding agents](agents.md) — connect Claude Code, Codex, and other coding
   agents.
 
@@ -34,3 +34,5 @@ directory as a reference.
 - [Security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md)
 - [Desktop build and release guide](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md)
 - [Code - OSS provenance](https://github.com/devdotfast/review/blob/main/apps/review-desktop/UPSTREAM)
+
+For maintainers: [Publishing the Review CLI](cli-releases.md) covers version bumps, tags, npm credentials, and retrying releases.

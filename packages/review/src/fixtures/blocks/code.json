@@ -1,0 +1,9 @@
+[
+  {
+    "id": "block-1",
+    "type": "code",
+    "language": "ts",
+    "text": "export const status = \"queued\";\n",
+    "caption": "The new status"
+  }
+]

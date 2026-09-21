@@ -7,7 +7,7 @@ model = "opus"
 # Pinned explicitly: `claude -p` otherwise inherits ~/.claude/settings.json effortLevel.
 effort = "high"
 runs_dir = "~/.dev/review-latency/runs"
-# "source": run packages/progressive-review/src/cli.ts (instrumented, no
+# "source": run packages/review/src/cli.ts (instrumented, no
 # desktop delegation) as `review` on the agent's PATH. "installed": use
 # whatever `review` already resolves to.
 review_cli = "source"

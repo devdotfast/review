@@ -12,11 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./bug-report": {
-      "types": "./dist/bug-report.d.ts",
-      "import": "./dist/bug-report.js",
-      "default": "./dist/bug-report.js"
     }
   },
   "scripts": {
@@ -25,11 +20,13 @@
     "typecheck": "pnpm -w exec tsc -p packages/review-protocol/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@dev.fast/json": "workspace:*",
+    "@dev.fast/trace-protocol": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "esbuild": "0.28.1",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24 <25"

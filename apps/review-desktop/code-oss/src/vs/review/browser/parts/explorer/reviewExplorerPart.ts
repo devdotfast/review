@@ -3,52 +3,47 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import "../../media/review.css";
+import { sourceTreeUri, sourceTreeSelection, sourceTreeRoot } from "../../../common/reviewSourceView.js";
+
 import { $ } from "../../../../base/browser/dom.js";
 import type { IListVirtualDelegate } from "../../../../base/browser/ui/list/list.js";
 import type { IListAccessibilityProvider } from "../../../../base/browser/ui/list/listWidget.js";
-import type {
-	IAsyncDataSource,
-	ITreeNode,
-	ITreeRenderer,
-} from "../../../../base/browser/ui/tree/tree.js";
+import type { IAsyncDataSource, ITreeNode, ITreeRenderer } from "../../../../base/browser/ui/tree/tree.js";
 import { Sequencer } from "../../../../base/common/async.js";
 import { compareFileNamesDefault } from "../../../../base/common/comparers.js";
 import { Disposable } from "../../../../base/common/lifecycle.js";
-import { localize } from "../../../../nls.js";
 import { basename, dirname, isEqual, isEqualOrParent } from "../../../../base/common/resources.js";
-import { Schemas } from "../../../../base/common/network.js";
 import { URI } from "../../../../base/common/uri.js";
-import { IConfigurationService, type IConfigurationChangeEvent } from "../../../../platform/configuration/common/configuration.js";
-import { FILES_EXCLUDE_CONFIG, FileKind, IFileService, type IFileStat } from "../../../../platform/files/common/files.js";
-import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
+import { localize } from "../../../../nls.js";
+import {
+	IConfigurationService,
+	type IConfigurationChangeEvent,
+} from "../../../../platform/configuration/common/configuration.js";
+import { FILES_EXCLUDE_CONFIG, FileKind, type IFileStat } from "../../../../platform/files/common/files.js";
+import { IInstantiationService, createDecorator } from "../../../../platform/instantiation/common/instantiation.js";
 import { WorkbenchAsyncDataTree } from "../../../../platform/list/browser/listService.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { IStorageService, StorageScope, StorageTarget } from "../../../../platform/storage/common/storage.js";
 import { IThemeService } from "../../../../platform/theme/common/themeService.js";
-import { IWorkspaceContextService } from "../../../../platform/workspace/common/workspace.js";
-import { Part } from "../../../../workbench/browser/part.js";
 import { DEFAULT_LABELS_CONTAINER, ResourceLabels, type IResourceLabel } from "../../../../workbench/browser/labels.js";
+import { Part } from "../../../../workbench/browser/part.js";
 import { EditorResourceAccessor, SideBySideEditor } from "../../../../workbench/common/editor.js";
 import type { EditorInput } from "../../../../workbench/common/editor/editorInput.js";
-import { DiffEditorInput } from "../../../../workbench/common/editor/diffEditorInput.js";
 import { ResourceGlobMatcher } from "../../../../workbench/common/resources.js";
-import type { IFilesConfiguration } from "../../../../workbench/contrib/files/common/files.js";
 import { createFileIconThemableTreeContainerScope } from "../../../../workbench/contrib/files/browser/views/explorerView.js";
+import type { IFilesConfiguration } from "../../../../workbench/contrib/files/common/files.js";
 import { IEditorGroupsService } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../../../workbench/services/editor/common/editorService.js";
-import {
-	IWorkbenchLayoutService,
-	Parts,
-} from "../../../../workbench/services/layout/browser/layoutService.js";
-import { reviewResourceIdentity } from "../../../common/reviewCodeResources.js";
+import { IWorkbenchLayoutService, Parts } from "../../../../workbench/services/layout/browser/layoutService.js";
 import { REVIEW_CHROME_HEIGHT } from "../../../common/reviewChrome.js";
-import type { ReviewDiffFileWire } from "../../../common/reviewProtocol.js";
-import { IReviewCodeResourceService } from "../../../services/reviewCodeResourceService.js";
-import { IReviewDiffTabsService } from "../../../services/reviewDiffTabs.js";
+import {
+	IReviewApiSourceService,
+	REVIEW_API_SOURCE_SCHEME,
+} from "../../../services/reviewApiSourceService.js";
+import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
-import { IReviewSessionModelService } from "../../../services/reviewSessionModelService.js";
-import { ReviewChangedFilesTree } from "../../reviewChangedFilesTree.js";
+
+import "../../media/review.css";
 import { ReviewCanvasEditorInput } from "../canvas/reviewCanvasEditorInput.js";
 
 /** The row height of one explorer entry, in CSS pixels. */
@@ -79,31 +74,12 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
 	}
 
 	const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
-	return resource?.scheme === Schemas.file;
+	return resource?.scheme === REVIEW_API_SOURCE_SCHEME;
 }
 
-/** The Source tab browses the whole worktree, so it gets the workspace tree. */
+/** The Source tab owns the current or version-selected repository tree. */
 function isSourceTab(input: EditorInput | undefined): boolean {
-	return input instanceof ReviewCanvasEditorInput && input.target.kind === "source";
-}
-
-/**
- * Which tree belongs beside this editor input.
- *
- * The rule is the editor kind, not where the open came from: diff editors and
- * Review's own canvas tabs pair with the changed-files tree, and everything
- * else that accompanies the tree — the Source tab and plain file editors — pairs
- * with the workspace tree. Deriving the mode from the input keeps it stable
- * when a file opened from the Source tree becomes the active editor.
- */
-function treeModeFor(input: EditorInput | undefined): "changed" | "workspace" {
-	if (isSourceTab(input)) {
-		return "workspace";
-	}
-	if (input instanceof DiffEditorInput || input instanceof ReviewCanvasEditorInput) {
-		return "changed";
-	}
-	return "workspace";
+	return input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source";
 }
 
 interface IReviewExplorerTemplate {
@@ -128,13 +104,12 @@ const reviewExplorerDelegate: IListVirtualDelegate<IFileStat> = {
  * holds, which is what reveal can reach.
  */
 class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat> {
-
 	private readonly stats = new Map<string, IFileStat>();
 
 	constructor(
-		private readonly fileService: IFileService,
 		private readonly excludes: ResourceGlobMatcher,
 		private readonly logService: ILogService,
+		private readonly apiSource: IReviewApiSourceService,
 	) { }
 
 	hasChildren(element: URI | null | IFileStat): boolean {
@@ -151,27 +126,27 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 
 		const resource = URI.isUri(element) ? element : element.resource;
 		try {
-			const stat = await this.fileService.resolve(resource, { resolveSingleChildDescendants: false });
-			const siblings = stat.children ?? [];
+			const siblings = await this.apiSource.children(resource);
 			// One name set for the whole directory. A `files.exclude` `when` clause
 			// asks whether a sibling exists, and it is asked once per child, so
 			// scanning the sibling array each time would be quadratic.
-			const siblingNames = new Set(siblings.map(sibling => basename(sibling.resource)));
-			const children = siblings.filter(child => !this.excludes.matches(child.resource, name => siblingNames.has(name)));
+			const siblingNames = new Set(siblings.map((sibling) => basename(sibling.resource)));
+			const children = siblings.filter(
+				(child) => !this.excludes.matches(child.resource, (name) => siblingNames.has(name)),
+			);
 			for (const child of children) {
-				this.stats.set(child.resource.toString(), child);
+				this.stats.set(child.resource.path, child);
 			}
 			return children.sort(compareReviewExplorerStats);
 		} catch (error) {
-			// A snapshot worktree can lose a directory between resolves. An empty
-			// folder is the honest rendering; the tree stays usable either way.
+			// Keep other directories usable when a pinned source request fails.
 			this.logService.trace(`[review] explorer cannot resolve ${resource.fsPath}: ${error}`);
 			return [];
 		}
 	}
 
 	statFor(resource: URI): IFileStat | undefined {
-		return this.stats.get(resource.toString());
+		return this.stats.get(resource.path);
 	}
 
 	reset(): void {
@@ -187,14 +162,11 @@ function compareReviewExplorerStats(one: IFileStat, other: IFileStat): number {
 }
 
 class ReviewExplorerRenderer extends Disposable implements ITreeRenderer<IFileStat, void, IReviewExplorerTemplate> {
-
 	readonly templateId = REVIEW_EXPLORER_TEMPLATE_ID;
 
 	private readonly labels: ResourceLabels;
 
-	constructor(
-		@IInstantiationService instantiationService: IInstantiationService,
-	) {
+	constructor(@IInstantiationService instantiationService: IInstantiationService) {
 		super();
 		this.labels = this._register(instantiationService.createInstance(ResourceLabels, DEFAULT_LABELS_CONTAINER));
 	}
@@ -233,7 +205,6 @@ const reviewExplorerAccessibilityProvider: IListAccessibilityProvider<IFileStat>
  * find, file icons and the `workbench.list.*` settings on stock components.
  */
 export class ReviewExplorerPart extends Part {
-
 	override readonly minimumWidth = 170;
 	override readonly maximumWidth = 480;
 	override readonly minimumHeight = 0;
@@ -251,12 +222,6 @@ export class ReviewExplorerPart extends Part {
 	private tree: WorkbenchAsyncDataTree<URI | null, IFileStat, void> | undefined;
 	private dataSource: ReviewExplorerDataSource | undefined;
 	private root: URI | undefined;
-	private mode: "changed" | "workspace" = "changed";
-	private changedFilesContainer: HTMLElement | undefined;
-	private workspaceTreeContainer: HTMLElement | undefined;
-	private changedFilesTree: ReviewChangedFilesTree | undefined;
-	private changedFiles: readonly ReviewDiffFileWire[] = [];
-	private changedFilesGeneration = 0;
 
 	/** Serializes reveals and re-roots so two walks cannot interleave expands. */
 	private readonly sequencer = new Sequencer();
@@ -266,15 +231,12 @@ export class ReviewExplorerPart extends Part {
 		@IStorageService storageService: IStorageService,
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
-		@IFileService private readonly fileService: IFileService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
-		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService,
-		@IReviewCodeResourceService private readonly codeResources: IReviewCodeResourceService,
-		@IReviewSessionModelService private readonly sessionModelService: IReviewSessionModelService,
-		@IReviewDiffTabsService private readonly reviewDiffTabsService: IReviewDiffTabsService,
+		@IReviewApiSourceService private readonly apiSource: IReviewApiSourceService,
+		@IReviewApiCatalogService private readonly catalog: IReviewApiCatalogService,
 		@IReviewCanvasEditorTabsService private readonly tabsService: IReviewCanvasEditorTabsService,
 	) {
 		super(
@@ -294,51 +256,18 @@ export class ReviewExplorerPart extends Part {
 	protected override createContentArea(parent: HTMLElement): HTMLElement {
 		// Publish the chrome row height so review.css sizes the spacer from the same
 		// constant this part lays the tree out with, rather than a second literal.
-		this.layoutService.mainContainer.style.setProperty('--review-chrome-height', `${REVIEW_CHROME_HEIGHT}px`);
+		parent.style.setProperty("--review-chrome-height", `${REVIEW_CHROME_HEIGHT}px`);
 
 		// The macOS traffic lights float over the top-left of the window, and the
 		// explorer is the leftmost surface, so reserve the one chrome row for them
 		// and let the reserved strip drag the window.
 		parent.appendChild($(".review-explorer-chrome-spacer"));
 
-		const changedFilesContainer = $(".review-explorer-tree.review-explorer-changed-files");
 		const workspaceTreeContainer = $(".review-explorer-tree.review-explorer-workspace-tree");
-		parent.appendChild(changedFilesContainer);
 		parent.appendChild(workspaceTreeContainer);
-		this.changedFilesContainer = changedFilesContainer;
-		this.workspaceTreeContainer = workspaceTreeContainer;
-
-		this._register(createFileIconThemableTreeContainerScope(changedFilesContainer, this.themeService));
-		const changedFilesTree = this._register(this.instantiationService.createInstance(
-			ReviewChangedFilesTree,
-			changedFilesContainer,
-		));
-		this.changedFilesTree = changedFilesTree;
-		this._register(changedFilesTree.onDidOpenFile(file => {
-			void this.reviewDiffTabsService.open({
-				filePath: file.path,
-				previousPath: file.previousPath,
-			}).catch(error => this.logService.trace(`[review] explorer cannot open diff ${file.path}: ${error}`));
-		}));
-		this._register(this.sessionModelService.onDidChangeActiveModel(() => this.refreshChangedFiles()));
-		// Both trees are built eagerly and laid out on every layout pass, so a
-		// mode switch is a pure display toggle. A lazily created or hidden tree
-		// would carry stale zero dimensions and render no rows.
 		this.createWorkspaceTree(workspaceTreeContainer);
-		this.setMode(this.mode);
-		void this.refreshChangedFiles();
 
 		return parent;
-	}
-
-	setMode(mode: "changed" | "workspace"): void {
-		this.mode = mode;
-		if (this.changedFilesContainer) {
-			this.changedFilesContainer.style.display = mode === "changed" ? "" : "none";
-		}
-		if (this.workspaceTreeContainer) {
-			this.workspaceTreeContainer.style.display = mode === "workspace" ? "" : "none";
-		}
 	}
 
 	private createWorkspaceTree(treeContainer: HTMLElement): void {
@@ -349,13 +278,15 @@ export class ReviewExplorerPart extends Part {
 		// configuration listener, and the workspace-folder listener. That last one is
 		// why nothing here has to rebuild the patterns when the active review
 		// changes the root.
-		const excludes = this._register(this.instantiationService.createInstance(
-			ResourceGlobMatcher,
-			(folder?: URI) => this.configurationService.getValue<IFilesConfiguration>({ resource: folder }).files?.exclude,
-			(event: IConfigurationChangeEvent) => event.affectsConfiguration(FILES_EXCLUDE_CONFIG),
-		));
+		const excludes = this._register(
+			this.instantiationService.createInstance(
+				ResourceGlobMatcher,
+				(folder?: URI) => this.configurationService.getValue<IFilesConfiguration>({ resource: folder }).files?.exclude,
+				(event: IConfigurationChangeEvent) => event.affectsConfiguration(FILES_EXCLUDE_CONFIG),
+			),
+		);
 
-		const dataSource = new ReviewExplorerDataSource(this.fileService, excludes, this.logService);
+		const dataSource = new ReviewExplorerDataSource(excludes, this.logService, this.apiSource);
 		this.dataSource = dataSource;
 
 		// A settings change can hide a folder that is currently expanded, so rebuild
@@ -363,90 +294,72 @@ export class ReviewExplorerPart extends Part {
 		this._register(excludes.onExpressionChange(() => this.refreshTree()));
 
 		const renderer = this._register(this.instantiationService.createInstance(ReviewExplorerRenderer));
-		const tree = this._register(this.instantiationService.createInstance(
-			WorkbenchAsyncDataTree<URI | null, IFileStat, void>,
-			"ReviewExplorer",
-			treeContainer,
-			reviewExplorerDelegate,
-			[renderer],
-			dataSource,
-			{
-				identityProvider: { getId: (stat: IFileStat) => stat.resource.toString() },
-				accessibilityProvider: reviewExplorerAccessibilityProvider,
-				keyboardNavigationLabelProvider: {
-					getKeyboardNavigationLabel: (stat: IFileStat) => basename(stat.resource),
+		const tree = this._register(
+			this.instantiationService.createInstance(
+				WorkbenchAsyncDataTree<URI | null, IFileStat, void>,
+				"ReviewExplorer",
+				treeContainer,
+				reviewExplorerDelegate,
+				[renderer],
+				dataSource,
+				{
+					identityProvider: { getId: (stat: IFileStat) => `${this.root?.toString()}/${stat.resource.path}` },
+					accessibilityProvider: reviewExplorerAccessibilityProvider,
+					keyboardNavigationLabelProvider: {
+						getKeyboardNavigationLabel: (stat: IFileStat) => basename(stat.resource),
+					},
+					multipleSelectionSupport: false,
+					// A repository root has too many folders to auto-expand any of them.
+					collapseByDefault: () => true,
 				},
-				multipleSelectionSupport: false,
-				// A repository root has too many folders to auto-expand any of them.
-				collapseByDefault: () => true,
-			},
-		));
+			),
+		);
 		this.tree = tree;
 
-		this._register(tree.onDidOpen(event => {
-			const stat = event.element;
-			if (!stat || stat.isDirectory) {
-				return;
-			}
-
-			// Register the tab against the review it belongs to, so dismissing
-			// or deleting the review closes it — the same lifecycle the
-			// changed-files tree's diff tabs get from `reviewDiffTabs`.
-			const model = this.sessionModelService.activeModel;
-			void Promise.resolve(this.editorService.openEditor({
-				resource: stat.resource,
-				options: {
-					pinned: event.editorOptions.pinned,
-					preserveFocus: event.editorOptions.preserveFocus,
-					revealIfVisible: true,
-				},
-			}, this.editorGroupsService.mainPart.activeGroup)).then(pane => {
-				if (pane?.input && model) {
-					this.tabsService.registerReviewEditor(model.reviewUuid, pane.input);
+		this._register(
+			tree.onDidOpen((event) => {
+				const stat = event.element;
+				if (!stat || stat.isDirectory) {
+					return;
 				}
-			});
-		}));
 
-		// The active review's repository is the workbench's only workspace folder
-		// (`reviewWorkspaceFolder.contribution.ts` keeps it there), so a folder
-		// change is how the tree learns that the active review changed.
-		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.updateRoot()));
+				// Register the tab against the review it belongs to, so dismissing
+				// or deleting the review closes it — the same lifecycle the
+				// changed-files tree's diff tabs get from `reviewDiffTabs`.
+				const reviewId = stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? stat.resource.authority : undefined;
+				void Promise.resolve(
+					this.editorService.openEditor(
+						{
+							resource: stat.resource,
+							options: {
+								pinned: event.editorOptions.pinned,
+								preserveFocus: event.editorOptions.preserveFocus,
+								revealIfVisible: true,
+							},
+						},
+						this.editorGroupsService.mainPart.activeGroup,
+					),
+				).then((pane) => {
+					if (pane?.input && reviewId) {
+						this.tabsService.registerReviewEditor(reviewId, pane.input);
+					}
+				});
+			}),
+		);
+
+		this._register(this.editorService.onDidActiveEditorChange(() => this.updateRoot()));
+		let revision: string | undefined;
+		this._register(this.catalog.onDidChange(() => {
+			if (!this.root || sourceTreeSelection(this.root).kind !== "current") return;
+			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
+			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.worktreeRevision]);
+			if (next === revision) return;
+			revision = next;
+			this.refreshTree();
+		}));
 
 		this.root = undefined;
 		this.updateRoot();
-	}
-
-	private async refreshChangedFiles(): Promise<void> {
-		const generation = ++this.changedFilesGeneration;
-		if (!this.sessionModelService.activeModel) {
-			this.changedFiles = [];
-			this.changedFilesTree?.setFiles([]);
-			this.syncActiveResource();
-			return;
-		}
-		try {
-			const files = await this.codeResources.files();
-			if (generation !== this.changedFilesGeneration) {
-				return;
-			}
-			this.changedFiles = files;
-			this.changedFilesTree?.setFiles(files);
-			this.syncActiveResource();
-		} catch (error) {
-			if (generation !== this.changedFilesGeneration) {
-				return;
-			}
-			this.changedFiles = [];
-			this.changedFilesTree?.setFiles([]);
-			this.syncActiveResource();
-			this.logService.trace(`[review] explorer cannot load changed files: ${error}`);
-		}
-	}
-
-	private syncActiveResource(): void {
-		this.setActiveResource(EditorResourceAccessor.getCanonicalUri(this.editorService.activeEditor, {
-			supportSideBySide: SideBySideEditor.PRIMARY,
-		}));
 	}
 
 	/** Re-resolves every expanded level, for when what the tree may show changes. */
@@ -455,29 +368,40 @@ export class ReviewExplorerPart extends Part {
 			return;
 		}
 
-		this.sequencer.queue(async () => {
-			this.dataSource?.reset();
-			await this.tree?.updateChildren(undefined, true);
-		}).catch(error => this.logService.trace(`[review] explorer cannot refresh: ${error}`));
+		this.sequencer
+			.queue(async () => {
+				this.dataSource?.reset();
+				await this.tree?.updateChildren(undefined, true);
+			})
+			.catch((error) => this.logService.trace(`[review] explorer cannot refresh: ${error}`));
 	}
 
 	private updateRoot(): void {
-		const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		const input = this.editorService.activeEditor;
+		const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const folder =
+			input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source"
+				? sourceTreeUri(input.target.selection)
+				: resource?.scheme === REVIEW_API_SOURCE_SCHEME
+					? sourceTreeRoot(resource, this.root)
+					: undefined;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;
 		}
 
 		this.root = folder;
 
-		this.sequencer.queue(async () => {
-			const tree = this.tree;
-			if (!tree) {
-				return;
-			}
+		this.sequencer
+			.queue(async () => {
+				const tree = this.tree;
+				if (!tree) {
+					return;
+				}
 
-			this.dataSource?.reset();
-			await tree.setInput(folder ?? null);
-		}).catch(error => this.logService.trace(`[review] explorer cannot root at ${folder?.fsPath}: ${error}`));
+				this.dataSource?.reset();
+				await tree.setInput(folder ?? null);
+			})
+			.catch((error) => this.logService.trace(`[review] explorer cannot root at ${folder?.fsPath}: ${error}`));
 	}
 
 	/**
@@ -489,69 +413,55 @@ export class ReviewExplorerPart extends Part {
 	 */
 	revealResource(resource: URI | undefined): void {
 		const root = this.root;
-		if (!resource || !root || resource.scheme !== Schemas.file || !isEqualOrParent(resource, root)) {
+		if (resource && root && resource.scheme === REVIEW_API_SOURCE_SCHEME && sourceTreeRoot(resource, root).toString() === root.toString()) {
+			// A base-side or commit-scoped editor still belongs to the selected tree.
+			resource = resource.with({ scheme: root.scheme, query: root.query });
+		}
+		if (!resource || !root || !isEqualOrParent(resource, root)) {
 			return;
 		}
 
-		this.sequencer.queue(async () => {
-			const tree = this.tree;
-			const dataSource = this.dataSource;
-			if (!tree || !dataSource || !this.root || !isEqual(this.root, root)) {
-				return;
-			}
-
-			// Walk root -> resource so each expand resolves the level that holds the
-			// next ancestor. The data source records those stats as it goes, which is
-			// the only way the next step can find its element.
-			for (const ancestor of ancestorsBetween(root, resource)) {
-				const stat = dataSource.statFor(ancestor);
-				if (!stat) {
+		this.sequencer
+			.queue(async () => {
+				const tree = this.tree;
+				const dataSource = this.dataSource;
+				if (!tree || !dataSource || !this.root || !isEqual(this.root, root)) {
 					return;
 				}
-				await tree.expand(stat);
-			}
 
-			const target = dataSource.statFor(resource);
-			if (!target) {
-				return;
-			}
+				// Walk root -> resource so each expand resolves the level that holds the
+				// next ancestor. The data source records those stats as it goes, which is
+				// the only way the next step can find its element.
+				for (const ancestor of ancestorsBetween(root, resource)) {
+					const stat = dataSource.statFor(ancestor);
+					if (!stat) {
+						return;
+					}
+					await tree.expand(stat);
+				}
 
-			tree.setSelection([target]);
-			tree.setFocus([target]);
-			tree.reveal(target);
-		}).catch(error => this.logService.trace(`[review] explorer cannot reveal ${resource.fsPath}: ${error}`));
+				const target = dataSource.statFor(resource);
+				if (!target) {
+					return;
+				}
+
+				tree.setSelection([target]);
+				tree.setFocus([target]);
+				tree.reveal(target);
+			})
+			.catch((error) => this.logService.trace(`[review] explorer cannot reveal ${resource.fsPath}: ${error}`));
 	}
 
 	setActiveResource(resource: URI | undefined): void {
-		if (this.mode === "workspace") {
-			this.revealResource(resource);
-			return;
-		}
-		const model = this.sessionModelService.activeModel;
-		const activePath = resource && model
-			? reviewResourceIdentity(model.session, resource)?.path
-			: undefined;
-		const file = activePath
-			? this.changedFiles.find(candidate =>
-				candidate.path === activePath || candidate.previousPath === activePath,
-			)
-			: undefined;
-		this.changedFilesTree?.setActiveFile(file?.path);
+		this.revealResource(resource);
 	}
 
 	override layout(width: number, height: number, top: number, left: number): void {
 		super.layout(width, height, top, left);
 
-		// The editor tab strip pads itself past the window controls, and how much of
-		// that chrome the tree already covers depends on this width. Publish it so
-		// the padding in review.css can subtract it instead of assuming the tree is
-		// always wider than the controls.
-		this.layoutService.mainContainer.style.setProperty('--review-explorer-width', `${width}px`);
-
 		const contentHeight = Math.max(0, height - REVIEW_CHROME_HEIGHT);
 		// Both trees, visible or not: a hidden tree that skipped layout would
 		// come back with stale zero dimensions and render no rows.
-		this.changedFilesTree?.layout(contentHeight, width);
 		this.tree?.layout(contentHeight, width);
 	}
 
@@ -598,10 +508,10 @@ export interface IReviewExplorerPartsService {
 }
 
 /** Marks the workbench while the tree has a tab to accompany, so the toolbar toggle can fade in. */
-const REVIEW_EXPLORER_AVAILABLE_CLASS = 'review-explorer-available';
+const REVIEW_EXPLORER_AVAILABLE_CLASS = "review-explorer-available";
 
 /** Remembers a close across reloads. Workspace-scoped: it is a per-review preference. */
-const REVIEW_EXPLORER_USER_CLOSED_KEY = 'review.explorer.userClosed';
+const REVIEW_EXPLORER_USER_CLOSED_KEY = "review.explorer.userClosed";
 
 /**
  * Creates the explorer part and owns its show/hide policy.
@@ -652,12 +562,14 @@ export class ReviewExplorerParts extends Disposable implements IReviewExplorerPa
 		// never through `toggle`. Treat any hide that arrives while the tree is
 		// available as the user closing it, so dragging it shut is as sticky as
 		// pressing the button.
-		this._register(this.layoutService.onDidChangePartVisibility(event => {
-			if (this.applying || event.partId !== Parts.REVIEW_EXPLORER_PART || !this.available) {
-				return;
-			}
-			this.setUserClosed(!event.visible);
-		}));
+		this._register(
+			this.layoutService.onDidChangePartVisibility((event) => {
+				if (this.applying || event.partId !== Parts.REVIEW_EXPLORER_PART || !this.available) {
+					return;
+				}
+				this.setUserClosed(!event.visible);
+			}),
+		);
 
 		// The grid starts the leaf hidden on every launch, so a restored file
 		// editor needs this one run to bring it back.
@@ -684,7 +596,12 @@ export class ReviewExplorerParts extends Disposable implements IReviewExplorerPa
 		}
 
 		this.userClosed = userClosed;
-		this.storageService.store(REVIEW_EXPLORER_USER_CLOSED_KEY, userClosed, StorageScope.WORKSPACE, StorageTarget.MACHINE);
+		this.storageService.store(
+			REVIEW_EXPLORER_USER_CLOSED_KEY,
+			userClosed,
+			StorageScope.WORKSPACE,
+			StorageTarget.MACHINE,
+		);
 	}
 
 	private update(): void {
@@ -705,9 +622,10 @@ export class ReviewExplorerParts extends Disposable implements IReviewExplorerPa
 			return;
 		}
 
-		this.part.setMode(treeModeFor(input));
-		this.part.setActiveResource(EditorResourceAccessor.getCanonicalUri(input, {
-			supportSideBySide: SideBySideEditor.PRIMARY,
-		}));
+		this.part.setActiveResource(
+			EditorResourceAccessor.getCanonicalUri(input, {
+				supportSideBySide: SideBySideEditor.PRIMARY,
+			}),
+		);
 	}
 }

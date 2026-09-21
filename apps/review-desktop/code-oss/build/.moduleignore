@@ -225,3 +225,8 @@ zone.js/dist/**
 # in websocket's browser.js inside a try/catch with a globalThis fallback,
 # so it is unnecessary in the browsers/runtimes VS Code supports.
 es5-ext/**
+
+# playwright-core backs the browser-view automation stack. Review registers
+# neither its services nor its IPC channels, so nothing constructs
+# PlaywrightService and its dynamic import never runs. See UPSTREAM.
+playwright-core/**

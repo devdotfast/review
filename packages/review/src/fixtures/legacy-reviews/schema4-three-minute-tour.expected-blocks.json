@@ -1,0 +1,351 @@
+[
+  {
+    "type": "markdown",
+    "markdown": "# Review Desktop: three-minute tour\n"
+  },
+  {
+    "type": "section",
+    "title": "Welcome",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Welcome\n\nA Review is a guided, interactive explanation of a code change. The document\nkeeps the important code, system views, and feedback in one place.\n"
+      },
+      {
+        "type": "callout",
+        "tone": "info",
+        "title": "Tutorial",
+        "children": [
+          {
+            "type": "markdown",
+            "markdown": "This step used the interactive TutorialAuthoringConversation component.\n"
+          }
+        ]
+      },
+      {
+        "type": "markdown",
+        "markdown": "### Your keybindings\n\nChoose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs.\n"
+      },
+      {
+        "type": "callout",
+        "tone": "info",
+        "title": "Tutorial",
+        "children": [
+          {
+            "type": "markdown",
+            "markdown": "This step used the interactive TutorialKeymapPicker component.\n"
+          }
+        ]
+      },
+      {
+        "type": "markdown",
+        "markdown": "### Put the keybindings to work\n\nThe editor below is live. Try hover, **Go to Definition**, or **Go to\nReferences** with the same commands you use in VS Code.\n"
+      },
+      {
+        "type": "code_peek",
+        "source": {
+          "file": "src/orders/order-service.ts",
+          "start": {
+            "side": "head",
+            "line": 13
+          },
+          "end": {
+            "side": "head",
+            "line": 29
+          }
+        },
+        "caption": "Order service creates the order"
+      },
+      {
+        "type": "markdown",
+        "markdown": "Prose in the review also supports [links to code](review-source:head/src/orders/order-service.ts#L13-L29).\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Commits and diffs",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Commits and diffs\n\nReview pins an exact base and head before the agent starts writing. Open\n**Commits** to see the change in author order. Expand the sample commit to see\nits files, then choose **Open diff** to inspect only that commit.\n\nThe **Diff** tab shows the complete change between the pinned base and head.\nChoose **Review** when you are ready to return to this tour.\n"
+      },
+      {
+        "type": "markdown",
+        "markdown": "Open the **Commits** tab.\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Comments are threads",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Comments are threads\n\nYou can attach a thread to any part of the canvas. Move the pointer over the\ncode below, select the comment control in the left gutter, and write a note.\n"
+      },
+      {
+        "type": "code_peek",
+        "source": {
+          "file": "src/inventory/inventory-service.ts",
+          "start": {
+            "side": "head",
+            "line": 4
+          },
+          "end": {
+            "side": "head",
+            "line": 8
+          }
+        },
+        "caption": "Inventory rejects invalid quantities"
+      },
+      {
+        "type": "markdown",
+        "markdown": "Choose **Ask now**. The app starts an agent turn in a read-only checkout and\nputs its answer in the same thread. You can continue the conversation there.\n\nThe other standard choice, **Add to review**, holds feedback for the next\nauthoring round. This tour uses **Ask now** so you can see the agent reply\nimmediately.\n\nEvery comment is a thread anchored to one part of the Review. Use the **\\+**\nbutton in the toolbar to start a thread about the whole Review instead.\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Interactive Diagrams",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Interactive Diagrams\n\nThe sequence diagram connects the checkout request to fulfillment. Select any\nmessage to open its supporting code.\n"
+      },
+      {
+        "type": "sequence",
+        "title": "Checkout to fulfillment",
+        "actors": {
+          "checkout": "Checkout API",
+          "orderService": "Order service",
+          "repository": "Orders repository",
+          "queue": "Fulfillment queue",
+          "worker": "Fulfillment worker",
+          "shipping": "Shipping gateway"
+        },
+        "steps": [
+          {
+            "type": "step",
+            "from": "checkout",
+            "to": "orderService",
+            "label": "Place order",
+            "style": "call",
+            "source": {
+              "file": "src/api/checkout-api.ts",
+              "start": {
+                "side": "head",
+                "line": 12
+              },
+              "end": {
+                "side": "head",
+                "line": 15
+              }
+            }
+          },
+          {
+            "type": "step",
+            "from": "orderService",
+            "to": "repository",
+            "label": "Save order",
+            "style": "call",
+            "source": {
+              "file": "src/orders/order-service.ts",
+              "start": {
+                "side": "head",
+                "line": 13
+              },
+              "end": {
+                "side": "head",
+                "line": 29
+              }
+            }
+          },
+          {
+            "type": "step",
+            "from": "repository",
+            "to": "queue",
+            "label": "Enqueue fulfillment",
+            "style": "call",
+            "source": {
+              "file": "src/orders/orders-repository.ts",
+              "start": {
+                "side": "head",
+                "line": 9
+              },
+              "end": {
+                "side": "head",
+                "line": 12
+              }
+            }
+          },
+          {
+            "type": "step",
+            "from": "queue",
+            "to": "worker",
+            "label": "Deliver job",
+            "style": "call",
+            "source": {
+              "file": "src/fulfillment/fulfillment-worker.ts",
+              "start": {
+                "side": "head",
+                "line": 13
+              },
+              "end": {
+                "side": "head",
+                "line": 14
+              }
+            }
+          },
+          {
+            "type": "step",
+            "from": "worker",
+            "to": "shipping",
+            "label": "Create shipment",
+            "style": "call",
+            "source": {
+              "file": "src/fulfillment/fulfillment-worker.ts",
+              "start": {
+                "side": "head",
+                "line": 17
+              },
+              "end": {
+                "side": "head",
+                "line": 19
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "markdown",
+        "markdown": "The database view groups writes by use case. Its operations open code too.\n"
+      },
+      {
+        "type": "database_lens",
+        "title": "Order storage",
+        "actors": {
+          "orderService": {
+            "label": "Order service",
+            "softwareMapPath": "orderService.application.orders"
+          },
+          "worker": {
+            "label": "Fulfillment worker",
+            "softwareMapPath": "orderService.fulfillment.worker"
+          }
+        },
+        "stores": {
+          "orderDatabase": {
+            "label": "Order database",
+            "storage": "relational",
+            "softwareMapPath": "orderService.data.ordersDatabase",
+            "collections": {
+              "orders": {
+                "label": "orders",
+                "fields": {
+                  "id": {
+                    "label": "id",
+                    "dataType": "text",
+                    "primaryKey": true,
+                    "example": "order-customer-42"
+                  },
+                  "customerId": {
+                    "label": "customerId",
+                    "dataType": "text",
+                    "example": "customer-42"
+                  },
+                  "totalCents": {
+                    "label": "totalCents",
+                    "dataType": "integer",
+                    "example": 12500
+                  },
+                  "status": {
+                    "label": "status",
+                    "dataType": "text",
+                    "example": "fulfilled"
+                  },
+                  "createdAt": {
+                    "label": "createdAt",
+                    "dataType": "timestamp",
+                    "example": "2026-08-10T12:00:00Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "useCases": [
+          {
+            "label": "Create an order",
+            "operations": [
+              {
+                "kind": "write",
+                "store": "orderDatabase",
+                "collection": "orders",
+                "field": "status",
+                "actor": "orderService",
+                "label": "write pending order",
+                "source": {
+                  "file": "src/orders/orders-repository.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 9
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 12
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "label": "Fulfill an order",
+            "operations": [
+              {
+                "kind": "write",
+                "store": "orderDatabase",
+                "collection": "orders",
+                "field": "status",
+                "actor": "worker",
+                "label": "write fulfilled status",
+                "source": {
+                  "file": "src/fulfillment/fulfillment-worker.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 17
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 19
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "callout",
+        "tone": "info",
+        "title": "Tutorial",
+        "children": [
+          {
+            "type": "markdown",
+            "markdown": "This step used the interactive TutorialFeature component.\n"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Get help",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Get help\n\nTo manage the Review skills installed for your agents, open **Preferences \u2192\nSettings**. To revisit setup or take this tour again, open **Preferences \u2192\nGetting Started**.\n"
+      }
+    ]
+  }
+]

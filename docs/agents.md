@@ -2,12 +2,12 @@
 
 <!--
 Outline: Built-in setup -> Installed skills -> Change review -> Architecture review
--> Feedback loop -> Headless install -> Provider boundary.
+-> Headless install -> Provider boundary.
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app
-installs a small set of skills that teaches the agent how to author, validate,
-publish, and update a Review.
+installs a small set of skills that teaches the agent how to create, author,
+validate, and update a Review through the Review API and MCP tools.
 
 ## Built-in setup
 
@@ -25,13 +25,32 @@ same Review skills from `~/.agents/skills`.
 
 Review Desktop is the recommended installation path. On first launch it detects
 installed agents, asks which integrations to enable, and keeps their skills in
-sync with app updates. You can manage the integrations later from Review
+sync with app updates. Generated skills carry the Review Desktop release version in
+`SKILL.md` frontmatter. On the first launch after an update, Desktop replaces
+older skills for enabled integrations automatically, including local edits.
+Skills already at the bundled version are left alone. Start a new agent session
+to load refreshed skills. Reinstall from settings to repair same-version edits
+or missing supporting files; terminal-only installs are not automatically enrolled. You can manage the integrations later from Review
 settings.
+
+For Codex and Claude Code, Desktop setup also registers a user-level `review`
+MCP connection. It launches a small adapter using Review's bundled runtime; no
+separate Node installation, agent CLI, port, or token configuration is needed.
+The desktop server remains the owner of every review. Other agents can use the
+installed `review api` command.
+
+App updates refresh the adapter along with enabled integrations and repair missing
+MCP entries. Reinstall in settings runs the same setup again. Review leaves
+customized MCP entries alone and explains how to replace them if desired;
+uninstall removes only unchanged entries it created. Restart the agent or
+reconnect its MCP server after setup. Start a new session for updated skills.
+
+This automatic MCP setup belongs to the Desktop integration flow. The
+terminal-only `review install` command still installs skills and the CLI only.
 
 ## Installed skills
 
-- `dev-review` authors and publishes a change review or architecture review.
-- `dev-review-map` builds the base and head software maps used by the Map tab.
+- `dev-review` authors change and architecture reviews, including software maps.
 
 The authoring skill coordinates the whole workflow. In normal use, ask your
 agent for a Review instead of running the lower-level CLI commands yourself.
@@ -70,19 +89,6 @@ critical code paths in this repository. Open it in Review when it is ready.
 Specific context produces a better Review. Tell the agent what you already
 believe, which risks you care about, and where you want sequence or database
 views.
-
-## Send feedback to the agent
-
-Review threads have two modes:
-
-- **Ask now** sends a question to the authoring agent immediately and keeps the
-  answer in the same thread.
-- **Add to review** holds a comment for the review decision. Choosing
-  **Request changes** sends the submitted set back for another authoring round.
-
-The agent updates the Review document, responds to the exact threads it
-addressed, and publishes another validated revision. **Approve** and dismissal
-are terminal states.
 
 ## Install from the terminal
 

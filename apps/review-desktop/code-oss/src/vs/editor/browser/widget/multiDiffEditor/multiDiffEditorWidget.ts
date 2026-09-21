@@ -14,7 +14,7 @@ import { IContextKeyService } from '../../../../platform/contextkey/common/conte
 import { Range } from '../../../common/core/range.js';
 import { IDiffEditorOptions } from '../../../common/config/editorOptions.js';
 import { IDiffEditor } from '../../../common/editorCommon.js';
-import { ICodeEditor } from '../../editorBrowser.js';
+import type { ICodeEditor } from '../../editorBrowser.js';
 import { DiffEditorWidget } from '../diffEditor/diffEditorWidget.js';
 import './colors.js';
 import { DiffEditorItemTemplate } from './diffEditorItemTemplate.js';

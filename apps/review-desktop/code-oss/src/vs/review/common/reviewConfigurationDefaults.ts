@@ -24,12 +24,14 @@
 
 export const REVIEW_KEYMAP_SETTING = 'review.keymap';
 export const REVIEW_TELEMETRY_SETTING = 'review.telemetry.enabled';
+export const REVIEW_STRUCTURAL_DIFF_SETTING = 'review.experimental.structuralDiff.enabled';
 export const REVIEW_SOFTWARE_MAP_SETTING = 'review.experimental.softwareMap.enabled';
 export const REVIEW_KEYMAPS = ['none', 'vim', 'emacs'] as const;
 export type ReviewKeymap = typeof REVIEW_KEYMAPS[number];
 
 export const reviewConfigurationDefaults = {
 	[REVIEW_SOFTWARE_MAP_SETTING]: false,
+	[REVIEW_STRUCTURAL_DIFF_SETTING]: true,
 	[REVIEW_TELEMETRY_SETTING]: true,
 	'telemetry.telemetryLevel': 'off',
 	'telemetry.enableTelemetry': false,
@@ -66,24 +68,20 @@ export const reviewConfigurationDefaults = {
 	// always sticky and the reader cannot unpin it, so the button is dead chrome.
 	'workbench.editor.tabActionUnpinVisibility': false,
 	'workbench.layoutControl.enabled': false,
+	// Diffs and code peeks are Monaco editors, and Monaco takes its font from
+	// this setting rather than from CSS. Geist Mono is bundled with the canvas
+	// stylesheet (its @font-face rules are hoisted out of the canvas scope), so
+	// the editors share the chrome and code face of the whiteboard design. The
+	// tail is Monaco's own macOS default stack.
+	'editor.fontFamily': '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
 	'editor.minimap.enabled': false,
 	'diffEditor.renderIndicators': false,
 	'breadcrumbs.enabled': false,
 	'git.enabled': false,
-	// Review opens whole files from the pinned head worktree so language
-	// servers see the tree they indexed. Those checkouts are shared,
-	// disposable render sources — an edit there never reaches the user's
-	// working copy, so surface every one of them as read-only.
-	// The pattern must stay absolute (leading slash): the workspace folder IS
-	// the pinned worktree, so ResourceGlobMatcher first tests the
-	// folder-relative path ("src/lib.rs"), where no worktree segment exists.
-	// Only an absolute pattern makes it retry against the full path.
+	// Retain read-only protection when opening a legacy Review-owned checkout.
+	// New review sources use immutable virtual documents; LSP targets are local files.
 	'files.readonlyInclude': { '/**/.git/dev-fast/worktrees/**': true },
-	// The line above makes every full file read-only, so the read-only lock
-	// badge marks every file tab and separates nothing. The badge also keeps
-	// upstream's margins, which reserve a 28px close-button column. The Review
-	// pill gives that column 16px, so the lock paints under the close button.
-	// Colors stay on, so a tab label with errors still gets its tint.
+	// Keep read-only badges from crowding Review's compact file tabs.
 	'workbench.editor.decorations.badges': false,
 	'chat.disableAIFeatures': true,
 	'extensions.ignoreRecommendations': true,
@@ -95,9 +93,9 @@ export const reviewConfigurationDefaults = {
  *
  * Review ships no marketplace, so an extension that prompts to install or update
  * something offers the reader a dead end. Every key here closes one such prompt.
- * Keep this aligned with `scripts/curated-extensions.manifest.mjs`; the contract
- * test in `scripts/curated-extension-defaults.test.mjs` fails when a curated
- * group has neither defaults here nor an explicit "prompts nothing" entry.
+ * Keep this aligned with the curated groups in
+ * `scripts/curated-extensions.manifest.mjs`, whose contract test is
+ * `scripts/curated-extensions.test.mjs`.
  */
 export const curatedExtensionConfigurationDefaults = {
 	// ms-python.python resolves the "Default" language server to Pylance, which is

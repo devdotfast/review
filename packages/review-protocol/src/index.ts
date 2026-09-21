@@ -1,4 +1,19 @@
+export * from "./diffr-contract.js";
+
+export * from "./structural-diff.js";
+
+import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
+
+export {
+  parseReviewCodePeekPatch,
+  reviewCodePeekRowAnchorLine,
+  reviewCodePeekRangeCounts,
+  type ReviewCodePeekPatch,
+  type ReviewCodePeekHunk,
+  type ReviewCodePeekHunkRow,
+  type ReviewCodePeekOrientation,
+} from "./code-peek-diff.js";
 
 import {
   type ReviewAgentTraceListResponse,
@@ -11,10 +26,9 @@ import {
   ReviewCliInstallApplyResponseSchema,
   type ReviewCliInstallStatus,
   ReviewCliInstallStatusSchema,
+  type ReviewCliInstallTarget,
   type ReviewDesktopDiscovery,
   ReviewDesktopDiscoverySchema,
-  type ReviewDesktopGlobalEvent,
-  ReviewDesktopGlobalEventSchema,
   type ReviewDesktopVerbFrame,
   ReviewDesktopVerbFrameSchema,
   type ReviewDesktopVerbResult,
@@ -25,14 +39,6 @@ import {
   ReviewFileContentRequestSchema,
   type ReviewFileContentResponse,
   ReviewFileContentResponseSchema,
-  type ReviewListResponse,
-  ReviewListResponseSchema,
-  type ReviewOpenResponse,
-  ReviewOpenResponseSchema,
-  type ReviewPublishReadyRequest,
-  ReviewPublishReadyRequestSchema,
-  type ReviewSessionResponse,
-  ReviewSessionResponseSchema,
   type ReviewStackResponse,
   ReviewStackResponseSchema,
   type ReviewTutorialOpenResponse,
@@ -42,21 +48,58 @@ import {
   type ReviewVerbResponse,
   ReviewVerbResponseSchema,
 } from "./contracts.js";
-import type { JsonValue } from "./json.js";
 
 export * from "./bug-report.js";
-export * from "./json.js";
-export * from "./runtime-value.js";
+
+export * from "@dev.fast/json";
+
 export * from "./contracts.js";
+
+export * from "./review-api-client.js";
+
+export {
+  type ByCommitEntry,
+  type ReviewAgentTraceEvent,
+  ReviewAgentTraceEventSchema,
+  type ReviewAgentTraceSession,
+  ReviewAgentTraceSessionSchema,
+  type SessionMeta,
+  byCommitSchema,
+  commitShaSchema,
+  sessionIdSchema,
+  sessionMetaSchema,
+} from "@dev.fast/trace-protocol";
+
+export interface ReviewCliInstallResyncRequest {
+  readonly targets: readonly ReviewCliInstallTarget[];
+  readonly shim: boolean;
+  readonly autoUpdate: true;
+}
+
+/** Returns the previously consented install scope when a stale install needs to be reapplied. */
+export function reviewCliInstallResyncRequest(
+  status: ReviewCliInstallStatus,
+): ReviewCliInstallResyncRequest | undefined {
+  if (status.stamp?.consent !== "granted") return undefined;
+
+  const targets =
+    status.stamp.targets !== undefined
+      ? status.stamp.targets
+      : status.agents.flatMap((agent) =>
+          agent.installed ? [agent.target] : [],
+        );
+
+  const shim = Boolean(status.stamp.shimPath);
+
+  return targets.length > 0 || shim
+    ? { targets, shim, autoUpdate: true }
+    : undefined;
+}
 
 export function parseReviewDesktopDiscovery(
   value: JsonValue,
 ): ReviewDesktopDiscovery {
   return parseZod(ReviewDesktopDiscoverySchema, value);
-}
-
-export function parseReviewListResponse(value: JsonValue): ReviewListResponse {
-  return parseZod(ReviewListResponseSchema, value);
 }
 
 export function parseReviewStackResponse(
@@ -83,26 +126,10 @@ export function parseReviewCliInstallApplyResponse(
   return parseZod(ReviewCliInstallApplyResponseSchema, value);
 }
 
-export function parseReviewPublishReadyRequest(
-  value: JsonValue,
-): ReviewPublishReadyRequest {
-  return parseZod(ReviewPublishReadyRequestSchema, value);
-}
-
-export function parseReviewOpenResponse(value: JsonValue): ReviewOpenResponse {
-  return parseZod(ReviewOpenResponseSchema, value);
-}
-
 export function parseReviewTutorialOpenResponse(
   value: JsonValue,
 ): ReviewTutorialOpenResponse {
   return parseZod(ReviewTutorialOpenResponseSchema, value);
-}
-
-export function parseReviewDesktopGlobalEvent(
-  value: JsonValue,
-): ReviewDesktopGlobalEvent {
-  return parseZod(ReviewDesktopGlobalEventSchema, value);
 }
 
 export function parseReviewDesktopVerbFrame(
@@ -115,12 +142,6 @@ export function parseReviewDesktopVerbResult(
   value: JsonValue,
 ): ReviewDesktopVerbResult {
   return parseZod(ReviewDesktopVerbResultSchema, value);
-}
-
-export function parseReviewSessionResponse(
-  value: JsonValue,
-): ReviewSessionResponse {
-  return parseZod(ReviewSessionResponseSchema, value);
 }
 
 export function parseReviewDiffFilesResponse(
@@ -161,19 +182,6 @@ export function parseReviewAgentTraceResponse(
   return parseZod(ReviewAgentTraceResponseSchema, value);
 }
 
-export function rewriteReviewDocumentRuntime(
-  source: string,
-  runtimeUrl: string,
-): string {
-  const runtimeSpecifier = JSON.stringify("review-doc-runtime");
-  if (!source.includes(runtimeSpecifier)) {
-    throw new Error("Review document module has no runtime import.");
-  }
-  return source
-    .split(runtimeSpecifier)
-    .join(JSON.stringify(new URL(runtimeUrl).href));
-}
-
 export function parseZod<T>(
   schema: z.ZodType<T>,
   value: JsonValue,
@@ -181,15 +189,18 @@ export function parseZod<T>(
   prefixPath = false,
 ): T {
   const result = schema.safeParse(value);
+
   if (result.success) return result.data;
   const issue = result.error.issues[0];
   const issuePath = formatIssuePath(issue?.path ?? []);
+
   const path =
     prefixPath && label
       ? issuePath
         ? `${label}.${issuePath}`
         : label
       : issuePath || label;
+
   throw new Error(
     `${path ? `${path} ` : ""}${issue?.message ?? "Invalid input"}`,
   );
@@ -197,6 +208,7 @@ export function parseZod<T>(
 
 function formatIssuePath(path: PropertyKey[]): string {
   let output = "";
+
   for (const segment of path) {
     if (Number.isInteger(segment)) {
       output += `[${String(segment)}]`;
@@ -204,5 +216,8 @@ function formatIssuePath(path: PropertyKey[]): string {
       output += `${output ? "." : ""}${String(segment)}`;
     }
   }
+
   return output;
 }
+
+export { structuralRows } from "./source-alignment.js";

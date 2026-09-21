@@ -1,0 +1,4 @@
+.review-share-button[aria-expanded="true"] {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+}

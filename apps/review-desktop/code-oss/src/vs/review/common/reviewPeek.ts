@@ -110,40 +110,11 @@ export function reviewPeekWindowsLineCount(
   return windows.reduce((total, window) => total + window.lineCount, 0);
 }
 
-/**
- * Height bound for a multi-diff peek body in unmeasured states: before the
- * peek windows land, while the inner editors have no model, and always in
- * capped mode. The widget's getContentHeight() is never trustworthy for a
- * windowed peek — the diff editor keeps alignment view zones for every hunk
- * in the file, and setHiddenAreas removes lines but not those zones — so a
- * real measurement must come from reviewPeekWindowsRenderedHeight instead,
- * and this bound caps anything else. Summing both windows over-estimates
- * side-by-side rendering but covers the unified view, where deleted lines
- * render as view zones in the modified editor; over-estimating a bound for
- * an unmeasured state is harmless, under-estimating would clip.
- */
-export function reviewPeekMultiDiffBodyHeightLimit(
-  heightMode: ReviewPeekHeightMode,
-  originalWindows: readonly ReviewPeekWindow[],
-  modifiedWindows: readonly ReviewPeekWindow[],
-): number {
-  if (heightMode !== "content") {
-    return REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
-  }
-  return (
-    (reviewPeekWindowsLineCount(originalWindows) +
-      reviewPeekWindowsLineCount(modifiedWindows)) *
-    REVIEW_PEEK_LINE_HEIGHT
+export function reviewPeekCappedHeight(measuredHeight: number): number {
+  return Math.min(
+    REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT,
+    Math.max(0, measuredHeight),
   );
-}
-
-export function reviewPeekCappedHeight(
-  measuredHeight: number,
-  commentZoneHeight: number,
-): number {
-  const cap = REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
-  const contentHeight = Math.max(0, measuredHeight - commentZoneHeight);
-  return Math.min(cap, contentHeight) + commentZoneHeight;
 }
 
 /** The subset of ICodeEditor that window measurement needs. */
@@ -167,9 +138,8 @@ export function reviewPeekWindowsRenderedHeight(
   if (!editor.getModel() || windows.length === 0) return undefined;
   let height = 0;
   for (const window of windows) {
-    // Monaco excludes view zones by default. Comment composers are view
-    // zones, so omitting this flag leaves their DOM mounted inside an editor
-    // whose host never grows tall enough to reveal them.
+    // Monaco excludes view zones by default. Inline diffs render deleted
+    // lines as view zones, so they must count toward the window height.
     const top = editor.getTopForLineNumber(window.startLine, true);
     const bottom = editor.getBottomForLineNumber(window.endLine, true);
     if (bottom <= top) return undefined;

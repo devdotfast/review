@@ -48,7 +48,7 @@ test('resyncs a CLI-only installation', () => {
 				updatedAt: '2026-09-02T00:00:00.000Z',
 			},
 		}),
-		{ targets: [], shim: true },
+		{ targets: [], shim: true, autoUpdate: true },
 	);
 });
 
@@ -62,7 +62,7 @@ test('falls back to installed skills for a legacy stamp without targets', () => 
 				updatedAt: '2026-09-02T00:00:00.000Z',
 			},
 		}),
-		{ targets: ['codex'], shim: false },
+		{ targets: ['codex'], shim: false, autoUpdate: true },
 	);
 });
 
@@ -76,7 +76,7 @@ test('preserves an explicit CLI opt-out while resyncing skills', () => {
 				updatedAt: '2026-09-02T00:00:00.000Z',
 			},
 		}),
-		{ targets: ['codex'], shim: false },
+		{ targets: ['codex'], shim: false, autoUpdate: true },
 	);
 });
 

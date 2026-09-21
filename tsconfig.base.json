@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022"],
+    // ES2025 for iterator helpers, which anti-slop/no-array-filter-map
+    // expects as the fix. The runtime floor is Node 24 (package.json
+    // engines) and Electron 42 (Chromium 140) for the canvas.
+    "lib": ["ES2025"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -11,9 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "paths": {
-      "@dev.fast/review/authoring": [
-        "./packages/progressive-review/src/authoring.ts"
-      ],
+      "@dev.fast/trace-core": ["./packages/trace-core/src/index.ts"],
       "@dev.fast/*": ["./packages/*/src"]
     }
   },

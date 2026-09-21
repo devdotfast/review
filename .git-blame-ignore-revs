@@ -1,0 +1,12 @@
+# Bulk-reformatting revisions, skipped by `git blame`.
+# GitHub applies this file automatically. Locally, enable it once with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Note that `git blame` only re-attributes lines an ignored commit *modified*.
+# Lines it added stay attributed to it, so a pure-insertion reformat is largely
+# unaffected. This list exists so future reformats that rewrite existing lines
+# have a home.
+
+# Restore structural blank lines flagged by require-readable-spacing (#247).
+# Whitespace only: 12,826 blank-line insertions across 503 files.
+073b584a31b9d1b9d36c3cf1c72a8229c9206e63

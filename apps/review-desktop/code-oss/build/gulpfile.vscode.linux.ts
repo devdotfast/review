@@ -17,6 +17,7 @@ import { recommendedDeps as rpmRecommendedDependencies } from './linux/rpm/dep-l
 import * as path from 'path';
 import * as cp from 'child_process';
 import { promisify } from 'util';
+import { prepareReviewRpmPackage, buildReviewRpmPackage } from './linux/review-package.ts';
 
 const exec = promisify(cp.exec);
 const root = path.dirname(import.meta.dirname);
@@ -149,6 +150,9 @@ function prepareRpmPackage(arch: string) {
 	const stripBinary = process.env['STRIP'] ?? '/usr/bin/strip';
 
 	return async function () {
+		if (product.applicationName === 'review') {
+			return prepareReviewRpmPackage(root, rpmArch);
+		}
 		const dependencies = await getDependencies('rpm', binaryDir, product.applicationName, rpmArch);
 
 		const desktop = gulp.src('resources/linux/code.desktop', { base: '.' })
@@ -221,6 +225,9 @@ function buildRpmPackage(arch: string) {
 	const destination = `.build/linux/rpm/${rpmArch}`;
 
 	return async () => {
+		if (product.applicationName === 'review') {
+			return buildReviewRpmPackage(root, rpmArch);
+		}
 		await exec(`mkdir -p ${destination}`);
 		await exec(`HOME="$(pwd)/${destination}" rpmbuild -bb ${rpmBuildPath}/SPECS/${product.applicationName}.spec --target=${rpmArch}`);
 		await exec(`cp "${rpmOut}/$(ls ${rpmOut})" ${destination}/`);

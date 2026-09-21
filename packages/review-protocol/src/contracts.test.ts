@@ -1,50 +1,32 @@
+import { type JsonObject } from "@dev.fast/json";
 import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 
 import {
-  CreateReviewCommentInputSchema,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   REVIEW_SCHEMA_VERSION,
   ReviewCliInstallStampSchema,
-  ReviewCommentThreadMapSchema,
-  ReviewDescriptorSchema,
   ReviewDesktopDiscoverySchema,
-  ReviewDesktopGlobalEventSchema,
   ReviewDesktopStateSchema,
   ReviewDesktopVerbFrameSchema,
   ReviewDesktopVerbResultSchema,
   ReviewDiffFileSchema,
   ReviewDiffFilesRequestSchema,
   ReviewDiffFilesResponseSchema,
-  ReviewDocModuleResponseSchema,
   ReviewEditorSelectionSchema,
   ReviewErrorResponseSchema,
   ReviewFileContentRequestSchema,
   ReviewFileContentResponseSchema,
-  ReviewListResponseSchema,
   ReviewOpenEditorSchema,
-  ReviewOpenResponseSchema,
-  ReviewPublishReadyRequestSchema,
   ReviewRangeSchema,
-  ReviewRecordSchema,
   ReviewRepositoryIdentitySchema,
   ReviewRuntimeConfigSchema,
-  ReviewServerEventSchema,
-  ReviewSessionDescriptorSchema,
-  ReviewSessionLifecycleEventSchema,
-  ReviewSessionResponseSchema,
-  ReviewSessionSchema,
-  ReviewSubmissionWireSchema,
   ReviewSurfaceEventSchema,
-  ReviewThreadAnchorSchema,
   ReviewVerbRequestSchema,
   ReviewVerbResponseSchema,
-  ThreadTargetSchema,
-  createGitLabTextDiffPosition,
   reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
-import type { JsonObject } from "./json.js";
 
 const repository = {
   kind: "jj",
@@ -52,6 +34,7 @@ const repository = {
   repositoryPath: "/tmp/repo/.jj/repo",
   worktreeRoot: "/tmp/repo",
 };
+
 const reviewRecord = {
   schemaVersion: REVIEW_SCHEMA_VERSION,
   uuid: "3b241101-e2bb-4255-8caf-4136c566a962",
@@ -69,6 +52,7 @@ const reviewRecord = {
   createdAt: "2026-07-28T00:00:00.000Z",
   lastPublishedAt: null,
 };
+
 const descriptor = {
   sessionId: "session-1",
   sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
@@ -76,26 +60,7 @@ const descriptor = {
   routePath: "/",
   startedAt: 1,
 };
-const reviewDescriptor = {
-  uuid: reviewRecord.uuid,
-  title: reviewRecord.title,
-  status: reviewRecord.status,
-  worktreePath: reviewRecord.worktreePath,
-  repoKey: reviewRecord.repoKey,
-  sourceBranch: null,
-  baseRef: "main",
-  headRef: "feature",
-  commits: [],
-  pullRequestNumber: 673,
-  pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
-  diffStats: { fileCount: 3, additions: 58, deletions: 12 },
-  commentCount: 2,
-  documentUpdatedAt: "2026-07-29T12:00:00.000Z",
-  presentedDocumentRevision: reviewRecord.presentedDocumentRevision,
-  presentedSoftwareMapRevision: reviewRecord.presentedSoftwareMapRevision,
-  lastPublishedAt: reviewRecord.lastPublishedAt,
-  available: true,
-};
+
 const session = {
   sessionId: "session-1",
   rootPath: "/tmp/repo",
@@ -106,28 +71,10 @@ const session = {
   appUrl: "http://127.0.0.1:5570/",
   sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
   reviewPath: "/tmp/repo/review.mdx",
-  freshQuestionHarness: "codex",
   startedAt: 1,
 };
-const submission = {
-  id: "submission-1",
-  decision: "request-changes",
-  createdAt: "2026-07-23T00:00:00.000Z",
-  rootPath: "/tmp/repo",
-  reviewPath: "/tmp/repo/review.mdx",
-  documentRoute: "/",
-  comments: [],
-  prompt: "",
-};
-const anchor = {
-  startLine: 1,
-  endLine: 2,
-  threadId: "thread-1",
-  kind: "comment",
-};
+
 const contracts: Array<[string, ZodType, JsonObject]> = [
-  ["review record", ReviewRecordSchema, reviewRecord],
-  ["review descriptor", ReviewDescriptorSchema, reviewDescriptor],
   [
     "CLI install stamp",
     ReviewCliInstallStampSchema,
@@ -141,12 +88,9 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     ReviewRuntimeConfigSchema,
     {
       serverUrl: "http://127.0.0.1:5570",
-      sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
-      routePath: "/",
-      sessionId: "session-1",
+      reviewId: "review-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
       appVersion: "0.0.13",
       theme: "dark",
       host: "desktop",
@@ -166,65 +110,7 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     },
   ],
   ["repository identity", ReviewRepositoryIdentitySchema, repository],
-  [
-    "publish-ready request",
-    ReviewPublishReadyRequestSchema,
-    {
-      reviewUuid: reviewRecord.uuid,
-      revision: "a".repeat(40),
-      agent: { harness: "codex", sessionId: "session-1" },
-      view: "diff",
-    },
-  ],
-  ["session descriptor", ReviewSessionDescriptorSchema, descriptor],
-  [
-    "open response",
-    ReviewOpenResponseSchema,
-    {
-      sessionId: descriptor.sessionId,
-      url: descriptor.sessionUrl,
-      session: descriptor,
-      review: reviewDescriptor,
-    },
-  ],
-  [
-    "review list",
-    ReviewListResponseSchema,
-    { reviews: [reviewDescriptor], errors: [] },
-  ],
-  ["submission wire", ReviewSubmissionWireSchema, submission],
-  [
-    "session lifecycle event",
-    ReviewSessionLifecycleEventSchema,
-    {
-      event: "submitted",
-      sessionId: "session-1",
-      submission,
-    },
-  ],
-  [
-    "desktop global event",
-    ReviewDesktopGlobalEventSchema,
-    { event: "session-updated", session: descriptor },
-  ],
-  [
-    "desktop review data event",
-    ReviewDesktopGlobalEventSchema,
-    {
-      event: "review-data-changed",
-      uuid: reviewRecord.uuid,
-      sessionId: descriptor.sessionId,
-    },
-  ],
-  [
-    "desktop review deleted event",
-    ReviewDesktopGlobalEventSchema,
-    {
-      event: "review-deleted",
-      uuid: reviewRecord.uuid,
-    },
-  ],
-  ["session", ReviewSessionSchema, session],
+
   [
     "diff file",
     ReviewDiffFileSchema,
@@ -269,26 +155,13 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     ReviewFileContentResponseSchema,
     { ok: true, content: "" },
   ],
+
   [
-    "session response",
-    ReviewSessionResponseSchema,
-    { ok: true, session, token: "token" },
+    "legacy error response",
+    ReviewErrorResponseSchema,
+    { ok: false, error: "bad" },
   ],
-  [
-    "document module response",
-    ReviewDocModuleResponseSchema,
-    {
-      ok: true,
-      contentHash: "hash",
-      moduleUrl: "http://127.0.0.1:5570/module.js",
-    },
-  ],
-  ["error response", ReviewErrorResponseSchema, { ok: false, error: "bad" }],
-  [
-    "server event",
-    ReviewServerEventSchema,
-    { event: "session-updated", session },
-  ],
+
   ["range", ReviewRangeSchema, { fromLine: 1, toLine: 2 }],
   [
     "open editor",
@@ -315,12 +188,7 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       selection: null,
     },
   ],
-  ["thread anchor", ReviewThreadAnchorSchema, anchor],
-  [
-    "verb request",
-    ReviewVerbRequestSchema,
-    { name: "openFile", args: { path: "src/index.ts", line: 1 } },
-  ],
+  ["verb request", ReviewVerbRequestSchema, { name: "focusCanvas", args: {} }],
   ["verb response", ReviewVerbResponseSchema, { ok: true }],
   [
     "desktop verb frame",
@@ -328,7 +196,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     {
       event: "desktop-verb",
       id: "verb-1",
-      sessionId: "session-1",
       request: { name: "focusCanvas", args: {} },
     },
   ],
@@ -337,7 +204,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     ReviewDesktopVerbResultSchema,
     {
       id: "verb-1",
-      sessionId: "session-1",
       response: { ok: true },
     },
   ],
@@ -384,98 +250,6 @@ describe("review views", () => {
         view: "map",
       }).success,
     ).toBe(true);
-  });
-});
-
-describe("review source identity", () => {
-  it("stores the durable source identity separately from its Git commit", () => {
-    const input = {
-      ...reviewRecord,
-      sourceIdentity: { kind: "jj-change", name: "rknkrlsrsmuu" },
-      sourceCommit: "1".repeat(40),
-    };
-    const { sourceIdentity: _sourceIdentity, ...legacyRecord } = reviewRecord;
-
-    expect(ReviewRecordSchema.safeParse(input).success).toBe(true);
-    expect(
-      ReviewRecordSchema.safeParse({
-        ...legacyRecord,
-        sourceBranch: "rknkrlsrsmuu",
-      }).success,
-    ).toBe(false);
-  });
-});
-
-describe("canonical comment contracts", () => {
-  const position = createGitLabTextDiffPosition({
-    base_sha: "0".repeat(40),
-    start_sha: "0".repeat(40),
-    head_sha: "1".repeat(40),
-    old_path: "src/example.ts",
-    new_path: "src/example.ts",
-    start: { old_line: null, new_line: 3 },
-    end: { old_line: null, new_line: 5 },
-  });
-  const target = {
-    kind: "code" as const,
-    original_position: position,
-    position,
-  } as const;
-
-  it("accepts canonical code targets and comment records", () => {
-    expect(ThreadTargetSchema.parse(target)).toEqual(target);
-    expect(
-      CreateReviewCommentInputSchema.parse({
-        threadId: "thread-1",
-        messageId: "message-1",
-        target,
-        body: "Check this range",
-      }),
-    ).toMatchObject({ target });
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-1",
-          target,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(true);
-  });
-
-  it("rejects incomplete positions and mismatched map keys", () => {
-    expect(
-      ThreadTargetSchema.safeParse({
-        ...target,
-        position: { ...position, start_sha: null },
-      }).success,
-    ).toBe(false);
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-2",
-          target,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("requires the immutable original position inside code targets", () => {
-    const { original_position: _originalPosition, ...incompleteTarget } =
-      target;
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-1",
-          target: incompleteTarget,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(false);
   });
 });
 

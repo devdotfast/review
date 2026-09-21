@@ -1,0 +1,47 @@
+[
+  {
+    "id": "block-1",
+    "type": "call_stack_diff",
+    "title": "Status path",
+    "base": [
+      {
+        "id": "frame-1",
+        "key": "status",
+        "source": {
+          "file": "order.ts",
+          "start": {
+            "side": "base",
+            "line": 1
+          },
+          "end": {
+            "side": "base",
+            "line": 1
+          }
+        },
+        "label": "status = draft"
+      }
+    ],
+    "head": [
+      {
+        "id": "frame-2",
+        "key": "status",
+        "source": {
+          "file": "order.ts",
+          "start": {
+            "side": "head",
+            "line": 1
+          },
+          "end": {
+            "side": "head",
+            "line": 1
+          }
+        },
+        "label": "status = queued",
+        "via": {
+          "kind": "call",
+          "reason": "direct"
+        }
+      }
+    ]
+  }
+]

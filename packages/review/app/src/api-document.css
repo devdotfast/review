@@ -1,0 +1,32 @@
+/* A node is a plain block, and so are the motion layers inside it: margins
+   collapse through both, so an animated block sits where a still one does. */
+.review-document
+  :is(.api-document-node, .review-motion-layer)
+  > .review-trace-quote-container {
+  display: block;
+}
+.review-document
+  :is(.api-document-node, .review-motion-layer)
+  > :is(
+    p,
+    h2,
+    h3,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    .code-peek,
+    .review-trace-quote-container,
+    .review-image,
+    .api-tutorial-control
+  ) {
+  width: min(100%, var(--review-prose-max-width));
+  max-width: calc(100cqi - 2 * var(--review-document-padding-inline));
+  margin-inline: auto;
+}
+.review-image img,
+.review-image-inline {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

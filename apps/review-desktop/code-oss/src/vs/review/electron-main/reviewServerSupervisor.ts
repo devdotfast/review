@@ -260,6 +260,7 @@ export class ReviewServerSupervisor extends Disposable {
       serverProcess.onStdout((value) => {
         this.options.logInfo(`[Review server] ${value.trimEnd()}`);
         if (ready) return;
+        this.armReadyTimeout();
         let connection: ReviewDesktopConnection | undefined;
         try {
           connection = reader.push(value);
@@ -352,9 +353,12 @@ export class ReviewServerSupervisor extends Disposable {
     if (!this.connected.isSettled) this.armReadyTimeout();
   }
 
+  private readyTimeoutEpoch = 0;
+
   private armReadyTimeout(): void {
+    const epoch = ++this.readyTimeoutEpoch;
     void timeout(this.readyTimeout).then(() => {
-      if (this.stopping || this.connected.isSettled) return;
+      if (epoch !== this.readyTimeoutEpoch || this.stopping || this.connected.isSettled) return;
       this.failStartup(
         new Error(
           `The Review server did not become ready within ${this.readyTimeout}ms.`,

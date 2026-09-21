@@ -6,7 +6,7 @@ Thank you for your interest in Review Desktop.
 
 - `apps/review-desktop/` contains the application, packaging scripts, and the
   pinned Code - OSS fork.
-- `packages/progressive-review/` contains the Review command-line interface,
+- `packages/review/` contains the Review command-line interface,
   embedded server, and canvas.
 - `packages/review-protocol/` contains the shared process contracts.
 - `packages/local-vcs/` contains local version-control helpers.
@@ -18,6 +18,19 @@ Code - OSS source revision and fork differences.
 
 See the [README](README.md) for setup and build instructions. Run
 `pnpm run ci` before you submit a pull request.
+
+Review's DOM-facing tests run in Chromium through Vitest Browser Mode. Install
+the browser once with
+`pnpm --filter @dev.fast/review exec playwright install chromium`, then use
+`pnpm --filter @dev.fast/review test:browser` for a headless run or
+`pnpm --filter @dev.fast/review test:browser:watch` while developing. Pure Node,
+filesystem, and server tests remain available through
+`pnpm --filter @dev.fast/review test:node`.
+
+`pnpm --filter @dev.fast/review test:legacy-corpus` replays a private corpus of
+legacy Reviews through migration. Point `REVIEW_LEGACY_CORPUS` at a directory whose
+children are Review UUID folders; the script fails if the variable is unset. The
+corpus is copied before it is touched and the originals are re-verified afterwards.
 
 The files under `apps/review-desktop/code-oss/` include upstream contribution
 and security documents. Those files apply to Microsoft's VS Code project.

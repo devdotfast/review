@@ -31,7 +31,6 @@ export class TemplateData implements IObjectData {
 
 export class DiffEditorItemTemplate extends Disposable implements IPooledObject<TemplateData> {
 	private readonly _viewModel;
-
 	private readonly _collapsed;
 
 	private readonly _editorContentHeight;
@@ -53,6 +52,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 	public readonly isFocused;
 
 	private readonly _resourceHeader;
+	private readonly _sectionHeader;
 
 	private readonly _outerEditorHeight: number;
 	private readonly _contextKeyService: IScopedContextKeyService;
@@ -69,8 +69,10 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 		this._collapsed = derived(this, reader => this._viewModel.read(reader)?.collapsed.read(reader));
 		this._editorContentHeight = observableValue<number>(this, 500);
 		this.contentHeight = derived(this, reader => {
+			const sectionHeight = this._sectionHeader?.height.read(reader) ?? 0;
+			if (this._sectionHeader?.bodyHidden.read(reader)) return sectionHeight;
 			const h = this._collapsed.read(reader) ? 0 : this._editorContentHeight.read(reader);
-			return h + this._outerEditorHeight;
+			return h + this._outerEditorHeight + (this._sectionHeader?.height.read(reader) ?? 0);
 		});
 		this._modifiedContentWidth = observableValue<number>(this, 0);
 		this._modifiedWidth = observableValue<number>(this, 0);
@@ -107,12 +109,20 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 		));
 		this._elements.root.insertBefore(this._resourceHeader.element, this._elements.editorParent);
 		this._headerHeight = this._resourceHeader.height;
+		const sectionNode = document.createElement('div');
+		this._elements.root.insertBefore(sectionNode, this._resourceHeader.element);
+		this._sectionHeader = this._workbenchUIElementFactory.createResourceSectionHeader?.(sectionNode);
+		if (this._sectionHeader) this._register(this._sectionHeader);
+
 		this._lastScrollTop = -1;
 		this._isSettingScrollTop = false;
 
 		this._register(autorun(reader => {
 			const collapsed = this._collapsed.read(reader);
-			this._elements.editor.style.display = collapsed ? 'none' : 'block';
+			const sectionCollapsed = this._sectionHeader?.bodyHidden.read(reader) ?? false;
+			this._resourceHeader.element.style.display = sectionCollapsed ? 'none' : '';
+			this._elements.editorParent.style.display = sectionCollapsed ? 'none' : '';
+			this._elements.editor.style.display = collapsed || sectionCollapsed ? 'none' : 'block';
 		}));
 
 		this._register(this.editor.getModifiedEditor().onDidLayoutChange(e => {
@@ -197,6 +207,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 		if (!data) {
 			this._resourceHeader.setData(undefined);
+			this._sectionHeader?.setUris(undefined);
 			globalTransaction(tx => {
 				this._viewModel.set(undefined, tx);
 				this.editor.setDiffModel(null, tx);
@@ -206,6 +217,13 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 		}
 
 		const value = data.viewModel.documentDiffItem;
+		const labelUri = data.viewModel.modifiedLabelUri ?? data.viewModel.originalLabelUri;
+		if (labelUri) {
+			this._elements.root.dataset.reviewDiffPath = labelUri.path.replace(/^\/+/, '');
+		} else {
+			delete this._elements.root.dataset.reviewDiffPath;
+		}
+		this._sectionHeader?.setUris({ original: data.viewModel.originalUri, modified: data.viewModel.modifiedUri });
 
 		globalTransaction(tx => {
 			this._resourceHeader.setData({
@@ -250,7 +268,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 	private _lastScrollTop;
 	private _isSettingScrollTop;
 
-	public render(verticalRange: OffsetRange, width: number, editorScroll: number, viewPort: OffsetRange): void {
+	public render(verticalRange: OffsetRange, width: number, editorScroll: number, viewPort: OffsetRange, stickySectionHeight = 0): void {
 		this._elements.root.style.visibility = 'visible';
 		this._elements.root.style.top = `${verticalRange.start}px`;
 		this._elements.root.style.height = `${verticalRange.length}px`;
@@ -258,15 +276,16 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 		this._elements.root.style.position = 'absolute';
 
 		// For sticky scroll
-		const maxDelta = verticalRange.length - this._headerHeight;
-		const delta = Math.max(0, Math.min(viewPort.start - verticalRange.start, maxDelta));
+		const maxDelta = Math.max(0, verticalRange.length - this._headerHeight - (this._sectionHeader?.height.get() ?? 0));
+		const delta = Math.max(0, Math.min(viewPort.start + stickySectionHeight - verticalRange.start - (this._sectionHeader?.height.get() ?? 0), maxDelta));
 		this._resourceHeader.element.style.transform = `translateY(${delta}px)`;
 
 		globalTransaction(tx => {
-			this.editor.layout({
+			const dimension = {
 				width: width - 2 * 8 - 2 * 1,
-				height: verticalRange.length - this._outerEditorHeight,
-			});
+				height: Math.max(0, verticalRange.length - this._outerEditorHeight - (this._sectionHeader?.height.get() ?? 0)),
+			};
+			this.editor.layout(dimension);
 		});
 		try {
 			this._isSettingScrollTop = true;

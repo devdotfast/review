@@ -1,0 +1,42 @@
+{
+  "name": "@dev.fast/trace-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent trace capture, publication, and hosted-store client for the Review CLI.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/trace-protocol build",
+    "prebuild": "pnpm run build:workspace-deps",
+    "build": "tsdown",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "pnpm -w exec tsc --noEmit -p packages/trace-core"
+  },
+  "dependencies": {
+    "@dev.fast/json": "workspace:*",
+    "@dev.fast/local-vcs": "workspace:*",
+    "@dev.fast/trace-protocol": "workspace:*",
+    "commander": "14.0.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "tsdown": "^0.22.3",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

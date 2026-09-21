@@ -1,0 +1,961 @@
+{
+  "format": "review-document/1",
+  "title": "Review Desktop: three-minute tour",
+  "routePath": "/",
+  "sourcePath": "review.mdx",
+  "body": [
+    {
+      "type": "element",
+      "tag": "h1",
+      "props": {},
+      "children": [
+        {
+          "type": "text",
+          "value": "Review Desktop: three-minute tour"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Welcome"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Welcome"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "A Review is a guided, interactive explanation of a code change. The document\nkeeps the important code, system views, and feedback in one place."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialAuthoringConversation",
+          "props": {
+            "conversation": {
+              "version": 1,
+              "title": "How this Review was made",
+              "messages": [
+                {
+                  "role": "user",
+                  "body": "/dev-review I'd like to review the feature we just worked on."
+                },
+                {
+                  "role": "assistant",
+                  "body": "Ok, I'm on it..."
+                }
+              ]
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "h3",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Your keybindings"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Choose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialKeymapPicker",
+          "props": {},
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "h3",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Put the keybindings to work"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "The editor below is live. Try hover, "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Go to Definition"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ", or "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Go to\nReferences"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " with the same commands you use in VS Code."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "CodePeek",
+          "props": {
+            "anchor": {
+              "__kind": "db-anchor-ref",
+              "id": "placeOrder",
+              "title": "Order service creates the order",
+              "peek": {
+                "side": "head",
+                "file": "src/orders/order-service.ts",
+                "fromLine": 13,
+                "toLine": 29
+              },
+              "softwareMapPath": "orderService.application.orders"
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Prose in the review also supports "
+            },
+            {
+              "type": "component",
+              "name": "AnchorLink",
+              "props": {
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "placeOrder",
+                  "title": "Order service creates the order",
+                  "peek": {
+                    "side": "head",
+                    "file": "src/orders/order-service.ts",
+                    "fromLine": 13,
+                    "toLine": 29
+                  },
+                  "softwareMapPath": "orderService.application.orders"
+                }
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "links to code"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Commits and diffs"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Commits and diffs"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Review pins an exact base and head before the agent starts writing. Open\n"
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Commits"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " to see the change in author order. Expand the sample commit to see\nits files, then choose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Open diff"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " to inspect only that commit."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "The "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Diff"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " tab shows the complete change between the pinned base and head.\nChoose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Review"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " when you are ready to return to this tour."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialViewButton",
+          "props": {
+            "view": "commits"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "p",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Explore the sample commits"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Comments are threads"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Comments are threads"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "You can attach a thread to any part of the canvas. Move the pointer over the\ncode below, select the comment control in the left gutter, and write a note."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "CodePeek",
+          "props": {
+            "anchor": {
+              "__kind": "db-anchor-ref",
+              "id": "validateInventory",
+              "title": "Inventory rejects invalid quantities",
+              "peek": {
+                "side": "head",
+                "file": "src/inventory/inventory-service.ts",
+                "fromLine": 4,
+                "toLine": 8
+              },
+              "softwareMapPath": "orderService.application.orders"
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Choose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Ask now"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". The app starts an agent turn in a read-only checkout and\nputs its answer in the same thread. You can continue the conversation there."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "The other standard choice, "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Add to review"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ", holds feedback for the next\nauthoring round. This tour uses "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Ask now"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " so you can see the agent reply\nimmediately."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Every comment is a thread anchored to one part of the Review. Use the "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "+"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\nbutton in the toolbar to start a thread about the whole Review instead."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Interactive Diagrams"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Interactive Diagrams"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "The sequence diagram connects the checkout request to fulfillment. Select any\nmessage to open its supporting code."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "SequenceDiagram",
+          "props": {
+            "id": "sequence-checkout-to-fulfillment",
+            "title": "Checkout to fulfillment",
+            "actors": {
+              "checkout": "Checkout API",
+              "orderService": "Order service",
+              "repository": "Orders repository",
+              "queue": "Fulfillment queue",
+              "worker": "Fulfillment worker",
+              "shipping": "Shipping gateway"
+            },
+            "steps": [
+              {
+                "id": "checkout",
+                "type": "step",
+                "from": "checkout",
+                "to": "orderService",
+                "label": "Place order",
+                "style": "call",
+                "source": {
+                  "file": "src/api/checkout-api.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 12
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 15
+                  }
+                }
+              },
+              {
+                "id": "placeOrder",
+                "type": "step",
+                "from": "orderService",
+                "to": "repository",
+                "label": "Save order",
+                "style": "call",
+                "source": {
+                  "file": "src/orders/order-service.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 13
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 29
+                  }
+                }
+              },
+              {
+                "id": "insertOrder",
+                "type": "step",
+                "from": "repository",
+                "to": "queue",
+                "label": "Enqueue fulfillment",
+                "style": "call",
+                "source": {
+                  "file": "src/orders/orders-repository.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 9
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 12
+                  }
+                }
+              },
+              {
+                "id": "dequeue",
+                "type": "step",
+                "from": "queue",
+                "to": "worker",
+                "label": "Deliver job",
+                "style": "call",
+                "source": {
+                  "file": "src/fulfillment/fulfillment-worker.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 13
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 14
+                  }
+                }
+              },
+              {
+                "id": "ship",
+                "type": "step",
+                "from": "worker",
+                "to": "shipping",
+                "label": "Create shipment",
+                "style": "call",
+                "source": {
+                  "file": "src/fulfillment/fulfillment-worker.ts",
+                  "start": {
+                    "side": "head",
+                    "line": 17
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 19
+                  }
+                }
+              }
+            ]
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "The database view groups writes by use case. Its operations open code too."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "DatabaseLens",
+          "props": {
+            "id": "db:order-storage",
+            "title": "Order storage",
+            "height": 440,
+            "actors": {
+              "orderService": {
+                "label": "Order service",
+                "softwareMapPath": "orderService.application.orders"
+              },
+              "worker": {
+                "label": "Fulfillment worker",
+                "softwareMapPath": "orderService.fulfillment.worker"
+              }
+            },
+            "stores": {
+              "orderDatabase": {
+                "label": "Order database",
+                "storage": "relational",
+                "softwareMapPath": "orderService.data.ordersDatabase",
+                "collections": {
+                  "orders": {
+                    "label": "orders",
+                    "fields": {
+                      "id": {
+                        "label": "id",
+                        "dataType": "text",
+                        "primaryKey": true,
+                        "example": "order-customer-42"
+                      },
+                      "customerId": {
+                        "label": "customerId",
+                        "dataType": "text",
+                        "example": "customer-42"
+                      },
+                      "totalCents": {
+                        "label": "totalCents",
+                        "dataType": "integer",
+                        "example": 12500
+                      },
+                      "status": {
+                        "label": "status",
+                        "dataType": "text",
+                        "example": "fulfilled"
+                      },
+                      "createdAt": {
+                        "label": "createdAt",
+                        "dataType": "timestamp",
+                        "example": "2026-08-10T12:00:00Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "useCases": [
+              {
+                "id": "create-order",
+                "label": "Create an order",
+                "operations": [
+                  {
+                    "id": "insertOrder",
+                    "kind": "write",
+                    "store": "orderDatabase",
+                    "collection": "orders",
+                    "field": "status",
+                    "actor": "orderService",
+                    "label": "write pending order",
+                    "source": {
+                      "file": "src/orders/orders-repository.ts",
+                      "start": {
+                        "side": "head",
+                        "line": 9
+                      },
+                      "end": {
+                        "side": "head",
+                        "line": 12
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "fulfill-order",
+                "label": "Fulfill an order",
+                "operations": [
+                  {
+                    "id": "ship",
+                    "kind": "write",
+                    "store": "orderDatabase",
+                    "collection": "orders",
+                    "field": "status",
+                    "actor": "worker",
+                    "label": "write fulfilled status",
+                    "source": {
+                      "file": "src/fulfillment/fulfillment-worker.ts",
+                      "start": {
+                        "side": "head",
+                        "line": 17
+                      },
+                      "end": {
+                        "side": "head",
+                        "line": 19
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "children": []
+        },
+        {
+          "type": "component",
+          "name": "TutorialFeature",
+          "props": {
+            "feature": "softwareMap"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "p",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The experimental "
+                },
+                {
+                  "type": "element",
+                  "tag": "strong",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Map"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " moves from the order system to its components and\ncode. Select a node to explore the sample service."
+                }
+              ]
+            },
+            {
+              "type": "component",
+              "name": "TutorialViewButton",
+              "props": {
+                "view": "map"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Open the software map"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Get help"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "Get help"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "To manage the Review skills installed for your agents, open "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Preferences \u2192\nSettings"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". To revisit setup or take this tour again, open "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Preferences \u2192\nGetting Started"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "anchors": {
+    "checkout": {
+      "__kind": "db-anchor-ref",
+      "id": "checkout",
+      "title": "Checkout API calls the order service",
+      "peek": {
+        "side": "head",
+        "file": "src/api/checkout-api.ts",
+        "fromLine": 12,
+        "toLine": 15
+      },
+      "softwareMapPath": "orderService.api.checkout"
+    },
+    "placeOrder": {
+      "__kind": "db-anchor-ref",
+      "id": "placeOrder",
+      "title": "Order service creates the order",
+      "peek": {
+        "side": "head",
+        "file": "src/orders/order-service.ts",
+        "fromLine": 13,
+        "toLine": 29
+      },
+      "softwareMapPath": "orderService.application.orders"
+    },
+    "insertOrder": {
+      "__kind": "db-anchor-ref",
+      "id": "insertOrder",
+      "title": "Repository writes and queues the order",
+      "peek": {
+        "side": "head",
+        "file": "src/orders/orders-repository.ts",
+        "fromLine": 9,
+        "toLine": 12
+      },
+      "softwareMapPath": "orderService.data.ordersRepository"
+    },
+    "validateInventory": {
+      "__kind": "db-anchor-ref",
+      "id": "validateInventory",
+      "title": "Inventory rejects invalid quantities",
+      "peek": {
+        "side": "head",
+        "file": "src/inventory/inventory-service.ts",
+        "fromLine": 4,
+        "toLine": 8
+      },
+      "softwareMapPath": "orderService.application.orders"
+    },
+    "dequeue": {
+      "__kind": "db-anchor-ref",
+      "id": "dequeue",
+      "title": "Queue gives work to the fulfillment worker",
+      "peek": {
+        "side": "head",
+        "file": "src/fulfillment/fulfillment-worker.ts",
+        "fromLine": 13,
+        "toLine": 14
+      },
+      "softwareMapPath": "orderService.fulfillment.worker"
+    },
+    "ship": {
+      "__kind": "db-anchor-ref",
+      "id": "ship",
+      "title": "Worker creates the shipment",
+      "peek": {
+        "side": "head",
+        "file": "src/fulfillment/fulfillment-worker.ts",
+        "fromLine": 17,
+        "toLine": 19
+      },
+      "softwareMapPath": "orderService.fulfillment.worker"
+    },
+    "ordersTable": {
+      "__kind": "db-anchor-ref",
+      "id": "ordersTable",
+      "title": "Orders table",
+      "peek": {
+        "side": "head",
+        "file": "src/database/schema.ts",
+        "fromLine": 1,
+        "toLine": 10
+      },
+      "softwareMapPath": "orderService.data.ordersDatabase"
+    }
+  },
+  "anchorContents": {},
+  "softwareModels": []
+}

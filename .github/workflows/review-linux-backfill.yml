@@ -1,0 +1,112 @@
+# Temporary bootstrap workflow. Remove after the first normal Fedora release.
+name: Review Linux Release (temporary)
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_revision:
+        description: "RPM revision. Increment when rebuilding an already published version."
+        type: string
+        default: "1"
+        required: true
+
+permissions:
+  contents: read
+
+# Serialize with the normal release, which writes the same Linux repository.
+concurrency:
+  group: review-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve current stable version
+    if: github.ref == 'refs/heads/main'
+    environment: review-release
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Resolve release and check prerequisites
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.package_revision }}
+          SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
+          SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          [[ "$REVISION" =~ ^[1-9][0-9]*$ ]]
+          test -n "$SIGNING_KEY"
+          test -n "$R2_BUCKET"
+          [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
+          curl -fsS https://install.dev.fast/repos/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1, "format": "rpm"}'
+          TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION=${TAG#v}
+          CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
+          if [ "$CURRENT" != "$VERSION" ]; then
+            echo '::error::Main no longer matches the published stable version. Use the normal release workflow.'
+            exit 1
+          fi
+          COMMIT=$(git rev-parse HEAD)
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "commit=$COMMIT"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building Linux $VERSION-$REVISION from main commit $COMMIT for existing release $TAG." >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    needs: resolve
+    uses: ./.github/workflows/review-linux-build.yml
+    with:
+      commit: ${{ needs.resolve.outputs.commit }}
+      version: ${{ needs.resolve.outputs.version }}
+      package_revision: ${{ inputs.package_revision }}
+      release_signing: true
+    secrets: inherit
+
+  publish:
+    name: Publish Linux only
+    needs: [resolve, linux]
+    environment: review-release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-packages
+          path: linux-packages
+      - name: Check the stable release is still current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$RELEASE_TAG"
+      - name: Publish verified snapshot
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          mkdir linux-repository
+          tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
+          curl -fsS https://install.dev.fast/linux >/dev/null
+          curl -fsS https://install.dev.fast/repos/dev-fast-review.repo >/dev/null
+      - name: Attach RPM to the existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm

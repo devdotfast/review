@@ -1,0 +1,9 @@
+{
+  "name": "schema4-three-minute-tour",
+  "sourceUuid": "cbf0bb69-9413-418b-8afe-c641bb6eecd6",
+  "schemaVersion": 4,
+  "hasMap": true,
+  "baseCommit": "0f226b82647a7f6819c341527c304c2f63e81616",
+  "sourceCommit": "1f872164ec94ca87d99ca3ccbd2b452d487a0db0",
+  "sourceRepository": "tutorial-sample"
+}

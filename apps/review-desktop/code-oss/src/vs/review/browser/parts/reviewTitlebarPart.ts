@@ -14,8 +14,8 @@ import { REVIEW_CHROME_HEIGHT } from '../../common/reviewChrome.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { IThemeService } from '../../../platform/theme/common/themeService.js';
-import { TITLE_BAR_ACTIVE_BACKGROUND, TITLE_BAR_ACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_BACKGROUND, TITLE_BAR_INACTIVE_FOREGROUND } from '../../../workbench/common/theme.js';
-import { isMacintosh, isNative, isWeb, platformLocale } from '../../../base/common/platform.js';
+import { EDITOR_GROUP_HEADER_TABS_BACKGROUND, TITLE_BAR_ACTIVE_BACKGROUND, TITLE_BAR_ACTIVE_FOREGROUND, TITLE_BAR_INACTIVE_BACKGROUND, TITLE_BAR_INACTIVE_FOREGROUND } from '../../../workbench/common/theme.js';
+import { isLinux, isMacintosh, isNative, isWeb, platformLocale } from '../../../base/common/platform.js';
 import { $, addDisposableListener, append, getWindow, getWindowId, prepend } from '../../../base/browser/dom.js';
 import { renderIcon } from '../../../base/browser/ui/iconLabel/iconLabels.js';
 import { Codicon } from '../../../base/common/codicons.js';
@@ -35,6 +35,7 @@ import { WindowTitle } from '../../../workbench/browser/parts/titlebar/windowTit
 import { CommandCenterControl } from '../../../workbench/browser/parts/titlebar/commandCenterControl.js';
 import { INativeHostService } from '../../../platform/native/common/native.js';
 import { getDefaultHoverDelegate } from '../../../base/browser/ui/hover/hoverDelegateFactory.js';
+import { ReviewLinuxTitlebar } from './reviewLinuxTitlebar.js';
 
 /**
  * The deliberately small Review titlebar. It owns the drag region and the macOS
@@ -149,6 +150,9 @@ export class ReviewTitlebarPart extends Part implements ITitlebarPart {
 			}
 		}
 
+		if (isLinux && isNative) {
+			this._register(this.instantiationService.createInstance(ReviewLinuxTitlebar, this.leftContent, this.windowControlsContainer, getWindow(parent)));
+		}
 		const navigationContainer = append(this.leftContent, $('div.review-titlebar-navigation'));
 		const windowTitle = this._register(this.instantiationService.createInstance(WindowTitle, getWindow(parent)));
 		const navigationControl = this._register(this.instantiationService.createInstance(
@@ -232,6 +236,18 @@ export class ReviewTitlebarPart extends Part implements ITitlebarPart {
 export class MainReviewTitlebarPart extends ReviewTitlebarPart {
 	protected override get paintsBackground(): boolean { return false; }
 
+	override updateStyles(): void {
+		super.updateStyles();
+		if (isLinux && this.element && this.nativeHostService) {
+			void this.nativeHostService.updateWindowControls({
+				targetWindowId: getWindowId(mainWindow),
+				backgroundColor: this.getColor(EDITOR_GROUP_HEADER_TABS_BACKGROUND) ?? undefined,
+				foregroundColor: this.element.style.color,
+			});
+		}
+	}
+
+
 	override layout(width: number, height: number): void {
 		super.layout(width, height);
 		void this.nativeHostService.updateWindowControls({
@@ -240,11 +256,27 @@ export class MainReviewTitlebarPart extends ReviewTitlebarPart {
 		});
 	}
 
+	private readonly _onDidChangeChromeInsets = this._register(new Emitter<void>());
+	readonly onDidChangeChromeInsets = this._onDidChangeChromeInsets.event;
+
+	/** Left and right window-chrome cluster widths, in CSS pixels. */
+	readonly chromeInsets = { left: 0, right: 0 };
+
 	protected override createContentArea(parent: HTMLElement): HTMLElement {
 		const element = super.createContentArea(parent);
+		// Written on this part, never the workbench root; see
+		// `publishReviewChromeInset` for why.
 		const updateChromeWidths = () => {
-			this.layoutService.mainContainer.style.setProperty('--review-chrome-left-width', `${this.leftContainer.getBoundingClientRect().width}px`);
-			this.layoutService.mainContainer.style.setProperty('--review-chrome-right-width', `${this.rightContainer.getBoundingClientRect().width}px`);
+			const left = this.leftContainer.getBoundingClientRect().width;
+			const right = this.rightContainer.getBoundingClientRect().width;
+			if (left === this.chromeInsets.left && right === this.chromeInsets.right) {
+				return;
+			}
+			this.chromeInsets.left = left;
+			this.chromeInsets.right = right;
+			this.element.style.setProperty('--review-chrome-left-width', `${left}px`);
+			this.element.style.setProperty('--review-chrome-right-width', `${right}px`);
+			this._onDidChangeChromeInsets.fire();
 		};
 		const observer = new ResizeObserver(updateChromeWidths);
 		observer.observe(this.leftContainer);

@@ -13,6 +13,7 @@ import {
 } from "./validate-release-artifacts.mjs";
 
 const temporaryRoots = [];
+
 after(async () => {
   await Promise.all(
     temporaryRoots.map((root) => rm(root, { recursive: true, force: true })),
@@ -28,6 +29,7 @@ const PRODUCT = {
 
 test("buildManifest emits the schema the update Worker serves", () => {
   const now = new Date("2026-07-29T00:00:00.000Z");
+
   const manifest = buildManifest({
     version: "1.2.3",
     commit: "abc123",

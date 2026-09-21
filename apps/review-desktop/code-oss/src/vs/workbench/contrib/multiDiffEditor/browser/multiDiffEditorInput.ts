@@ -23,6 +23,7 @@ import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/
 import { ITextResourceConfigurationService } from '../../../../editor/common/services/textResourceConfiguration.js';
 import { localize } from '../../../../nls.js';
 import { ConfirmResult } from '../../../../platform/dialogs/common/dialogs.js';
+import { FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IEditorConfiguration } from '../../../browser/parts/editor/textEditor.js';
 import { DEFAULT_EDITOR_ASSOCIATION, EditorInputCapabilities, EditorInputWithOptions, GroupIdentifier, IEditorSerializer, IResourceMultiDiffEditorInput, IRevertOptions, ISaveOptions, IUntypedEditorInput } from '../../../common/editor.js';
@@ -104,7 +105,9 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 			this._register(model);
 			const vm = new MultiDiffEditorViewModel(model, this._instantiationService);
 			this._register(vm);
-			await raceTimeout(vm.waitForDiffOr1s(), 1000);
+			// A streaming owner must receive the view model before it can publish files.
+			const source = await this._resolvedSource.getPromise();
+			if (!source.isLoading.get()) await raceTimeout(vm.waitForDiffOr1s(), 1000);
 			return vm;
 		});
 		this._resolvedSource = new ObservableLazyPromise(async () => {
@@ -113,6 +116,7 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 				: await this._multiDiffSourceResolverService.resolve(this.multiDiffSource);
 			return {
 				source,
+				isLoading: source?.isLoading ? observableFromValueWithChangeEvent(this, source.isLoading) : constObservable(false),
 				resources: source ? observableFromValueWithChangeEvent(this, source.resources) : constObservable([]),
 			};
 		});
@@ -202,13 +206,32 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 			const multiDiffItemStore = new DisposableStore();
 
 			try {
-				[original, modified] = await Promise.all([
+				const results = await Promise.allSettled([
 					r.originalUri ? this._textModelService.createModelReference(r.originalUri) : undefined,
 					r.modifiedUri ? this._textModelService.createModelReference(r.modifiedUri) : undefined,
 				]);
-				if (original) { multiDiffItemStore.add(original); }
-				if (modified) { multiDiffItemStore.add(modified); }
+				// Retain every successful reference before propagating a failure so
+				// a slower opposite side is also released by the error path.
+				for (const result of results) {
+					if (result.status === 'fulfilled' && result.value) { multiDiffItemStore.add(result.value); }
+				}
+				// Only classify the item as missing when every failure is missing.
+				// A permission or other fault on either side must still be reported.
+				const unexpected = results.find(result => result.status === 'rejected' && !(result.reason instanceof FileOperationError && result.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND));
+				if (unexpected?.status === 'rejected') { throw unexpected.reason; }
+				const [originalResult, modifiedResult] = results;
+				if (originalResult.status === 'rejected') { throw originalResult.reason; }
+				if (modifiedResult.status === 'rejected') { throw modifiedResult.reason; }
+				original = originalResult.value;
+				modified = modifiedResult.value;
 			} catch (e) {
+				multiDiffItemStore.dispose();
+				// Published Review sources can disappear after publication. The
+				// canvas reports them locally; its background Files model skips the
+				// unavailable item without treating it as an unexpected fault.
+				if (this.multiDiffSource.scheme === 'devfast-review-files' && e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+					return undefined;
+				}
 				// e.g. "File seems to be binary and cannot be opened as text"
 				console.error(e);
 				onUnexpectedError(e);
@@ -241,19 +264,47 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 
 		const documents = observableValue<readonly RefCounted<IDocumentDiffItem>[] | 'loading'>('documents', 'loading');
 
-		const updateDocuments = derived(async reader => {
-			/** @description Update documents */
-			const docsPromises = documentsWithPromises.read(reader);
-			const docs = await Promise.all(docsPromises);
-			const newDocuments = docs.filter(isDefined);
-			documents.set(newDocuments, undefined);
+		const loaded = new Map<string, RefCounted<IDocumentDiffItem> | undefined>();
+		const observed = new Map<string, Promise<RefCounted<IDocumentDiffItemWithMultiDiffEditorItem> | undefined>>();
+		const revision = observableValue('loaded documents', 0);
+		let disposed = false;
+		const updateDocuments = derived(reader => {
+			revision.read(reader);
+			const loading = source.isLoading.read(reader);
+			const resources = source.resources.read(reader);
+			const promises = documentsWithPromises.read(reader);
+			const entries = resources.map((resource, index) => ({
+				key: JSON.stringify([resource.modifiedUri?.toString(), resource.originalUri?.toString()]),
+				promise: promises[index],
+			}));
+			for (const { key, promise } of entries) {
+				if (!promise || observed.get(key) === promise) continue;
+				observed.set(key, promise);
+				loaded.delete(key);
+				void promise.then(document => {
+					if (disposed) return;
+					if (observed.get(key) !== promise) return;
+					loaded.set(key, document);
+					revision.set(revision.get() + 1, undefined);
+				});
+			}
+			const current = new Set(entries.map(entry => entry.key));
+			for (const key of loaded.keys()) {
+				if (!current.has(key)) loaded.delete(key);
+			}
+			for (const key of observed.keys()) {
+				if (!current.has(key)) observed.delete(key);
+			}
+			const ready = entries.map(entry => loaded.get(entry.key)).filter(isDefined);
+			const pending = loading || entries.some(entry => !loaded.has(entry.key));
+			documents.set(ready.length === 0 && pending ? 'loading' : ready, undefined);
 		});
 
 		const a = recomputeInitiallyAndOnChange(updateDocuments);
 		await updateDocuments.get();
 
 		const result: IMultiDiffEditorModel & IDisposable = {
-			dispose: () => a.dispose(),
+			dispose: () => { disposed = true; a.dispose(); loaded.clear(); },
 			documents: new ValueWithChangeEventFromObservable(documents),
 			contextKeys: source.source?.contextKeys,
 		};

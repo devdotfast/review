@@ -22,8 +22,8 @@ On first launch, Review opens the welcome screen. It detects supported coding
 agents and offers to install:
 
 - the `review` command in `~/.local/bin`;
-- the `dev-review` skill for authoring reviews; and
-- the `dev-review-map` skill for generating architecture maps.
+- the `dev-review` skill for authoring reviews and software maps; and
+- the Review MCP connection for Codex and Claude Code.
 
 Choose **Install** for the agents you use. Review keeps the app-managed command
 and skills in sync after updates.
@@ -35,7 +35,6 @@ sample repository to show:
 
 - explanations linked to live code;
 - hover, go-to-definition, and code peeks;
-- code comments and agent questions;
 - sequence and database views; and
 - the full architecture map.
 
@@ -49,9 +48,10 @@ Use the dev-review skill to review my current branch against up to date main,
 then open it in Review.
 ```
 
-The agent scaffolds a Review, writes and validates the walkthrough, publishes
-it, and opens it in Review Desktop. You can also review a specific GitHub pull
-request or ask for an architecture review of a repository.
+The agent registers the repository, resolves the base and head pins, creates
+the review through the Review API, writes and validates the walkthrough, and
+opens it in Review Desktop. You can also review a specific GitHub pull request
+or ask for an architecture review of a repository.
 
 ### Add Review guidance
 
@@ -63,7 +63,7 @@ You can add optional guidance for generated Review documents:
 
 Repository guidance takes precedence over user-level guidance.
 
-## 4. Read and respond
+## 4. Read the review
 
 Use the three main surfaces together:
 
@@ -71,11 +71,6 @@ Use the three main surfaces together:
 - **Map** lets you move from systems to containers, components, and code
   (experimental).
 - **Files** shows the underlying changed-file diff.
-
-Leave an anchored comment where something should change, or use **Ask now** for
-a question the agent can answer immediately. When you finish, choose **Approve**
-or **Request changes**. A request-changes round returns your comments to the
-authoring agent so it can update and republish the walkthrough.
 
 ## Verify the command-line setup
 

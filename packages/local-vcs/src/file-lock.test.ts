@@ -33,6 +33,7 @@ afterEach(() => {
 function createLockPath(): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "local-vcs-lock-"));
   testRoots.push(root);
+
   return path.join(root, "resource.lock");
 }
 
@@ -52,15 +53,18 @@ describe("file lock adapter", () => {
     const root = path.dirname(lockPath);
     const logPath = path.join(root, "events.log");
     const barrierPath = path.join(root, "start");
+
     const workerPath = fileURLToPath(
       new URL("./test-fixtures/file-lock-worker.ts", import.meta.url),
     );
+
     const workers = ["a", "b"].map((actor) =>
       runWorker(workerPath, [lockPath, logPath, barrierPath, actor]),
     );
 
     await waitFor(() => {
       const log = readFileSync(logPath, "utf8");
+
       return log.includes("a:ready") && log.includes("b:ready");
     });
     writeFileSync(barrierPath, "go");
@@ -70,6 +74,7 @@ describe("file lock adapter", () => {
       .trim()
       .split("\n")
       .filter((line) => !line.endsWith(":ready"));
+
     expect([
       ["a:start", "a:end", "b:start", "b:end"],
       ["b:start", "b:end", "a:start", "a:end"],
@@ -81,8 +86,10 @@ describe("file lock adapter", () => {
     let waiterError: unknown;
     await withFileLock(lockOptions(lockPath, 1_000), async () => {
       const acquiredMtime = statSync(lockPath).mtimeMs;
-      await sleep(1_100);
-      expect(statSync(lockPath).mtimeMs).toBeGreaterThan(acquiredMtime);
+      // The precision probe can put the initial mtime slightly in the future.
+      // A heartbeat must change it, but the first update need not increase it.
+      await waitFor(() => statSync(lockPath).mtimeMs !== acquiredMtime);
+
       try {
         await withFileLock(lockOptions(lockPath, 150), async () => undefined);
       } catch (error) {
@@ -92,7 +99,7 @@ describe("file lock adapter", () => {
 
     expect(waiterError).toBeInstanceOf(FileLockTimeoutError);
     expect(existsSync(lockPath)).toBe(false);
-  }, 5_000);
+  }, 10_000);
 
   it("recovers an abandoned stale lock directory", async () => {
     const lockPath = createLockPath();
@@ -110,10 +117,13 @@ describe("file lock adapter", () => {
     const root = path.dirname(lockPath);
     const logPath = path.join(root, "dead-owner.log");
     const barrierPath = path.join(root, "dead-owner.start");
+
     const workerPath = fileURLToPath(
       new URL("./test-fixtures/file-lock-worker.ts", import.meta.url),
     );
+
     writeFileSync(barrierPath, "go");
+
     const worker = spawnWorker(workerPath, [
       lockPath,
       logPath,
@@ -121,6 +131,7 @@ describe("file lock adapter", () => {
       "dead",
       "10000",
     ]);
+
     await waitFor(() => readFileSync(logPath, "utf8").includes("dead:start"));
 
     worker.child.kill("SIGKILL");
@@ -138,12 +149,14 @@ describe("file lock adapter", () => {
     "recovers a stale corrupt lock stored as a %s",
     async (kind) => {
       const lockPath = createLockPath();
+
       if (kind === "file") {
         writeFileSync(lockPath, "corrupt");
       } else {
         mkdirSync(lockPath);
         writeFileSync(path.join(lockPath, "unexpected"), "corrupt");
       }
+
       backdate(lockPath);
 
       await expect(
@@ -196,11 +209,13 @@ function spawnWorker(workerPath: string, args: string[]) {
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
+
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
     stderr += chunk;
   });
+
   const completion = new Promise<void>((resolveExit, rejectExit) => {
     child.once("error", rejectExit);
     child.once("exit", (code, signal) => {
@@ -213,18 +228,22 @@ function spawnWorker(workerPath: string, args: string[]) {
         );
     });
   });
+
   return { child, completion };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 5_000;
+
   while (Date.now() < deadline) {
     try {
       if (predicate()) return;
     } catch {
       // The workers have not created the shared log yet.
     }
+
     await sleep(20);
   }
+
   throw new Error("Timed out waiting for lock workers.");
 }

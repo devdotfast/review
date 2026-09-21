@@ -20,10 +20,11 @@ import { getColumnOfNodeOffset } from '../../../../viewParts/viewLines/viewLine.
 
 const ttPolicy = createTrustedTypesPolicy('diffEditorWidget', { createHTML: value => value });
 
-export function renderLines(source: LineSource, options: RenderOptions, decorations: InlineDecoration[], domNode: HTMLElement, noExtra = false): RenderLinesResult {
+export function renderLines(source: LineSource, options: RenderOptions, decorations: InlineDecoration[], domNode: HTMLElement, noExtra = false, explicitChangeHighlights = false): RenderLinesResult {
 	applyFontInfo(domNode, options.fontInfo);
 
-	const hasCharChanges = (decorations.length > 0);
+	// An explicit empty highlight set means unchanged, not a whole-line deletion.
+	const hasCharChanges = explicitChangeHighlights || (decorations.length > 0);
 
 	const sb = new StringBuilder(10000);
 	let maxCharsPerLine = 0;

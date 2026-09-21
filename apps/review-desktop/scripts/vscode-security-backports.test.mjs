@@ -15,12 +15,12 @@ test("pins the hardened Electron runtime", async () => {
   const manifest = await source("cgmanifest.json");
   const checksums = await source("build/checksums/electron.txt");
 
-  assert.match(npmrc, /^target="42\.9\.3"$/m);
-  assert.match(npmrc, /^ms_build_id="15072006"$/m);
-  assert.equal(packageJson.devDependencies.electron, "42.9.3");
-  assert.equal(lock.packages["node_modules/electron"].version, "42.9.3");
-  assert.match(manifest, /"tag": "42\.9\.3"/);
-  assert.match(checksums, /electron-v42\.9\.3-darwin-arm64\.zip/);
+  assert.match(npmrc, /^target="42\.10\.0"$/m);
+  assert.match(npmrc, /^ms_build_id="15109253"$/m);
+  assert.equal(packageJson.devDependencies.electron, "42.10.0");
+  assert.equal(lock.packages["node_modules/electron"].version, "42.10.0");
+  assert.match(manifest, /"tag": "42\.10\.0"/);
+  assert.match(checksums, /electron-v42\.10\.0-darwin-arm64\.zip/);
   assert.doesNotMatch(checksums, /42\.6\.0/);
 });
 
@@ -36,18 +36,23 @@ test("keeps the Anthropic SDK out of production dependencies", async () => {
 
 test("keeps the security boundary backports", async () => {
   const processes = await source("src/vs/base/common/processes.ts");
+
   const commands = await source(
     "src/vs/workbench/api/common/extHostCommands.ts",
   );
+
   const webview = await source(
     "src/vs/workbench/contrib/webview/browser/webviewElement.ts",
   );
+
   const environment = await source(
     "src/vs/workbench/services/environment/browser/environmentService.ts",
   );
+
   const terminal = await source(
     "src/vs/workbench/contrib/terminal/browser/terminalInstance.ts",
   );
+
   const urlHandler = await source(
     "src/vs/workbench/services/extensions/browser/extensionUrlHandler.ts",
   );
@@ -61,6 +66,7 @@ test("keeps the security boundary backports", async () => {
   ]) {
     assert.match(processes, new RegExp(`'${name}'`));
   }
+
   assert.match(processes, /dangerousEnvVariables\.has\(key\.toUpperCase\(\)\)/);
   assert.match(commands, /\.slice\(obj\.buffer\.byteOffset,/);
   assert.match(webview, /new Uint8Array\(chunk\.buffer\)/);
@@ -82,15 +88,19 @@ test("keeps the memory and crash backports", async () => {
   const ipc = await source("src/vs/base/parts/ipc/common/ipc.ts");
   const app = await source("src/vs/code/electron-main/app.ts");
   const events = await source("src/vs/base/common/event.ts");
+
   const editors = await source(
     "src/vs/workbench/api/browser/mainThreadDocumentsAndEditors.ts",
   );
+
   const codeActions = await source(
     "src/vs/editor/contrib/codeAction/browser/codeActionModel.ts",
   );
+
   const multiDiff = await source(
     "src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.ts",
   );
+
   const textMate = await source(
     "src/vs/workbench/services/textMate/browser/textMateTokenizationFeatureImpl.ts",
   );
@@ -105,4 +115,46 @@ test("keeps the memory and crash backports", async () => {
   assert.match(multiDiff, /if \(this\._store\.isDisposed\) \{\n\s*return;/);
   assert.ok((app.match(/frame\.isDestroyed\(\)/g) ?? []).length >= 3);
   assert.match(textMate, /this\._vscodeOniguruma = null;\n\s*throw error;/);
+});
+
+test("keeps the September 2026 advisory backports", async () => {
+  const configuration = await source(
+    "src/vs/platform/configuration/common/configurationModels.ts",
+  );
+
+  const webviewResources = await source(
+    "src/vs/workbench/contrib/webview/browser/resourceLoading.ts",
+  );
+
+  const mcp = await source("src/vs/platform/mcp/common/mcpManagementService.ts");
+  const sanitize = await source("src/vs/base/browser/domSanitize.ts");
+  const markdown = await source("src/vs/base/browser/markdownRenderer.ts");
+
+  // CVE-2026-81376 / CVE-2026-70334: nested configuration objects are filtered
+  // against the registry by dotted path, not treated as opaque leaves.
+  assert.match(configuration, /private filterProperty\(/);
+  assert.match(configuration, /this\.filterProperty\(`\$\{path\}\.\$\{key\}`/);
+
+  // CVE-2026-81383: backslashes are normalized before the containment check so
+  // a Windows-style separator cannot escape a non-file root.
+  assert.match(webviewResources, /if \(root\.scheme !== Schemas\.file\) \{/);
+  assert.match(
+    webviewResources,
+    /const normalizedPath = resource\.path\.replace\(/,
+  );
+
+  // CVE-2026-81377: resolved MCP paths stay inside the storage directory, and
+  // uninstall refuses a server whose recorded location is not its derived one.
+  assert.match(
+    mcp,
+    /!this\.uriIdentityService\.extUri\.isEqualOrParent\(location, this\.mcpLocation\)/,
+  );
+  assert.match(mcp, /override async uninstall\(/);
+
+  // CVE-2026-81380: media sources are validated during sanitization rather than
+  // after the src attribute is attached, so no request is ever issued.
+  assert.match(sanitize, /mediaSourceIsAllowed\?: \(source: string\) => boolean/);
+  assert.match(sanitize, /mediaSourceIsAllowed && !mediaSourceIsAllowed\(attrValue\)/);
+  assert.match(markdown, /mediaSourceIsAllowed: remoteImageIsAllowed \?/);
+  assert.doesNotMatch(markdown, /el\.replaceWith\(DOM\.\$\('', undefined, el\.outerHTML\)\)/);
 });

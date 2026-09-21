@@ -70,6 +70,19 @@ export const reviewOptionalExtensionCatalog = [
 		}
 	},
 	{
+		id: 'golang.go',
+		role: 'primary',
+		group: 'go',
+		version: '0.56.0',
+		targets: {
+			universal: {
+				url: 'https://open-vsx.org/api/golang/Go/0.56.0/file/golang.Go-0.56.0.vsix',
+				sha256: '9f5959fb17ba0a8dbd804387ddda50975fcaa9dd5267aa33eaaa89912072aacb',
+				size: 621478
+			}
+		}
+	},
+	{
 		id: 'ms-dotnettools.vscode-dotnet-runtime',
 		role: 'support',
 		group: 'csharp',

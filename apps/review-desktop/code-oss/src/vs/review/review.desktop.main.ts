@@ -11,7 +11,6 @@
 // its own two toasts (see contrib/update). The stock update contribution stays
 // out — its title bar entry requires the chat service, which Review omits.
 import './review.common.main.js';
-import '../workbench/contrib/terminal/electron-browser/terminal.contribution.js';
 import './electron-browser/review.main.js';
 import '../workbench/electron-browser/desktop.contribution.js';
 import '../workbench/electron-browser/parts/dialogs/dialog.contribution.js';

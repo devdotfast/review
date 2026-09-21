@@ -18,6 +18,7 @@ const BLOCKED_HOST_SUFFIXES = [
 
 export function blockedReviewRequestReason(value) {
   let url;
+
   try {
     url = new URL(value);
   } catch {
@@ -25,22 +26,27 @@ export function blockedReviewRequestReason(value) {
   }
 
   const hostname = url.hostname.toLowerCase();
+
   if (BLOCKED_HOSTS.has(hostname)) {
     return `blocked service host ${hostname}`;
   }
+
   const suffix = BLOCKED_HOST_SUFFIXES.find(
     (candidate) =>
       hostname === candidate.slice(1) || hostname.endsWith(candidate),
   );
+
   if (suffix) {
     return `blocked service host ${hostname}`;
   }
+
   if (
     hostname === "api.github.com" &&
     /^\/copilot(?:_internal)?(?:\/|$)/.test(url.pathname)
   ) {
     return `blocked Copilot endpoint ${url.pathname}`;
   }
+
   return undefined;
 }
 
@@ -49,6 +55,7 @@ export function assertNoBlockedReviewRequests(requestUrls) {
     ...new Map(
       requestUrls.flatMap((url) => {
         const reason = blockedReviewRequestReason(url);
+
         return reason ? [[url, reason]] : [];
       }),
     ),

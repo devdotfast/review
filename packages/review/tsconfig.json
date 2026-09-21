@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    // ES2025 as in the base config; the DOM libs are what this package adds.
+    "lib": ["ES2025", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src", "scripts", "vitest.config.ts", "test-config.ts"]
+}

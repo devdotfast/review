@@ -123,9 +123,6 @@ import { ILoggerMainService } from '../../platform/log/electron-main/loggerServi
 import { IInitialProtocolUrls, IProtocolUrl } from '../../platform/url/electron-main/url.js';
 import { IUtilityProcessWorkerMainService, UtilityProcessWorkerMainService } from '../../platform/utilityProcess/electron-main/utilityProcessWorkerMainService.js';
 import { ipcUtilityProcessWorkerChannelName } from '../../platform/utilityProcess/common/utilityProcessWorkerService.js';
-import { ILocalPtyService, LocalReconnectConstants, TerminalIpcChannels, TerminalSettingId } from '../../platform/terminal/common/terminal.js';
-import { ElectronPtyHostStarter } from '../../platform/terminal/electron-main/electronPtyHostStarter.js';
-import { PtyHostService } from '../../platform/terminal/node/ptyHostService.js';
 import { ElectronAgentHostStarter } from '../../platform/agentHost/electron-main/electronAgentHostStarter.js';
 import { AgentHostProcessManager } from '../../platform/agentHost/node/agentHostService.js';
 import { NODE_REMOTE_RESOURCE_CHANNEL_NAME, NODE_REMOTE_RESOURCE_IPC_METHOD_NAME, NodeRemoteResourceResponse, NodeRemoteResourceRouter } from '../../platform/remote/common/electronRemoteResources.js';
@@ -139,9 +136,6 @@ import { NativeMcpDiscoveryHelperService } from '../../platform/mcp/node/nativeM
 import { IMcpGatewayService, McpGatewayChannelName } from '../../platform/mcp/common/mcpGateway.js';
 import { McpGatewayService } from '../../platform/mcp/node/mcpGatewayService.js';
 import { McpGatewayChannel } from '../../platform/mcp/node/mcpGatewayChannel.js';
-import { IWebContentExtractorService } from '../../platform/webContentExtractor/common/webContentExtractor.js';
-import { NativeWebContentExtractorService } from '../../platform/webContentExtractor/electron-main/webContentExtractorService.js';
-import { AgentNetworkFilterService, IAgentNetworkFilterService } from '../../platform/networkFilter/common/networkFilterService.js';
 import { ITerminalSandboxService, NullTerminalSandboxService } from '../../platform/sandbox/common/terminalSandboxService.js';
 import ErrorTelemetry from '../../platform/telemetry/electron-main/errorTelemetry.js';
 import { ReviewDesktopHost } from '../../review/electron-main/reviewDesktopHost.js';
@@ -1150,10 +1144,8 @@ export class CodeApplication extends Disposable {
 		const meteredConnectionService = new MeteredConnectionMainService(this.configurationService);
 		services.set(IMeteredConnectionService, meteredConnectionService);
 
-		// Web Contents Extractor
+		// Terminal Sandbox
 		services.set(ITerminalSandboxService, new SyncDescriptor(NullTerminalSandboxService));
-		services.set(IAgentNetworkFilterService, new SyncDescriptor(AgentNetworkFilterService, undefined, true));
-		services.set(IWebContentExtractorService, new SyncDescriptor(NativeWebContentExtractorService, undefined, false /* proxied to other processes */));
 
 		// Webview Manager
 		services.set(IWebviewManagerService, new SyncDescriptor(WebviewMainService));
@@ -1168,20 +1160,6 @@ export class CodeApplication extends Disposable {
 		// Storage
 		services.set(IStorageMainService, new SyncDescriptor(StorageMainService));
 		services.set(IApplicationStorageMainService, new SyncDescriptor(ApplicationStorageMainService));
-
-		// Terminal
-		const ptyHostStarter = new ElectronPtyHostStarter({
-			graceTime: LocalReconnectConstants.GraceTime,
-			shortGraceTime: LocalReconnectConstants.ShortGraceTime,
-			scrollback: this.configurationService.getValue<number>(TerminalSettingId.PersistentSessionScrollback) ?? 100
-		}, this.configurationService, this.environmentMainService, this.lifecycleMainService, this.logService);
-		const ptyHostService = new PtyHostService(
-			ptyHostStarter,
-			this.configurationService,
-			this.logService,
-			this.loggerService
-		);
-		services.set(ILocalPtyService, ptyHostService);
 
 		// Agent Host
 		// Always instantiate the starter + manager. They are cheap (the
@@ -1350,10 +1328,6 @@ export class CodeApplication extends Disposable {
 		mainProcessElectronServer.registerChannel('nativeHost', nativeHostChannel);
 		sharedProcessClient.then(client => client.registerChannel('nativeHost', nativeHostChannel));
 
-		// Web Content Extractor
-		const webContentExtractorChannel = ProxyChannel.fromService(accessor.get(IWebContentExtractorService), disposables);
-		mainProcessElectronServer.registerChannel('webContentExtractor', webContentExtractorChannel);
-
 		// Workspaces
 		const workspacesChannel = ProxyChannel.fromService(accessor.get(IWorkspacesService), disposables);
 		mainProcessElectronServer.registerChannel('workspaces', workspacesChannel);
@@ -1378,10 +1352,6 @@ export class CodeApplication extends Disposable {
 		// Profile Storage Changes Listener (shared process)
 		const profileStorageListener = disposables.add((new ProfileStorageChangesListenerChannel(accessor.get(IStorageMainService), accessor.get(IUserDataProfilesMainService), this.logService)));
 		sharedProcessClient.then(client => client.registerChannel('profileStorageListener', profileStorageListener));
-
-		// Terminal
-		const ptyHostChannel = ProxyChannel.fromService(accessor.get(ILocalPtyService), disposables);
-		mainProcessElectronServer.registerChannel(TerminalIpcChannels.LocalPty, ptyHostChannel);
 
 		// External Terminal
 		const externalTerminalChannel = ProxyChannel.fromService(accessor.get(IExternalTerminalMainService), disposables);

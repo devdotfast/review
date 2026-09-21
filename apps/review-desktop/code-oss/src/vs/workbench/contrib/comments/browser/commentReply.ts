@@ -75,9 +75,6 @@ export class CommentReply<T extends IRange | ICellRange> extends Disposable {
 		this._container = dom.append(container, dom.$('.comment-form-container'));
 		this._form = dom.append(this._container, dom.$('.comment-form'));
 		this.commentEditor = this._register(this._scopedInstatiationService.createInstance(SimpleCommentEditor, this._form, SimpleCommentEditor.getEditorOptions(configurationService), _contextKeyService, this._parentThread));
-		if (this._commentOptions?.compactThreadWidget) {
-			this._editorHeight = 44;
-		}
 		this.commentEditorIsEmpty = CommentContextKeys.commentIsEmpty.bindTo(this._contextKeyService);
 		this.commentEditorIsEmpty.set(!this._pendingComment);
 
@@ -143,12 +140,7 @@ export class CommentReply<T extends IRange | ICellRange> extends Disposable {
 	}
 
 	private calculateEditorHeight(): boolean {
-		const newEditorHeight = calculateEditorHeight(
-			this._parentEditor,
-			this.commentEditor,
-			this._editorHeight,
-			this._commentOptions?.compactThreadWidget ? 44 : MIN_EDITOR_HEIGHT,
-		);
+		const newEditorHeight = calculateEditorHeight(this._parentEditor, this.commentEditor, this._editorHeight);
 		if (newEditorHeight !== this._editorHeight) {
 			this._editorHeight = newEditorHeight;
 			return true;
@@ -314,7 +306,7 @@ export class CommentReply<T extends IRange | ICellRange> extends Disposable {
 			});
 
 			this.hideReplyArea();
-		}, undefined, true);
+		});
 
 		this._register(this._commentFormActions);
 		this._commentFormActions.setActions(menu);

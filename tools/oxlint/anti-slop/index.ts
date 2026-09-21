@@ -1,5 +1,8 @@
 import { eslintCompatPlugin } from "@oxlint/plugins";
 
+import { noArrayFilterMapRule } from "./rules/no-array-filter-map.ts";
+import { noReduceAccumulatorCopyRule } from "./rules/no-reduce-accumulator-copy.ts";
+import { requireReadableSpacingRule } from "./rules/require-readable-spacing.ts";
 import { noChainedTypeAssertionsRule } from "./rules/no-chained-type-assertions.ts";
 import { noConditionalEmptyObjectSpreadRule } from "./rules/no-conditional-empty-object-spread.ts";
 import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
@@ -20,6 +23,9 @@ import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety
 const antiSlopPlugin = eslintCompatPlugin({
 	meta: { name: "anti-slop" },
 	rules: {
+		"no-array-filter-map": noArrayFilterMapRule,
+		"no-reduce-accumulator-copy": noReduceAccumulatorCopyRule,
+		"require-readable-spacing": requireReadableSpacingRule,
 		"no-chained-type-assertions": noChainedTypeAssertionsRule,
 		"no-conditional-empty-object-spread": noConditionalEmptyObjectSpreadRule,
 		"no-known-value-widening": noKnownValueWideningRule,

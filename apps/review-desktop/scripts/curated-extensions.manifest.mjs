@@ -244,12 +244,15 @@ export const curatedExtensions = Object.freeze([
     stripExtensionPack: false,
   },
   {
-    // Ships no server: it prompts to `go install gopls@latest` against the
-    // user's own Go toolchain. There are no official gopls prebuilts to bundle.
+    // Ships no server: on activation it runs `go install` for gopls and vscgo
+    // against the reader's own Go toolchain, with no prompt and no setting that
+    // stops it. There are no official gopls prebuilts to bundle, so the group is
+    // optional and the download consent covers the toolchain install too.
     // Note the Open VSX namespace capitalises the name (`golang/Go`) while the
     // extension identifier itself is lowercase.
     id: "golang.go",
-    tier: "bundled",
+    tier: "optional",
+    role: "primary",
     namespace: "golang",
     name: "Go",
     version: "0.56.0",
@@ -257,8 +260,10 @@ export const curatedExtensions = Object.freeze([
     label: "Go",
     targets: {
       universal: {
+        url: "https://open-vsx.org/api/golang/Go/0.56.0/file/golang.Go-0.56.0.vsix",
         sha256:
           "9f5959fb17ba0a8dbd804387ddda50975fcaa9dd5267aa33eaaa89912072aacb",
+        size: 621478,
       },
     },
     executables: [],
@@ -331,6 +336,7 @@ export const defaultDisabledIds = Object.freeze(
 export function openVsxUrl({ namespace, name, version, target }) {
   const scoped = target ? `/${target}` : "";
   const suffix = target ? `@${target}` : "";
+
   return `https://open-vsx.org/api/${namespace}/${name}${scoped}/${version}/file/${namespace}.${name}-${version}${suffix}.vsix`;
 }
 
@@ -342,30 +348,39 @@ export function targetKeyFor(extension, target) {
   if (extension.targets.universal) {
     return "universal";
   }
+
   return extension.targets[target] ? target : undefined;
 }
 
 /** Parses a DEV_REVIEW_EXTENSIONS value into the set of groups to materialize. */
 export function parseGroupSelection(raw) {
   const value = (raw ?? "all").trim();
+
   if (value === "" || value === "all") {
     return new Set(bundledGroups);
   }
+
   if (value === "none") {
     return new Set();
   }
+
   const selected = new Set();
+
   for (const token of value.split(",")) {
     const group = token.trim();
+
     if (group === "") {
       continue;
     }
+
     if (!curatedGroups.includes(group)) {
       throw new Error(
         `unknown extension group "${group}"; expected all, none, or a comma-separated subset of ${curatedGroups.join(", ")}`,
       );
     }
+
     selected.add(group);
   }
+
   return selected;
 }

@@ -32,8 +32,11 @@ import { parseArgs } from "node:util";
 import { chromium } from "playwright";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
+
 const SERVER_READY = /\[Review Desktop\] server ready at (https?:\/\/\S+)/;
+
 const POLL_INTERVAL_MS = 500;
+
 // posthog-capture-client.ts waits this long before its first flush.
 const FLUSH_WINDOW_MS = 20_000;
 
@@ -42,6 +45,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Stands in for the vendor's batch endpoint and records what it receives. */
 async function startCaptureEndpoint() {
   const batches = [];
+
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
@@ -51,7 +55,9 @@ async function startCaptureEndpoint() {
       response.end('{"status":1}');
     });
   });
+
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
   return {
     batches,
     origin: `http://127.0.0.1:${server.address().port}`,
@@ -61,12 +67,16 @@ async function startCaptureEndpoint() {
 
 async function waitFor(check, timeoutMs, describe) {
   const deadline = Date.now() + timeoutMs;
+
   for (;;) {
     const value = await check();
+
     if (value) return value;
+
     if (Date.now() > deadline) {
       throw new Error(`Timed out after ${timeoutMs}ms waiting for ${describe}.`);
     }
+
     await sleep(POLL_INTERVAL_MS);
   }
 }
@@ -83,10 +93,12 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
   const logPath = path.join(root, "app.log");
   const debugPort = 9500 + Math.floor(process.pid % 300);
   const thrown = `ENOENT: no such file or directory, open '${home}/work/acme-repo/plan.md'`;
+
   const digest = createHash("sha256")
     .update(thrown, "utf8")
     .digest("hex")
     .slice(0, 16);
+
   const failures = [];
   const capture = await startCaptureEndpoint();
   let child;
@@ -95,6 +107,7 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
     const log = await import("node:fs").then(({ createWriteStream }) =>
       createWriteStream(logPath),
     );
+
     child = spawn("bash", [path.join(APP_DIR, "scripts", "run.sh")], {
       cwd: APP_DIR,
       env: {
@@ -130,6 +143,7 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
         `${error.message}\nLast lines of the app log:\n${log.split("\n").slice(-25).join("\n")}`,
       );
     });
+
     const browser = await waitFor(
       () =>
         chromium
@@ -138,12 +152,15 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
       timeoutMs,
       "the renderer to accept a debugger connection",
     );
+
     const context = browser.contexts()[0];
+
     const page =
       context
         .pages()
         .find((candidate) => candidate.url().includes("workbench")) ??
       context.pages()[0];
+
     if (!page) throw new Error("The app opened no window to drive.");
 
     const throwInWindow = (message) =>
@@ -168,6 +185,7 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
       async () => {
         await throwInWindow(warmUp);
         await sleep(2500);
+
         return capture.batches.some((entry) => entry.body.includes(warmUp));
       },
       FLUSH_WINDOW_MS + timeoutMs,
@@ -175,11 +193,13 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
     );
 
     await throwInWindow(thrown);
+
     const batch = await waitFor(
       async () => capture.batches.find((entry) => entry.body.includes(digest)),
       FLUSH_WINDOW_MS,
       "the report to be flushed to the analytics endpoint",
     );
+
     await browser.close();
     // Give the transport one more flush window: a queue file is deleted after
     // its batch succeeds, so checking immediately can race that delete.
@@ -188,21 +208,29 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
     if (!batch.url.startsWith("/batch/")) {
       failures.push(`the batch went to ${batch.url}, expected /batch/`);
     }
+
     const payload = JSON.parse(batch.body);
+
     const event = payload.batch?.find(
       (entry) => entry.properties?.message_hash === digest,
     );
+
     if (!event) {
       failures.push("the flushed batch held no report with our digest");
+
       return { failures, batch, root };
     }
+
     if (event.event !== "review_client_error") {
       failures.push(`the event was named ${event.event}`);
     }
+
     if (!payload.api_key) failures.push("the batch carried no api key");
+
     if (!event.properties?.distinct_id) {
       failures.push("the event carried no installation identifier");
     }
+
     if (
       event.properties?.message !==
       "ENOENT: no such file or directory, open '<REDACTED: user-file-path>'"
@@ -211,6 +239,7 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
         `the delivered message was ${JSON.stringify(event.properties?.message)}`,
       );
     }
+
     for (const required of ["error_process", "error_name", "app_version"]) {
       if (!event.properties?.[required]) {
         failures.push(`the delivered event lost ${required}`);
@@ -232,12 +261,15 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
     const queueDir = path.join(reviewHome, "telemetry", "events");
     const queued = await readdir(queueDir).catch(() => []);
     const stillQueued = [];
+
     for (const name of queued.filter((entry) => entry.endsWith(".json"))) {
       const body = await readFile(path.join(queueDir, name), "utf8").catch(
         () => "",
       );
+
       if (body.includes(digest)) stillQueued.push(name);
     }
+
     if (stillQueued.length > 0) {
       failures.push(
         `the delivered report is still queued and would be sent again: ${stillQueued.join(", ")}`,
@@ -261,16 +293,22 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
 }
 
 const { values } = parseArgs({ options: { "timeout-ms": { type: "string" } } });
+
 const result = await smokeTelemetryDelivery({
   timeoutMs: values["timeout-ms"] ? Number(values["timeout-ms"]) : undefined,
 });
 
 console.log(`Batches received: ${result.batchCount}`);
+
 console.log(`Other events still awaiting the next flush: ${result.otherQueued}`);
+
 console.log(`Delivered event: ${JSON.stringify(result.event, null, 2)}`);
+
 if (result.failures.length > 0) {
   console.error(`\nFAIL (${result.failures.length}):`);
+
   for (const failure of result.failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
+
 console.log("\nOK: the report reached the analytics endpoint intact and clean.");

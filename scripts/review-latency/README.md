@@ -28,14 +28,15 @@ for Claude Code.
    `DEV_REVIEW_HOME`, so the run never sees the user's real reviews or app,
    and no pre-cleaning is needed. The desktop is torn down when the run ends.
 2. Puts a `review` shim first on PATH that runs the instrumented source CLI
-   (`packages/progressive-review/src/cli.ts`, no desktop delegation) and sets
+   (`packages/review/src/cli.ts`, no desktop delegation) and sets
    `DEV_FAST_REVIEW_TRACE_DIR` so every `review` invocation writes a span file.
 3. Runs `claude -p "<prompt>" --model <model> --output-format stream-json
    --dangerously-skip-permissions` from the repo root, with the outer Claude /
    Codex session variables stripped from the environment.
 4. Copies the Claude transcript (`~/.claude/projects/<cwd-slug>/<session>.jsonl`
    plus `<session>/subagents/*.jsonl`), the CLI trace files, and the resulting
-   Review's `review.json`, `review.mdx`, `data.ts`, and revision log into the
+   Review's `review.json`, revision log, and (historical runs only, from
+   before the MDX toolchain was removed) `review.mdx` and `data.ts` into the
    run directory.
 5. Builds `timeline.json`, `trace.perfetto.json` (open in ui.perfetto.dev), and
    `report.html` (self-contained gantt + tables).
@@ -47,13 +48,14 @@ for Claude Code.
 - **tool** spans: `tool_use` → matching `tool_result`.
 - **cli** spans: the `review` CLI's internal span tree, parented under the Bash
   tool call whose window contains the process start.
-- **phases** on the main agent: `skill+setup` (prompt → scaffold), `scaffold`,
+- **phases** on the main agent (historical, keyed on the removed MDX
+  toolchain; only meaningful for runs recorded before that removal):
+  `skill+setup` (prompt → scaffold), `scaffold`,
   `exploration` (scaffold end → first write to `review.mdx`/`data.ts`),
   `authoring` (→ first `review publish`), `publish loop` (→ successful
   publish), `show` (→ `review app pick`).
 
-`summary.time_to_visible_s` is the headline metric. `review wait`, reviewer
-feedback, and Ask replies are out of scope.
+`summary.time_to_visible_s` is the headline metric.
 
 ## Fork runs
 

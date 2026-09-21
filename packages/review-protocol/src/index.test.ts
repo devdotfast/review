@@ -2,18 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
-  normalizeReviewRoutePath,
   parseReviewDesktopDiscovery,
-  parseReviewDesktopVerbFrame,
-  parseReviewDesktopVerbResult,
   parseReviewDiffFilesResponse,
   parseReviewFileContentRequest,
   parseReviewFileContentResponse,
-  parseReviewListResponse,
-  parseReviewOpenResponse,
-  parseReviewSessionResponse,
   parseReviewVerbRequest,
-  rewriteReviewDocumentRuntime,
 } from "./index.js";
 
 describe("review protocol parsers", () => {
@@ -40,62 +33,6 @@ describe("review protocol parsers", () => {
         startedAt: 12,
       }),
     ).toThrow("Unsupported");
-  });
-
-  it("parses lifecycle and correlated verb frames", () => {
-    const descriptor = {
-      sessionId: "session-1",
-      sessionUrl: "http://127.0.0.1:5590/sessions/session-1",
-      reviewUuid: "3b241101-e2bb-4255-8caf-4136c566a962",
-      routePath: "/",
-      startedAt: 10,
-    };
-    const review = {
-      uuid: descriptor.reviewUuid,
-      title: "Protocol rewrite",
-      status: "awaiting-review" as const,
-      worktreePath: "/tmp/repo",
-      repoKey: "repo-1",
-      sourceBranch: "feature/protocol",
-      presentedDocumentRevision: null,
-      presentedSoftwareMapRevision: null,
-      lastPublishedAt: null,
-      available: true,
-    };
-    expect(
-      parseReviewListResponse({
-        reviews: [review],
-        errors: [],
-      }),
-    ).toMatchObject({ reviews: [{ title: "Protocol rewrite" }] });
-    expect(
-      parseReviewOpenResponse({
-        sessionId: descriptor.sessionId,
-        url: descriptor.sessionUrl,
-        session: descriptor,
-        review,
-      }),
-    ).toEqual({
-      sessionId: descriptor.sessionId,
-      url: descriptor.sessionUrl,
-      session: descriptor,
-      review,
-    });
-    expect(
-      parseReviewDesktopVerbFrame({
-        event: "desktop-verb",
-        id: "verb-1",
-        sessionId: "session-1",
-        request: { name: "focusCanvas", args: {} },
-      }),
-    ).toMatchObject({ id: "verb-1", sessionId: "session-1" });
-    expect(
-      parseReviewDesktopVerbResult({
-        id: "verb-1",
-        sessionId: "session-1",
-        response: { ok: true },
-      }),
-    ).toEqual({ id: "verb-1", sessionId: "session-1", response: { ok: true } });
   });
 
   it("parses event and one-based range verb boundaries", () => {
@@ -188,156 +125,5 @@ describe("review protocol parsers", () => {
       ok: true,
       binary: true,
     });
-  });
-
-  it("parses thread decoration verbs at the one-based boundary", () => {
-    expect(
-      parseReviewVerbRequest({
-        name: "decorateThreads",
-        args: {
-          sessionId: "session-a",
-          path: "src/cli.ts",
-          anchors: [
-            {
-              startLine: 10,
-              endLine: 12,
-              threadId: "code:src/cli.ts:10-12",
-              kind: "comment",
-            },
-          ],
-        },
-      }),
-    ).toMatchObject({
-      name: "decorateThreads",
-      args: {
-        sessionId: "session-a",
-        path: "src/cli.ts",
-        anchors: [{ startLine: 10, endLine: 12 }],
-      },
-    });
-    expect(
-      parseReviewVerbRequest({
-        name: "clearDecorations",
-        args: { sessionId: "session-a", path: "src/cli.ts" },
-      }),
-    ).toEqual({
-      name: "clearDecorations",
-      args: { sessionId: "session-a", path: "src/cli.ts" },
-    });
-    expect(
-      parseReviewVerbRequest({
-        name: "decorateThreads",
-        args: { path: "src/legacy.ts", anchors: [] },
-      }),
-    ).toEqual({
-      name: "decorateThreads",
-      args: { path: "src/legacy.ts", anchors: [] },
-    });
-    expect(
-      parseReviewVerbRequest({
-        name: "clearDecorations",
-        args: { path: "src/legacy.ts" },
-      }),
-    ).toEqual({
-      name: "clearDecorations",
-      args: { path: "src/legacy.ts" },
-    });
-    expect(() =>
-      parseReviewVerbRequest({
-        name: "decorateThreads",
-        args: {
-          path: "src/cli.ts",
-          anchors: [
-            {
-              startLine: 12,
-              endLine: 10,
-              threadId: "invalid",
-              kind: "comment",
-            },
-          ],
-        },
-      }),
-    ).toThrow("must be >=");
-  });
-
-  it("parses open-file options at the one-based boundary", () => {
-    expect(
-      parseReviewVerbRequest({
-        name: "openFile",
-        args: {
-          path: "src/cli.ts",
-          line: 10,
-          column: 2,
-          endLine: 12,
-          preserveFocus: true,
-        },
-      }),
-    ).toMatchObject({ name: "openFile", args: { line: 10, endLine: 12 } });
-    expect(() =>
-      parseReviewVerbRequest({
-        name: "openFile",
-        args: { path: "src/cli.ts", line: 10, endLine: 9 },
-      }),
-    ).toThrow("must be >=");
-  });
-
-  it("parses the authenticated session response", () => {
-    expect(
-      parseReviewSessionResponse({
-        ok: true,
-        token: "capability-token",
-        session: {
-          sessionId: "session-1",
-          rootPath: "/tmp/repo",
-          baseRef: "main",
-          appUrl: "http://127.0.0.1:5570/",
-          serverUrl: "http://127.0.0.1:5570",
-          storageDir: "/tmp/review-session",
-          reviewPath: "/tmp/review-session/review.mdx",
-          startedAt: 1,
-        },
-      }),
-    ).toMatchObject({
-      ok: true,
-      token: "capability-token",
-      session: { sessionId: "session-1" },
-    });
-  });
-
-  it("normalizes route paths independently", () => {
-    expect(normalizeReviewRoutePath("pr/9/?view=map")).toBe("/pr/9");
-    expect(normalizeReviewRoutePath("/pr/9////")).toBe("/pr/9");
-    expect(normalizeReviewRoutePath("/")).toBe("/");
-  });
-
-  it("normalizes adversarial route paths without quadratic scanning", () => {
-    const pathname = `${"/".repeat(32_000)}review`;
-    const startedAt = performance.now();
-
-    expect(normalizeReviewRoutePath(pathname)).toBe(pathname);
-    expect(performance.now() - startedAt).toBeLessThan(100);
-  });
-
-  it("rewrites each document rebuild to the current bundled runtime URL", () => {
-    const source =
-      'import { createActiveReviewDocument } from "review-doc-runtime";\nexport const version = 1;';
-    expect(
-      rewriteReviewDocumentRuntime(
-        source,
-        "vscode-file://review/assets/doc-runtime-first.js",
-      ),
-    ).toContain("vscode-file://review/assets/doc-runtime-first.js");
-    expect(
-      rewriteReviewDocumentRuntime(
-        source.replace("version = 1", "version = 2"),
-        "vscode-file://review/assets/doc-runtime-second.js",
-      ),
-    ).toContain("vscode-file://review/assets/doc-runtime-second.js");
-    expect(() =>
-      rewriteReviewDocumentRuntime(
-        "export const version = 3;",
-        "vscode-file://review/assets/doc-runtime.js",
-      ),
-    ).toThrow("no runtime import");
   });
 });

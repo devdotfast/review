@@ -10,6 +10,7 @@ export function cleanTargets({
   reviewHome = process.env.DEV_REVIEW_HOME ?? resolve(process.env.HOME, ".dev"),
 } = {}) {
   const checkout = resolve(root, "apps/review-desktop/code-oss");
+
   return [
     resolve(checkout, ".build"),
     resolve(checkout, "out"),
@@ -22,11 +23,13 @@ export function cleanTargets({
 
 export async function cleanReviewDesktop(options) {
   const targets = cleanTargets(options);
+
   for (const target of targets) {
     if (!existsSync(target)) {
       console.log(`Already clean: ${target}`);
       continue;
     }
+
     await rm(target, { recursive: true, force: true });
     console.log(`Removed: ${target}`);
   }

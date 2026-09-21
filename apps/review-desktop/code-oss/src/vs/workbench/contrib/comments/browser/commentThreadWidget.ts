@@ -74,9 +74,6 @@ export class CommentThreadWidget<T extends IRange | ICellRange = IRange> extends
 		@IKeybindingService private readonly _keybindingService: IKeybindingService
 	) {
 		super();
-		if (this._commentOptions?.compactThreadWidget) {
-			container.classList.add('compact-comment-thread');
-		}
 
 		this._threadIsEmpty = CommentContextKeys.commentThreadIsEmpty.bindTo(this._contextKeyService);
 		this._threadIsEmpty.set(!_commentThread.comments || !_commentThread.comments.length);
@@ -228,9 +225,7 @@ export class CommentThreadWidget<T extends IRange | ICellRange = IRange> extends
 	}
 
 	async display(lineHeight: number, focus: boolean) {
-		const headHeight = this._commentOptions?.compactThreadWidget
-			? 32
-			: Math.max(23, Math.ceil(lineHeight * 1.2)); // 23 is the value of `Math.ceil(lineHeight * 1.2)` with the default editor font size
+		const headHeight = Math.max(23, Math.ceil(lineHeight * 1.2)); // 23 is the value of `Math.ceil(lineHeight * 1.2)` with the default editor font size
 		this._header.updateHeight(headHeight);
 
 		await this._body.display();

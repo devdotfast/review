@@ -9,6 +9,7 @@ const quickAccess = await readFile(
   ),
   "utf8",
 );
+
 const curatedExtensions = await readFile(
   new URL(
     "../code-oss/src/vs/review/contrib/extensions/reviewCuratedExtensions.contribution.ts",

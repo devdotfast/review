@@ -60,6 +60,13 @@
   pointer-events: auto;
 }
 
+.monaco-workbench.linux
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-right {
+  margin-left: auto;
+}
+
 /* The native macOS stoplights sit over the left container. Make its unused
    area draggable, including the space between and around the stoplights. The
    navigation control below removes itself from this drag region. */
@@ -101,10 +108,10 @@
   .part.editor
   .editor-group-container
   > .title
-  > .tabs-and-actions-container.review-chrome-inset {
+  > .tabs-and-actions-container.review-chrome-tab-strip {
   box-sizing: border-box;
-  padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
-  padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
+  padding-left: 6px;
+  padding-right: 6px;
   user-select: none;
   -webkit-app-region: drag;
 }
@@ -113,22 +120,31 @@
   .part.editor
   .editor-group-container
   > .title
-  > .tabs-and-actions-container.review-chrome-inset {
+  > .tabs-and-actions-container.review-chrome-tab-strip {
   -webkit-app-region: no-drag;
 }
 
 .monaco-workbench
   .part.editor
-  .tabs-and-actions-container.review-chrome-inset
+  .tabs-and-actions-container.review-chrome-tab-strip
   .tabs-container {
   -webkit-app-region: drag;
 }
 
 .monaco-workbench.review-tab-dragging
   .part.editor
-  .tabs-and-actions-container.review-chrome-inset
+  .tabs-and-actions-container.review-chrome-tab-strip
   .tabs-container {
   -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.review-chrome-inset {
+  padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
+  padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
 }
 
 .monaco-workbench .part.editor .tabs-container > .tab,
@@ -178,10 +194,11 @@
    tabs carry no separators by design (see the pill-tab section below). A line on
    just the tree half stops dead at the sash and reads as an unfinished stub.
 
-   `--review-explorer-width` and `--review-chrome-height` are published by
-   `ReviewExplorerPart` from REVIEW_CHROME_HEIGHT and its laid-out width, so the
-   TypeScript constant stays the only source for both. The fallbacks cover the
-   frame before the part first lays out. */
+   `ReviewExplorerPart` writes `--review-chrome-height` on this part and the
+   workbench layout writes `--review-explorer-width` on the inset tab strip
+   (never on the workbench root; see `publishReviewChromeInset`), so
+   REVIEW_CHROME_HEIGHT stays the only source. The fallbacks cover the frame
+   before the part first lays out. */
 .monaco-workbench .part.review-explorer > .review-explorer-chrome-spacer {
   box-sizing: border-box;
   height: var(--review-chrome-height, 40px);
@@ -303,53 +320,34 @@
 .monaco-workbench.review-workbench {
   /* Each pill color mixes over the tab-strip background, so a theme change
      carries into the pill. */
-  --review-tab-fill: color-mix(
-    in srgb,
-    #ffffff 7%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-border: color-mix(
-    in srgb,
-    #ffffff 13%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
+  /* Whiteboard: the active tab is a board-colored pill with a hairline, the
+     same surface and rule the canvas uses, so the tab reads as a piece of the
+     board lifted onto the tray. No drop shadow in either theme. */
+  --review-tab-fill: var(--vscode-editor-background);
+  --review-tab-border: var(--vscode-panel-border);
   --review-tab-hover-fill: color-mix(
     in srgb,
     #ffffff 4%,
     var(--vscode-editorGroupHeader-tabsBackground)
   );
-  --review-tab-separator: color-mix(
-    in srgb,
-    #ffffff 16%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --review-tab-separator: var(--vscode-panel-border);
+  --review-tab-shadow: none;
+  --review-chrome-font: "Geist Mono", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
 }
 
 /* The light themes use weaker mixes, so the pill stays subtle. */
 .monaco-workbench.review-workbench.vs,
 .monaco-workbench.review-workbench.hc-light {
-  --review-tab-fill: color-mix(
-    in srgb,
-    #ffffff 55%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-border: color-mix(
-    in srgb,
-    #000000 8%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
+  --review-tab-fill: var(--vscode-editor-background);
+  --review-tab-border: var(--vscode-panel-border);
   --review-tab-hover-fill: color-mix(
     in srgb,
-    #ffffff 25%,
+    #ffffff 40%,
     var(--vscode-editorGroupHeader-tabsBackground)
   );
-  --review-tab-separator: color-mix(
-    in srgb,
-    #000000 12%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --review-tab-separator: var(--vscode-panel-border);
+  --review-tab-shadow: none;
 }
 
 /* 28px pill + 6px above + 6px below = the 40px row. EditorTabsControl reports
@@ -658,6 +656,40 @@ body
   margin-left: 8px;
 }
 
+.review-titlebar-container .review-application-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 30px;
+  height: 28px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.review-titlebar-container .review-application-menu:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.review-titlebar-container .review-application-menu:focus-visible,
+.review-titlebar-container .window-controls-container > button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.review-titlebar-container .window-controls-container > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+
 /* Equal space on each side of the arrows.
 
    `CodeWindow.updateWindowControls` moves the traffic lights itself: it calls
@@ -714,7 +746,35 @@ body
    default, which keeps the standalone browser build on its mono face. Every text
    item in the topbar reads this token, so the bar shows one face throughout. */
 .review-canvas-host .review-app {
-  --chrome-font: system-ui, sans-serif;
+  --chrome-font: var(--review-chrome-font, var(--font-mono));
+}
+
+/* Whiteboard: every label on the tray is set in the same mono face as the
+   canvas chrome. The faces ship with the canvas stylesheet, whose @font-face
+   rules are hoisted out of its @scope so they apply document-wide. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  .monaco-icon-label {
+  font-family: var(--review-chrome-font);
+  font-size: 12px;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.active
+  .monaco-icon-label {
+  font-weight: 600;
 }
 
 /* Multi-diff headers print a full Review path in one label. Keep the file name
@@ -735,6 +795,10 @@ body
   padding: 0 4px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.review-multidiff-counts[hidden] {
+  display: none;
 }
 
 .review-multidiff-additions {
@@ -795,9 +859,12 @@ body
   background: var(--vscode-editor-background);
 }
 
+/* The sidebar is one tray from the progress line to the last file: the tree
+   paints no ground of its own and inherits the tray behind it (see the
+   "Sidebar tone" board). Hover and selection come from the theme's list
+   colors, the well and the marker tint. */
 .review-files-editor-tree {
   border-right: 1px solid var(--vscode-sideBar-border, transparent);
-  background: var(--vscode-editor-background);
 }
 
 .review-changed-files {
@@ -806,21 +873,19 @@ body
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--vscode-editor-background);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--review-chrome-font, system-ui, sans-serif);
 }
 
 .review-changed-files-tree {
   flex: 1 1 auto;
   min-height: 0;
-  background: var(--vscode-editor-background);
 }
 
 .review-changed-files-row {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   height: 22px;
   padding-right: 8px;
 }
@@ -830,22 +895,6 @@ body
   width: 16px;
   color: var(--vscode-icon-foreground);
   text-align: center;
-}
-
-.monaco-workbench .review-changed-files-icon.review-changed-files-icon-added {
-  color: var(--vscode-gitDecoration-addedResourceForeground);
-}
-
-.monaco-workbench .review-changed-files-icon.review-changed-files-icon-modified {
-  color: var(--vscode-gitDecoration-modifiedResourceForeground);
-}
-
-.monaco-workbench .review-changed-files-icon.review-changed-files-icon-deleted {
-  color: var(--vscode-gitDecoration-deletedResourceForeground);
-}
-
-.monaco-workbench .review-changed-files-icon.review-changed-files-icon-renamed {
-  color: var(--vscode-gitDecoration-renamedResourceForeground);
 }
 
 .review-changed-files-label {
@@ -874,22 +923,12 @@ body
   .monaco-component.multiDiffEditor
   .multiDiffEntry
   > .header
-  > .header-content,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
   > .header-content {
   margin-top: 0;
 }
 
 .review-files-editor-diffs
   .monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
-  .file-path
-  .title,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
   .multiDiffEntry
   > .header
   > .header-content
@@ -903,11 +942,6 @@ body
   .multiDiffEntry
   > .header
   > .header-content
-  > .actions,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
   > .actions {
   padding: 0;
 }
@@ -916,36 +950,8 @@ body
   .multiDiffEntry
   > .header
   > .header-content
-  > .actions.has-no-actions,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
   > .actions.has-no-actions {
   display: none;
-}
-
-.review-inline-code-editor {
-  display: flex;
-  flex-direction: column;
-  background: var(--vscode-multiDiffEditor-background);
-}
-
-.review-inline-editor-header-host.monaco-component.multiDiffEditor {
-  position: relative;
-  isolation: isolate;
-  flex: 0 0 40px;
-  min-width: 0;
-  width: 100%;
-  height: 40px;
-  overflow: hidden;
-}
-
-.review-inline-editor-body {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .review-canvas-part > .review-canvas-container {
@@ -985,785 +991,250 @@ body
   outline: none;
 }
 
-.review-thread-line {
-  background: color-mix(
-    in srgb,
-    var(--vscode-editorInfo-foreground) 8%,
-    transparent
-  );
-  border-left: 2px solid var(--vscode-editorInfo-foreground);
-}
-
 .review-reveal-line {
   background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
-  border-left: 2px solid var(--vscode-review-map-edge);
+  border-left: 2px solid var(--vscode-panel-border);
 }
 
-/* The anchored range reads as a lifted surface — a neutral foreground
-   wash plus a neutral hairline in the margin — never as an accent color.
-   A hue-neutral lift stacks safely on the diff editor's added/removed row
-   tints, where an accent wash would shift their hue. */
-.review-inline-code-range {
-  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+/* Give commenting and folding separate hit targets in the Files view. */
+.review-files-editor .monaco-editor .margin-view-overlays .cldr:is(
+  .codicon-folding-expanded,
+  .codicon-folding-collapsed,
+  .codicon-folding-manual-expanded,
+  .codicon-folding-manual-collapsed
+) {
+  margin-left: 30px;
+  width: 20px !important;
 }
 
-.review-inline-code-range-active {
-  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
-}
-
-.review-inline-find-match {
-  background: var(--review-find-match-background);
-}
-
-.review-inline-find-match-active {
-  background: var(--review-find-match-active-background);
-}
-
-/* Every reviewable line is commentable, so the comments feature's
-   persistent commentable-range gutter bar reads as chrome, not signal —
-   in peeks, the Files tab, and dedicated file editors alike. The hover
-   "+" glyph still renders; only the always-on bar goes. */
-.monaco-workbench .monaco-editor .comment-range-glyph.comment-diff-added {
-  border-left-color: transparent;
-}
-
-.review-inline-code-lineno {
-  color: var(--vscode-editorLineNumber-activeForeground) !important;
-}
-
-.review-inline-unified-diff
-  .monaco-editor
-  .line-numbers.review-unified-line-number-added {
-  background: var(
-    --vscode-diffEditorGutter-insertedLineBackground,
-    var(--vscode-diffEditor-insertedLineBackground)
-  );
-}
-
-.review-inline-unified-diff
-  .monaco-editor
-  .line-numbers.review-unified-line-number-deleted {
-  background: var(
-    --vscode-diffEditorGutter-removedLineBackground,
-    var(--vscode-diffEditor-removedLineBackground)
-  );
-}
-
-.review-thread-draft {
-  border-left-color: var(--vscode-editorWarning-foreground);
-}
-
-.review-thread-resolved {
-  opacity: 0.65;
-}
-
-.review-thread-glyph::before {
-  content: "";
-  display: block;
-  width: 8px;
-  height: 8px;
-  margin: 5px auto 0;
-  border-radius: 50%;
-  background: var(--vscode-editorInfo-foreground);
-}
-
-/* Review comments use the stock editor comment widget for behavior. These
-   rules give that widget the same compact cobalt treatment as Canvas cards.
-   The scope keeps extension comments in other Code OSS windows unchanged. */
-.monaco-workbench.review-workbench {
-  --review-comment-accent: #4d6ef5;
-  --review-comment-accent-hover: #5d7cf7;
-  --review-comment-accent-wash: rgb(77 110 245 / 14%);
-  --review-comment-accent-outline: rgb(77 110 245 / 48%);
-  --review-comment-chip-ink: color-mix(
-    in srgb,
-    var(--review-comment-accent) 70%,
-    white
-  );
-  --review-comment-range: rgb(35 71 178 / 58%);
-  --review-comment-range-active: rgb(48 91 226 / 68%);
-  --review-comment-range-line-number: #e7edff;
-  --review-comment-surface: #0f1217;
-  --review-comment-input: #0f1217;
-  --review-comment-rule: #272c35;
-  --review-comment-metadata-rule: #343a46;
-  --review-comment-composer-rule: #3d444d;
-  --review-comment-footer: #151922;
-  --review-comment-footer-rule: #566171;
-  --review-comment-shadow: rgb(0 0 0 / 55%);
-  --review-comment-shadow-active: rgb(0 0 0 / 60%);
-  --review-comment-ink: var(--vscode-editor-foreground, #e8eaee);
-  --review-comment-muted: var(--vscode-descriptionForeground, #9ba1ac);
-  --vscode-editorGutter-commentRangeForeground: var(--review-comment-accent);
-  --vscode-editorGutter-commentGlyphForeground: #fff;
-  --vscode-editorGutter-commentUnresolvedGlyphForeground: var(
-    --review-comment-accent
-  );
-  --vscode-editorGutter-commentDraftGlyphForeground: var(
-    --review-comment-accent
-  );
-  --vscode-editorCommentsWidget-rangeBackground: var(
-    --review-comment-range
-  );
-  --vscode-editorCommentsWidget-rangeActiveBackground: var(
-    --review-comment-range-active
-  );
-}
-
-/* On a light editor, the dark-theme comment palette obscures syntax, shifts
-   diff row colors toward a muddy blue, and leaves inherited dark text on dark
-   composer surfaces. Use native light surfaces and a restrained accent wash
-   while leaving high-contrast themes on the stronger defaults above. */
-.monaco-workbench.review-workbench.vs {
-  --review-comment-chip-ink: var(--review-comment-accent);
-  --review-comment-range: rgb(43 79 224 / 12%);
-  --review-comment-range-active: rgb(43 79 224 / 18%);
-  --review-comment-range-line-number: var(
-    --vscode-editorLineNumber-activeForeground,
-    #2448ca
-  );
-  --review-comment-surface: var(--vscode-editorWidget-background, #ffffff);
-  --review-comment-input: var(--vscode-input-background, #ffffff);
-  --review-comment-rule: var(--vscode-editorWidget-border, #c8c8c8);
-  --review-comment-metadata-rule: color-mix(
-    in srgb,
-    var(--vscode-foreground) 12%,
-    var(--review-comment-surface)
-  );
-  --review-comment-composer-rule: var(--review-comment-metadata-rule);
-  --review-comment-footer: color-mix(
-    in srgb,
-    var(--vscode-foreground) 4%,
-    var(--review-comment-surface)
-  );
-  --review-comment-footer-rule: var(--review-comment-metadata-rule);
-  --review-comment-shadow: rgb(0 0 0 / 12%);
-  --review-comment-shadow-active: rgb(0 0 0 / 16%);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .comment-range-selection {
-  background: var(--review-comment-range);
-  box-shadow: inset 2px 0 0 var(--review-comment-accent);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .comment-range-selection-current {
-  background: var(--review-comment-range-active);
-  box-shadow: inset 3px 0 0 var(--review-comment-accent);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  :is(.comment-thread-range-margin, .comment-range-selection-margin) {
-  background: var(--review-comment-range) !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  :is(
-    .comment-thread-range-margin-current,
-    .comment-range-selection-margin-current
-  ) {
-  background: var(--review-comment-range-active) !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  :is(
-    .comment-thread-range-line-number,
-    .comment-thread-range-line-number-current,
-    .comment-range-selection-line-number,
-    .comment-range-selection-line-number-current
-  ) {
-  color: var(--review-comment-range-line-number) !important;
-  font-weight: 600;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread {
-  --comment-thread-state-color: var(--review-comment-accent) !important;
-  --comment-thread-state-background-color: var(
-    --review-comment-accent-wash
-  ) !important;
-  --vscode-button-background: var(--review-comment-accent);
-  --vscode-button-hoverBackground: var(--review-comment-accent-hover);
-  --vscode-button-foreground: #fff;
-  --vscode-editorCommentsWidget-replyInputBackground: transparent;
-  --vscode-editor-lineHighlightBackground: transparent;
-  --vscode-scrollbarSlider-background: transparent;
-  --vscode-scrollbarSlider-hoverBackground: transparent;
-  --vscode-scrollbarSlider-activeBackground: transparent;
-  color: var(--review-comment-ink);
-  background: transparent;
-  filter: none;
-  overflow: visible !important;
-  border-top-width: 0 !important;
-  border-bottom-width: 0 !important;
-}
-
-.monaco-workbench.review-workbench
-  .review-inline-code-editor
-  .monaco-editor:has(.compact-comment-thread)
-  > .overflow-guard {
-  overflow: visible;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  > .head {
-  position: relative;
-  z-index: 3;
-  box-sizing: border-box;
-  align-items: center;
-  width: calc(
-    100% - 16px + var(--compact-comment-thread-inline-end-reserve, 0px)
-  );
-  height: 32px !important;
-  margin: 6px 0 0 16px;
-  padding: 0 8px 0 11px;
-  border: 1px solid var(--review-comment-rule);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-  line-height: 30px !important;
-  background: var(--review-comment-surface) !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  > .head
-  .review-title {
+.review-files-editor-diffs { position: relative; }
+.review-files-editor-summary {
   display: flex;
   align-items: center;
-  min-width: 0;
-  height: 100%;
-  margin-left: 0;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  > .head
-  .review-title
-  .filename {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 7px;
-  border: 1px solid var(--review-comment-accent-outline);
-  border-radius: 999px;
-  background: var(--review-comment-accent-wash);
-  color: var(--review-comment-chip-ink);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 18px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  > .head
-  .review-actions {
-  padding-right: 0;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget:is(:hover, :focus-within)
-  > .head
-  .review-actions {
-  opacity: 0.72;
-}
-
-/* The comment form's primary button shows its shortcut as a keycap. The
-   button already carries the shortcut in its aria-label; this makes it
-   visible, in the same keycap style the canvas uses. */
-.monaco-workbench.review-workbench
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-text-button:first-child
-  > span::after,
-.monaco-workbench.review-workbench
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown
-  > .monaco-text-button:first-child
-  > span::after {
-  content: "Ctrl↩";
-  display: inline-grid;
-  height: 15px;
-  margin-left: 6px;
-  padding: 0 4px;
-  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
-  border-radius: 3px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  font: 500 9.5px var(--monaco-monospace-font, monospace);
-  line-height: 1;
-  place-items: center;
-  vertical-align: middle;
-}
-
-.monaco-workbench.review-workbench.mac
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-text-button:first-child
-  > span::after,
-.monaco-workbench.review-workbench.mac
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown
-  > .monaco-text-button:first-child
-  > span::after {
-  content: "⌘↩";
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  > .body {
-  box-sizing: border-box;
-  width: calc(
-    100% - 16px + var(--compact-comment-thread-inline-end-reserve, 0px)
-  );
-  margin: 0 0 0 16px;
-  border: 1px solid var(--review-comment-rule) !important;
-  border-top-color: var(--review-comment-metadata-rule) !important;
-  border-radius: 0 0 8px 8px;
-  background: var(--review-comment-surface);
-  box-shadow: 0 10px 28px var(--review-comment-shadow);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread:not(:has(.review-comment))
-  > .head,
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread:has(.comment-form-container.expand)
-  > .head {
-  border-color: var(--review-comment-accent);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread:not(:has(.review-comment))
-  > .body,
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread:has(.comment-form-container.expand)
-  > .body {
-  border-right-color: var(--review-comment-accent) !important;
-  border-bottom-color: var(--review-comment-accent) !important;
-  border-left-color: var(--review-comment-accent) !important;
-  box-shadow:
-    0 0 0 1px rgb(76 141 246 / 16%),
-    0 10px 28px var(--review-comment-shadow-active);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .review-comment {
-  position: relative;
-  padding: 12px;
-  background: transparent;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .review-comment
-  + .review-comment {
-  border-top: 1px solid color-mix(
-    in srgb,
-    var(--review-comment-rule) 58%,
-    transparent
-  );
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .avatar-container {
-  display: none !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .review-comment
-  .review-comment-contents {
-  padding-left: 0;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-title
-  .comment-header-info {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-  line-height: 17px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-title
-  .author {
-  color: var(--review-comment-ink);
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBar-border, transparent);
+  color: var(--vscode-descriptionForeground);
   font-size: 12px;
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-title
-  :is(.timestamp, .timestamp-container) {
-  margin-left: 7px;
-  color: var(--review-comment-muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-title
-  .isPending {
-  margin-left: 8px;
-  padding: 2px 8px;
-  border: 1px solid var(--review-comment-accent-outline);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--review-comment-chip-ink);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 500;
-  line-height: 12px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-title
-  .isPending:empty {
+.review-files-editor-summary[hidden] {
   display: none;
 }
 
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .review-comment
-  .comment-body {
-  padding-top: 6px;
-  padding-right: 54px;
-  color: var(--review-comment-ink);
+.review-files-editor-summary-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-files-editor-summary-bar {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.review-files-editor-summary-block {
+  width: 8px;
+  height: 8px;
+  background: var(--vscode-editorWidget-border);
+}
+
+.review-files-editor-summary-block.added {
+  background: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-block.removed {
+  background: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-multidiff-note {
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
   font-size: 12px;
-  line-height: 19px;
 }
 
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .comment-actions {
+.review-multidiff-note[hidden] {
+  display: none;
+}
+
+.review-structural-label-inline {
+  color: var(--vscode-editor-foldPlaceholderForeground);
+  font-style: italic;
+}
+
+.review-structural-label-zone {
+  background-color: var(--vscode-editor-foldBackground);
+  color: var(--vscode-editor-foldPlaceholderForeground);
+}
+
+.review-structural-label-zone pre {
+  margin: 0;
+  padding-left: 4ch;
+  font: inherit;
+  white-space: pre;
+}
+
+.review-structural-stream-status:not([hidden]) {
   position: absolute;
-  right: 8px;
-  bottom: 7px;
-  margin: 0;
-  padding: 2px 3px;
-  border-radius: 4px;
-  background: var(--review-comment-surface);
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .review-comment:is(:hover, :focus-within)
-  .comment-actions {
-  opacity: 1;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .review-comment
-  .monaco-scrollable-element
-  > .scrollbar {
-  display: none !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .comment-form-container {
-  margin: 0 12px 12px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .comment-form-container
-  .review-thread-reply-button {
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--review-comment-muted);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 14px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .comment-form-container
-  .review-thread-reply-button:is(:hover, :focus-visible) {
-  color: var(--review-comment-ink);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .comment-form-container
-  .monaco-editor,
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .edit-container
-  .monaco-editor {
-  min-height: 44px;
-  max-height: 240px;
-  padding: 0;
-  border-radius: 0;
-  outline: 0;
-  background: transparent;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  :is(.comment-form-container, .edit-container)
-  .monaco-editor
-  :is(.monaco-editor-background, .margin) {
-  background: transparent;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  :is(.comment-form-container, .edit-container)
-  .monaco-editor
-  .scrollbar {
-  display: none !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  .comment-form-container.expand
-  :is(.decorationsOverviewRuler, .scroll-decoration) {
-  display: none !important;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  :is(.comment-form-container, .edit-container)
-  .monaco-editor.focused {
-  outline: 0;
-  box-shadow: none;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  .comment-form-container.expand {
-  margin: 0;
-  padding: 10px 12px 11px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread:has(.review-comment)
-  .body
-  .comment-form-container.expand {
-  border-top: 1px solid var(--review-comment-composer-rule);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  :is(.comment-form-container.expand, .edit-container)
-  .form-actions {
+  inset: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin: 6px 0 0;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
 }
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  .comment-form-container.expand
-  .form-actions {
-  margin: 9px -12px -11px;
-  padding: 9px 12px 10px;
-  border-top: 2px solid var(--review-comment-footer-rule);
-  border-radius: 0 0 7px 7px;
-  background: var(--review-comment-footer);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  .comment-form-container.expand
-  .form-actions::before {
-  content: none;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  :is(.other-actions, .editor-actions) {
-  display: flex;
-  gap: 6px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  .monaco-button {
-  min-height: 26px;
-  margin: 0;
-  padding: 3px 10px;
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown {
-  gap: 0;
-  overflow: hidden;
-  border-radius: 5px;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown
-  > .monaco-button {
-  margin: 0;
-  border-radius: 0;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  .other-actions
-  > .monaco-button:not(.secondary) {
-  display: flex;
-  align-items: center;
-  width: auto;
-  min-width: 0;
-  height: 28px;
-  padding: 4px 12px;
-  border-radius: 5px;
-  background: var(--review-comment-accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget.compact-comment-thread
-  .body
-  .comment-form-container
-  .form-actions
-  .other-actions
-  > .monaco-button:not(.secondary)::after {
-  content: none;
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .review-widget
-  .body
-  .form-actions
-  .other-actions
-  > .monaco-button:not(.secondary):hover {
-  background: var(--review-comment-accent-hover);
-}
-
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .margin-view-overlays
-  .comment-range-glyph.line-hover::before {
+.review-structural-stream-status.loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
   border-radius: 50%;
-  background: var(--review-comment-accent);
-  color: #fff;
-  box-shadow: 0 2px 7px rgb(0 0 0 / 36%);
+  animation: review-structural-loading 1s linear infinite;
+}
+@keyframes review-structural-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .review-structural-stream-status.loading::before { animation: none; }
+}
+.review-header-viewed { width: 16px; height: 16px; padding: 0; margin: 0 8px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; color: var(--vscode-editor-foreground); background: transparent; font: 12px/14px sans-serif; cursor: pointer; }
+.review-header-viewed[aria-checked="true"], .review-counts-viewed { opacity: .45; }
+.review-tree-counts { display:inline-flex; flex-shrink:0; gap:6px; margin-left:auto; padding-left:8px; padding-right:8px; font:11px/22px var(--review-chrome-font, monospace); font-variant-numeric:tabular-nums; }
+.review-tree-added { color:var(--vscode-gitDecoration-addedResourceForeground); }
+.review-tree-removed { color:var(--vscode-gitDecoration-deletedResourceForeground); }
+
+/* One disclosure glyph. The canvas draws it as an inline SVG (DisclosureChevron);
+   the workbench trees and the multi-diff headers use codicons, so their glyph is
+   swapped for the same 12px stroke path through a mask. The tree sets the
+   twistie's left padding to the row's indent; stock sizing is border-box, so
+   past the first level the padding eats the whole 16px box and the glyph
+   lands on the label. Content-box keeps the 16px glyph slot beside the
+   indent at every depth, so the chevron sits the same distance from its
+   label as a file mark does from its name. The file header button and the
+   section header toggle are keyed on their codicon name, down = open. */
+.review-workbench .monaco-tl-twistie.codicon-tree-item-expanded {
+  box-sizing: content-box;
+  width: 16px;
+  padding-right: 0;
+  justify-content: center;
+}
+.review-workbench .monaco-tl-twistie.codicon-tree-item-expanded::before,
+.review-workbench .collapse-button .codicon-chevron-down::before,
+.review-workbench .collapse-button .codicon-chevron-right::before,
+.review-workbench .review-diff-group-toggle .codicon-chevron-down::before,
+.review-workbench .review-diff-group-toggle .codicon-chevron-right::before {
+  content: "";
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M4.25 2.5 8 6l-3.75 3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 12px 12px no-repeat;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+.review-workbench .monaco-tl-twistie.collapsed.codicon-tree-item-expanded::before,
+.review-workbench .collapse-button .codicon-chevron-right::before,
+.review-workbench .review-diff-group-toggle .codicon-chevron-right::before {
+  transform: rotate(0deg);
 }
 
-.monaco-workbench.review-workbench
-  .monaco-editor
-  .comment-range-glyph:is(
-    .comment-thread,
-    .comment-thread-unresolved,
-    .comment-thread-draft
-  )::before {
-  border-radius: 4px;
-  background: var(--review-comment-accent) !important;
-  color: #fff !important;
+/* File marks in the changed-files tree: status is one stroke beside the name,
+   never a boxed codicon. Plus, minus, dot, arrow, a ghost file for referenced
+   context, three dots while loading, a bang on error; viewed replaces the mark
+   with a check. Colors come from the theme's gitDecoration foregrounds (add,
+   del, warn amber, ink-muted). Folder rows keep an empty slot and paint nothing. */
+.review-workbench {
+  --review-mark-plus: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 4v8M4 8h8' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --review-mark-minus: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 8h8' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --review-mark-dot: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='2.75' fill='black'/></svg>");
+  --review-mark-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8h9M9 4.5 12.5 8 9 11.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --review-mark-file: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4.5 2.5h4.5l3 3v8h-7.5z M9 2.5v3h3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --review-mark-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.5 6.5 11.5 12.5 5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --review-mark-dots: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='4' cy='8' r='1.25' fill='black'/><circle cx='8' cy='8' r='1.25' fill='black'/><circle cx='12' cy='8' r='1.25' fill='black'/></svg>");
+  --review-mark-bang: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 3.5v5.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/><circle cx='8' cy='12' r='1' fill='black'/></svg>");
+}
+.review-workbench .review-changed-files-icon[class*="review-changed-files-icon-"]::before,
+.review-workbench .review-changed-files-icon.codicon-loading::before,
+.review-workbench .review-changed-files-icon.codicon-error::before,
+.review-workbench .review-file-viewed .review-changed-files-icon::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: var(--review-mark-color, currentColor);
+  mask: var(--review-mark) center / 16px 16px no-repeat;
+  animation: none !important;
+}
+.review-workbench .review-changed-files-icon:not([hidden]) { display: flex; align-items: center; justify-content: center; }
+.review-workbench .review-changed-files-icon-added { --review-mark: var(--review-mark-plus); --review-mark-color: var(--vscode-gitDecoration-addedResourceForeground); }
+.review-workbench .review-changed-files-icon-deleted { --review-mark: var(--review-mark-minus); --review-mark-color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.review-workbench .review-changed-files-icon-modified { --review-mark: var(--review-mark-dot); --review-mark-color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.review-workbench .review-changed-files-icon-renamed { --review-mark: var(--review-mark-arrow); --review-mark-color: var(--vscode-gitDecoration-renamedResourceForeground); }
+.review-workbench .review-changed-files-icon-unchanged { --review-mark: var(--review-mark-file); --review-mark-color: var(--vscode-disabledForeground); }
+.review-workbench .review-changed-files-icon.codicon-loading { --review-mark: var(--review-mark-dots); --review-mark-color: var(--vscode-descriptionForeground); }
+.review-workbench .review-changed-files-icon.codicon-error { --review-mark: var(--review-mark-bang); --review-mark-color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.review-workbench .review-file-viewed { opacity: 1; color: var(--vscode-descriptionForeground); }
+.review-workbench .review-file-viewed .review-changed-files-icon { --review-mark: var(--review-mark-check); --review-mark-color: var(--vscode-disabledForeground); }
+
+/* Folds get out of the way: ghost ink on the code's own background, in the
+   chrome font. The theme sets the unchangedRegion background, foreground and
+   shadow. The row keeps Monaco's 24px height: its view zone and the handle
+   transforms assume it, and a shorter row rides up over the previous line. */
+.review-workbench .monaco-editor .diff-hidden-lines .center {
+  font: 11px/24px var(--review-chrome-font, monospace);
+}
+.review-workbench .monaco-editor .diff-hidden-lines .center:hover {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The unfold glyph sits where the fold glyph will appear once the region is
+   open: in the glyph margin lane (an 18px square, the editor's line height)
+   at the top-left of the row, not centered under the line numbers and the
+   24px row. Expand, and the collapse glyph lands under the same pointer.
+   Monaco centers the slot inline, hence the important. */
+.review-workbench .monaco-editor .diff-hidden-lines .center > div:first-child {
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+.review-workbench .monaco-editor .diff-hidden-lines .center > div:first-child > a {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The canvas stylesheet resets every element to border-box, and the Diff
+   view's editors live inside the canvas. Monaco sizes the fold's drag
+   handles as content-box (4px tall plus 6px of transparent borders) and
+   offsets the whole widget by that sum, so a border-box handle is 4px short
+   and the fold row rides up over the previous line. */
+.monaco-editor .diff-hidden-lines .top,
+.monaco-editor .diff-hidden-lines .bottom {
+  box-sizing: content-box;
+}
+.review-changed-files-label { flex:1; min-width:0; }
+/* Left inset 10px and title gap 5px mirror the file header below it (5px
+   padding + 5px collapse-button margin, then 5px to the path), so the
+   section chevron and the file chevron sit on one vertical line. */
+.review-diff-group { height:48px; min-height:48px; box-sizing:border-box; display:flex; align-items:center; gap:12px; padding:12px 16px 4px 10px; border-top:1px solid var(--vscode-panel-border); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); }
+.review-diff-group[hidden] { display:none; }
+.review-diff-group-title { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.review-diff-group-counts { margin-left:auto; font:11px var(--vscode-editor-font-family, monospace); color:var(--vscode-descriptionForeground); white-space:nowrap; }
+.review-diff-group.is-viewed > span { opacity:.45; }
+
+.review-diff-group-toggle { display:flex; align-items:center; gap:5px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
+.review-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+
+/* The surrounding navigation owns the top edge of the diff pane. */
+.multi-diff-sticky-section .review-diff-group,
+.review-files-editor-diffs .multiDiffEntry:first-child > .review-diff-group {
+  border-top: 0;
 }

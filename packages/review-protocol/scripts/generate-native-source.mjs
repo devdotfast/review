@@ -10,12 +10,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
+
 const outputPath = args[0];
+
 const sourceRootFlag = args.indexOf("--source-root");
+
 const sourceRoot =
   sourceRootFlag === -1
     ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src")
     : args[sourceRootFlag + 1];
+
 const isValidArgs =
   outputPath &&
   !outputPath.startsWith("--") &&
@@ -23,6 +27,7 @@ const isValidArgs =
   (sourceRootFlag === -1
     ? args.length === 1
     : args.length === 3 && sourceRootFlag === 1);
+
 if (!isValidArgs) {
   throw new Error(
     "Usage: generate-native-source.mjs <output-path> [--source-root <dir>]",
@@ -51,6 +56,7 @@ const HEADER = [
 function stripModuleStatements(source) {
   const kept = [];
   let buffer = null;
+
   for (const line of source.split("\n")) {
     if (
       buffer === null &&
@@ -59,28 +65,62 @@ function stripModuleStatements(source) {
       kept.push(line);
       continue;
     }
+
     buffer = buffer === null ? [line] : [...buffer, line];
+
     if (!line.trimEnd().endsWith(";")) continue;
     const statement = buffer.join("\n");
+
     if (!/^import\s/.test(statement) && !/\bfrom\s*["']/.test(statement)) {
       kept.push(...buffer);
     }
+
     buffer = null;
   }
+
   return kept.join("\n").replace(/^\n+/, "").trimEnd();
 }
 
 // Dependencies first: every module may only name things declared above it,
 // because concatenation is all that replaces the dropped relative imports.
-const MODULE_FILES = [
-  "runtime-value.ts",
-  "json.ts",
-  "contracts.ts",
-  "index.ts",
+const traceContractsPath =
+  sourceRootFlag === -1
+    ? path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "trace-protocol",
+        "src",
+        "contracts.ts",
+      )
+    : path.join(sourceRoot, "trace-contracts.ts");
+
+const jsonSourceRoot =
+  sourceRootFlag === -1
+    ? path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "json",
+        "src",
+      )
+    : sourceRoot;
+
+const MODULE_PATHS = [
+  path.join(jsonSourceRoot, "runtime-value.ts"),
+  path.join(jsonSourceRoot, "json.ts"),
+  traceContractsPath,
+  path.join(sourceRoot, "diffr-contract.ts"),
+  path.join(sourceRoot, "structural-diff.ts"),
+  path.join(sourceRoot, "source-alignment.ts"),
+  path.join(sourceRoot, "contracts.ts"),
+  path.join(sourceRoot, "code-peek-diff.ts"),
+  path.join(sourceRoot, "review-api-client.ts"),
+  path.join(sourceRoot, "index.ts"),
 ];
 
-const modules = MODULE_FILES.map((file) =>
-  stripModuleStatements(readFileSync(path.join(sourceRoot, file), "utf8")),
+const modules = MODULE_PATHS.map((file) =>
+  stripModuleStatements(readFileSync(file, "utf8")),
 );
 
 writeFileSync(outputPath, `${HEADER}${modules.join("\n\n")}\n`);

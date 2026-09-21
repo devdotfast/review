@@ -37,13 +37,17 @@ import { parseArgs } from "node:util";
 import { chromium } from "playwright";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
+
 const TELEMETRY_PREFIX = "[review-telemetry]";
+
 const SERVER_READY = /\[Review Desktop\] server ready at (https?:\/\/\S+)/;
+
 const POLL_INTERVAL_MS = 500;
 
 /** Tokens that must never appear in any reported event, built from this machine. */
 function leakTokens(home) {
   const user = path.basename(home);
+
   return [user, home, "/Users", "acme-repo", "fix-oops", "hunter2"];
 }
 
@@ -63,6 +67,7 @@ function cases(home) {
       name: "engine error keeps its message",
       runs: () => {
         const missing = undefined;
+
         return missing.uri;
       },
       match: { errorName: "TypeError" },
@@ -102,7 +107,7 @@ function cases(home) {
   ];
 }
 
-/** Must match hashErrorMessage in packages/progressive-review/src/error-telemetry.ts. */
+/** Must match hashErrorMessage in packages/review/src/error-telemetry.ts. */
 function digestOf(message) {
   return createHash("sha256").update(message, "utf8").digest("hex").slice(0, 16);
 }
@@ -112,32 +117,42 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Every telemetry event the embedded server printed to the debug sink. */
 async function readSentEvents(logPath) {
   let log;
+
   try {
     log = await readFile(logPath, "utf8");
   } catch {
     return [];
   }
+
   const events = [];
+
   for (const line of log.split("\n")) {
     const at = line.indexOf(TELEMETRY_PREFIX);
+
     if (at < 0) continue;
+
     try {
       events.push(JSON.parse(line.slice(at + TELEMETRY_PREFIX.length).trim()));
     } catch {
       // A partially flushed line; the next poll sees it whole.
     }
   }
+
   return events;
 }
 
 async function waitFor(check, timeoutMs, describe) {
   const deadline = Date.now() + timeoutMs;
+
   for (;;) {
     const value = await check();
+
     if (value) return value;
+
     if (Date.now() > deadline) {
       throw new Error(`Timed out after ${timeoutMs}ms waiting for ${describe}.`);
     }
+
     await sleep(POLL_INTERVAL_MS);
   }
 }
@@ -163,6 +178,7 @@ export async function smokeErrorTelemetry({
     const log = await import("node:fs").then(({ createWriteStream }) =>
       createWriteStream(logPath),
     );
+
     child = spawn("bash", [path.join(APP_DIR, "scripts", "run.sh")], {
       cwd: APP_DIR,
       env: {
@@ -187,6 +203,7 @@ export async function smokeErrorTelemetry({
       timeoutMs,
       "the embedded Review server to become ready",
     );
+
     const browser = await waitFor(
       () =>
         chromium
@@ -197,9 +214,11 @@ export async function smokeErrorTelemetry({
     );
 
     const context = browser.contexts()[0];
+
     const page =
       context.pages().find((candidate) => candidate.url().includes("workbench")) ??
       context.pages()[0];
+
     if (!page) throw new Error("The app opened no window to drive.");
 
     // The debugger accepts a connection before the window installs its error
@@ -217,6 +236,7 @@ export async function smokeErrorTelemetry({
         }, warmUp);
         await sleep(1200);
         const sent = await readSentEvents(logPath);
+
         return sent.some(
           (event) => event.properties?.message_hash === digestOf(warmUp),
         );
@@ -243,9 +263,11 @@ export async function smokeErrorTelemetry({
       } else {
         await page.evaluate(`setTimeout(() => { (${probe.runs})(); }, 0)`);
       }
+
       // The window drops a repeat of the same message inside one second.
       await sleep(1200);
     }
+
     await browser.close();
 
     // Only the reports raised after the warm-up belong to the probes.
@@ -257,6 +279,7 @@ export async function smokeErrorTelemetry({
     const events = await waitFor(
       async () => {
         const sent = await reportsSinceWarmUp();
+
         return sent.length >= probes.length ? sent : undefined;
       },
       30_000,
@@ -266,6 +289,7 @@ export async function smokeErrorTelemetry({
       failures.push(
         `${error.message} Only ${sent.length} of ${probes.length} arrived.`,
       );
+
       return sent;
     });
 
@@ -275,11 +299,14 @@ export async function smokeErrorTelemetry({
           ? event.properties?.error_name === probe.match.errorName
           : event.properties?.message_hash === digestOf(probe.match.hashOf),
       );
+
       if (!report) {
         failures.push(`${probe.name}: no report arrived for it`);
         continue;
       }
+
       const message = report.properties?.message;
+
       if (message !== probe.expected) {
         failures.push(
           `${probe.name}: expected ${JSON.stringify(probe.expected)}, got ${JSON.stringify(message)}`,
@@ -289,6 +316,7 @@ export async function smokeErrorTelemetry({
 
     // The blanket check. Every event, every property, no exceptions.
     const serialized = JSON.stringify(events);
+
     for (const token of leakTokens(home)) {
       if (serialized.includes(token)) {
         failures.push(`a report leaked ${JSON.stringify(token)}`);
@@ -298,6 +326,7 @@ export async function smokeErrorTelemetry({
     // Every report must still carry the fields that make it useful.
     for (const event of events) {
       const { error_process, error_name, message_hash } = event.properties ?? {};
+
       if (!error_process || !error_name || !message_hash) {
         failures.push(
           `a report was missing its identifying fields: ${JSON.stringify(event.properties)}`,
@@ -310,6 +339,7 @@ export async function smokeErrorTelemetry({
     child?.kill("SIGKILL");
     await sleep(1000);
     await rm(stateRoot, { recursive: true, force: true });
+
     if (!keepLog) await rm(root, { recursive: true, force: true });
   }
 }
@@ -327,14 +357,18 @@ const result = await smokeErrorTelemetry({
 });
 
 console.log(`Reports received: ${result.events.length}`);
+
 for (const event of result.events) {
   console.log(
     `  ${event.properties?.error_process}/${event.properties?.error_name}: ${JSON.stringify(event.properties?.message)}`,
   );
 }
+
 if (result.failures.length > 0) {
   console.error(`\nFAIL (${result.failures.length}):`);
+
   for (const failure of result.failures) console.error(`  - ${failure}`);
   process.exit(1);
 }
+
 console.log("\nOK: every report carried usable text and no user content.");

@@ -38,8 +38,14 @@ if [[ -n "${REVIEW_DESKTOP_CURATED_EXTENSION_TARGET:-}" ]]; then
   node "$APP_DIR/scripts/curated-extensions.mjs" \
     "--target=$REVIEW_DESKTOP_CURATED_EXTENSION_TARGET"
 elif [[ "$DEV_FAST_ACTIVE" == "1" ]]; then
+  DEV_FAST_EXTENSIONS_SELECTION="${DEV_REVIEW_EXTENSIONS:-all}"
   node "$APP_DIR/scripts/curated-extensions.mjs" \
-    "--only=${DEV_REVIEW_EXTENSIONS:-all}"
+    "--only=$DEV_FAST_EXTENSIONS_SELECTION"
+  # run.sh follows this script in `pnpm dev`; leave the selection it
+  # materialized so run.sh's own freshness check can skip the repeat call.
+  mkdir -p "$CHECKOUT/.build/dev-fast"
+  echo "$DEV_FAST_EXTENSIONS_SELECTION" \
+    >"$CHECKOUT/.build/dev-fast/curated-extensions.stamp"
 else
   node "$APP_DIR/scripts/curated-extensions.mjs"
 fi
@@ -55,9 +61,9 @@ if [[ "${REVIEW_DESKTOP_COMPILE_ONLY:-0}" != "1" ]]; then
   if [[ ! -x "$EXPECTED_BINARY" ]]; then
     npm run electron
   fi
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS 26 renders the app icon from a compiled asset catalog; code-oss's packaging
-    # only installs the .icns, so add the catalog to the bundle it just produced.
+  if [[ "$OSTYPE" == "darwin"* && "$DEV_FAST_ACTIVE" != "1" ]]; then
+    # Dev launches use Electron's packaged static .icns. Install the adaptive
+    # asset catalog only for full builds, avoiding actool and signing on restart.
     node "$APP_DIR/scripts/apply-app-icon.mjs" "$CHECKOUT/.build/electron/$PRODUCT_APP.app"
   fi
 fi
@@ -116,11 +122,9 @@ else
 fi
 if [[ "$DEV_FAST_ACTIVE" != "1" ]]; then
   if [[ -n "${REVIEW_POSTHOG_KEY:-}" ]]; then
-    node "$MONOREPO_ROOT/packages/progressive-review/scripts/embed-posthog-key.mjs"
+    node "$MONOREPO_ROOT/packages/review/scripts/embed-posthog-key.mjs"
   fi
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
+  rebuild_review_desktop_outputs "$MONOREPO_ROOT" "$MONOREPO_ROOT/packages/review"
   node "$APP_DIR/scripts/copy-canvas.mjs"
 fi
 if [[ -n "$TYPECHECK_PID" ]]; then

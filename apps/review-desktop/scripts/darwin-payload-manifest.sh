@@ -10,9 +10,9 @@ DARWIN_PAYLOAD_REQUIRED_PATHS=(
   "apps/review-desktop/code-oss/out-vscode-min"
   "apps/review-desktop/code-oss/.build/extensions"
   "$DARWIN_PAYLOAD_CURATED_EXTENSIONS_PATH"
-  "packages/progressive-review/app/dist/desktop"
-  "packages/progressive-review/dist"
-  "packages/progressive-review/tutorial"
+  "packages/review/app/dist/desktop"
+  "packages/review/dist"
+  "packages/review/tutorial"
   "packages/local-vcs/dist"
 )
 

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 5,
+  "uuid": "7fa9af80-0f16-4652-b4ac-fe2fde5e4b9b",
+  "repoKey": "6bfb46346345e806bc8a7db2",
+  "worktreePath": "<worktree>",
+  "baseRef": "c87b5f3a0bee20d6d40370167baf0267d86d43e9",
+  "baseCommit": "c87b5f3a0bee20d6d40370167baf0267d86d43e9",
+  "sourceCommit": "0c0d7943dcb451eda89621ef2c9965269dfeb040",
+  "sourceIdentity": {
+    "kind": "git-branch",
+    "name": "0c0d7943dcb451eda89621ef2c9965269dfeb040"
+  },
+  "pullRequestNumber": 7,
+  "pullRequestUrl": "https://github.com/devdotfast/review/pull/7",
+  "title": "Bug reports: screenshots and simpler consent",
+  "sourceSession": "codex:01a017b1-385f-73f1-b4d5-33d2a6a9d3b4",
+  "agentSessions": {
+    "codex:01a017b1-385f-73f1-b4d5-33d2a6a9d3b4": {
+      "roles": ["author"],
+      "firstSeenAt": "2026-08-19T01:44:45.555Z",
+      "lastSeenAt": "2026-08-19T01:44:45.555Z"
+    },
+    "codex:01a016ab-5f0a-7b01-9b48-a3eba2efeefa": {
+      "roles": ["publisher"],
+      "firstSeenAt": "2026-08-19T01:45:23.710Z",
+      "lastSeenAt": "2026-08-19T01:45:23.710Z"
+    }
+  },
+  "status": "awaiting-review",
+  "presentedDocumentRevision": "<document-revision>",
+  "presentedSoftwareMapRevision": null,
+  "createdAt": "2026-08-19T01:44:45.555Z",
+  "lastPublishedAt": "2026-08-19T01:45:25.894Z",
+  "viewedAt": "2026-08-19T01:45:38.201Z",
+  "dismissedAt": null
+}

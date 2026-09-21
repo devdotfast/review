@@ -8,10 +8,8 @@ Review-owned workbench code lives directly in `code-oss/src/vs/review/`. See
 One desktop window owns one embedded global server. The app opens on Home with
 no repository. It opens pinned review worktrees only when a review needs them.
 Home scans `${DEV_REVIEW_HOME:-~/.dev}/reviews/*/review.json`; opening a review
-creates an in-memory active session rooted at that review's repository, while
-`review publish` validates and seals the revision in the CLI and asks the
-desktop (via `/publish-ready`) to materialize it, mount it off-screen, and
-promote it only when that mount is clean. Session URLs are routes on that global server; session-scoped
+creates an in-memory active session rooted at that review's repository.
+Session URLs are routes on that global server; session-scoped
 document caches, file watchers, and event clients do not bind their own ports
 or create additional HTTP servers.
 
@@ -71,19 +69,27 @@ an attached Desktop client before it reports readiness.
 Tests can set `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT` to keep the Code OSS profile
 under an isolated directory.
 
-Run `review app pick [--review <uuid>]` after publication. Bare `review app`
-starts the app. `review info` and `review publish` do not start it.
-
-Create and publish reviews independently from any worktree:
-
-```sh
-pnpm --filter @dev.fast/review review info
-pnpm --filter @dev.fast/review review publish
-```
+Run `review app pick [--review <uuid>]` to select a review. Bare `review app`
+starts the app. `review info` does not start it.
 
 Home lists review descriptors derived from `review.json`. Missing worktrees or
 documents remain visible but disabled. Reopening creates a desktop-owned active
 session; candidates never appear on Home.
+
+### Legacy review import
+
+Reviews published from MDX before this release were imported into the JSON
+review store when Home lists them or when they are opened. A review is
+imported once its uuid has a row in the store: Home then shows only the JSON
+entry, and opening routes to the JSON canvas. Every sealed revision becomes a
+store version. Nothing is written back into the legacy review directory. A
+review whose repository is no longer on this machine stays legacy.
+
+### End-to-end checks
+
+The manual end-to-end journeys live in `scripts/e2e/`; each one drives the
+built Desktop through the installed CLI and the JSON review API. See
+`scripts/e2e/TESTING.md` for how to stage a runtime and run them.
 
 ## Packaging and releases
 
@@ -135,6 +141,43 @@ patch/minor/major bump. The workflow:
 6. curls the live feed to confirm the new release is served, attaches the dmg
    to the GitHub release, and publishes it.
 
+### Promoting a preview to stable
+
+A preview that has been running well can be released as the stable build
+instead of cutting a fresh one from whatever `main` now holds:
+
+```sh
+gh workflow run review-desktop-preview.yml -f ref=main
+# ...then, with the tag that run pushed:
+gh workflow run review-desktop-release.yml \
+  -f bump=patch -f release_source=preview \
+  -f preview_tag=v0.0.32-preview.20260907.7
+```
+
+`release_source: preview` requires `preview_tag` and accepts only a `patch`
+bump. The tag needs to be on `main`, but **not** at its tip: whatever merged
+after the preview published stays out of the release, because a promotion ships
+the commit that was actually tested. The stable version comes from the tag
+(`v0.0.32` above) and must be the next patch, which is what rejects a preview
+that predates another release — publish a new one in that case.
+
+So `vX.Y.Z` marks the commit that shipped, which for a promotion is behind
+`main` by however much landed in the meantime. `main` still gets its
+`chore(review-desktop): bump version` commit, because the next release derives
+its version from there; that commit is bookkeeping, not the released tree.
+Checking out `vX.Y.Z` therefore gives you the released source with the previous
+version still in `package.json` — the build stamps the release version in, the
+same way a preview build stamps its own.
+
+Promotion rebuilds from source. Preview and stable are different applications —
+separate bundle identifier, application name, data folders, URL scheme, and
+update feed — so the stable run stamps stable identity onto that commit and
+takes the same build, sign, notarize, upload, and publish path as any release.
+No preview binary is relabelled.
+
+A dry run makes no remote change, and builds the same commit under the same
+stamp a real promotion would.
+
 ### Preview builds
 
 Run the **Review Desktop Preview** workflow from `main`, and pass the branch,
@@ -144,9 +187,14 @@ tag, or commit to build as its `ref` input:
 gh workflow run review-desktop-preview.yml -f ref=<branch>
 ```
 
-The workflow makes no commit, tag, or GitHub release. It stamps the working
+The workflow makes no commit and no GitHub release. It stamps the working
 tree with the next patch version plus
 `-preview.<yyyymmdd>.<run-number>`, then publishes only to preview R2 keys.
+Once the upload, the update feed, and the installer landing all check out, it
+pushes a lightweight `v<version>` tag at the commit it built — but only when
+that commit is on `main`, since a branch that never landed cannot be promoted.
+That tag is what "Promoting a preview to stable" above takes as its
+`preview_tag`, and it stays promotable as `main` moves on.
 The ref must include the preview tooling, so branch it from a `main` that
 already contains this workflow and its scripts. Updates are keyed by commit;
 publishing an older commit intentionally rolls preview installations back to
@@ -310,7 +358,8 @@ Software Map defaults to off. Enable it to add the Map tab to reviews.
 Disable it to remove Map entry points. This preference persists in the
 application profile. The change does not require a reload.
 
-Trace capture defaults to off and is not part of onboarding. Enabling it
+Trace capture defaults to off. The tutorial includes an interactive sample
+quote and points to Settings for capture setup. Enabling capture
 takes S3/R2 credentials, installs the agent session hooks and the
 `trace-archaeology` skill for every installed agent, and lets reviews quote
 agent sessions. Disabling removes the hooks and skill again. The state lives
@@ -357,11 +406,11 @@ Known limits:
 - Imported bindings for commands Review does not register (for example Git,
   terminal, task, or debug commands) remain inert.
 - The Review canvas is an iframe, so Vim and Emacs keymaps apply to workbench
-  file, diff, and multi-diff editors, not the canvas's inline comment editors.
+  file, diff, and multi-diff editors, not text fields inside the canvas.
 
 ## Development and validation
 
-Canvas changes need `pnpm --filter @dev.fast/review app:desktop:build` and a
+Canvas changes need `pnpm --filter @dev.fast/review-canvas build` and a
 window reload. For fork workbench changes, run the incremental compiler in a
 separate terminal, edit under `code-oss/src/vs/review/`, then use **Developer:
 Reload Window**:
@@ -439,3 +488,10 @@ renderer process and the embedded Review server ready event to appear. Smoke
 failures include the captured main log. The release workflow runs it after
 `validate-release-artifacts.mjs` and before the R2 upload. Point it at a local
 bundle with `--app` when packaging by hand.
+
+## Linux distribution
+
+Linux x86-64 packaging, repository signing, setup, and release validation are
+documented in [the Linux release runbook](scripts/linux/README.md). The native
+packages expose `review` as the bundled agent CLI and `review-desktop` as the app
+launcher. Updates use DNF; Review links to package-manager instructions.

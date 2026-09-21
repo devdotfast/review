@@ -21,12 +21,13 @@ import { Severity, NotificationsFilter, NotificationPriority, withSeverityPrefix
 import { ScrollbarVisibility } from '../../../../base/common/scrollable.js';
 import { ILifecycleService, LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
 import { IHostService } from '../../../services/host/browser/host.js';
-import { IntervalCounter } from '../../../../base/common/async.js';
+import { disposableTimeout, IntervalCounter } from '../../../../base/common/async.js';
 import { assertReturnsDefined } from '../../../../base/common/types.js';
 import { NotificationsToastsVisibleContext } from '../../../common/contextkeys.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import { DEFAULT_CUSTOM_TITLEBAR_HEIGHT } from '../../../../platform/window/common/window.js';
 
 interface INotificationToast {
@@ -70,8 +71,10 @@ export class NotificationsToasts extends Themable implements INotificationsToast
 	private workbenchDimensions: Dimension | undefined;
 	private isNotificationsCenterVisible: boolean | undefined;
 
+	private readonly fadingToasts = new Set<INotificationViewItem>();
+
 	private readonly mapNotificationToToast = new Map<INotificationViewItem, INotificationToast>();
-	private readonly mapNotificationToDisposable = new Map<INotificationViewItem, IDisposable>();
+	private readonly mapNotificationToDisposable = new Map<INotificationViewItem, DisposableStore>();
 
 	private readonly notificationsToastsVisibleContextKey: IContextKey<boolean>;
 
@@ -88,7 +91,8 @@ export class NotificationsToasts extends Themable implements INotificationsToast
 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
 		@IHostService private readonly hostService: IHostService,
 		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
-		@IConfigurationService private readonly configurationService: IConfigurationService
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
 	) {
 		super(themeService);
 
@@ -392,7 +396,19 @@ export class NotificationsToasts extends Themable implements INotificationsToast
 		disposables.add(toDisposable(() => clearTimeout(purgeTimeoutHandle)));
 	}
 
-	private removeToast(item: INotificationViewItem): void {
+	private removeToast(item: INotificationViewItem, afterFade = false): void {
+		const toast = this.mapNotificationToToast.get(item);
+		if (toast && !afterFade && !this.accessibilityService.isMotionReduced()) {
+			if (this.fadingToasts.has(item)) {
+				return;
+			}
+			this.fadingToasts.add(item);
+			toast.toast.classList.add('notification-fade-out');
+			toast.toast.style.pointerEvents = 'none';
+			disposableTimeout(() => this.removeToast(item, true), 150, this.mapNotificationToDisposable.get(item));
+			return;
+		}
+		this.fadingToasts.delete(item);
 		let focusEditor = false;
 
 		// UI
@@ -433,6 +449,7 @@ export class NotificationsToasts extends Themable implements INotificationsToast
 	private removeToasts(): void {
 
 		// Toast
+		this.fadingToasts.clear();
 		this.mapNotificationToToast.clear();
 
 		// Disposables

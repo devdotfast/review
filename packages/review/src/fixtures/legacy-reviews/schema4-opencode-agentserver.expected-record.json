@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 5,
+  "uuid": "87d4fa3d-0b20-44ee-9fc3-736cd7c72cbf",
+  "repoKey": "1fcd16580bc4b85d81813cf2",
+  "worktreePath": "<worktree>",
+  "baseRef": "9243adcfcdeba20c247ed3930a0f1a4f0676976e",
+  "baseCommit": "9243adcfcdeba20c247ed3930a0f1a4f0676976e",
+  "sourceCommit": "7feca67370cdb24cd8e58d09afc1d3c11ffef261",
+  "sourceIdentity": {
+    "kind": "git-branch",
+    "name": "refs/dev-fast/reviews/pr-84/head"
+  },
+  "pullRequestNumber": 84,
+  "pullRequestUrl": "https://github.com/devdotfast/review/pull/84",
+  "title": "OpenCode on AgentServer",
+  "sourceSession": "claude-code:1bc7001d-4f98-41ba-bb53-02ca2eb34d29",
+  "agentSessions": {
+    "claude-code:1bc7001d-4f98-41ba-bb53-02ca2eb34d29": {
+      "roles": ["author"],
+      "firstSeenAt": "2026-09-03T17:49:17.887Z",
+      "lastSeenAt": "2026-09-03T17:49:17.887Z"
+    },
+    "claude-code:34b71e64-3633-4fe2-b585-56d39f454bf9": {
+      "roles": ["publisher"],
+      "firstSeenAt": "2026-09-03T17:54:13.216Z",
+      "lastSeenAt": "2026-09-03T17:54:20.947Z"
+    }
+  },
+  "status": "awaiting-review",
+  "presentedDocumentRevision": "<document-revision>",
+  "presentedSoftwareMapRevision": "<map-revision>",
+  "createdAt": "2026-09-03T17:49:17.887Z",
+  "lastPublishedAt": "2026-09-03T17:54:16.355Z",
+  "viewedAt": "2026-09-03T17:54:27.243Z",
+  "dismissedAt": null
+}

@@ -151,7 +151,7 @@ export class ReviewMenubarMainService
         label: localize("review.menu.find", "Find"),
         accelerator: "Command+F",
         // Show the standard shortcut in the native menu, but let the focused
-        // renderer resolve it. Terminal, tree, webview, notebook, source, and
+        // renderer resolve it. Tree, webview, notebook, source, and
         // Review each own a context-specific Find command.
         registerAccelerator: false,
         click: () => this.runActionInFocusedWindow("review.action.find"),

@@ -10,6 +10,7 @@ test("cleans generated Desktop artifacts but preserves authored Reviews", async 
   const root = await mkdtemp(path.join(tmpdir(), "review-desktop-clean-"));
   const reviewHome = path.join(root, "review-home");
   const targets = cleanTargets({ root, reviewHome });
+
   const authoredReview = path.join(
     reviewHome,
     "reviews",
@@ -21,6 +22,7 @@ test("cleans generated Desktop artifacts but preserves authored Reviews", async 
     await mkdir(target, { recursive: true });
     await writeFile(path.join(target, "generated"), "generated");
   }
+
   await mkdir(path.dirname(authoredReview), { recursive: true });
   await writeFile(authoredReview, "# Review");
 
@@ -29,6 +31,7 @@ test("cleans generated Desktop artifacts but preserves authored Reviews", async 
   for (const target of targets) {
     assert.equal(await exists(target), false, `${target} should be removed`);
   }
+
   assert.equal(await exists(authoredReview), true);
 });
 
@@ -44,6 +47,7 @@ test("cleanTargets removes the generated protocol overlay", () => {
 async function exists(target) {
   try {
     await import("node:fs/promises").then(({ access }) => access(target));
+
     return true;
   } catch {
     return false;

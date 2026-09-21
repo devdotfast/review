@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "reviewFiles": ["document.json", "trace.json", "software-map.json"],
+  "requiredPaths": [
+    "sample-service/package.json",
+    "document.json",
+    "trace.json",
+    "software-map.json",
+    "pins.json",
+    "git-stub/HEAD"
+  ]
+}

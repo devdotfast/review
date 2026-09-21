@@ -28,6 +28,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch legacy Review fixture commits
+        shell: bash
+        run: |
+          mapfile -t fixture_commits < <(
+            jq -r '
+              select(.sourceRepository == "devdotfast/review") |
+              .baseCommit, .sourceCommit
+            ' packages/review/src/fixtures/legacy-reviews/*.json |
+              sort -u
+          )
+          test "${#fixture_commits[@]}" -gt 0
+          git fetch --no-tags origin "${fixture_commits[@]}"
+          for commit in "${fixture_commits[@]}"; do
+            git cat-file -e "${commit}^{commit}"
+          done
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -40,6 +58,24 @@ jobs:
 
       - name: Install monorepo dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright Chromium
+        id: playwright-chromium
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-chromium.outputs.cache-hit != 'true'
+        run: pnpm --filter @dev.fast/review-canvas exec playwright install chromium --only-shell
+
+      - name: Save Playwright Chromium
+        if: steps.playwright-chromium.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Lint
         run: pnpm lint
@@ -57,7 +93,10 @@ jobs:
           echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev xvfb python3
+
+      - name: Install Playwright Chromium system dependencies
+        run: pnpm --filter @dev.fast/review-canvas exec playwright install-deps chromium
 
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -126,3 +165,35 @@ jobs:
 
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
+
+      - name: Configure Electron sandbox
+        run: |
+          sudo chown root:root apps/review-desktop/code-oss/.build/electron/chrome-sandbox
+          sudo chmod 4755 apps/review-desktop/code-oss/.build/electron/chrome-sandbox
+
+      - name: Desktop language services E2E
+        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
+
+      - name: Upload Desktop language services diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-lsp-diagnostics
+          path: |
+            /tmp/review-lsp-*/report.json
+            /tmp/review-lsp-*/*.png
+            /tmp/review-lsp-*/failure-dom.txt
+            /tmp/review-lsp-*/app.log
+            /tmp/review-lsp-*/profile/logs
+          if-no-files-found: ignore
+
+      - name: Upload browser test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vitest-browser-diagnostics
+          path: |
+            packages/review/app/.vitest-attachments
+            packages/review/**/__screenshots__
+            packages/review/**/__traces__
+          if-no-files-found: ignore

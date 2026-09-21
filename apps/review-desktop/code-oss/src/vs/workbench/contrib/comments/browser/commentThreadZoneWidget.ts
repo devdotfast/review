@@ -18,7 +18,7 @@ import { IColorTheme, IThemeService } from '../../../../platform/theme/common/th
 import { CommentGlyphWidget } from './commentGlyphWidget.js';
 import { ICommentService } from './commentService.js';
 import { ICommentThreadWidget } from '../common/commentThreadWidget.js';
-import { EditorLayoutInfo, EditorOption } from '../../../../editor/common/config/editorOptions.js';
+import { EditorOption } from '../../../../editor/common/config/editorOptions.js';
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import { CommentThreadWidget } from './commentThreadWidget.js';
 import { commentThreadStateBackgroundColorVar, commentThreadStateColorVar, getCommentThreadStateBorderColor } from './commentColors.js';
@@ -137,25 +137,6 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 	}
 
 	private _commentOptions: languages.CommentOptions | undefined;
-
-	protected override _getWidth(info: EditorLayoutInfo): number {
-		const width = super._getWidth(info);
-		if (this._commentOptions?.compactThreadWidget) {
-			const editorNode = this.editor.getDomNode();
-			const inlineEditorNode = editorNode?.closest<HTMLElement>('.review-inline-code-editor');
-			const diffEditorNode = editorNode?.closest<HTMLElement>('.monaco-diff-editor');
-			const diffOverviewWidth = inlineEditorNode && diffEditorNode && editorNode
-				? Math.max(0, diffEditorNode.getBoundingClientRect().right - editorNode.getBoundingClientRect().right)
-				: 0;
-			this.domNode.style.setProperty(
-				'--compact-comment-thread-inline-end-reserve',
-				`${info.width - width + diffOverviewWidth}px`
-			);
-		} else {
-			this.domNode.style.removeProperty('--compact-comment-thread-inline-end-reserve');
-		}
-		return width;
-	}
 
 	constructor(
 		editor: ICodeEditor,
@@ -415,9 +396,6 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 		if (this._commentGlyph) {
 			const hasDraft = commentThreadHasDraft(commentThread);
 			this._commentGlyph.setThreadState(commentThread.state, hasDraft);
-			this._commentGlyph.setIsCommenting(
-				!!this._commentOptions?.compactThreadWidget && !commentThread.comments?.length
-			);
 			if (this._commentGlyph.getPosition().position!.lineNumber !== lineNumber) {
 				shouldMoveWidget = true;
 				this._commentGlyph.setLineNumber(lineNumber);
@@ -441,11 +419,7 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 
 	async display(range: IRange | undefined, shouldReveal: boolean) {
 		if (range) {
-			this._commentGlyph = new CommentGlyphWidget(
-				this.editor,
-				range?.endLineNumber ?? -1,
-				!!this._commentOptions?.compactThreadWidget && !this._commentThread.comments?.length
-			);
+			this._commentGlyph = new CommentGlyphWidget(this.editor, range?.endLineNumber ?? -1);
 			const hasDraft = commentThreadHasDraft(this._commentThread);
 			this._commentGlyph.setThreadState(this._commentThread.state, hasDraft);
 			this._globalToDispose.add(this._commentGlyph.onDidChangeLineNumber(async e => {
@@ -504,15 +478,14 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 
 
 		this._commentThreadDisposables.push(this._commentThread.onDidChangeState(() => {
-			const stateColor =
+			const borderColor =
 				getCommentThreadWidgetStateColor(this._commentThread.state, this.themeService.getColorTheme()) || Color.transparent;
-			const frameColor = this._commentOptions?.compactThreadWidget ? Color.transparent : stateColor;
 			this.style({
-				frameColor,
-				arrowColor: frameColor,
+				frameColor: borderColor,
+				arrowColor: borderColor,
 			});
-			this.container?.style.setProperty(commentThreadStateColorVar, `${stateColor}`);
-			this.container?.style.setProperty(commentThreadStateBackgroundColorVar, `${stateColor.transparent(.1)}`);
+			this.container?.style.setProperty(commentThreadStateColorVar, `${borderColor}`);
+			this.container?.style.setProperty(commentThreadStateBackgroundColorVar, `${borderColor.transparent(.1)}`);
 		}));
 	}
 
@@ -528,12 +501,10 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 		if (this._isExpanded) {
 			this._commentThreadWidget.layout();
 
-			const headHeight = this._commentOptions?.compactThreadWidget
-				? 32
-				: Math.ceil(this.editor.getOption(EditorOption.lineHeight) * 1.2);
+			const headHeight = Math.ceil(this.editor.getOption(EditorOption.lineHeight) * 1.2);
 			const lineHeight = this.editor.getOption(EditorOption.lineHeight);
-			const arrowHeight = this._commentOptions?.compactThreadWidget ? 0 : Math.round(lineHeight / 3);
-			const frameThickness = this._commentOptions?.compactThreadWidget ? 0 : Math.round(lineHeight / 9) * 2;
+			const arrowHeight = Math.round(lineHeight / 3);
+			const frameThickness = Math.round(lineHeight / 9) * 2;
 
 			const computedLinesNumber = Math.ceil((headHeight + dimensions.height + arrowHeight + frameThickness + 8 /** margin bottom to avoid margin collapse */) / lineHeight);
 
@@ -554,11 +525,10 @@ export class ReviewZoneWidget extends ZoneWidget implements ICommentThreadWidget
 	}
 
 	private _applyTheme() {
-		const stateColor = getCommentThreadWidgetStateColor(this._commentThread.state, this.themeService.getColorTheme()) || Color.transparent;
-		const frameColor = this._commentOptions?.compactThreadWidget ? Color.transparent : stateColor;
+		const borderColor = getCommentThreadWidgetStateColor(this._commentThread.state, this.themeService.getColorTheme()) || Color.transparent;
 		this.style({
-			arrowColor: frameColor,
-			frameColor
+			arrowColor: borderColor,
+			frameColor: borderColor
 		});
 		const fontInfo = this.editor.getOption(EditorOption.fontInfo);
 

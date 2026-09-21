@@ -75,6 +75,10 @@
     "jsx-a11y/prefer-tag-over-role": "off",
     "jsx-a11y/role-has-required-aria-props": "off",
     "no-unmodified-loop-condition": "off",
+    "oxc/no-accumulating-spread": "error",
+    "anti-slop/no-array-filter-map": "error",
+    "anti-slop/no-reduce-accumulator-copy": "error",
+    "anti-slop/require-readable-spacing": "error",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
@@ -105,9 +109,21 @@
       }
     },
     {
-      "files": ["packages/review-protocol/src/runtime-value.ts"],
+      "files": ["packages/json/src/runtime-value.ts"],
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
+      }
+    },
+    {
+      "files": ["packages/trace-core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": ["@dev.fast/review"],
+            "patterns": ["@dev.fast/review/*", "**/review/**"]
+          }
+        ]
       }
     }
   ]

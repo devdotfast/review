@@ -29,5 +29,6 @@ export function assertReleaseChannel(channel) {
 
 export function releaseIdentityFor(channel) {
   assertReleaseChannel(channel);
+
   return RELEASE_IDENTITIES[channel];
 }

@@ -30,23 +30,33 @@ import { parseArgs } from "node:util";
 
 export const ICONS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../packages/progressive-review/app/icons",
+  "../../../packages/review/app/icons",
 );
+
 export const ICON_SOURCE = path.join(ICONS_DIR, "dev-fast.icon");
+
 export const CATALOG = path.join(ICONS_DIR, "Assets.car");
+
 export const SOURCE_DIGEST = path.join(ICONS_DIR, "Assets.car.source-sha256");
+
 export const ICON_NAME = "dev-fast";
+
 export const PREVIEW_ICON_SOURCE = path.join(
   ICONS_DIR,
   "dev-fast-preview.icon",
 );
+
 export const PREVIEW_CATALOG = path.join(ICONS_DIR, "Assets-preview.car");
+
 export const PREVIEW_SOURCE_DIGEST = path.join(
   ICONS_DIR,
   "Assets-preview.car.source-sha256",
 );
+
 export const PREVIEW_FALLBACK = path.join(ICONS_DIR, "dev-fast-preview.icns");
+
 export const PREVIEW_ICON_NAME = "dev-fast-preview";
+
 export const DEPLOYMENT_TARGET = "26.0";
 
 export const ICON_VARIANTS = Object.freeze({
@@ -69,11 +79,13 @@ export const ICON_VARIANTS = Object.freeze({
 
 export function getIconVariant(channel = "stable") {
   const variant = ICON_VARIANTS[channel];
+
   if (!variant) {
     throw new Error(
       `icon channel must be one of stable or preview, received ${JSON.stringify(channel)}`,
     );
   }
+
   return variant;
 }
 
@@ -83,16 +95,19 @@ export function hashIconSource(dir = ICON_SOURCE) {
   (function walk(current) {
     for (const entry of readdirSync(current).sort()) {
       const full = path.join(current, entry);
+
       if (statSync(full).isDirectory()) walk(full);
       else files.push(full);
     }
   })(dir);
 
   const hash = createHash("sha256");
+
   for (const file of files) {
     hash.update(path.relative(dir, file));
     hash.update(readFileSync(file));
   }
+
   return hash.digest("hex");
 }
 
@@ -121,7 +136,9 @@ export function compileCatalog(
     ],
     { encoding: "utf8" },
   );
+
   const compiled = path.join(outDir, "Assets.car");
+
   // Older actool exits zero while emitting nothing, so trust the output not the status.
   return result.status === 0 && existsSync(compiled) ? compiled : null;
 }
@@ -132,12 +149,14 @@ function main() {
       channel: { type: "string", default: "stable" },
     },
   });
+
   const variant = getIconVariant(values.channel);
 
   if (process.platform !== "darwin") {
     console.error("build-app-icon-catalog: macOS only");
     process.exit(1);
   }
+
   if (!existsSync(variant.iconSource)) {
     console.error(
       "build-app-icon-catalog: no icon source at " + variant.iconSource,
@@ -146,34 +165,42 @@ function main() {
   }
 
   const workDir = mkdtempSync(path.join(tmpdir(), "app-icon-catalog-"));
+
   try {
     const compiled = compileCatalog(
       workDir,
       variant.iconSource,
       variant.iconName,
     );
+
     if (!compiled) {
       console.error(
         "build-app-icon-catalog: actool could not compile the .icon; this needs Xcode 26",
       );
       process.exit(1);
     }
+
     copyFileSync(compiled, variant.catalog);
+
     if (variant.fallback) {
       const compiledFallback = path.join(workDir, `${variant.iconName}.icns`);
+
       if (!existsSync(compiledFallback)) {
         console.error(
           "build-app-icon-catalog: actool did not emit " + compiledFallback,
         );
         process.exit(1);
       }
+
       copyFileSync(compiledFallback, variant.fallback);
     }
+
     writeFileSync(
       variant.sourceDigest,
       hashIconSource(variant.iconSource) + "\n",
     );
     const outputs = [variant.catalog, variant.sourceDigest];
+
     if (variant.fallback) outputs.push(variant.fallback);
     console.log(
       "build-app-icon-catalog: wrote " +

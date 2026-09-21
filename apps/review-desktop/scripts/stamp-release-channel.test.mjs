@@ -8,6 +8,7 @@ import { releaseIdentityFor } from "./release-channel.mjs";
 import { stampReleaseChannel } from "./stamp-release-channel.mjs";
 
 const temporaryRoots = [];
+
 after(async () => {
   await Promise.all(
     temporaryRoots.map((root) => rm(root, { recursive: true, force: true })),
@@ -22,6 +23,7 @@ async function writeFixtures(product) {
   await mkdir(path.dirname(productPath), { recursive: true });
   await writeFile(packagePath, '{"name":"fixture","version":"1.2.3"}\n');
   await writeFile(productPath, `${JSON.stringify(product, null, "\t")}\n`);
+
   return { packagePath, productPath };
 }
 
@@ -43,6 +45,7 @@ test("stamps the package version, review version, and release quality", async ()
   assert.equal(pkg.version, "1.2.4-preview.20260901.42");
   assert.equal(product.reviewVersion, "1.2.4-preview.20260901.42");
   assert.equal(product.quality, "preview");
+
   for (const [field, value] of Object.entries(releaseIdentityFor("preview"))) {
     assert.equal(product[field], value, field);
   }
@@ -60,6 +63,7 @@ test("defaults to the stable release quality", async () => {
   const product = JSON.parse(await readFile(paths.productPath, "utf8"));
   assert.equal(product.reviewVersion, "1.2.4");
   assert.equal(product.quality, "stable");
+
   for (const [field, value] of Object.entries(releaseIdentityFor("stable"))) {
     assert.equal(product[field], value, field);
   }
@@ -76,6 +80,7 @@ for (const marker of [
       reviewVersion: "1.2.3",
       quality: "stable",
     };
+
     delete product[marker];
     const paths = await writeFixtures(product);
 
@@ -97,6 +102,7 @@ test("rejects an unsupported release quality", async () => {
     reviewVersion: "1.2.3",
     quality: "stable",
   });
+
   assert.throws(
     () =>
       stampReleaseChannel({ version: "1.2.4", quality: "nightly", ...paths }),
@@ -110,5 +116,6 @@ test("requires a release version", async () => {
     reviewVersion: "1.2.3",
     quality: "stable",
   });
+
   assert.throws(() => stampReleaseChannel({ ...paths }), /version is required/);
 });

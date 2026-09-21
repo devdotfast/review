@@ -11,16 +11,16 @@ from pathlib import Path
 
 from review_latency.config import REPO_ROOT, SOURCE_CLI
 
-PACKAGE = REPO_ROOT / "packages" / "progressive-review"
-SKILL_DIRS = [PACKAGE / "skills" / "dev-review", PACKAGE / "skills" / "dev-review-map"]
+PACKAGE = REPO_ROOT / "packages" / "review"
+SKILL_DIRS = [PACKAGE / "skills" / "dev-review"]
 # What the agents actually read: the app-managed installed copies.
 INSTALLED_SKILLS = {
-    "claude": [Path.home() / ".claude" / "skills" / "dev-review", Path.home() / ".claude" / "skills" / "dev-review-map"],
-    "agents": [Path.home() / ".agents" / "skills" / "dev-review", Path.home() / ".agents" / "skills" / "dev-review-map"],
+    "claude": [Path.home() / ".claude" / "skills" / "dev-review"],
+    "agents": [Path.home() / ".agents" / "skills" / "dev-review"],
 }
 DOCS_DIR = REPO_ROOT / "docs"
-AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts", PACKAGE / "src" / "review-comment-schema.ts"]
-CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "threads", "wait", "rebind"]
+AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts"]
+CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "rebind"]
 
 
 def hash_paths(paths: list[Path]) -> str:
@@ -57,7 +57,7 @@ def surface_fingerprint(review_bin: str) -> dict:
         ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
     ).stdout.strip()
     dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--", "packages/progressive-review", "docs"],
+        ["git", "status", "--porcelain", "--", "packages/review", "docs"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

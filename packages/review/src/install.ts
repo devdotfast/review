@@ -1,0 +1,599 @@
+import { lstat, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import type { Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
+
+import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
+import {
+  type TraceCredentialsInput,
+  configureTraceMachine,
+  emitJsonEvent,
+  failWithJsonError,
+  humanStream,
+  installClaudeTraceHook,
+  installCodexTraceHook,
+  installOpenCodeTraceExtension,
+  installPiTraceExtension,
+  traceMachineEnabled,
+  writeFileAtomicAsync,
+} from "@dev.fast/trace-core";
+import { valid as validVersion } from "semver";
+
+import { installFffForTargets, isFffTarget } from "./agent-fff";
+import { isDirectory, isFile } from "./fs-utils";
+import { installDirectory } from "./install-directory";
+import { withSkillInstallLock } from "./skill-install-lock";
+
+export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
+
+const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-batch"] as const;
+
+// Installed only on machines that capture traces; removed when capture is
+// disabled so agents are not steered toward an unconfigured feature.
+const TRACE_SKILL_NAMES = ["trace-archaeology"] as const;
+
+const STALE_SKILL_NAMES = [
+  "dev-review-map",
+  "review",
+  "review-map",
+  "review-stop",
+  "progressive-review",
+  "pr-review",
+] as const;
+
+export const ALL_INSTALL_TARGETS: InstallTarget[] = [
+  "claude",
+  "codex",
+  "cursor",
+  "opencode",
+  "pi",
+];
+
+type InstalledItem = { kind: "skill" | "extension" | "plugin"; dest: string };
+
+const OPENCODE_PLUGIN_NAME = "review.ts";
+
+const OPENCODE_PLUGIN_MARKER = "Managed by Review Desktop (@dev.fast/review).";
+
+export function defaultPackageRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+export function isInstallTarget(value: string): value is InstallTarget {
+  return ALL_INSTALL_TARGETS.some((target) => target === value);
+}
+
+export interface RunInstallInput {
+  targets: InstallTarget[];
+  cwd?: string;
+  homeDir?: string;
+  packageRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  fff?: boolean;
+  /** Desktop reconciliation skips skills already at the bundled release. */
+  skipCurrentSkills?: boolean;
+  reviewCommand?: string;
+  trace?: {
+    credentials?: TraceCredentialsInput;
+    verify?: boolean;
+  };
+  json?: boolean;
+  stdout: Writable;
+  stderr: Writable;
+}
+
+export async function runInstall(input: RunInstallInput): Promise<number> {
+  return withSkillInstallLock(input.homeDir, () => runInstallUnlocked(input));
+}
+
+async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const packageRoot = input.packageRoot ?? defaultPackageRoot();
+  const env = input.env ?? process.env;
+  const human = humanStream(input);
+  let traceEnabled = false;
+
+  const skillsDir = path.join(packageRoot, "skills");
+  const skillDirs = await listSkillDirs(skillsDir);
+  const skillNames = new Set(skillDirs.map((skill) => skill.name));
+
+  const missingSkills = [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES].filter(
+    (name) => !skillNames.has(name),
+  );
+
+  if (missingSkills.length > 0) {
+    return failWithJsonError(
+      input,
+      "install",
+      `Bundled skills not found in ${skillsDir}: ${missingSkills.join(", ")}.`,
+    );
+  }
+
+  const openCodePluginSource = path.join(
+    packageRoot,
+    "plugins",
+    OPENCODE_PLUGIN_NAME,
+  );
+
+  if (
+    input.targets.includes("opencode") &&
+    !(await isFile(openCodePluginSource))
+  ) {
+    return failWithJsonError(
+      input,
+      "install",
+      `Bundled OpenCode plugin not found: ${openCodePluginSource}.`,
+    );
+  }
+
+  if (
+    input.targets.includes("opencode") &&
+    (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "unmanaged"
+  ) {
+    return failWithJsonError(
+      input,
+      "install",
+      `${openCodePluginPath(homeDir)} already exists and is not managed by Review.`,
+    );
+  }
+
+  // Check machine trace configuration before any per-agent mutation. A
+  // headless install with missing credentials must fail without a partial
+  // skills or FFF install.
+  if (input.trace) {
+    try {
+      const status = await configureTraceMachine({
+        homeDir,
+        env,
+        credentials: input.trace.credentials,
+        verify: input.trace.verify,
+      });
+
+      traceEnabled = status.enabled;
+      human.write(`[ok] trace capture -> ${status.envPath}\n`);
+
+      if (status.error) {
+        human.write(`Trace storage check failed: ${status.error}\n`);
+      }
+    } catch (cause) {
+      return failWithJsonError(
+        input,
+        "install",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    }
+  }
+
+  // Agent hooks only make sense when this machine captures traces. A
+  // previous install may already have enabled it without credentials in
+  // this request.
+  const installTraceHooks =
+    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+
+  const installed: InstalledItem[] = [];
+  const visitedRoots = new Set<string>();
+
+  for (const target of input.targets) {
+    const destRoot = skillsDestRoot(homeDir, target);
+
+    if (!visitedRoots.has(destRoot)) {
+      visitedRoots.add(destRoot);
+      await removeStaleSkills(destRoot);
+
+      for (const skillDir of skillDirs) {
+        const skillDest = path.join(destRoot, skillDir.name);
+
+        if (isTraceSkill(skillDir.name) && !installTraceHooks) {
+          await rm(skillDest, { recursive: true, force: true });
+          continue;
+        }
+
+        if (input.skipCurrentSkills) {
+          const bundled = await readSkillVersion(
+            path.join(skillDir.src, "SKILL.md"),
+            skillDir.name,
+          );
+
+          if (!bundled)
+            throw new Error(
+              `Bundled skill ${skillDir.name} has no release version. Reinstall Review Desktop.`,
+            );
+
+          if (
+            (await readSkillVersion(
+              path.join(skillDest, "SKILL.md"),
+              skillDir.name,
+            )) === bundled
+          )
+            continue;
+        }
+
+        await installDirectory(skillDir.src, skillDest);
+        installed.push({ kind: "skill", dest: skillDest });
+      }
+    }
+
+    if (target === "opencode") {
+      const pluginDest = openCodePluginPath(homeDir);
+      await installFile(openCodePluginSource, pluginDest);
+      installed.push({ kind: "plugin", dest: pluginDest });
+    }
+
+    if (!installTraceHooks) continue;
+
+    if (target === "claude") {
+      await installClaudeTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "codex") {
+      await installCodexTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "opencode") {
+      await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
+    } else if (target === "pi") {
+      await installPiTraceExtension(homeDir, input.reviewCommand);
+    }
+  }
+
+  if (input.fff) {
+    const result = await installFffForTargets({
+      targets: input.targets.filter(isFffTarget),
+      homeDir,
+      env,
+      write: (text) => human.write(text),
+    });
+
+    if (!result.ok) {
+      return failWithJsonError(
+        input,
+        "install",
+        "Could not install the selected FFF integrations.",
+      );
+    }
+
+    installed.push(
+      ...result.created.map((registration) => ({
+        kind: "extension" as const,
+        dest: `${registration.target}:fff`,
+      })),
+    );
+  }
+
+  for (const item of installed) {
+    human.write(`[ok] ${item.kind} -> ${item.dest}\n`);
+  }
+
+  // Best-effort per-repo git-notes setup: notes.rewriteRef so git-native
+  // rebases/amends carry map notes, and the selected remote's fetch refspec so
+  // ordinary fetches receive teammates' notes. Never fails the install.
+  let gitNotesConfigured = false;
+
+  if (input.cwd) {
+    try {
+      const gitDir = await gitCommonDir(input.cwd);
+
+      if (gitDir) {
+        await ensureNotesConfig({ rootPath: input.cwd });
+        gitNotesConfigured = true;
+        human.write(`[ok] git notes config -> ${gitDir}\n`);
+      }
+    } catch {
+      // Repos without git (or without permissions) simply skip notes config.
+    }
+  }
+
+  const installedSkills = skillDirs.map((skill) => skill.name).join(", ");
+
+  if (input.targets.length > 0) {
+    human.write(
+      `\nInstalled Review skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
+        (input.targets.includes("codex")
+          ? "In Codex, invoke via /skills or the installed dev-review skill.\n"
+          : "") +
+        (input.targets.includes("cursor")
+          ? "In Cursor, invoke the skills from the / menu (for example /dev-review).\n"
+          : "") +
+        "Restart the agent (or open a new session) to pick up the changes.\n",
+    );
+  }
+
+  emitJsonEvent(input, {
+    event: "installed",
+    targets: input.targets,
+    skills: skillDirs.map((skill) => skill.name),
+    items: installed,
+    gitNotesConfigured,
+    traceEnabled,
+  });
+
+  return 0;
+}
+
+/** Removes the app-managed Review skills (current and stale names) for one agent. */
+export async function removeInstalledSkills(
+  target: InstallTarget,
+  homeDir = os.homedir(),
+): Promise<void> {
+  return withSkillInstallLock(homeDir, () =>
+    removeInstalledSkillsUnlocked(target, homeDir),
+  );
+}
+
+async function removeInstalledSkillsUnlocked(
+  target: InstallTarget,
+  homeDir: string,
+): Promise<void> {
+  const destRoot = skillsDestRoot(homeDir, target);
+
+  for (const name of [
+    ...REQUIRED_SKILL_NAMES,
+    ...TRACE_SKILL_NAMES,
+    ...STALE_SKILL_NAMES,
+  ]) {
+    await rm(path.join(destRoot, name), { recursive: true, force: true });
+  }
+
+  if (
+    target === "opencode" &&
+    (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "managed"
+  ) {
+    await rm(openCodePluginPath(homeDir), { force: true });
+  }
+}
+
+export async function removeTraceSkills(
+  target: InstallTarget,
+  homeDir = os.homedir(),
+): Promise<void> {
+  return withSkillInstallLock(homeDir, () =>
+    removeTraceSkillsUnlocked(target, homeDir),
+  );
+}
+
+async function removeTraceSkillsUnlocked(
+  target: InstallTarget,
+  homeDir: string,
+): Promise<void> {
+  const destRoot = skillsDestRoot(homeDir, target);
+
+  for (const name of TRACE_SKILL_NAMES) {
+    await rm(path.join(destRoot, name), { recursive: true, force: true });
+  }
+}
+
+function isTraceSkill(name: string): boolean {
+  return TRACE_SKILL_NAMES.some((skill) => skill === name);
+}
+
+export async function detectInstalledTargets(
+  homeDir = os.homedir(),
+): Promise<InstallTarget[]> {
+  const knownSkillNames = [
+    ...REQUIRED_SKILL_NAMES,
+    ...TRACE_SKILL_NAMES,
+    ...STALE_SKILL_NAMES,
+  ];
+
+  const installed: InstallTarget[] = [];
+
+  for (const target of ALL_INSTALL_TARGETS) {
+    const destRoot = skillsDestRoot(homeDir, target);
+
+    if (target === "opencode") {
+      const skillsPresent = await Promise.all(
+        REQUIRED_SKILL_NAMES.map((name) =>
+          hasValidSkillFile(path.join(destRoot, name, "SKILL.md"), name),
+        ),
+      );
+
+      if (
+        skillsPresent.every(Boolean) &&
+        (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "managed"
+      ) {
+        installed.push(target);
+      }
+
+      continue;
+    }
+
+    const found = await Promise.all(
+      knownSkillNames.map((name) => isDirectory(path.join(destRoot, name))),
+    );
+
+    if (found.some(Boolean)) installed.push(target);
+  }
+
+  return installed;
+}
+
+export interface InstalledSkillStatus {
+  target: InstallTarget;
+  name: string;
+  installedVersion: string | null;
+  bundledVersion: string | null;
+  stale: boolean;
+  error?: string;
+}
+
+/** Missing or malformed generated metadata is an unstamped legacy install. */
+export async function readSkillVersion(
+  file: string,
+  name: string,
+): Promise<string | null> {
+  try {
+    if (!(await hasValidSkillFile(file, name))) return null;
+    const source = await readFile(file, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
+
+    const metadata = frontmatter?.match(
+      /^metadata:\r?\n((?:[ \t]+[^\n]*(?:\n|$))*)/m,
+    )?.[1];
+
+    if (
+      !metadata ||
+      !/^  review-managed-by: "Review Desktop"\r?$/m.test(metadata) ||
+      !/^  review-generated: "[^"\r\n]+"\r?$/m.test(metadata)
+    )
+      return null;
+
+    const version = metadata.match(
+      /^  review-version: "([^"\r\n]+)"\r?$/m,
+    )?.[1];
+
+    return version && (version === "development" || validVersion(version))
+      ? version
+      : null;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+
+export async function resolveInstalledSkills(input: {
+  packageRoot: string;
+  homeDir: string;
+  targets: InstallTarget[];
+  traceEnabled: boolean;
+}): Promise<InstalledSkillStatus[]> {
+  const names: readonly string[] = input.traceEnabled
+    ? [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES]
+    : REQUIRED_SKILL_NAMES;
+
+  return Promise.all(
+    input.targets.flatMap((target) =>
+      names.map(async (name) => {
+        const bundledVersion = await readSkillVersion(
+          path.join(input.packageRoot, "skills", name, "SKILL.md"),
+          name,
+        );
+
+        const installedVersion = await readSkillVersion(
+          path.join(skillsDestRoot(input.homeDir, target), name, "SKILL.md"),
+          name,
+        );
+
+        const status: InstalledSkillStatus = {
+          target,
+          name,
+          bundledVersion,
+          installedVersion,
+          stale: !bundledVersion || installedVersion !== bundledVersion,
+        };
+
+        if (!bundledVersion) {
+          status.error = `Bundled skill ${name} has no release version. Reinstall Review Desktop.`;
+        }
+
+        return status;
+      }),
+    ),
+  );
+}
+
+function skillsDestRoot(homeDir: string, target: InstallTarget): string {
+  if (target === "claude") return path.join(homeDir, ".claude", "skills");
+
+  if (target === "cursor") return path.join(homeDir, ".cursor", "skills");
+
+  if (target === "opencode") {
+    return path.join(homeDir, ".config", "opencode", "skills");
+  }
+
+  if (target === "pi") return path.join(homeDir, ".agents", "skills");
+
+  return path.join(homeDir, ".agents", "skills");
+}
+
+function formatTargets(targets: InstallTarget[]): string {
+  if (targets.length <= 1) return targets.join("");
+
+  return `${targets.slice(0, -1).join(", ")} and ${targets[targets.length - 1]}`;
+}
+
+async function listSkillDirs(
+  skillsDir: string,
+): Promise<{ name: string; src: string }[]> {
+  if (!(await isDirectory(skillsDir))) return [];
+  const entries = await readdir(skillsDir, { withFileTypes: true });
+
+  const skills = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => ({
+        name: entry.name,
+        src: path.join(skillsDir, entry.name),
+        hasSkillFile: await hasValidSkillFile(
+          path.join(skillsDir, entry.name, "SKILL.md"),
+          entry.name,
+        ),
+      })),
+  );
+
+  return skills
+    .filter((entry) => entry.hasSkillFile)
+    .map(({ name, src }) => ({ name, src }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Installs one bundled file while replacing the destination path entry. */
+export async function installFile(src: string, dest: string): Promise<void> {
+  const source = await readFile(src);
+  const { mode } = await stat(src);
+
+  await writeFileAtomicAsync(dest, source, {
+    mode: mode & 0o777,
+    replaceSymlink: true,
+  });
+}
+
+function openCodePluginPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    ".config",
+    "opencode",
+    "plugins",
+    OPENCODE_PLUGIN_NAME,
+  );
+}
+
+async function managedOpenCodePlugin(
+  filePath: string,
+): Promise<"managed" | "missing" | "unmanaged"> {
+  try {
+    const metadata = await lstat(filePath);
+
+    if (!metadata.isFile() || metadata.isSymbolicLink()) return "unmanaged";
+
+    return (await readFile(filePath, "utf8")).includes(OPENCODE_PLUGIN_MARKER)
+      ? "managed"
+      : "unmanaged";
+  } catch (error) {
+    // SAFETY: fs lstat and readFile reject with a Node errno exception.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
+}
+
+async function removeStaleSkills(destRoot: string): Promise<void> {
+  for (const skillName of STALE_SKILL_NAMES) {
+    await rm(path.join(destRoot, skillName), { recursive: true, force: true });
+  }
+}
+
+async function hasValidSkillFile(
+  target: string,
+  expectedName: string,
+): Promise<boolean> {
+  try {
+    if (!(await stat(target)).isFile()) return false;
+    const source = await readFile(target, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
+
+    if (!frontmatter) return false;
+    const name = frontmatter.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1];
+    const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1];
+
+    return name === expectedName && !!description?.trim();
+  } catch {
+    return false;
+  }
+}

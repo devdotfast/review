@@ -4,32 +4,90 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  changeIdentityForRevision,
   defaultBranch,
   detectLocalVcs,
   detectLocalVcsSync,
-  devfastPrepareCommands,
   diff,
   diffFileSummaries,
+  diffFileSummariesTrees,
   diffNameStatus,
-  diffNameStatusTrees,
   diffTrees,
+  gitAt,
   gitCommonDir,
   gitCommonDirSync,
   listCommitRange,
+  listTrackedFilesAtCommit,
   listTrackedFilesSync,
+  parseGitRawNumStatSummaries,
   parseGitRemote,
   parseGitRemoteSlug,
   parseJjDiffSummary,
+  readFileAtCommit,
   readFileAtRevision,
   resolveRepoContext,
   resolveRepoContextSync,
+  setLocalVcsCommandObserver,
 } from ".";
 
 describe("local vcs", () => {
+  afterEach(() => {
+    setLocalVcsCommandObserver(null);
+  });
+
+  it("runs git in the linked worktree that owns the working directory", async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-at-"));
+    const worktreePath = `${rootPath}-linked`;
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    writeFileSync(path.join(rootPath, "app.ts"), "one\n");
+    execGit(rootPath, ["add", "app.ts"]);
+    execGit(rootPath, ["commit", "-m", "base"]);
+    const linkedHead = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    execGit(rootPath, ["worktree", "add", "--detach", worktreePath, "HEAD"]);
+
+    writeFileSync(path.join(rootPath, "app.ts"), "two\n");
+    execGit(rootPath, ["commit", "-am", "primary change"]);
+    const primaryHead = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    writeFileSync(path.join(worktreePath, "linked.ts"), "linked\n");
+    execGit(worktreePath, ["add", "linked.ts"]);
+
+    expect(primaryHead).not.toBe(linkedHead);
+    await expect(gitAt(worktreePath, ["rev-parse", "HEAD"])).resolves.toEqual({
+      ok: true,
+      stdout: `${linkedHead}\n`,
+      stderr: "",
+    });
+
+    const toplevel = await gitAt(worktreePath, [
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+
+    expect(realpathSync(toplevel.stdout.trim())).toBe(
+      realpathSync(worktreePath),
+    );
+    await expect(
+      gitAt(worktreePath, ["diff", "--cached", "--name-only"]),
+    ).resolves.toEqual({ ok: true, stdout: "linked.ts\n", stderr: "" });
+
+    const missing = await gitAt(
+      worktreePath,
+      ["rev-parse", "--verify", "no-such-ref"],
+      { allowFailure: true },
+    );
+
+    expect(missing.ok).toBe(false);
+    expect(missing.stdout).toBe("");
+    expect(missing.stderr).toContain("fatal");
+    await expect(
+      gitAt(worktreePath, ["rev-parse", "--verify", "no-such-ref"]),
+    ).rejects.toThrow("Command failed");
+  });
+
   it("lists a Git commit range newest first with summary counts", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-log-"));
     execGit(rootPath, ["init"]);
@@ -75,13 +133,16 @@ describe("local vcs", () => {
       );
       writeFileSync(path.join(rootPath, "app.ts"), "base\n");
       execFileSync("jj", ["commit", "-m", "base"], { cwd: rootPath });
+
       const baseRef = execFileSync(
         "jj",
         ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
         { cwd: rootPath, encoding: "utf8" },
       ).trim();
+
       writeFileSync(path.join(rootPath, "app.ts"), "base\nchange\n");
       execFileSync("jj", ["commit", "-m", "jj change"], { cwd: rootPath });
+
       const headRef = execFileSync(
         "jj",
         ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
@@ -115,19 +176,9 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
     execFileSync("git", ["add", "src/app.ts"], { cwd: rootPath });
     execFileSync("git", ["commit", "-m", "initial"], { cwd: rootPath });
-    const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
-    const branch = execGitOutput(rootPath, ["symbolic-ref", "--short", "HEAD"]);
 
     expect(detectLocalVcsSync(rootPath)).toMatchObject({ kind: "git" });
     expect(listTrackedFilesSync({ rootPath })).toEqual(["src/app.ts"]);
-    await expect(changeIdentityForRevision(rootPath, branch)).resolves.toEqual({
-      kind: "git-branch",
-      name: branch,
-    });
-    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
-      kind: "git-commit",
-      name: commit,
-    });
   });
 
   it("limits git diffs to requested paths", async () => {
@@ -203,12 +254,6 @@ describe("local vcs", () => {
       deletedFiles: [],
     });
     await expect(
-      diffNameStatusTrees({ rootPath, baseRef, headRef }),
-    ).resolves.toEqual({
-      changedFiles: ["src/head-only.ts"],
-      deletedFiles: ["src/base-only.ts"],
-    });
-    await expect(
       diffTrees({
         rootPath,
         baseRef,
@@ -222,6 +267,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-git-summary-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
@@ -230,6 +276,8 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/deleted.ts"), "gone\n");
     writeFileSync(path.join(rootPath, "src/rename old.ts"), "renamed\n");
     writeFileSync(path.join(rootPath, "src/tab\tname.ts"), "before\n");
+    writeFileSync(path.join(rootPath, "src/:colon.ts"), "before\n");
+    writeFileSync(path.join(rootPath, "src/3\t4\tcounts.ts"), "before\n");
     writeFileSync(path.join(rootPath, "src/binary.dat"), Buffer.from([0, 1]));
     execGit(rootPath, ["add", "src"]);
     execGit(rootPath, ["commit", "-m", "initial"]);
@@ -238,6 +286,8 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/modified.ts"), "two\nkeep\nextra\n");
     writeFileSync(path.join(rootPath, "src/added file.ts"), "a\nb\n");
     writeFileSync(path.join(rootPath, "src/tab\tname.ts"), "after\n");
+    writeFileSync(path.join(rootPath, "src/:colon.ts"), "after\n");
+    writeFileSync(path.join(rootPath, "src/3\t4\tcounts.ts"), "after\n");
     writeFileSync(path.join(rootPath, "src/binary.dat"), Buffer.from([0, 2]));
     execGit(rootPath, ["rm", "src/deleted.ts"]);
     execGit(rootPath, ["mv", "src/rename old.ts", "src/renamed new.ts"]);
@@ -250,7 +300,8 @@ describe("local vcs", () => {
       baseRef,
       headRef,
     });
-    expect(summaries).toHaveLength(6);
+
+    expect(summaries).toHaveLength(8);
     expect(summaries).toEqual(
       expect.arrayContaining([
         {
@@ -284,6 +335,18 @@ describe("local vcs", () => {
           deletions: 1,
         },
         {
+          path: "src/:colon.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+        },
+        {
+          path: "src/3\t4\tcounts.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+        },
+        {
           path: "src/renamed new.ts",
           previousPath: "src/rename old.ts",
           status: "renamed",
@@ -310,6 +373,132 @@ describe("local vcs", () => {
     ]);
   });
 
+  it("summarizes an edited rename in one Git call", async () => {
+    const rootPath = await mkdtemp(
+      path.join(tmpdir(), "local-vcs-git-rename-"),
+    );
+
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(
+      path.join(rootPath, "src/rename old.ts"),
+      "one\ntwo\nthree\nfour\nfive\nsix\n",
+    );
+    execGit(rootPath, ["add", "src"]);
+    execGit(rootPath, ["commit", "-m", "initial"]);
+    const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+    execGit(rootPath, ["mv", "src/rename old.ts", "src/renamed new.ts"]);
+    writeFileSync(
+      path.join(rootPath, "src/renamed new.ts"),
+      "one\ntwo\nthree\nfour\nfive\nSIX\n",
+    );
+    execGit(rootPath, ["add", "src"]);
+    execGit(rootPath, ["commit", "-m", "rename and edit"]);
+    const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+    const spawns: string[][] = [];
+
+    setLocalVcsCommandObserver({
+      start: ({ file, args }) => {
+        spawns.push([file, ...args]);
+
+        return () => {};
+      },
+    });
+    await expect(
+      diffFileSummariesTrees({ rootPath, baseRef, headRef, kind: "git" }),
+    ).resolves.toEqual([
+      {
+        path: "src/renamed new.ts",
+        previousPath: "src/rename old.ts",
+        status: "renamed",
+        additions: 1,
+        deletions: 1,
+      },
+    ]);
+    expect(spawns).toHaveLength(1);
+  });
+
+  it("reads a copied file without dropping the records after it", () => {
+    // git never emits a copy record without -C; feed one by hand.
+    const raw = [
+      ":100644 100644 1111111 2222222 C085",
+      "src/source.ts",
+      "src/copy.ts",
+      ":100644 100644 3333333 4444444 M",
+      "src/after.ts",
+    ];
+
+    const counts = [
+      "2\t1\t",
+      "src/source.ts",
+      "src/copy.ts",
+      "1\t0\tsrc/after.ts",
+    ];
+
+    expect(
+      parseGitRawNumStatSummaries(`${[...raw, ...counts].join("\0")}\0`),
+    ).toEqual([
+      { path: "src/copy.ts", status: "added", additions: 2, deletions: 1 },
+      { path: "src/after.ts", status: "modified", additions: 1, deletions: 0 },
+    ]);
+  });
+
+  it("refuses a diff whose counts arrive before its records", () => {
+    const records = [
+      "1\t0\tsrc/app.ts",
+      ":100644 100644 1111111 2222222 M",
+      "src/app.ts",
+    ];
+
+    expect(() =>
+      parseGitRawNumStatSummaries(`${records.join("\0")}\0`),
+    ).toThrow("counts before its raw records");
+  });
+
+  it("reads no file where a jj workspace has a directory", async () => {
+    if (!commandExists("jj")) return;
+
+    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-jj-tree-"));
+
+    execJj(rootPath, ["git", "init"]);
+    execJj(rootPath, ["config", "set", "--repo", "user.name", "Test User"]);
+    execJj(rootPath, [
+      "config",
+      "set",
+      "--repo",
+      "user.email",
+      "test@example.com",
+    ]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
+    execJj(rootPath, ["commit", "-m", "initial"]);
+
+    const commit = execJjOutput(rootPath, [
+      "log",
+      "-r",
+      "@-",
+      "--no-graph",
+      "-T",
+      "commit_id",
+    ]);
+
+    await expect(
+      readFileAtCommit({ rootPath, kind: "jj", commit, relativePath: "src" }),
+    ).resolves.toBeNull();
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/app.ts",
+      }),
+    ).resolves.toBe("export const app = 1;\n");
+  });
+
   it("uses jj local semantics for jj-only revisions", async () => {
     if (!commandExists("jj")) return;
 
@@ -317,6 +506,7 @@ describe("local vcs", () => {
     execJj(rootPath, ["git", "init"]);
     mkdirSync(path.join(rootPath, "src"));
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
+
     const baseRef = execJjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -325,8 +515,10 @@ describe("local vcs", () => {
       "-T",
       "change_id.short()",
     ]);
+
     execJj(rootPath, ["new"]);
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 2;\n");
+
     const headRef = execJjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -372,80 +564,6 @@ describe("local vcs", () => {
         deletions: 1,
       },
     ]);
-    await expect(
-      changeIdentityForRevision(rootPath, headRef),
-    ).resolves.toMatchObject({
-      kind: "jj-change",
-      name: expect.stringMatching(new RegExp(`^${headRef}`)),
-    });
-  });
-
-  it("binds a Git-only commit by its exact commit id in a colocated jj repo", async () => {
-    if (!commandExists("jj")) return;
-
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-jj-git-sha-"),
-    );
-    execJj(rootPath, ["git", "init", "--colocate"]);
-    execGit(rootPath, ["config", "user.email", "test@example.com"]);
-    execGit(rootPath, ["config", "user.name", "Test User"]);
-    writeFileSync(path.join(rootPath, "git-only.txt"), "git only\n");
-    execGit(rootPath, ["add", "git-only.txt"]);
-    const tree = execGitOutput(rootPath, ["write-tree"]);
-    const commit = execFileSync("git", ["-C", rootPath, "commit-tree", tree], {
-      input: "git-only commit\n",
-      encoding: "utf8",
-    }).trim();
-
-    expect(() =>
-      execFileSync("jj", ["-R", rootPath, "log", "--no-graph", "-r", commit], {
-        stdio: ["ignore", "pipe", "ignore"],
-      }),
-    ).toThrow(/./);
-    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
-      kind: "git-commit",
-      name: commit,
-    });
-  });
-
-  it("reads devfast.prepare commands in configuration order", async () => {
-    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-prepare-"));
-    execGit(rootPath, ["init"]);
-    execGit(rootPath, ["config", "devfast.prepare", "pnpm install"]);
-    execGit(rootPath, ["config", "--add", "devfast.prepare", "uv sync"]);
-
-    await expect(devfastPrepareCommands(rootPath)).resolves.toEqual([
-      "pnpm install",
-      "uv sync",
-    ]);
-  });
-
-  it("reads devfast.prepare through the shared git dir of a linked worktree", async () => {
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-prepare-wt-"),
-    );
-    execGit(rootPath, ["init"]);
-    execGit(rootPath, ["config", "user.email", "test@example.com"]);
-    execGit(rootPath, ["config", "user.name", "Test User"]);
-    writeFileSync(path.join(rootPath, "README.md"), "prepare\n");
-    execGit(rootPath, ["add", "README.md"]);
-    execGit(rootPath, ["commit", "-m", "initial"]);
-    execGit(rootPath, ["config", "devfast.prepare", "pnpm install"]);
-    const worktreePath = path.join(rootPath, ".linked-worktree");
-    execGit(rootPath, ["worktree", "add", "--detach", worktreePath, "HEAD"]);
-
-    await expect(devfastPrepareCommands(worktreePath)).resolves.toEqual([
-      "pnpm install",
-    ]);
-  });
-
-  it("returns no devfast.prepare commands when none are configured", async () => {
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-prepare-none-"),
-    );
-    execGit(rootPath, ["init"]);
-
-    await expect(devfastPrepareCommands(rootPath)).resolves.toEqual([]);
   });
 
   it("does not use an enclosing Git repository as the default branch for non-colocated jj workspaces", async () => {
@@ -454,6 +572,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-git-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, ["config", "user.email", "test@example.com"]);
     execGit(parentRootPath, ["config", "user.name", "Test User"]);
@@ -477,6 +596,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-git-dir-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, ["config", "user.email", "test@example.com"]);
     execGit(parentRootPath, ["config", "user.name", "Test User"]);
@@ -513,6 +633,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-repo-context-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, [
       "remote",
@@ -613,6 +734,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-remote-alias-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, [
       "config",
@@ -681,6 +803,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-read-file-revision-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
@@ -702,6 +825,43 @@ describe("local vcs", () => {
         relativePath: "src/missing.ts",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("falls back to colocated Git when a jj root cannot answer", async () => {
+    const rootPath = await mkdtemp(
+      path.join(tmpdir(), "local-vcs-jj-fallback-"),
+    );
+
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(
+      path.join(rootPath, "src", "app.ts"),
+      "export const app = 1;\n",
+    );
+    execGit(rootPath, ["add", "src/app.ts"]);
+    execGit(rootPath, ["commit", "-m", "initial"]);
+    const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/app.ts",
+      }),
+    ).resolves.toBe("export const app = 1;\n");
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/missing.ts",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      listTrackedFilesAtCommit({ rootPath, kind: "jj", commit }),
+    ).resolves.toEqual(["src/app.ts"]);
   });
 });
 
@@ -740,6 +900,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

@@ -166,6 +166,9 @@ jobs:
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
 
+      - name: Bundled diffr integration
+        run: pnpm --filter @dev.fast/review test:integration:diffr
+
       - name: Configure Electron sandbox
         run: |
           sudo chown root:root apps/review-desktop/code-oss/.build/electron/chrome-sandbox

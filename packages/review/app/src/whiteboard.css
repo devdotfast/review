@@ -214,21 +214,14 @@
 }
 
 .review-open-source-tree,
-.review-topbar-icon-button,
-.review-history-button {
+.review-topbar-icon-button {
   border-radius: var(--chrome-control-radius);
   color: var(--ink-muted);
 }
 
 .review-open-source-tree:hover,
-.review-topbar-icon-button:hover,
-.review-history-button:hover:not(:disabled) {
+.review-topbar-icon-button:hover {
   background: var(--well);
-  color: var(--ink);
-}
-
-.review-history-selected {
-  border: 1px solid var(--rule);
   color: var(--ink);
 }
 
@@ -1062,6 +1055,7 @@ button:focus-visible > .review-chevron {
 .review-doc-meta > * + *::before {
   content: "· ";
   color: var(--ink-faint);
+  white-space: pre;
 }
 
 .review-home-workspace-view {

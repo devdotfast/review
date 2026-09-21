@@ -11,7 +11,7 @@ Status: agreed design, implemented in this change.
 
 1. CI installs the Review npm package and prepares a local checkout with the requested base and head revisions.
 2. CI starts `review server start --authoring-mode batch` as a foreground process and checks readiness with `review server status`.
-3. The CI-provided agent authors through `review api` or `review mcp`, following the shared `dev-review` skill.
+3. CI sets `DEV_REVIEW_SERVER_DIR` to the server state directory (or passes `--state-dir` to each client command). The CI-provided agent authors through `review api` or `review mcp`, following the shared `dev-review` skill.
 4. The batch skill validates a scratch draft and commits one snapshot. Commit sets all sections complete. Interactive mode remains available for immediate committed edits.
 5. A later sharing step can consume the saved review through the server. Portable export and upload are separate work.
 6. CI stops the server process.
@@ -25,7 +25,7 @@ can still select isolated profile directories. Portable sharing remains separate
 ## Architecture
 
 - The authoring API accepts an optional desktop-opening callback; the core store and document tools can operate without a UI.
-- CLI/MCP clients can discover either a headless server or Desktop. Explicit headless state selection never falls back to Desktop.
+- CLI/MCP clients connect to Desktop by default. Headless connections require explicit state selection and never fall back to Desktop.
 - Headless startup owns its foreground lifecycle independently of desktop startup and its app PID.
 - Each connection serializes its writes and shares cross-process authoring ownership through SQLite. Short transactions fence commits against concurrent ownership or version changes.
 - The store retains review versions and resource bytes. Repository registrations refer to local checkout paths; saving the state directory alone does not make a review portable.

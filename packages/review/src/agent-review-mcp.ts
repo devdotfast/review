@@ -33,6 +33,8 @@ export function reviewMcpRegistration(
     args: ["mcp"],
     env: {
       DEV_REVIEW_HOME: devReviewHome(env, homeDir),
+      // Desktop integrations must not inherit a shell's headless selection.
+      DEV_REVIEW_SERVER_DIR: "",
       DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
     },
   };

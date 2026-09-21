@@ -625,6 +625,40 @@ function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
 }
 
 describe("installed launcher runtime selection", () => {
+  it("refreshes a managed launcher to the selected build and profile even when the old build exists", async () => {
+    const homeDir = await temporaryHome("review-refresh-shim-");
+    const oldCli = path.join(homeDir, "old.cjs");
+    const cliPath = path.join(homeDir, "current.cjs");
+    await writeFile(oldCli, 'console.log("old-build")');
+    await writeFile(
+      cliPath,
+      'console.log(JSON.stringify({build:"current",home:process.env.DEV_REVIEW_HOME}))',
+    );
+    const shim = path.join(homeDir, ".local", "bin", "review");
+    await writePathShim(
+      shim,
+      oldCli,
+      process.execPath,
+      path.join(homeDir, "old-profile"),
+    );
+    const env = profileEnvironment(homeDir, "/bin/zsh");
+    await installReviewCommand({
+      homeDir,
+      env,
+      cliPath,
+      cliRuntimePath: process.execPath,
+    });
+
+    const { stdout } = await promisify(execFile)(shim, [], {
+      env: { PATH: "/usr/bin:/bin", DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1" },
+    });
+
+    expect(JSON.parse(stdout)).toEqual({
+      build: "current",
+      home: env.DEV_REVIEW_HOME,
+    });
+  });
+
   it("retains the installed profile when invoked without the setup environment", async () => {
     const home = await temporaryHome("review-profile-shim-");
     const profile = path.join(home, "a profile");
@@ -774,25 +808,4 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
   });
   expect(await readFile(hook.path, "utf8")).toBe(before);
   expect((await traceMachineStatus({ homeDir, env })).enabled).toBe(true);
-});
-
-it("a second CLI install preserves a live shared launcher, but repairs a missing one", async () => {
-  const homeDir = await temporaryHome("review-launcher-coexist-");
-  const firstCli = path.join(homeDir, "desktop-cli.js");
-  const nextCli = path.join(homeDir, "npm-cli.js");
-  await writeFile(firstCli, "// Desktop\n");
-  await writeFile(nextCli, "// npm\n");
-
-  const first = await installReviewCommand({
-    homeDir,
-    cliPath: firstCli,
-    env: { PATH: "" },
-  });
-
-  const before = await readFile(first.shimPath, "utf8");
-  await installReviewCommand({ homeDir, cliPath: nextCli, env: { PATH: "" } });
-  expect(await readFile(first.shimPath, "utf8")).toBe(before);
-  await rm(firstCli);
-  await installReviewCommand({ homeDir, cliPath: nextCli, env: { PATH: "" } });
-  expect(await readFile(first.shimPath, "utf8")).toContain(nextCli);
 });

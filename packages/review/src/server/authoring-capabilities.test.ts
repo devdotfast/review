@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -55,6 +56,18 @@ it("discovers the live Desktop map preference without opening a review", async (
 
   try {
     await server.listen();
+    // A previous headless process must not hijack the Desktop connection.
+    await mkdir(path.join(home, "review-server"));
+    await writeFile(
+      path.join(home, "review-server", "server.json"),
+      JSON.stringify({
+        version: 1,
+        instanceId: randomUUID(),
+        url: server.discovery.url,
+        serverPid: process.pid,
+        token: "expired-headless-token",
+      }),
+    );
     const client = await connectReviewApi(env);
     expect(await client.read("/capabilities")).toMatchObject({
       desktopAvailable: true,
@@ -66,6 +79,9 @@ it("discovers the live Desktop map preference without opening a review", async (
       softwareMapEnabled: true,
     });
     expect(opened).toBe(false);
+    await expect(
+      connectReviewApi({ ...env, DEV_REVIEW_SERVER_DIR: home }),
+    ).rejects.toThrow(/review server start/);
     relay.close();
     expect(await client.read("/capabilities")).toMatchObject({
       desktopAvailable: false,

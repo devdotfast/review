@@ -1,0 +1,99 @@
+.flow-diagram {
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 18px 0 4px;
+  background: var(--map-canvas);
+  font: 12px/1.5 var(--font-mono);
+  color: var(--ink);
+}
+.review-document .flow-diagram .flow-diagram-description,
+.flow-diagram .flow-diagram-description {
+  padding: 0 16px 12px;
+  margin: 0;
+  color: var(--ink-soft);
+  font: 11px/1.6 var(--font-mono);
+}
+.flow-diagram-body {
+  display: flex;
+  max-height: 520px;
+  min-height: 180px;
+  border-top: 1px solid var(--rule);
+}
+.flow-diagram-canvas {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--map-canvas);
+}
+.flow-diagram > footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+  padding: 9px 16px;
+  color: var(--ink-faint);
+  font: 10px/1.5 var(--font-mono);
+}
+.flow-diagram-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.flow-diagram-legend i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 7px;
+}
+.flow-legend-added {
+  background: var(--map-added);
+}
+.flow-legend-removed {
+  background: var(--map-removed);
+}
+.flow-legend-modified {
+  background: var(--map-changed);
+}
+.lens-flow-node.is-selected rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  fill: var(--map-active-fill);
+}
+.lens-flow-node:focus-visible {
+  outline: none;
+}
+.lens-flow-node:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.lens-flow-node.is-viewed {
+  opacity: 0.42;
+}
+
+.diagram-tour-stage .flow-diagram {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.diagram-tour-stage .flow-diagram-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+@container review-canvas (max-width: 1080px) {
+  .diagram-tour-overlay--flow {
+    grid-template-rows: minmax(180px, 40%) minmax(0, 1fr);
+  }
+  .diagram-tour-overlay--flow .diagram-tour-stage {
+    display: flex;
+  }
+}

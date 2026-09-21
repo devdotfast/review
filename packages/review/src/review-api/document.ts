@@ -209,6 +209,18 @@ function documentReferences(
           : [],
       );
 
+    if (element.type === "flow_diagram")
+      return element.nodes.flatMap((node) =>
+        node.attachments.flatMap((attachment, index) =>
+          attachment.sources.map((source, sourceIndex) => ({
+            id: `${element.id}:${node.key}:${index}:${sourceIndex}`,
+            source,
+            label: attachment.label,
+            peek: true,
+          })),
+        ),
+      );
+
     if (element.type === "call_stack_diff")
       return [...element.base, ...element.head].flatMap((frame) => [
         { ...frame, id: frame.id!, peek: true },
@@ -312,6 +324,8 @@ export function elements(document: Element[]): Element[] {
 }
 
 const structural = new Set([
+  "nodes",
+  "edges",
   "id",
   "type",
   "children",

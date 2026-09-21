@@ -161,6 +161,26 @@ export function documentText(
               detail(`Range: ${sourceText(source)}`);
         }
         break;
+      case "flow_diagram":
+        if (element.description) detail(element.description);
+
+        for (const node of element.nodes) {
+          detail(`${node.key}: ${node.label}`);
+
+          if (detailed && node.description) write(depth + 2, node.description);
+
+          for (const attachment of node.attachments)
+            write(
+              depth + 2,
+              `${attachment.label}: ${attachment.sources.map(sourceText).join(", ")}`,
+            );
+        }
+
+        for (const edge of element.edges)
+          detail(
+            `${edge.from} → ${edge.to}${edge.label ? `: ${edge.label}` : ""}`,
+          );
+        break;
       case "software_map":
         detail(
           `Map: ${element.mapVersionId}${element.focusElementId ? `, focus: ${element.focusElementId}` : ""}`,

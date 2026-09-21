@@ -25,6 +25,7 @@ export function diagramLenses(
     (block): (Omit<DiagramLens, "sources"> & { sources: LensSource[] })[] => {
       if (
         block.type !== "file_lens" &&
+        block.type !== "flow_diagram" &&
         block.type !== "software_map" &&
         block.type !== "sequence" &&
         block.type !== "call_stack_diff" &&

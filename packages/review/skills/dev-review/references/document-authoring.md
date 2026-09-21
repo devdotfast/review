@@ -8,6 +8,17 @@ Identify the questions the Review needs to answer. For example: how a request is
 
 Give a new Review a specific title. Open with a brief overview, then organize sections around the main concepts or questions. Use descriptive headings such as “How a payment is retried” or “Where session data is stored.” Create the whole outline before filling sections so you can check that it covers the subject. For an update, read the existing Review first and identify the sections and diagrams affected by the request; preserve the rest.
 
+### Default structure for change reviews
+
+When reviewing a change, use these sections in this order unless the user requests a different structure. Other Review types can follow the concepts or questions outlined above.
+
+1. **What / why:** What changes, what problem it solves, and why it matters. Describe the relevant previous and new behavior.
+2. **Design:** How the solution works, the main decisions and tradeoffs, with diagrams that explain the relationships involved.
+3. **Requirements:** The behavior and constraints the change must satisfy, including important edge cases. Distinguish stated requirements from inferred expectations.
+4. **Implementation:** How the code delivers the design and meets the requirements, using focused source links and diffs. Identify any requirements the implementation leaves unmet.
+
+Use retained trace decisions as evidence for why an approach was chosen or an alternative rejected; include a `trace_quote` when the actual excerpt helps. Verify what was implemented against the current code, since trace intent may differ from the final implementation.
+
 ## Write the explanation
 
 The overview is a starting point. Follow it with enough detail to explain how the subject works:

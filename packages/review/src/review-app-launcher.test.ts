@@ -23,15 +23,14 @@ const discovery: ReviewDesktopDiscovery = {
 };
 
 describe("Review Desktop launcher", () => {
-  it("activates and reuses a healthy instance with an attached Desktop client", async () => {
+  it("reuses a healthy instance without focusing it by default", async () => {
     const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
       pendingAttempt(),
     );
 
     const fetch = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(healthyResponse())
-      .mockResolvedValueOnce(Response.json({ ok: true }));
+      .mockResolvedValueOnce(healthyResponse());
 
     await expect(
       runReviewAppLaunch(
@@ -48,6 +47,30 @@ describe("Review Desktop launcher", () => {
       state: "running",
       instanceId: discovery.instanceId,
     });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(launchDesktop).not.toHaveBeenCalled();
+  });
+
+  it("focuses a healthy instance when asked", async () => {
+    const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
+      pendingAttempt(),
+    );
+
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(healthyResponse())
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+
+    await expect(
+      runReviewAppLaunch(
+        { focus: true },
+        {
+          readReviewDesktopDiscovery: async () => discovery,
+          fetch,
+          launchDesktop,
+        },
+      ),
+    ).resolves.toMatchObject({ state: "running" });
     expect(fetch).toHaveBeenNthCalledWith(
       2,
       `${discovery.url}/app/focus`,
@@ -259,7 +282,7 @@ describe("Review Desktop launcher", () => {
       [],
       expect.objectContaining({
         detached: true,
-        env: { KEEP: "yes" },
+        env: { KEEP: "yes", DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1" },
         stdio: "ignore",
       }),
     );
@@ -292,12 +315,34 @@ describe("Review Desktop launcher", () => {
       expect.objectContaining({
         env: {
           DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/review-state",
+          DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1",
         },
       }),
     );
   });
 
-  it("uses the bundle identifier for a standalone CLI", () => {
+  it("opens the bundle in the background for a standalone CLI", () => {
+    const child = new FakeChild();
+
+    const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+      () => child,
+    );
+
+    launchDesktopApplication({ platform: "darwin", electron: false, spawn });
+    expect(spawn).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      [
+        "-g",
+        "-b",
+        "dev.fast.review",
+        "--env",
+        "DEV_FAST_REVIEW_DESKTOP_BACKGROUND=1",
+      ],
+      expect.objectContaining({ detached: true }),
+    );
+  });
+
+  it("opens the bundle in the foreground when focus is requested", () => {
     const child = new FakeChild();
 
     const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
@@ -307,6 +352,7 @@ describe("Review Desktop launcher", () => {
     launchDesktopApplication({
       platform: "darwin",
       electron: false,
+      focus: true,
       spawn,
     });
     expect(spawn).toHaveBeenCalledWith(
@@ -350,7 +396,10 @@ describe("Review Desktop launcher", () => {
           "--extensions-dir=/tmp/linux-profile/extensions",
         ],
         expect.objectContaining({
-          env: { DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile" },
+          env: {
+            DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
+            DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1",
+          },
           detached: true,
         }),
       );
@@ -358,6 +407,26 @@ describe("Review Desktop launcher", () => {
       expect(environment.ELECTRON_RUN_AS_NODE).toBe("1");
     },
   );
+
+  it("does not mark a focused direct launch as background", () => {
+    const child = new FakeChild();
+
+    const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+      () => child,
+    );
+
+    launchDesktopApplication({
+      platform: "linux",
+      electron: false,
+      focus: true,
+      env: { DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1" },
+      spawn,
+    });
+    const options = spawn.mock.calls[0]?.[2];
+    expect(options?.env).not.toHaveProperty(
+      "DEV_FAST_REVIEW_DESKTOP_BACKGROUND",
+    );
+  });
 
   it("reports a missing Linux package launcher", async () => {
     const child = new FakeChild();

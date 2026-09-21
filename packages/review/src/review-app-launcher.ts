@@ -13,6 +13,9 @@ import {
 
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 
+/** Set to "1" on launches without --focus; Desktop then opens inactive. */
+export const REVIEW_DESKTOP_BACKGROUND_ENV = "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
+
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
 
 const POLL_INTERVAL_MS = 250;
@@ -39,6 +42,8 @@ interface ReviewAppLauncherRuntime {
 
 export interface RunReviewAppLaunchInput {
   timeoutMs?: number;
+  /** Bring Review Desktop to the foreground. Off by default. */
+  focus?: boolean;
 }
 
 export interface ReviewAppLaunchEvent {
@@ -64,6 +69,7 @@ export interface LaunchDesktopApplicationInput {
   execPath?: string;
   electron?: boolean;
   env?: NodeJS.ProcessEnv;
+  focus?: boolean;
   spawn?: (
     command: string,
     args: readonly string[],
@@ -91,12 +97,12 @@ export async function runReviewAppLaunch(
   const running = await readLaunchHealthyDesktop(runtime);
 
   if (running) {
-    await runtime.focusDesktop(running);
+    if (input.focus) await runtime.focusDesktop(running);
 
     return launchEvent("running", running.instanceId);
   }
 
-  const attempt = runtime.launchDesktop();
+  const attempt = runtime.launchDesktop({ focus: input.focus === true });
 
   let completion: Promise<DesktopLaunchCompletion> | undefined =
     observedCompletion(attempt);
@@ -198,6 +204,10 @@ export function launchDesktopApplication(
   const electron = input.electron ?? Boolean(process.versions.electron);
   const env = { ...(input.env ?? process.env) };
   const directLaunch = electron || platform === "linux";
+  const focus = input.focus === true;
+
+  if (focus) delete env[REVIEW_DESKTOP_BACKGROUND_ENV];
+  else env[REVIEW_DESKTOP_BACKGROUND_ENV] = "1";
 
   if (directLaunch) delete env.ELECTRON_RUN_AS_NODE;
 
@@ -208,7 +218,17 @@ export function launchDesktopApplication(
 
   let command = "/usr/bin/open";
   let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
-  let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+
+  // `open` does not forward the caller's environment; --env carries the marker.
+  let args = focus
+    ? ["-b", REVIEW_DESKTOP_BUNDLE_ID]
+    : [
+        "-g",
+        "-b",
+        REVIEW_DESKTOP_BUNDLE_ID,
+        "--env",
+        `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`,
+      ];
 
   if (directLaunch) {
     command = "/usr/bin/review-desktop";

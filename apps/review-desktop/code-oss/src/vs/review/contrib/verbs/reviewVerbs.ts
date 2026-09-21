@@ -6,7 +6,7 @@
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
-import { type ICodeEditor } from "../../../editor/browser/editorBrowser.js";
+import { type ICodeEditor, type IDiffEditor } from "../../../editor/browser/editorBrowser.js";
 import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
 import { createDecorator } from "../../../platform/instantiation/common/instantiation.js";
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
@@ -22,6 +22,8 @@ import {
 import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
+import { apiSourceTarget } from "../../services/reviewApiSourceService.js";
+import { selectedMonacoDiff } from "./reviewDiffSelection.js";
 import { apiSelectionEvent } from "./reviewApiSelection.js";
 
 export const IReviewVerbsService = createDecorator<IReviewVerbsService>("reviewVerbsService");
@@ -56,6 +58,8 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 	) {
 		super();
 		for (const editor of this.codeEditorService.listCodeEditors()) this.trackSelection(editor);
+		for (const diff of this.codeEditorService.listDiffEditors()) this.trackDiffSelection(diff);
+		this._register(this.codeEditorService.onDiffEditorAdd(diff => this.trackDiffSelection(diff)));
 		this._register(this.codeEditorService.onCodeEditorAdd((editor) => this.trackSelection(editor)));
 		this._register(
 			this.codeEditorService.onCodeEditorRemove((editor) => {
@@ -63,6 +67,16 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 				this.selectionEditors.delete(editor.getId());
 			}),
 		);
+	}
+
+	private trackDiffSelection(diff: IDiffEditor): void {
+		const subscription = diff.onDidUpdateDiff(() => {
+			this.emitSelection(diff.getOriginalEditor());
+			this.emitSelection(diff.getModifiedEditor());
+		});
+		const disposed = diff.onDidDispose(() => { subscription.dispose(); disposed.dispose(); });
+		this._register(subscription);
+		this._register(disposed);
 	}
 
 	private trackSelection(editor: ICodeEditor): void {
@@ -88,6 +102,18 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 		const anchor = rect && position ? { x: rect.left + position.left, y: rect.top + position.top } : undefined;
 		const apiSelection = apiSelectionEvent(model.uri, selection, anchor);
 		if (apiSelection) {
+			const diff = this.codeEditorService.listDiffEditors().find(diff => diff.getOriginalEditor() === editor || diff.getModifiedEditor() === editor);
+			const models = diff?.getModel();
+			const changes = diff?.getLineChanges();
+			if (models && changes && !selection.isEmpty()) {
+				const oldSource = apiSourceTarget(models.original.uri);
+				const newSource = apiSourceTarget(models.modified.uri);
+				if (oldSource && newSource) apiSelection.selectedDiff = selectedMonacoDiff(
+					models.original, models.modified, changes, apiSelection.sideContext, fromLine, toLine,
+					new URLSearchParams(models.original.uri.query).has("empty") ? "" : oldSource.file,
+					new URLSearchParams(models.modified.uri.query).has("empty") ? "" : newSource.file,
+				);
+			}
 			this._onDidEmitSurfaceEvent.fire(apiSelection);
 			return;
 		}

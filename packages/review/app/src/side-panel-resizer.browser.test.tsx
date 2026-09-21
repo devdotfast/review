@@ -16,15 +16,18 @@ const session = testReviewSession();
 function Panel({
   stateKey,
   cramped = false,
+  side = "right",
 }: {
   stateKey: string;
   cramped?: boolean;
+  side?: "left" | "right";
 }) {
   // Exercise the pre-layout path with an explicit zero-width container.
   const containerRef = useRef<HTMLElement | null>(null);
 
   const resize = useRightPanelResize({
     stateKey,
+    side,
     defaultWidth: 360,
     minWidth: 360,
     maxWidth: 920,
@@ -57,14 +60,21 @@ function widenWithKeyboard() {
   });
 }
 
-function mountPanel(stateKey: string, options: { cramped?: boolean } = {}) {
+function mountPanel(
+  stateKey: string,
+  options: { cramped?: boolean; side?: "left" | "right" } = {},
+) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   act(() => {
     root?.render(
       <ReviewSessionProvider session={session}>
-        <Panel stateKey={stateKey} cramped={options.cramped} />
+        <Panel
+          stateKey={stateKey}
+          cramped={options.cramped}
+          side={options.side}
+        />
       </ReviewSessionProvider>,
     );
   });
@@ -158,4 +168,19 @@ describe("useRightPanelResize persistence", () => {
     mountPanel("other-panel-width");
     expect(separator().getAttribute("aria-valuenow")).toBe("360");
   });
+});
+
+it("grows a left sidebar toward the right and remembers its width", () => {
+  mountPanel("left-sidebar", { side: "left" });
+  act(() => {
+    separator().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+  });
+  expect(separator().getAttribute("aria-valuenow")).toBe("392");
+  unmountPanel();
+  mountPanel("left-sidebar", { side: "left" });
+  expect(separator().getAttribute("aria-valuenow")).toBe("392");
+  widenWithKeyboard();
+  expect(separator().getAttribute("aria-valuenow")).toBe("360");
 });

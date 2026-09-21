@@ -34,10 +34,18 @@ export function ShareControl() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
-  const frozen = useRef<{ version: number; requestId: string }>(undefined);
+  const [copied, setCopied] = useState(false);
+
+  const frozen = useRef<{
+    version: number;
+    requestId: string;
+    started: boolean;
+  }>(undefined);
+
   const popover = useRef<HTMLDivElement>(null);
   const popoverRef = useTopbarPopover(open, popover);
   const shared = context?.reviewId.startsWith("shared-");
+  const signedIn = Boolean(account?.account);
 
   const label = shared
     ? `Shared${context?.sender ? ` by ${context.sender}` : " review"}`
@@ -45,7 +53,7 @@ export function ShareControl() {
 
   const tooltip = useTooltip(label);
   useEffect(() => {
-    if (!open || !context || shared) return;
+    if (!open || !context || shared || signedIn) return;
     let cancelled = false;
 
     const load = () =>
@@ -68,10 +76,8 @@ export function ShareControl() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [open, context?.client, shared]);
+  }, [open, context?.client, shared, signedIn]);
   useDismissOnOutside(popover, open, setOpen);
-
-  if (!context) return null;
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -90,8 +96,37 @@ export function ShareControl() {
     }
   };
 
+  const publish = () =>
+    run(async () => {
+      if (!context || !frozen.current) return;
+      const { version, requestId } = frozen.current;
+
+      const result = await context.client.post<{ url: string }>(
+        "/sharing/publish",
+        { reviewId: context.reviewId, version, requestId },
+      );
+
+      setLink(result.url);
+    });
+
+  useEffect(() => {
+    if (!open || !signedIn || !frozen.current || frozen.current.started) return;
+    frozen.current.started = true;
+    void publish();
+  }, [open, signedIn]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  if (!context) return null;
+
   const copy = async (url: string) => {
-    if (!(await copyText(url))) setError("Copy the link below.");
+    if (await copyText(url)) setCopied(true);
+    else setError("Copy the link below.");
   };
 
   return (
@@ -108,9 +143,12 @@ export function ShareControl() {
             frozen.current = {
               version: context.version,
               requestId: crypto.randomUUID(),
+              started: false,
             };
+            setAccount(undefined);
             setLink(undefined);
             setError(undefined);
+            setCopied(false);
           }
 
           setOpen(!open);
@@ -143,43 +181,31 @@ export function ShareControl() {
                 available offline.
               </p>
             </>
+          ) : signedIn ? (
+            link ? (
+              <>
+                <input
+                  aria-label="Share link"
+                  readOnly
+                  value={link}
+                  onFocus={(event) => event.target.select()}
+                  style={{ width: "100%" }}
+                />
+                <button onClick={() => void copy(link)}>
+                  {copied ? "Copied" : "Copy link"}
+                </button>
+              </>
+            ) : error ? (
+              <button onClick={() => void publish()}>Retry</button>
+            ) : (
+              <p>Uploading…</p>
+            )
           ) : (
-            <>
-              <p>
-                Share version {frozen.current?.version}. Anyone with the link
-                can download its retained resources and trace conversations.
-                Recipients need GitHub repository access to fetch the pinned
-                commits.
-              </p>
-              {account?.account ? (
-                <>
-                  <p>Signed in as {account.account.login}</p>
-                  <button
-                    disabled={busy || Boolean(link)}
-                    onClick={() =>
-                      void run(async () => {
-                        const result = await context.client.post<{
-                          url: string;
-                        }>("/sharing/publish", {
-                          reviewId: context.reviewId,
-                          ...frozen.current,
-                        });
-
-                        setLink(result.url);
-                        await copy(result.url);
-                      })
-                    }
-                  >
-                    {busy
-                      ? "Uploading…"
-                      : link
-                        ? "Link ready"
-                        : "Create share link"}
-                  </button>
-                </>
-              ) : (
+            account && (
+              <>
+                <p>Sign in to share</p>
                 <button
-                  disabled={account?.pending || busy}
+                  disabled={account.pending || busy}
                   onClick={() =>
                     void run(async () => {
                       await context.client.post("/sharing/login", {});
@@ -187,36 +213,21 @@ export function ShareControl() {
                     })
                   }
                 >
-                  {account?.pending
-                    ? "Waiting for GitHub…"
-                    : "Sign in with GitHub"}
+                  {account.pending ? "Waiting for GitHub…" : "Sign in"}
                 </button>
-              )}
-              {account?.pending && account.url && (
-                <p>
-                  <a href={account.url} target="_blank" rel="noreferrer">
-                    Open GitHub sign-in
-                  </a>
-                </p>
-              )}
-              {link && (
-                <>
-                  <input
-                    aria-label="Share link"
-                    readOnly
-                    value={link}
-                    onFocus={(event) => event.target.select()}
-                    style={{ width: "100%", marginTop: 12 }}
-                  />
-                  <button onClick={() => void copy(link)}>Copy link</button>
-                </>
-              )}
-            </>
+                {account.pending && account.url && (
+                  <p>
+                    <a href={account.url} target="_blank" rel="noreferrer">
+                      Open GitHub sign-in
+                    </a>
+                  </p>
+                )}
+              </>
+            )
           )}
           {(error || account?.error) && (
             <p role="alert">{error ?? account?.error}</p>
           )}
-          <button onClick={() => setOpen(false)}>Close</button>
         </div>
       )}
     </div>

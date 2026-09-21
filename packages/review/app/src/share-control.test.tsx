@@ -15,10 +15,15 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-it("shares the version selected before login and keeps a manual copy fallback", async () => {
+type Harness = ReturnType<typeof mount>;
+
+function mount(options: {
+  signedIn: boolean;
+  publishFails?: boolean;
+  holdPublish?: Promise<void>;
+}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  let signedIn = false;
-  let publishFails = true;
+  const state = { ...options };
   const posts: Array<{ path: string; body: unknown }> = [];
 
   const client = new ReviewApiClient(
@@ -31,19 +36,21 @@ it("shares the version selected before login and keeps a manual copy fallback", 
 
       if (path.endsWith("/account"))
         return Response.json({
-          account: signedIn
+          account: state.signedIn
             ? { login: "author", origin: "https://app.dev.fast" }
             : null,
           pending: false,
         });
 
       if (path.endsWith("/login")) {
-        signedIn = true;
+        state.signedIn = true;
 
         return Response.json({ pending: true });
       }
 
-      if (path.endsWith("/publish") && publishFails)
+      if (state.holdPublish) await state.holdPublish;
+
+      if (path.endsWith("/publish") && state.publishFails)
         return Response.json(
           { error: "Review exceeds the sharing limit." },
           { status: 400 },
@@ -74,42 +81,72 @@ it("shares the version selected before login and keeps a manual copy fallback", 
   }
 
   const render = (version: number) =>
-    root.render(<Fixture version={version} />);
+    act(async () => root.render(<Fixture version={version} />));
 
-  await act(async () => render(4));
-  await act(async () => container.querySelector("button")!.click());
-  await act(async () =>
-    [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Sign in with GitHub")!
-      .click(),
-  );
-  await act(async () => render(5));
+  const click = (text: string) =>
+    act(async () =>
+      [...container.querySelectorAll("button")]
+        .find(
+          (button) =>
+            button.textContent === text ||
+            button.getAttribute("aria-label") === text,
+        )!
+        .click(),
+    );
+
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+  return { container, posts, state, render, click, settle };
+}
+
+const publishes = (harness: Harness) =>
+  harness.posts.filter((post) => post.path.endsWith("/publish"));
+
+it("asks a signed-out user to sign in, then uploads the version chosen before login", async () => {
+  const harness = mount({ signedIn: false });
+  const { container } = harness;
+
+  await harness.render(4);
+  await harness.click("Share review");
+  await harness.settle();
+  expect(container.textContent).toContain("Sign in to share");
+  expect(container.textContent).not.toContain("Signed in as");
+  expect(publishes(harness)).toHaveLength(0);
+  await harness.click("Sign in");
+  expect(container.textContent).toContain("Waiting for GitHub…");
+  await harness.render(5);
   await vi.waitFor(
     async () => {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
-      expect(container.textContent).toContain("Signed in as author");
+      await harness.settle();
+      expect(container.querySelector("input")?.value).toContain("#capability");
     },
     { timeout: 4000 },
   );
-  await act(async () =>
-    [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Create share link")!
-      .click(),
-  );
-  expect(
-    posts.find((post) => post.path.endsWith("/publish"))?.body,
-  ).toMatchObject({ reviewId: "authoring-review", version: 4 });
+  expect(publishes(harness).map((post) => post.body)).toEqual([
+    expect.objectContaining({ reviewId: "authoring-review", version: 4 }),
+  ]);
+  expect(container.textContent).not.toContain("Sign in");
+});
+
+it("uploads on open for a signed-in user, retries after a failure, and copies the link", async () => {
+  const harness = mount({ signedIn: true, publishFails: true });
+  const { container } = harness;
+
+  await harness.render(4);
+  await harness.click("Share review");
+  await harness.settle();
+  expect(publishes(harness)).toHaveLength(1);
   expect(container.textContent).toContain("Review exceeds the sharing limit.");
-  publishFails = false;
-  await act(async () =>
-    [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Create share link")!
-      .click(),
-  );
+  expect(container.textContent).not.toContain("Create share link");
+  harness.state.publishFails = false;
+  await harness.click("Retry");
+  await harness.settle();
+  expect(publishes(harness)).toHaveLength(2);
   expect(container.querySelector("input")?.value).toContain("#capability");
-  expect(container.textContent).toContain("Copy the link below.");
+  expect(container.textContent).not.toContain("Uploading");
   let copied = "";
   Object.defineProperty(document, "execCommand", {
     configurable: true,
@@ -119,11 +156,31 @@ it("shares the version selected before login and keeps a manual copy fallback", 
       return true;
     },
   });
-  await act(async () =>
-    [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Copy link")!
-      .click(),
-  );
+  await harness.click("Copy link");
   expect(copied).toBe(container.querySelector("input")?.value);
+  expect(container.textContent).toContain("Copied");
   delete (document as Partial<Document>).execCommand;
+});
+
+it("shows the uploading state until the upload resolves", async () => {
+  let release: (() => void) | undefined;
+
+  const harness = mount({
+    signedIn: true,
+    holdPublish: new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  });
+
+  const { container } = harness;
+
+  await harness.render(1);
+  await harness.click("Share review");
+  await harness.settle();
+  expect(container.textContent).toContain("Uploading…");
+  expect(container.querySelector("input")).toBeNull();
+  release?.();
+  await harness.settle();
+  expect(container.querySelector("input")?.value).toContain("#capability");
+  expect(container.textContent).not.toContain("Uploading");
 });

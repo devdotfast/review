@@ -49,6 +49,7 @@ export function DiffCounts({ progress }: { progress: CoverageProgress }) {
 export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const cabinetsRef = useRef<HTMLDivElement>(null);
+
   const sidebarResize = useRightPanelResize({
     side: "left",
     stateKey: "diff-sidebar-width",
@@ -59,6 +60,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
     label: "Resize diff sidebar",
     containerRef: workspaceRef,
   });
+
   const cabinetsResize = useBottomSheetResize({
     stateKey: "diff-files-height",
     defaultFraction: 0.45,
@@ -67,6 +69,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
     label: "Resize lenses and files",
     containerRef: cabinetsRef,
   });
+
   const lenses = useReviewLenses();
   const lens = scope ? undefined : lenses?.active;
   const [fullTree, setFullTree] = useState<HTMLDivElement | null>(null);

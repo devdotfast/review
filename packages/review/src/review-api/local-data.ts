@@ -42,21 +42,21 @@ import {
   sliceSourceRange,
 } from "../source.js";
 import {
-  comparisonCoverage,
-  type CoverageMode,
   type ComparisonCoverage,
+  type CoverageMode,
+  comparisonCoverage,
 } from "./comparison-coverage.js";
 import { resourceReference } from "./document.js";
 import {
   type Block,
+  type FileLineRange,
   type Pins,
   ReviewInputError,
   type ReviewTarget,
-  type FileLineRange,
   elements,
+  fileLineRangeSchema,
   pinsSchema,
   sourceReferences,
-  fileLineRangeSchema,
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
@@ -792,6 +792,7 @@ export class LocalReviewData {
 
   subscribeCoverage(listener: () => void) {
     this.coverageListeners.add(listener);
+
     return () => {
       this.coverageListeners.delete(listener);
     };
@@ -801,17 +802,21 @@ export class LocalReviewData {
   coveragePending(reviewId: string, pins: Pins, mode: CoverageMode): boolean {
     const key = JSON.stringify([pins, mode]);
     const existing = this.coverageCache.get(key);
+
     if (existing?.state === "error") {
       this.coverageCache.delete(key);
       throw existing.error;
     }
+
     void this.coverage(reviewId, pins, mode).catch(() => {});
+
     return this.coverageCache.get(key)!.state === "pending";
   }
 
   coverageSnapshot(reviewId: string, pins: Pins, mode: CoverageMode) {
     const pending = this.coveragePending(reviewId, pins, mode);
     const entry = this.coverageCache.get(JSON.stringify([pins, mode]))!;
+
     return {
       pending,
       comparison: entry.partial ?? {
@@ -828,6 +833,7 @@ export class LocalReviewData {
     this.coverageNotification = setTimeout(() => {
       this.coverageNotification = undefined;
       this.coverageRevision++;
+
       for (const listener of this.coverageListeners) listener();
     }, 50);
   }
@@ -835,6 +841,7 @@ export class LocalReviewData {
   coverage(reviewId: string, pins: Pins, mode: CoverageMode) {
     const key = JSON.stringify([pins, mode]);
     let entry = this.coverageCache.get(key);
+
     if (!entry || entry.state === "error") {
       const promise = comparisonCoverage(
         this,
@@ -844,27 +851,34 @@ export class LocalReviewData {
         this.coverageAbort.signal,
         (partial) => {
           const current = this.coverageCache.get(key);
+
           if (current) current.partial = partial;
           this.notifyCoverage();
         },
       );
+
       entry = { promise, state: "pending" };
       this.coverageCache.set(key, entry);
       const current = entry;
-      const settled = (state: "ready" | "error", error?: unknown) => {
+
+      const settled = (state: "ready" | "error", error?: Error) => {
         current.state = state;
         current.error = error;
         this.notifyCoverage();
+
         // Never evict shared in-flight work. Trim only settled comparisons.
         for (const [cachedKey, cached] of this.coverageCache) {
           if (this.coverageCache.size <= 32) break;
+
           if (cached.state !== "pending" && cachedKey !== key)
             this.coverageCache.delete(cachedKey);
         }
       };
+
       void promise.then(
         (value) => {
           current.partial = value;
+
           if (!this.closed)
             this.store.setDiffStats(
               pins,
@@ -888,6 +902,7 @@ export class LocalReviewData {
         (error) => settled("error", error),
       );
     }
+
     return entry.promise;
   }
 
@@ -1070,6 +1085,7 @@ export class LocalReviewData {
                 ...source,
                 side: input.side,
               });
+
               let read = files.get(range.file);
 
               if (!read)
@@ -1186,4 +1202,3 @@ export function openLocalReviewStore(
 
   return { store, data };
 }
-

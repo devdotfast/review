@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import {
   type LensSource,
-  sourceAnchors,
   selectSource,
+  sourceAnchors,
 } from "../lens-selection.js";
 import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
 import { type FileLineRange, fileLineRangeSchema } from "../source.js";
@@ -268,6 +268,7 @@ function documentReferences(
 
 /** All authored attachments, including code peeks, select the aligned diff. */
 export const selectionReferences = documentReferences;
+
 export const lensSourceReferences = selectionReferences;
 
 /** Per-side read coordinates for endpoint validation and retained source quotes. */

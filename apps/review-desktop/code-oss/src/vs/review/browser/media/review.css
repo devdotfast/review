@@ -923,22 +923,12 @@ body
   .monaco-component.multiDiffEditor
   .multiDiffEntry
   > .header
-  > .header-content,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
   > .header-content {
   margin-top: 0;
 }
 
 .review-files-editor-diffs
   .monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
-  .file-path
-  .title,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
   .multiDiffEntry
   > .header
   > .header-content
@@ -952,11 +942,6 @@ body
   .multiDiffEntry
   > .header
   > .header-content
-  > .actions,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
   > .actions {
   padding: 0;
 }
@@ -965,36 +950,8 @@ body
   .multiDiffEntry
   > .header
   > .header-content
-  > .actions.has-no-actions,
-.review-inline-editor-header-host.monaco-component.multiDiffEditor
-  .multiDiffEntry
-  > .header
-  > .header-content
   > .actions.has-no-actions {
   display: none;
-}
-
-.review-inline-code-editor {
-  display: flex;
-  flex-direction: column;
-  background: var(--vscode-multiDiffEditor-background);
-}
-
-.review-inline-editor-header-host.monaco-component.multiDiffEditor {
-  position: relative;
-  isolation: isolate;
-  flex: 0 0 40px;
-  min-width: 0;
-  width: 100%;
-  height: 40px;
-  overflow: hidden;
-}
-
-.review-inline-editor-body {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .review-canvas-part > .review-canvas-container {
@@ -1037,48 +994,6 @@ body
 .review-reveal-line {
   background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
   border-left: 2px solid var(--vscode-panel-border);
-}
-
-/* The anchored range reads as a lifted surface — a neutral foreground
-   wash plus a neutral hairline in the margin — never as an accent color.
-   A hue-neutral lift stacks safely on the diff editor's added/removed row
-   tints, where an accent wash would shift their hue. */
-.review-inline-code-range {
-  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
-}
-
-.review-inline-code-range-active {
-  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
-}
-
-.review-inline-find-match {
-  background: var(--review-find-match-background);
-}
-
-.review-inline-find-match-active {
-  background: var(--review-find-match-active-background);
-}
-
-.review-inline-code-lineno {
-  color: var(--vscode-editorLineNumber-activeForeground) !important;
-}
-
-.review-inline-unified-diff
-  .monaco-editor
-  .line-numbers.review-unified-line-number-added {
-  background: var(
-    --vscode-diffEditorGutter-insertedLineBackground,
-    var(--vscode-diffEditor-insertedLineBackground)
-  );
-}
-
-.review-inline-unified-diff
-  .monaco-editor
-  .line-numbers.review-unified-line-number-deleted {
-  background: var(
-    --vscode-diffEditorGutter-removedLineBackground,
-    var(--vscode-diffEditor-removedLineBackground)
-  );
 }
 
 /* Give commenting and folding separate hit targets in the Files view. */
@@ -1317,4 +1232,3 @@ body
 
 .review-diff-group-toggle { display:flex; align-items:center; gap:5px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
 .review-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }
-

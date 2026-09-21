@@ -207,6 +207,7 @@ describe("proseToMarkdown", () => {
 
   it("keeps a nested CodePeek as a source link and reports other nested components", () => {
     const warnings: string[] = [];
+
     const peek = selectSource({
       side: "head",
       file: "src/a.ts",

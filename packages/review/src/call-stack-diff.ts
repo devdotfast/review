@@ -1,5 +1,5 @@
-import { sourceAnchor } from "./lens-selection";
 import { frameIdentity } from "./call-stack-frames";
+import { sourceAnchor } from "./lens-selection";
 import type { Frame } from "./review-api/document";
 
 export type CallStackSide = "base" | "head";

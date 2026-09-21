@@ -11,6 +11,7 @@ const FONT_FACE_RULE = /@font-face\s*\{[^}]*\}/g;
 export function scopeReviewCanvasCss(source: string): string {
   const fontFaces = source.match(FONT_FACE_RULE) ?? [];
   const withoutFontFaces = source.replace(FONT_FACE_RULE, "");
+
   const scopedSource = withoutFontFaces.replace(
     REVIEW_CANVAS_ROOT_RULE,
     ":scope{",

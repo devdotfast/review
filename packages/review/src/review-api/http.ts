@@ -131,9 +131,11 @@ export function createReviewApi(
       .parse(context.req.query());
 
     const snapshot = store.read(context.req.param("id"), query.version);
+
     if (query.wait === "false") {
       const { pins } = await data.resolveSource(snapshot);
       const state = data.coverageSnapshot(snapshot.reviewId, pins, query.mode);
+
       if (state.pending)
         return context.json(
           await reviewProgress(
@@ -168,6 +170,7 @@ export function createReviewApi(
     const id = context.req.param("id");
 
     const snapshot = store.read(id);
+
     const progress = await reviewProgress(
       store,
       data,

@@ -5,11 +5,12 @@ import { textualRows } from "./review-api/lens-alignment.js";
 import {
   type CoverageFile,
   coverageProgress,
-  scopedCoverage,
   emptyCoverage,
+  scopedCoverage,
 } from "./viewed-coverage.js";
 
 const file = { path: "new.ts", previousPath: "old.ts" };
+
 // A deletion lies between two head lines, followed by an insertion-only row.
 const rows = [
   [0, 0],
@@ -30,10 +31,12 @@ it("includes interior deletion rows when selecting by head endpoints, but exclud
     rows,
     file,
   );
+
   expect(scope).toEqual([
     { file: "old.ts", side: "base", fromLine: 1, toLine: 3 },
     { file: "new.ts", side: "head", fromLine: 1, toLine: 3 },
   ]);
+
   const coverage: CoverageFile = {
     ...file,
     fingerprint: "v1",
@@ -49,6 +52,7 @@ it("includes interior deletion rows when selecting by head endpoints, but exclud
     },
     viewed: emptyCoverage(),
   };
+
   expect(coverageProgress([coverage], scope).total).toEqual({
     additions: 1,
     deletions: 1,
@@ -69,6 +73,7 @@ it("accepts an interval starting on a deletion and ending on an insertion", () =
     start: { side: "base", line: 2 },
     end: { side: "head", line: 3 },
   });
+
   expect(resolveDiffSelection(selection, rows, file)).toEqual([
     { file: "old.ts", side: "base", fromLine: 2, toLine: 3 },
     { file: "new.ts", side: "head", fromLine: 2, toLine: 3 },
@@ -117,6 +122,7 @@ it("resolves selections over existing textual hunks, including unchanged gaps", 
     4,
     3,
   );
+
   expect(
     resolveDiffSelection(
       {

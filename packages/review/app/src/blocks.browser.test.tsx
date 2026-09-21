@@ -383,9 +383,11 @@ describe("block components", () => {
 
   it("opens the selected call-tree frame's code", async () => {
     const { container } = await mountFixture("call_stack_diff");
+
     const tree = await settled(() =>
       container.querySelector('nav[aria-label="Call tree"]'),
     );
+
     expect(tree).not.toBeNull();
     const frames = tree!.querySelectorAll("button");
     expect([...frames].map((frame) => frame.textContent)).toEqual([

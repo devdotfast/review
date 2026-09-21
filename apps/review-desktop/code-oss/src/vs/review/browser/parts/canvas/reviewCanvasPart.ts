@@ -79,7 +79,7 @@ import {
 	ReviewEmbeddedEditorSelection,
 	reviewEmbeddedSelectionFromOptions,
 } from "../../../services/reviewEmbeddedNavigation.js";
-import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
+import { ReviewEmbeddedEditors } from "../../../services/reviewEmbeddedEditors.js";
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 
 import "../../media/review.css";
@@ -148,7 +148,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private readyInput: ReviewCanvasEditorInput | undefined;
 	private assetsPromise: Promise<ReviewCanvasAssetsModule> | null = null;
 	private readonly modelSubscription = this._register(new MutableDisposable());
-	private readonly inlineEditors: ReviewInlineEditorService;
+	private readonly inlineEditors: ReviewEmbeddedEditors;
 	private readonly diffViews: ReviewDiffViewService;
 
 	constructor(
@@ -181,7 +181,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
-		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewInlineEditorService));
+		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewEmbeddedEditors));
 		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
 			reviewInstantiationService.createInstance(ReviewDiffViewService, this.inlineEditors),
@@ -257,7 +257,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		const overflowWidgets = $(".review-overflow-widgets.monaco-editor");
 		this.layoutService.getContainer(getWindow(parent)).appendChild(overflowWidgets);
 		this._register(toDisposable(() => overflowWidgets.remove()));
-		this.inlineEditors.setOverflowWidgetsDomNode(overflowWidgets);
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.desktopConnection.attachControl(async (value) => {
 			const request = parseReviewVerbRequest(value);

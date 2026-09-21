@@ -81,9 +81,11 @@ describe("diffrConfigFields", () => {
 
   it("marks credential keys as secret and hides their defaults", () => {
     const fields = diffrConfigFields(schema, {});
+
     const key = fields.find(
       (field) => field.key === "plugins.bundled.summarize.api_key",
     );
+
     expect(key?.secret).toBe(true);
     expect(diffrConfigDefaultText(fields[2])).toBe("12");
     expect(diffrConfigDefaultText(key!)).toBe("");
@@ -168,17 +170,21 @@ describe("current diffr plugin schema", () => {
       group: "Deleted function bodies",
       value: 20,
     });
+
     const tests = fields.find(
       (field) => field.key === "plugins.bundled.summarize.tests",
     )!;
+
     expect(tests).toMatchObject({
       kind: "boolean",
       value: false,
       default: true,
     });
+
     const threshold = fields.find(
       (field) => field.key === "plugins.bundled.summarize.test_min_lines",
     )!;
+
     expect(threshold).toMatchObject({ kind: "number", value: 30, default: 20 });
     expect(diffrConfigInputValue(threshold, "24")).toBe(24);
     expect(

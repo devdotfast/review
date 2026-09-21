@@ -89,5 +89,6 @@ export async function setDiffrConfigValue(
   await diffr(["config", "set", key, diffrConfigValueText(value)], rootPath);
 
   invalidateStructuralComparisons();
+
   return readDiffrConfig(rootPath);
 }

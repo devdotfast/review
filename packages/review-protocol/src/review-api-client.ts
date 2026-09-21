@@ -177,8 +177,12 @@ export class ReviewApiClient {
       connections.set(key, live);
     }
 
+    const subscription: Subscription = { reviewId };
+
+    if (mode) subscription.mode = mode;
+
     return live.add(
-      { reviewId, ...(mode ? { mode } : {}) },
+      subscription,
       signal,
       // SAFETY: this listener requests the review whose snapshot type is T.
       (value) => accept(value as T),

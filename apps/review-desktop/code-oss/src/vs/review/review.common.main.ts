@@ -263,7 +263,6 @@ import {
 	IReviewCanvasEditorTabsService,
 	ReviewCanvasEditorTabsService,
 } from "./services/reviewCanvasEditorTabsService.js";
-import { IReviewCodeResourceService, ReviewCodeResourceService } from "./services/reviewCodeResourceService.js";
 import {
 	IReviewDesktopConnectionService,
 	ReviewDesktopConnectionService,
@@ -277,7 +276,6 @@ registerSingleton(IReviewTelemetryService, ReviewTelemetryService, Instantiation
 
 registerSingleton(IReviewCanvasEditorTabsService, ReviewCanvasEditorTabsService, InstantiationType.Delayed);
 
-registerSingleton(IReviewCodeResourceService, ReviewCodeResourceService, InstantiationType.Delayed);
 registerSingleton(IReviewApiSourceService, ReviewApiSourceService, InstantiationType.Delayed);
 registerSingleton(IReviewApiCatalogService, ReviewApiCatalogService, InstantiationType.Delayed);
 registerSingleton(IReviewVerbsService, ReviewVerbsService, InstantiationType.Delayed);

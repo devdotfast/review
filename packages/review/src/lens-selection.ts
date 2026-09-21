@@ -20,9 +20,13 @@ export const diffSelectionSchema = z
       value.start.side !== value.end.side || value.start.line <= value.end.line,
     "Source range ends before it starts.",
   );
+
 export type DiffSelection = z.infer<typeof diffSelectionSchema>;
+
 export const lensSourceSchema = diffSelectionSchema;
+
 export type LensSource = DiffSelection;
+
 export type AlignmentRow = readonly [number | null, number | null];
 
 export function selectionKey(source: LensSource): string {
@@ -47,9 +51,10 @@ export function selectSource(source: FileLineRange): DiffSelection {
 /** Navigation/quote anchors only; never use these as lens coverage. */
 export function sourceAnchors(source: LensSource): FileLineRange[] {
   return (["head", "base"] as const).flatMap((side) => {
-    const lines = [source.start, source.end]
-      .filter((endpoint) => endpoint.side === side)
-      .map((endpoint) => endpoint.line);
+    const lines = [source.start, source.end].flatMap((endpoint) =>
+      endpoint.side === side ? [endpoint.line] : [],
+    );
+
     return lines.length
       ? [
           {
@@ -77,13 +82,16 @@ export function resolveDiffSelection(
     rows.findIndex(
       (row) => row[endpoint.side === "base" ? 0 : 1] === endpoint.line - 1,
     );
+
   const start = locate(source.start);
   const end = locate(source.end);
+
   if (start < 0 || end < start)
     throw new Error(
       "Lens endpoints do not identify an ordered interval in this diff.",
     );
   const selected = rows.slice(start, end + 1);
+
   return (["base", "head"] as const).flatMap((side, index) =>
     unionIntervals(
       selected.flatMap((row) =>

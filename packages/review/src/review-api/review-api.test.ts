@@ -1284,9 +1284,11 @@ it("textual coverage uses Git ranges without launching diffr", async () => {
     text: side === "head" ? "const x = 1;" : "const x=1;",
   }));
   const structural = vi.spyOn(data, "structuralChanges");
+
   const response = await createReviewApi(store, data).request(
     `/${reviewId}/progress?mode=textual`,
   );
+
   expect(response.status).toBe(200);
   const progress = await response.json();
   expect(coverageProgress(progress.files).total).toEqual({
@@ -1307,6 +1309,7 @@ it("textual coverage uses Git ranges without launching diffr", async () => {
       lhs: { path: "a.ts", oid: "base", mode: "100644" },
       rhs: { path: "a.ts", oid: "head", mode: "100644" },
     };
+
     yield {
       type: "start",
       version: 4,
@@ -1331,17 +1334,21 @@ it("textual coverage uses Git ranges without launching diffr", async () => {
     throw new Error("Counts must not wait for summary events");
   });
   await data.coverage(reviewId, pins, "structural");
+
   const structuralCatalog = await (
     await api.request("/?mode=structural")
   ).json();
+
   expect(structuralCatalog[0].diffStats).toEqual({
     fileCount: 1,
     additions: 0,
     deletions: 0,
   });
+
   const structuralProgress = await (
     await api.request(`/${reviewId}/progress?mode=structural`)
   ).json();
+
   expect(coverageProgress(structuralProgress.files).total).toEqual({
     additions: 0,
     deletions: 0,
@@ -1442,15 +1449,19 @@ it("resolves file lenses to whole changed files, preserves empty groups, and sha
 
 it("validates range lens evidence and scopes progress and Uncategorized to distinct changed lines", async () => {
   const { reviewProgress } = await import("./review-progress.js");
+
   const { coverageProgress, scopedCoverage } =
     await import("../viewed-coverage.js");
+
   const { reviewId } = await create();
+
   const selected = {
     side: "head" as const,
     file: "src/a.ts",
     fromLine: 2,
     toLine: 2,
   };
+
   await edit(reviewId, {
     type: "insert",
     content: {
@@ -1516,10 +1527,12 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     text: `${side}1\n${side}2\n${side}3`,
   }));
   const result = await reviewProgress(store, data, store.read(reviewId));
+
   const lens = result.diagrams[0],
     rest = result.diagrams.find(
       (lens) => lens.id === "automatic-uncategorized",
     )!;
+
   expect(lens.sources).toEqual([{ ...selected, side: "base" }, selected]);
   expect(lens.wholeFiles).toBe(false);
   expect(coverageProgress(result.files, lens.sources).total).toEqual({
@@ -1575,6 +1588,7 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
 
 it("rejects ambiguous lens scopes and validates range sources during authoring", async () => {
   const { reviewId } = await create();
+
   for (const scope of [
     {},
     { patterns: ["**"], targets: [{ kind: "files", patterns: ["**"] }] },
@@ -1646,9 +1660,11 @@ it("returns pending progress without waiting for coverage and signals completion
   const { reviewId } = await create();
   const data = new LocalReviewData(store);
   let release!: () => void;
+
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
     pins: snapshot.pins,
@@ -1658,10 +1674,12 @@ it("returns pending progress without waiting for coverage and signals completion
     file?: string,
   ) => {
     await gate;
+
     return file ? "" : [];
   }) as typeof data.changes);
   const api = createReviewApi(store, data);
   const route = `/${reviewId}/progress?version=0&mode=textual&wait=false`;
+
   try {
     const pending = await api.request(route);
     expect(pending.status).toBe(202);
@@ -1670,13 +1688,17 @@ it("returns pending progress without waiting for coverage and signals completion
     release();
     await data.coverage(reviewId, pins, "textual");
     await vi.waitFor(() => expect(data.coverageRevision).toBeGreaterThan(0));
+
     const watch = await api.request(
       `/watch?subscriptions=${encodeURIComponent(JSON.stringify([{ reviewId, mode: "textual" }]))}`,
     );
+
     const reader = watch.body!.getReader();
+
     const initial = JSON.parse(
       new TextDecoder().decode((await reader.read()).value),
     );
+
     expect(initial[0].value.coverageRevision).toBeGreaterThan(0);
     await reader.cancel();
     const ready = await api.request(route);
@@ -1700,6 +1722,7 @@ it("reports failed background coverage instead of leaving progress pending", asy
   vi.spyOn(data, "changes").mockRejectedValue(new Error("comparison failed"));
   const api = createReviewApi(store, data);
   const route = `/${reviewId}/progress?version=0&mode=textual&wait=false`;
+
   try {
     expect((await api.request(route)).status).toBe(202);
     await vi.waitFor(() => expect(data.coverageRevision).toBeGreaterThan(0));
@@ -1713,9 +1736,11 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
   const { createReviewApi } = await import("./http.js");
   const { selectionKey } = await import("../lens-selection.js");
   const { reviewId } = await create();
+
   const refs = ["a.ts", "b.ts"].map((file) =>
     selectSource({ side: "head", file, fromLine: 1, toLine: 1 }),
   );
+
   await edit(reviewId, {
     type: "insert",
     content: {
@@ -1730,9 +1755,11 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
   });
   const data = new LocalReviewData(store);
   let release!: () => void;
+
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
     pins: snapshot.pins,
@@ -1748,7 +1775,9 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
         additions: 1,
         deletions: 1,
       }));
+
     if (file === "b.ts") await gate;
+
     return "@@ -1 +1 @@\n-old\n+new\n";
   }) as typeof data.changes);
   vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
@@ -1759,6 +1788,7 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
   }));
   const api = createReviewApi(store, data);
   const route = `/${reviewId}/progress?version=${store.read(reviewId).version}&mode=textual&wait=false`;
+
   try {
     await api.request(route);
     await vi.waitFor(() =>
@@ -1815,9 +1845,11 @@ it("shares pending comparison work even when more than 32 reviews are opened", a
   const { reviewId } = await create();
   const data = new LocalReviewData(store);
   let release!: () => void;
+
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
     await gate;
     yield {
@@ -1830,9 +1862,11 @@ it("shares pending comparison work even when more than 32 reviews are opened", a
     yield { type: "complete", succeeded: 0, failed: 0 };
   });
   const first = data.coverage(reviewId, pins, "structural");
+
   const others = Array.from({ length: 33 }, (_, i) =>
     data.coverage(reviewId, { ...pins, head: `head-${i}` }, "structural"),
   );
+
   expect(data.coverage(reviewId, pins, "structural")).toBe(first);
   release();
   await Promise.all([first, ...others]);

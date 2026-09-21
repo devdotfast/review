@@ -5,11 +5,11 @@ import type { FileLineRange } from "../source.js";
 import {
   type CoverageFile,
   coverageSources,
-  unionIntervals,
   scopedCoverage,
   subtractIntervals,
+  unionIntervals,
 } from "../viewed-coverage.js";
-import { fileLensTargets, type FileLensBlock } from "./blocks/file_lens.js";
+import { type FileLensBlock, fileLensTargets } from "./blocks/file_lens.js";
 
 /** Subtract authored coverage, independently of viewed state. */
 export function uncategorizedSources(
@@ -18,6 +18,7 @@ export function uncategorizedSources(
 ): FileLineRange[] {
   return files.flatMap((file) => {
     const covered = scopedCoverage(file, sources);
+
     return coverageSources(file, {
       base: subtractIntervals(file.changed.base, covered.base),
       head: subtractIntervals(file.changed.head, covered.head),
@@ -33,6 +34,7 @@ export function resolveFileLens(
   resolve: (source: LensSource) => FileLineRange[],
 ) {
   const targets = fileLensTargets(block);
+
   const selected = targets.flatMap((target) =>
     target.kind === "ranges"
       ? target.sources.flatMap(resolve)
@@ -40,13 +42,16 @@ export function resolveFileLens(
           .filter((file) => matchesFileLens(target.patterns, file))
           .flatMap((file) => fileSources.get(file.path) ?? []),
   );
+
   const groups = new Map<string, FileLineRange[]>();
+
   for (const source of selected) {
     const key = JSON.stringify([source.side, source.file]);
     const group = groups.get(key) ?? [];
     group.push(source);
     groups.set(key, group);
   }
+
   const sources = [...groups.values()].flatMap((group) =>
     unionIntervals(
       group.map((source) => [source.fromLine - 1, source.toLine]),
@@ -56,6 +61,7 @@ export function resolveFileLens(
       toLine: end,
     })),
   );
+
   const fileCount = new Set(
     sources.map(
       (source) =>
@@ -68,6 +74,7 @@ export function resolveFileLens(
         )?.path ?? source.file,
     ),
   ).size;
+
   return {
     sources,
     fileCount,

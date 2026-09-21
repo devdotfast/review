@@ -1,26 +1,31 @@
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/json";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { structuralDiff, type StructuralDiffRequest } from "./structural-diff";
+import { type StructuralDiffRequest, structuralDiff } from "./structural-diff";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
+
 async function executable(script: string) {
   const root = await mkdtemp(path.join(tmpdir(), "review-diffr-test-"));
   roots.push(root);
   const file = path.join(root, "diffr");
   await writeFile(file, `#!${process.execPath}\n${script}`, { mode: 0o755 });
   vi.stubEnv("REVIEW_DIFFR_BINARY", file);
+
   return root;
 }
+
 const START = {
   type: "start",
   version: 4,
@@ -33,15 +38,20 @@ const START = {
     },
   ],
 };
+
 const FILE = { rhs: { path: "a.ts", oid: "2", mode: "100644" } };
+
 const BINARY = {
   type: "file",
   file: FILE,
   diff: { type: "binary", rhs: { size: 2 } },
 };
+
 const COMPLETE = { type: "complete", succeeded: 1, failed: 0 };
-const emit = (event: unknown) =>
+
+const emit = (event: JsonValue) =>
   `console.log(${JSON.stringify(JSON.stringify(event))});`;
+
 const request = (
   root: string,
   overrides: Partial<StructuralDiffRequest> = {},
@@ -51,9 +61,12 @@ const request = (
   signal: new AbortController().signal,
   ...overrides,
 });
+
 async function collect(input: StructuralDiffRequest) {
   const events = [];
+
   for await (const event of structuralDiff(input)) events.push(event);
+
   return events;
 }
 
@@ -64,6 +77,7 @@ test.each(["trees", "merge-base"] as const)(
     require('node:fs').writeFileSync('args.json', JSON.stringify(process.argv.slice(2)));
     ${emit(START)} ${emit(COMPLETE)}
   `);
+
     await collect(
       request(root, {
         comparison: { kind, base: "base", head: "head" },
@@ -92,6 +106,7 @@ test("yields records before process completion and joins split chunks", async ()
     setTimeout(() => { process.stdout.write(${JSON.stringify(JSON.stringify(BINARY).slice(20) + "\n")}); }, 5);
     const timer = setInterval(() => { if(require('node:fs').existsSync('continue')) { clearInterval(timer); ${emit(COMPLETE)} } }, 10);
   `);
+
   const iterator = structuralDiff(request(root));
   expect((await iterator.next()).value?.type).toBe("start");
   expect((await iterator.next()).value).toEqual(BINARY);
@@ -106,9 +121,11 @@ test("yields file errors and continues to successful files, accepting exit 2", a
     file: FILE,
     error: { code: "read_failed", message: "unreadable" },
   };
+
   const root = await executable(
     `${emit(START)} ${emit(error)} ${emit(BINARY)} ${emit({ ...COMPLETE, failed: 1 })} process.exitCode = 2;`,
   );
+
   expect(await collect(request(root))).toEqual([
     START,
     error,
@@ -122,9 +139,11 @@ test("yields an aborted completion without discarding prior files", async () => 
     ...COMPLETE,
     aborted: { code: "hook_failed", message: "summarizer down" },
   };
+
   const root = await executable(
     `${emit(START)} ${emit(BINARY)} ${emit(complete)} process.exitCode = 2;`,
   );
+
   expect(await collect(request(root))).toEqual([START, BINARY, complete]);
 });
 
@@ -158,6 +177,7 @@ test("cancellation terminates the subprocess", async () => {
 
 test("breaking iteration terminates a producer that has not finished", async () => {
   const root = await executable(`${emit(START)} setInterval(() => {}, 1000);`);
+
   for await (const event of structuralDiff(request(root))) {
     expect(event.type).toBe("start");
     break;
@@ -213,9 +233,11 @@ test("annotation failure is data, preserves files, and explains exit 2", async (
     annotations: [],
     error: { code: "enrichment_failed", message: "offline" },
   };
+
   const root = await executable(
     `${emit(START)} ${emit(BINARY)} ${emit(annotation)} ${emit(COMPLETE)} process.exitCode = 2;`,
   );
+
   expect(await collect(request(root))).toEqual([
     START,
     BINARY,
@@ -226,22 +248,27 @@ test("annotation failure is data, preserves files, and explains exit 2", async (
 
 test("coverage can detach after initial files while summaries continue for later readers", async () => {
   const { StructuralComparisons } = await import("./structural-comparisons.js");
+
   const annotation = {
     type: "annotations",
     file: FILE,
     annotations: [{ region_id: 1, label: "summary" }],
   };
+
   const root = await executable(`
     require('node:fs').appendFileSync('runs', 'x');
     ${emit(START)} ${emit(BINARY)}
     const timer = setInterval(() => { if(require('node:fs').existsSync('continue')) { clearInterval(timer); ${emit(annotation)} ${emit(COMPLETE)} } }, 10);
   `);
+
   const cache = new StructuralComparisons();
+
   try {
     for await (const event of cache.stream(request(root)))
       if (event.type === "file") break;
     await writeFile(path.join(root, "continue"), "");
     const events = [];
+
     for await (const event of cache.stream(request(root))) events.push(event);
     expect(events).toEqual([START, BINARY, annotation, COMPLETE]);
     expect(await readFile(path.join(root, "runs"), "utf8")).toBe("x");

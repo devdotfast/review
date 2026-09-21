@@ -23,7 +23,7 @@ import {
 } from '../../../workbench/common/contributions.js';
 import { IExtensionService } from '../../../workbench/services/extensions/common/extensions.js';
 import { LifecyclePhase } from '../../../workbench/services/lifecycle/common/lifecycle.js';
-import { ReviewInlineEditorService } from '../../services/reviewInlineEditorService.js';
+import { ReviewEmbeddedEditors } from '../../services/reviewEmbeddedEditors.js';
 import { IReviewTelemetryService } from '../../services/reviewTelemetryService.js';
 
 const HOVER_DWELL_MS = 1_000;
@@ -237,7 +237,7 @@ class ReviewLspTelemetryContribution extends Disposable implements IWorkbenchCon
 	}
 
 	private editorKind(editor: ICodeEditor): string {
-		if (ReviewInlineEditorService.owns(editor)) {
+		if (ReviewEmbeddedEditors.owns(editor)) {
 			return 'inline_peek';
 		}
 		for (const diffEditor of this.codeEditorService.listDiffEditors()) {

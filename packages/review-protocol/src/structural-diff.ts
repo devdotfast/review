@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import {
-  StructuralDiffEventSchema,
   type StructuralDiffEvent,
+  StructuralDiffEventSchema,
 } from "./diffr-contract.js";
 
 /** Review's HTTP transport can fail independently of diffr's per-file outcomes. */
@@ -10,9 +10,11 @@ const ReviewStructuralDiffErrorSchema = z.object({
   type: z.literal("error"),
   message: z.string(),
 });
+
 export type ReviewStructuralDiffEvent =
   | StructuralDiffEvent
   | z.infer<typeof ReviewStructuralDiffErrorSchema>;
+
 const ReviewStructuralDiffEventSchema = z.union([
   StructuralDiffEventSchema,
   ReviewStructuralDiffErrorSchema,

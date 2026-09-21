@@ -148,6 +148,7 @@ export function ApiCanvas({
         async (snapshot) => {
           setActivity(snapshot.activity);
           setCoverageRevision(snapshot.coverageRevision ?? 0);
+
           if (version !== undefined) return;
 
           if (

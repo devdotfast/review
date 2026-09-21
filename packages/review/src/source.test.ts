@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   SourceRangeError,
   checkSourcePath,
+  fileLineRangeSchema,
   requireVisibleSource,
   sliceSourceRange,
-  fileLineRangeSchema,
 } from "./source";
 
 describe("fileLineRangeSchema", () => {

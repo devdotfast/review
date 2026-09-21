@@ -22,6 +22,7 @@ describe("scopeReviewCanvasCss", () => {
   it("lifts @font-face rules out of the scope so the whole document can use them", () => {
     const face =
       '@font-face { font-family: "Geist Mono"; src: url(./geist.woff2) format("woff2"); }';
+
     const output = scopeReviewCanvasCss(
       [face, '.review-app { font-family: "Geist Mono"; }'].join("\n"),
     );

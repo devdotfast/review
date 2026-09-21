@@ -50,6 +50,8 @@ interface Lenses {
   error: string | null;
 }
 
+export type ReviewLensView = Pick<Lenses, "progress" | "resolve" | "error">;
+
 const Context = createContext<Lenses | null>(null);
 
 export const useReviewLenses = () => useContext(Context);
@@ -72,9 +74,11 @@ export function ReviewLensesProvider({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [changedPaths, setChangedPaths] = useState<string[]>([]);
+
   const [unfoldRanges, setUnfoldRanges] = useState<readonly FileLineRange[]>(
     [],
   );
+
   const generation = useRef(0);
   const pending = useRef(false);
   const mode = structuralDiffEnabled ? "structural" : "textual";
@@ -88,6 +92,7 @@ export function ReviewLensesProvider({
     setError(null);
     setChangedPaths([]);
     setUnfoldRanges([]);
+
     return () => {
       generation.current++;
     };
@@ -107,6 +112,7 @@ export function ReviewLensesProvider({
       .catch((error) => {
         if (!abort.signal.aborted) setError(String(error));
       });
+
     return () => abort.abort();
   }, [client, route, snapshot.version, mode, coverageRevision]);
 
@@ -114,6 +120,7 @@ export function ReviewLensesProvider({
     () => diagramLenses(snapshot.document),
     [snapshot.document],
   );
+
   const diagrams: ReviewProgress["diagrams"] = progress?.diagrams ?? [
     ...authored.map((item) => ({ ...item, sources: [], pending: true })),
     {
@@ -124,10 +131,12 @@ export function ReviewLensesProvider({
       pending: true,
     },
   ];
+
   const item = diagrams.find((item) => item.id === activeId);
   // Scope contains only resolved correspondence; navigation anchors are not coverage.
   const ranges = item?.sources ?? [];
   const scopeKey = JSON.stringify(ranges);
+
   const active = useMemo(
     () =>
       item
@@ -136,6 +145,7 @@ export function ReviewLensesProvider({
             title: item.title,
             reviewId: snapshot.reviewId,
             version: snapshot.version,
+            // SAFETY: scopeKey was produced from item.sources, which are validated file ranges.
             ranges: JSON.parse(scopeKey) as FileLineRange[],
             wholeFiles: item.wholeFiles ?? false,
           }
@@ -209,6 +219,7 @@ export function ReviewLensesProvider({
           )
         )
           return "unavailable";
+
         if (
           sources.every(
             (source) =>
@@ -216,6 +227,7 @@ export function ReviewLensesProvider({
           )
         )
           return "ready";
+
         return progress?.complete === true ? "unavailable" : "pending";
       },
       active,

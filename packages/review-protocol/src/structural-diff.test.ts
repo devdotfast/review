@@ -1,10 +1,13 @@
+import type { JsonValue } from "@dev.fast/json";
 import { expect, test } from "vitest";
 
 import {
-  decodeStructuralDiffEvent,
   decodeReviewStructuralDiffEvent,
+  decodeStructuralDiffEvent,
 } from "./structural-diff.js";
+
 const file = { rhs: { path: "a.ts", oid: "1", mode: "100644" } };
+
 const text = {
   type: "text",
   structural_changes: { base: [], head: [[0, 1]] },
@@ -35,13 +38,16 @@ const text = {
     visible: { added: 0, removed: 0 },
   },
 };
+
 const event = { type: "file", file, diff: text };
-const decode = (value: unknown) =>
+
+const decode = (value: JsonValue) =>
   decodeStructuralDiffEvent(JSON.stringify(value));
 
 test("decodes recursive regions with omitted serde defaults and unknown additive fields", () => {
   expect(decode({ ...event, future: 123 })).toEqual(event);
 });
+
 test.each([
   { type: "file", file },
   { ...event, error: { code: "bad", message: "bad" } },
@@ -57,15 +63,18 @@ test.each([
   { type: "complete", succeeded: 0.1, failed: 0 },
   { type: "start", version: 3, files: [] },
 ])("rejects malformed nested protocol data", (value) => {
-  expect(() => decode(value)).toThrow();
+  expect(() => decode(value)).toThrow("invalid structural diff event");
 });
+
 test("keeps host transport errors distinct from diffr file errors", () => {
   const error = JSON.stringify({ type: "error", message: "launch failed" });
   expect(decodeReviewStructuralDiffEvent(error)).toEqual({
     type: "error",
     message: "launch failed",
   });
-  expect(() => decodeStructuralDiffEvent(error)).toThrow();
+  expect(() => decodeStructuralDiffEvent(error)).toThrow(
+    "invalid structural diff event",
+  );
 });
 
 test.each([

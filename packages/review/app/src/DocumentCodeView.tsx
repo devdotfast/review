@@ -1,4 +1,5 @@
 import type {
+  ReviewDiffProgress,
   ReviewDiffSide,
   ReviewFindQuery,
   ReviewInlineEditorHandle,
@@ -7,9 +8,11 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import { coverageProgress, coverageSources } from "../../src/viewed-coverage";
 import { useReviewSession } from "./host/review-session";
 import { useReviewFindRegistration } from "./review-find";
 import { emitReviewInteraction } from "./review-interaction-event";
+import { type ReviewLensView, useReviewLenses } from "./review-lenses";
 
 const LINE_HEIGHT = 20;
 
@@ -17,7 +20,7 @@ const MAX_VISIBLE_LINES = 18;
 
 const INLINE_HEADER_HEIGHT = 40;
 
-export function InlineCodeEditor({
+export function DocumentCodeView({
   path,
   title,
   description,
@@ -29,6 +32,7 @@ export function InlineCodeEditor({
   onFocus,
   onOpen,
   collapsed = false,
+  lenses: lensesOverride,
 }: {
   path: string;
   title: string;
@@ -41,8 +45,32 @@ export function InlineCodeEditor({
   onFocus?: () => void;
   onOpen?: () => void;
   collapsed?: boolean;
+  lenses?: ReviewLensView;
 }) {
   const session = useReviewSession();
+  const contextLenses = useReviewLenses();
+  const lenses = lensesOverride ?? contextLenses;
+
+  const sources = (countRanges ?? ranges).map((range) => ({
+    file: path,
+    side: range.side ?? side,
+    fromLine: range.startLine,
+    toLine: range.endLine,
+  }));
+
+  const progress: ReviewDiffProgress = {
+    files: (lenses?.progress?.files ?? [])
+      .filter((file) => file.path === path || file.previousPath === path)
+      .map((file) => ({
+        path: file.path,
+        ...coverageProgress([file], sources),
+        viewedRanges: coverageSources(file),
+        changedRanges: coverageSources(file, file.changed),
+      })),
+  };
+
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
   const handleNavigation = useCallback(
@@ -187,6 +215,7 @@ export function InlineCodeEditor({
 
     try {
       handle = inlineEditorFactory.create({
+        progress: progressRef.current,
         container,
         path,
         title,
@@ -250,6 +279,10 @@ export function InlineCodeEditor({
   useLayoutEffect(() => {
     handleRef.current?.setActive(active);
   }, [active]);
+
+  useLayoutEffect(() => {
+    handleRef.current?.setProgress?.(progressRef.current);
+  }, [lenses?.progress, countRangesKey, rangesKey, path, side]);
 
   useLayoutEffect(() => {
     handleRef.current?.setCollapsed(collapsed);

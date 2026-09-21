@@ -48,6 +48,7 @@ export const file_lens = {
       throw new ReviewInputError(
         "A file lens requires either targets or legacy patterns, not both.",
       );
+
     for (const pattern of fileLensTargets(block).flatMap((target) =>
       target.kind === "files" ? target.patterns : [],
     )) {

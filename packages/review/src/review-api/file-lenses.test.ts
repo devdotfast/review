@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
 
-import { sourceAnchors, selectSource } from "../lens-selection.js";
+import { selectSource, sourceAnchors } from "../lens-selection.js";
 import {
   matchesFileLens,
-  uncategorizedSources,
   resolveFileLens,
+  uncategorizedSources,
 } from "./file-lenses.js";
 
 it("matches file paths, nested test globs, docs and dot directories without scanning other files", () => {
@@ -48,18 +48,21 @@ it("keeps partially covered files until both sides are covered, regardless of vi
       head: [[4, 7] as [number, number]],
     },
   };
+
   const head = {
     side: "head" as const,
     file: "new.ts",
     fromLine: 5,
     toLine: 7,
   };
+
   const base = {
     side: "base" as const,
     file: "old.ts",
     fromLine: 2,
     toLine: 4,
   };
+
   expect(uncategorizedSources([file], [head])).toEqual([base]);
   expect(uncategorizedSources([file], [head, { ...base, toLine: 3 }])).toEqual([
     { ...base, fromLine: 4 },
@@ -78,24 +81,28 @@ it("unions mixed targets and canonicalizes renamed files without losing unchange
     changed: { base: [], head: [] },
     viewed: { base: [], head: [] },
   };
+
   const base = {
     side: "base" as const,
     file: "old.ts",
     fromLine: 1,
     toLine: 10,
   };
+
   const head = {
     side: "head" as const,
     file: "new.ts",
     fromLine: 1,
     toLine: 12,
   };
+
   const context = {
     side: "head" as const,
     file: "context.ts",
     fromLine: 3,
     toLine: 6,
   };
+
   const result = resolveFileLens(
     {
       type: "file_lens",
@@ -116,6 +123,7 @@ it("unions mixed targets and canonicalizes renamed files without losing unchange
     new Map([[file.path, [base, head]]]),
     sourceAnchors,
   );
+
   expect(result.sources).toEqual([base, head, { ...context, toLine: 9 }]);
   expect(result.fileCount).toBe(2);
   expect(result.wholeFiles).toBe(false);

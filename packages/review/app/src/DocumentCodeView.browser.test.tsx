@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { InlineCodeEditor } from "./InlineCodeEditor";
+import { DocumentCodeView } from "./DocumentCodeView";
 import { ReviewFindProvider, createReviewFindHost } from "./review-find";
 import { REVIEW_INTERACTION_EVENT } from "./review-interaction-event";
 import { type ReviewRoots, ReviewRootsProvider } from "./review-root-context";
@@ -124,7 +124,7 @@ function renderPeek(active: boolean) {
     root?.render(
       reviewSessionElement(
         session,
-        <InlineCodeEditor
+        <DocumentCodeView
           path="src/example.ts"
           title="src/example.ts"
           side="head"
@@ -197,7 +197,7 @@ it("refreshes header inputs when authored count ranges change within the same di
       root?.render(
         reviewSessionElement(
           session,
-          <InlineCodeEditor
+          <DocumentCodeView
             path="a.ts"
             title="a.ts"
             side="head"
@@ -280,7 +280,7 @@ it("searches an offscreen peek without mounting Monaco", async () => {
             host={host}
           >
             <p>needle in authored text</p>
-            <InlineCodeEditor
+            <DocumentCodeView
               path="src/offscreen.ts"
               title="src/offscreen.ts"
               side="head"
@@ -350,7 +350,7 @@ it("finishes search when revealing a failed editor", async () => {
             documentKey="failed-editor"
             host={host}
           >
-            <InlineCodeEditor
+            <DocumentCodeView
               path="src/failure.ts"
               title="src/failure.ts"
               side="head"
@@ -434,7 +434,7 @@ it("emits neutral hover and navigation interactions without remounting", () => {
     root?.render(
       reviewSessionElement(
         session,
-        <InlineCodeEditor
+        <DocumentCodeView
           path="src/example.ts"
           title="src/example.ts"
           side="head"

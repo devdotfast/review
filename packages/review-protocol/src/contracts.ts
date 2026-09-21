@@ -122,6 +122,7 @@ export interface ReviewInlineEditorRange {
 }
 
 export interface ReviewInlineEditorSpec {
+  progress?: ReviewDiffProgress;
   container: HTMLElement;
   path: string;
   title: string;
@@ -156,6 +157,7 @@ export interface ReviewInlineFindSpec {
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {
+  setProgress?(progress: ReviewDiffProgress): void;
   readonly height: number;
   setActive(active: boolean): void;
   setCollapsed(collapsed: boolean): void;
@@ -220,6 +222,13 @@ export interface ReviewDiffProgress {
 }
 
 export interface ReviewDiffViewSpec {
+  /** Embed the same diff renderer in the review document. */
+  document?: {
+    heightMode: ReviewInlineEditorHeightMode;
+    onDidChangeHeight(height: number): void;
+    onDidFocus?: () => void;
+    onDidOpen?: () => void;
+  };
   container: HTMLElement;
   fileTreeContainer?: HTMLElement;
   progress?: ReviewDiffProgress;

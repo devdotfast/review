@@ -130,6 +130,7 @@ describe("DocumentCallTree", () => {
     const edge = container.querySelector(
       '[aria-label="Go to call site of Frame auth"]',
     )!;
+
     await act(async () => {
       edge.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),

@@ -21,7 +21,6 @@ import {
 } from "../../common/reviewProtocol.js";
 import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
-import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
 import { apiSourceTarget } from "../../services/reviewApiSourceService.js";
 import { selectedMonacoDiff } from "./reviewDiffSelection.js";
 import { apiSelectionEvent } from "./reviewApiSelection.js";
@@ -47,8 +46,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 
 	constructor(
 		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
-		@IReviewCodeResourceService
-		private readonly codeResources: IReviewCodeResourceService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
 		@IHostService private readonly hostService: IHostService,
@@ -116,35 +113,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 			}
 			this._onDidEmitSurfaceEvent.fire(apiSelection);
 			return;
-		}
-		const unified = this.codeResources.unifiedResource(model.uri);
-		if (unified) {
-			const rows = unified.rows.slice(fromLine - 1, toLine);
-			if (!rows.length) return;
-			const previous = unified.rows.slice(0, fromLine - 1);
-			const source = unified.targetForRange(fromLine, toLine);
-			this._onDidEmitSurfaceEvent.fire({
-				event: "editorSelectionChanged",
-				reviewId: (unified?.modified ?? model.uri).authority,
-				anchor,
-				path: unified.path,
-				sideContext: source?.side ?? "head",
-				isEmpty: selection.isEmpty(),
-				range: {
-					fromLine: source?.startLine ?? fromLine,
-					toLine: source?.endLine ?? toLine,
-				},
-				selectedDiff: {
-					oldPath: unified.diffFile.status === "added" ? "" : (unified.diffFile.previousPath ?? unified.path),
-					newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
-					oldStart:
-						previous.filter((row) => row.kind !== "added").length + (rows.some((row) => row.kind !== "added") ? 1 : 0),
-					newStart:
-						previous.filter((row) => row.kind !== "deleted").length +
-						(rows.some((row) => row.kind !== "deleted") ? 1 : 0),
-					rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
-				},
-			});
 		}
 	}
 

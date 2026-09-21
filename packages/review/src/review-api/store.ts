@@ -15,10 +15,10 @@ import {
 import { ReviewActivity } from "./activity.js";
 import {
   type Block,
+  type FileLineRange,
   type Pins,
   ReviewInputError,
   type ReviewTarget,
-  type FileLineRange,
   applyEdit,
   assignFreshIds,
   checkReferences,
@@ -571,11 +571,13 @@ export class ReviewStore {
         .all()
         .map((row) => [
           String(row.identity),
+          // SAFETY: comparison_stats is written only from the validated diff-stats contract.
           JSON.parse(String(row.stats)) as NonNullable<
             ReviewApiSummary["diffStats"]
           >,
         ]),
     );
+
     return this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
@@ -1126,6 +1128,7 @@ export class ReviewStore {
         string,
         { source: FileLineRange; peek: boolean }
       >();
+
       const resources = new Map<string, Block>();
 
       const add = (source: FileLineRange, peek: boolean) => {

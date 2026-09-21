@@ -1,4 +1,11 @@
 import { orderReviewDiffFiles } from "../common/reviewChangedFilesModel.js";
+import { CancellationToken } from "../../base/common/cancellation.js";
+import { Range } from "../../editor/common/core/range.js";
+import { USUAL_WORD_SEPARATORS } from "../../editor/common/core/wordHelper.js";
+import { ITextModelService } from "../../editor/common/services/resolverService.js";
+import { IDiffProviderFactoryService } from "../../editor/browser/widget/diffEditor/diffProviderFactoryService.js";
+import { alignmentRows } from "../common/reviewLens.js";
+import type { ReviewInlineEditorSpec, ReviewInlineEditorHandle, ReviewFindQuery } from "../common/reviewProtocol.js";
 import { structuralChangeCounts } from "../common/reviewProtocol.js";
 import type { ReviewDiffProgress, ReviewDiffViewport } from "../common/reviewProtocol.js";
 import { lensRanges, withLens } from "./reviewLens.js";
@@ -8,7 +15,7 @@ import { lensRanges, withLens } from "./reviewLens.js";
  *--------------------------------------------------------------------------------------------*/
 
 import { Emitter } from "../../base/common/event.js";
-import { Disposable, DisposableStore } from "../../base/common/lifecycle.js";
+import { Disposable, DisposableStore, isDisposable } from "../../base/common/lifecycle.js";
 import type { URI } from "../../base/common/uri.js";
 import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
 import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js";
@@ -25,7 +32,7 @@ import type {
 import { ReviewDiffLayoutSetting } from "./reviewDiffLayout.js";
 import { markReviewEmbeddedEditor } from "./reviewEmbeddedNavigation.js";
 import { ReviewFilesDiffView, ReviewFilesEditorInput, type ReviewFilesEditorEntry } from "./reviewFilesDiffView.js";
-import type { ReviewInlineEditorService } from "./reviewInlineEditorService.js";
+import { ReviewEmbeddedEditors } from "./reviewEmbeddedEditors.js";
 
 import { createStructuralDiffEditors } from "./reviewStructuralDiff.js";
 import { StructuralDiffSession } from "./reviewStructuralDiffSession.js";
@@ -58,7 +65,7 @@ export class ReviewDiffViewService extends Disposable {
 	private readonly viewStates = new Map<string, IMultiDiffEditorViewState>();
 
 	constructor(
-		private readonly inlineEditors: ReviewInlineEditorService,
+		private readonly inlineEditors: ReviewEmbeddedEditors,
 		@IInstantiationService
 		private readonly instantiationService: IInstantiationService,
 	) {
@@ -103,6 +110,88 @@ export class ReviewDiffViewService extends Disposable {
 		return handle;
 	}
 
+	/** Document peeks use the same controller, providers and widget as the Diff tab. */
+	createDocument(spec: ReviewInlineEditorSpec, lens: ReviewDiffLens, source: ReviewDiffViewSource): ReviewInlineEditorHandle {
+		const lifetime = new DisposableStore();
+		const heightChanged = lifetime.add(new Emitter<number>());
+		let height = 400;
+		let generation = 0;
+		let matches: DocumentMatch[] = [];
+		const view = this.create({
+			container: spec.container, lens, progress: spec.progress,
+			document: {
+				heightMode: spec.heightMode,
+				onDidChangeHeight: value => { height = value; heightChanged.fire(value); },
+				onDidFocus: spec.onDidFocus, onDidOpen: spec.onDidOpen,
+			},
+		}, source) as DiffViewController;
+		lifetime.add(view);
+		return {
+			get height() { return height; },
+			setProgress: progress => view.setProgress(progress),
+			onDidChangeHeight: heightChanged.event,
+			onDidError: view.onDidError,
+			setActive: active => spec.container.classList.toggle("review-document-code-active", active),
+			setCollapsed: collapsed => view.setCollapsed(collapsed),
+			setFindQuery: async query => {
+				const request = ++generation;
+				const result = await this.findDocument(lens, source, query);
+				if (lifetime.isDisposed || request !== generation) return { matchCount: 0 };
+				matches = result;
+				view.decorateMatches(matches);
+				return { matchCount: matches.length };
+			},
+			revealFindMatch: index => {
+				const match = matches[index];
+				if (!match) return;
+				view.setCollapsed(false);
+				view.revealSource({ file: match.file, side: match.side, fromLine: match.range.startLineNumber, toLine: match.range.endLineNumber });
+				view.decorateMatches(matches, index);
+			},
+			clearActiveFindMatch: () => view.decorateMatches(matches),
+			clearFind: () => { generation++; matches = []; view.decorateMatches([]); },
+			dispose: () => { generation++; lifetime.dispose(); },
+		};
+	}
+
+	/** Search pinned models through the same diff provider; no synthetic text/model is built. */
+	async findDocument(lens: ReviewDiffLens, source: ReviewDiffViewSource, query: ReviewFindQuery): Promise<DocumentMatch[]> {
+		if (!query.text) return [];
+		const lifetime = new DisposableStore();
+		try {
+			const data = await source.load(undefined, lens);
+			const entries = data.entries.filter(entry => lensRanges(lens, entry).length > 0);
+			const structural = data.session ? createStructuralDiffEditors(this.instantiationService, entries, lifetime, data.session)
+				: { instantiation: this.instantiationService, entries };
+			const instantiation = withLens(structural.instantiation, structural.entries, lens, lifetime, () => undefined, () => ({ dispose() {} }));
+			const resolver = instantiation.invokeFunction(a => a.get(ITextModelService));
+			const factory = instantiation.invokeFunction(a => a.get(IDiffProviderFactoryService));
+			const matches: DocumentMatch[] = [];
+			for (const entry of structural.entries) {
+				const original = entry.original ? lifetime.add(await resolver.createModelReference(entry.original)).object.textEditorModel : undefined;
+				const modified = entry.modified ? lifetime.add(await resolver.createModelReference(entry.modified)).object.textEditorModel : undefined;
+				const provider = factory.createDiffProvider({ diffAlgorithm: "advanced" });
+				if (isDisposable(provider)) lifetime.add(provider);
+				const diff = original && modified ? await provider.computeDiff(original, modified, { ignoreTrimWhitespace: false, maxComputationTimeMs: 0, computeMoves: false }, CancellationToken.None) : undefined;
+				const pairs = diff && original && modified ? new Map(alignmentRows(diff, original.getLineCount(), modified.getLineCount()).filter((row): row is [number, number] => row[0] !== null && row[1] !== null)) : new Map<number, number>();
+				for (const [side, model] of [["base", original], ["head", modified]] as const) {
+					if (!model) continue;
+					const ranges = lensRanges(lens, entry).filter(range => range.side === side);
+					const found = model.findMatches(query.text, false, query.isRegex, query.matchCase, query.wholeWord ? USUAL_WORD_SEPARATORS : null, false);
+					for (const match of found) {
+						const line = match.range.startLineNumber;
+						const outside = diff?.contextGaps?.some(gap => gap.label === "Outside lens" && line >= (side === "base" ? gap.originalStart : gap.modifiedStart) && line < (side === "base" ? gap.originalStart + gap.originalCount : gap.modifiedStart + gap.modifiedCount));
+						if (outside || (!diff && !ranges.some(range => line >= range.fromLine && line <= range.toLine))) continue;
+						const headLine = pairs.get(line - 1);
+						if (side === "base" && headLine !== undefined && modified && match.range.startLineNumber === match.range.endLineNumber && model.getLineContent(line) === modified.getLineContent(headLine + 1)) continue;
+						matches.push({ file: side === "base" ? entry.file.previousPath ?? entry.file.path : entry.file.path, side, range: match.range });
+					}
+				}
+			}
+			return matches;
+		} finally { lifetime.dispose(); }
+	}
+
 	reset(): void {
 		this.comparisonGeneration++;
 		for (const handle of [...this.handles]) handle.dispose();
@@ -115,6 +204,12 @@ export class ReviewDiffViewService extends Disposable {
 	toggleRenderSideBySide(): void {
 		void this.diffLayout.toggle();
 	}
+}
+
+interface DocumentMatch {
+	file: string;
+	side: "base" | "head";
+	range: Range;
 }
 
 class DiffViewController extends Disposable implements ReviewDiffViewHandle {
@@ -134,11 +229,26 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
+	private collapsed = false;
+	private matches: DocumentMatch[] = [];
+	private activeMatch: number | undefined;
+	private readonly findDecorations = this._register(new DisposableStore());
+	setCollapsed(collapsed: boolean): void { this.collapsed = collapsed; this.view?.setCollapsed(collapsed); }
+	decorateMatches(matches: DocumentMatch[], active?: number): void {
+		this.matches = matches; this.activeMatch = active;
+		this.findDecorations.clear();
+		const control = this.view?.getActiveControl();
+		if (!control) return;
+		for (const [side, editor] of [["base", control.getOriginalEditor()], ["head", control.getModifiedEditor()]] as const) {
+			const collection = editor.createDecorationsCollection(matches.flatMap((match, index) => match.side === side ? [{ range: match.range, options: { description: "review-document-find", className: index === active ? "currentFindMatch" : "findMatch" } }] : []));
+			this.findDecorations.add({ dispose: () => collection.clear() });
+		}
+	}
 
 	constructor(
 		private readonly spec: ReviewDiffViewSpec,
 		private readonly instantiationService: IInstantiationService,
-		private readonly inlineEditors: ReviewInlineEditorService,
+		private readonly inlineEditors: ReviewEmbeddedEditors,
 		private readonly overflowWidgetsDomNode: HTMLElement | undefined,
 		private readonly diffLayout: ReviewDiffLayoutSetting,
 		private readonly viewStates: Map<string, IMultiDiffEditorViewState>,
@@ -204,7 +314,7 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 					this.spec.container,
 					this.overflowWidgetsDomNode,
 					this.diffLayout,
-					this.spec.fileTreeContainer, this.spec.onToggleViewed, this.spec.onToggleSection,
+					this.spec.fileTreeContainer, this.spec.onToggleViewed, this.spec.onToggleSection, this.spec.document,
 				),
 			);
 			this.view = view;
@@ -217,6 +327,7 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 			);
 			if (this.disposed) return;
 			this.bindActiveControl(view);
+			view.setCollapsed(this.collapsed);
 			if (this.pendingSource) view.revealSource(this.pendingSource, this.pendingSectionId);
 			if (!session) for (const entry of selected) view.fileCounts(entry.file.path, { added: entry.file.additions, removed: entry.file.deletions });
 			if (session) this.observeSession(session, selected, view, store, structuralEnabled);
@@ -267,10 +378,12 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 		this.adoptedEditors = editors;
 		for (const editor of editors) {
 			this.activeControlStore.add(markReviewEmbeddedEditor(editor));
+			if (this.spec.document) ReviewEmbeddedEditors.markDocumentEditor(editor);
 			this.activeControlStore.add(
-				editor.onDidFocusEditorText(() => this.inlineEditors.setExternalActiveEditor(editor)),
+				editor.onDidFocusEditorText(() => { this.inlineEditors.setExternalActiveEditor(editor); this.spec.document?.onDidFocus?.(); }),
 			);
 		}
+		this.decorateMatches(this.matches, this.activeMatch);
 	}
 
 	private captureViewState(): void {

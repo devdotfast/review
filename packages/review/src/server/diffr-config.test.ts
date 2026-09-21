@@ -55,10 +55,12 @@ test("reads the schema and resolved values through the CLI", async () => {
 
 test("writes one key as text and returns the fresh configuration", async () => {
   const { log } = await fakeDiffr();
+
   const config = await setDiffrConfigValue(
     "plugins.bundled.summarize.test_min_lines",
     12,
   );
+
   expect(config.values).toEqual({
     plugins: { bundled: { summarize: { provider: "gemini" } } },
   });

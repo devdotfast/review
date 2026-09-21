@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   type ReviewApiClient,
@@ -20,58 +27,80 @@ export const SharingContext = createContext<{
   cloneUrl?: string;
 } | null>(null);
 
-type Account = {
+interface SharingAccount {
   account: { login: string; origin: string } | null;
   pending: boolean;
-  url?: string;
   error?: string;
-};
+}
+
+const POLL_WHILE_PENDING_MS = 2000;
+
+const linkKey = (reviewId: string, version: number) => `${reviewId}@${version}`;
 
 export function ShareControl() {
   const context = useContext(SharingContext);
+  const client = context?.client;
   const [open, setOpen] = useState(false);
-  const [account, setAccount] = useState<Account>();
+  // Read once while the review is open, refreshed on focus, polled while pending.
+  const [account, setAccount] = useState<SharingAccount>();
+  const [accountError, setAccountError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
-  const frozen = useRef<{ version: number; requestId: string }>(undefined);
+  const [copied, setCopied] = useState(false);
+  // Links created this session, so reopening a shared version skips the upload.
+  const links = useRef(new Map<string, string>());
+
+  const frozen = useRef<{
+    version: number;
+    requestId: string;
+    started: boolean;
+  }>(undefined);
+
   const popover = useRef<HTMLDivElement>(null);
   const popoverRef = useTopbarPopover(open, popover);
   const shared = context?.reviewId.startsWith("shared-");
+  const signedIn = Boolean(account?.account);
+  const pending = Boolean(account?.pending);
 
   const label = shared
     ? `Shared${context?.sender ? ` by ${context.sender}` : " review"}`
     : "Share review";
 
   const tooltip = useTooltip(label);
+
+  const loadAccount = useCallback(async () => {
+    if (!client) return;
+
+    try {
+      setAccount(await client.read<SharingAccount>("/sharing/account"));
+      setAccountError(undefined);
+    } catch {
+      setAccountError("Could not read sign-in status.");
+    }
+  }, [client]);
+
   useEffect(() => {
-    if (!open || !context || shared) return;
-    let cancelled = false;
+    if (!client || shared) return;
+    const load = () => void loadAccount();
 
-    const load = () =>
-      context.client
-        .read<Account>("/sharing/account")
-        .then((value) => {
-          if (!cancelled) setAccount(value);
-        })
-        .catch(() => {
-          if (!cancelled) setError("Could not read sign-in status.");
-        });
+    load();
+    window.addEventListener("focus", load);
 
-    void load();
+    return () => window.removeEventListener("focus", load);
+  }, [client, shared, loadAccount]);
 
-    const interval = setInterval(() => {
-      void load();
-    }, 2000);
+  useEffect(() => {
+    if (!pending) return;
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [open, context?.client, shared]);
+    const interval = setInterval(
+      () => void loadAccount(),
+      POLL_WHILE_PENDING_MS,
+    );
+
+    return () => clearInterval(interval);
+  }, [pending, loadAccount]);
   useDismissOnOutside(popover, open, setOpen);
-
-  if (!context) return null;
 
   const run = async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -90,8 +119,54 @@ export function ShareControl() {
     }
   };
 
+  const login = async () => {
+    if (!client) return;
+    await client.post("/sharing/login", {});
+    setAccount({ account: null, pending: true });
+  };
+
+  const publish = () =>
+    run(async () => {
+      if (!context || !frozen.current) return;
+      const { version, requestId } = frozen.current;
+
+      try {
+        const result = await context.client.post<{ url: string }>(
+          "/sharing/publish",
+          { reviewId: context.reviewId, version, requestId },
+        );
+
+        links.current.set(linkKey(context.reviewId, version), result.url);
+        setLink(result.url);
+      } catch (error) {
+        // The host forgot a stale login; show sign-in and upload again after it.
+        if (error instanceof ReviewApiError && error.status === 401) {
+          frozen.current.started = false;
+          void loadAccount();
+        }
+
+        throw error;
+      }
+    });
+
+  useEffect(() => {
+    if (!open || !signedIn || !frozen.current || frozen.current.started) return;
+    frozen.current.started = true;
+    void publish();
+  }, [open, signedIn]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  if (!context) return null;
+
   const copy = async (url: string) => {
-    if (!(await copyText(url))) setError("Copy the link below.");
+    if (await copyText(url)) setCopied(true);
+    else setError("Copy the link below.");
   };
 
   return (
@@ -105,12 +180,19 @@ export function ShareControl() {
         aria-expanded={open}
         onClick={() => {
           if (!open) {
+            // A version shared earlier this session reuses its link.
+            const cached = links.current.get(
+              linkKey(context.reviewId, context.version),
+            );
+
             frozen.current = {
               version: context.version,
               requestId: crypto.randomUUID(),
+              started: cached !== undefined,
             };
-            setLink(undefined);
+            setLink(cached);
             setError(undefined);
+            setCopied(false);
           }
 
           setOpen(!open);
@@ -124,99 +206,66 @@ export function ShareControl() {
           popover="manual"
           role="dialog"
           aria-label={shared ? "Shared review" : "Share review"}
-          style={{
-            width: 320,
-            padding: 16,
-            zIndex: 100,
-            background: "var(--vscode-editor-background, #202020)",
-            color: "var(--vscode-editor-foreground, white)",
-            border: "1px solid var(--vscode-widget-border, #555)",
-            borderRadius: 6,
-            boxShadow: "0 4px 16px #0006",
-          }}
+          className="review-share-popover"
         >
+          {(error || accountError || account?.error) && (
+            <p className="review-share-error" role="alert">
+              {error ?? accountError ?? account?.error}
+            </p>
+          )}
           {shared ? (
             <>
-              <p>{label}</p>
-              <p>
+              <p className="review-share-status">{label}</p>
+              <p className="review-share-status">
                 This is a read-only snapshot. Source files and traces are
                 available offline.
               </p>
             </>
-          ) : (
-            <>
-              <p>
-                Share version {frozen.current?.version}. Anyone with the link
-                can download its retained resources and trace conversations.
-                Recipients need GitHub repository access to fetch the pinned
-                commits.
-              </p>
-              {account?.account ? (
-                <>
-                  <p>Signed in as {account.account.login}</p>
-                  <button
-                    disabled={busy || Boolean(link)}
-                    onClick={() =>
-                      void run(async () => {
-                        const result = await context.client.post<{
-                          url: string;
-                        }>("/sharing/publish", {
-                          reviewId: context.reviewId,
-                          ...frozen.current,
-                        });
-
-                        setLink(result.url);
-                        await copy(result.url);
-                      })
-                    }
-                  >
-                    {busy
-                      ? "Uploading…"
-                      : link
-                        ? "Link ready"
-                        : "Create share link"}
-                  </button>
-                </>
-              ) : (
+          ) : signedIn ? (
+            link ? (
+              <>
+                <input
+                  className="review-share-link"
+                  aria-label="Share link"
+                  readOnly
+                  value={link}
+                  onFocus={(event) => event.target.select()}
+                />
                 <button
-                  disabled={account?.pending || busy}
-                  onClick={() =>
-                    void run(async () => {
-                      await context.client.post("/sharing/login", {});
-                      setAccount({ account: null, pending: true });
-                    })
-                  }
+                  type="button"
+                  className="review-share-action"
+                  onClick={() => void copy(link)}
                 >
-                  {account?.pending
-                    ? "Waiting for GitHub…"
-                    : "Sign in with GitHub"}
+                  {copied ? "Copied" : "Copy link"}
                 </button>
-              )}
-              {account?.pending && account.url && (
-                <p>
-                  <a href={account.url} target="_blank" rel="noreferrer">
-                    Open GitHub sign-in
-                  </a>
-                </p>
-              )}
-              {link && (
-                <>
-                  <input
-                    aria-label="Share link"
-                    readOnly
-                    value={link}
-                    onFocus={(event) => event.target.select()}
-                    style={{ width: "100%", marginTop: 12 }}
-                  />
-                  <button onClick={() => void copy(link)}>Copy link</button>
-                </>
-              )}
-            </>
+              </>
+            ) : error ? (
+              <button
+                type="button"
+                className="review-share-action"
+                onClick={() => void publish()}
+              >
+                Retry
+              </button>
+            ) : (
+              <p className="review-share-status">Uploading…</p>
+            )
+          ) : (
+            account && (
+              <>
+                <button
+                  type="button"
+                  className="review-share-action"
+                  disabled={account.pending || busy}
+                  onClick={() => void run(login)}
+                >
+                  {account.pending
+                    ? "Waiting for sign-in…"
+                    : "Sign in to share"}
+                </button>
+              </>
+            )
           )}
-          {(error || account?.error) && (
-            <p role="alert">{error ?? account?.error}</p>
-          )}
-          <button onClick={() => setOpen(false)}>Close</button>
         </div>
       )}
     </div>

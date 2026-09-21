@@ -65,6 +65,14 @@ export async function readBoundedBytes(
   }
 }
 
+/** The share service rejected the account token; the stored login is stale. */
+export class ShareAuthError extends Error {
+  constructor() {
+    super("The share service rejected the stored login.");
+    this.name = "ShareAuthError";
+  }
+}
+
 /** Account tokens go only to the configured API origin, never to object storage. */
 export class ShareClient {
   private readonly origin: string;
@@ -108,6 +116,8 @@ export class ShareClient {
 
     if (!response.ok) {
       await response.body?.cancel();
+
+      if (response.status === 401 && !capability) throw new ShareAuthError();
       throw new Error(`Share request failed (${response.status}).`);
     }
 

@@ -2,6 +2,7 @@ import { type LensSource, sourceAnchor } from "../../src/lens-selection";
 import type { Block } from "../../src/review-api/document";
 import type { FileLineRange } from "../../src/source";
 import { LensCallTree } from "./lens-call-tree";
+import { FlowGraph } from "./flow-graph";
 import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
 
@@ -17,6 +18,22 @@ export function LensDiagram({
 
   const viewed = (sources: LensSource[]) =>
     lenses.stats(lenses.resolve(sources)).state === "viewed";
+
+  if (block.type === "flow_diagram")
+    return (
+      <FlowGraph
+        requireReady
+        block={block}
+        direction="down"
+        onSelect={(node) => {
+          const source = node.attachments.flatMap(
+            (attachment) => attachment.sources,
+          )[0];
+
+          if (source) onReveal(sourceAnchor(source), `${block.id}:${node.key}`);
+        }}
+      />
+    );
 
   if (block.type === "sequence") {
     const actors = Object.entries(block.actors);

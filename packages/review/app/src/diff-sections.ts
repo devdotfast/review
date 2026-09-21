@@ -12,6 +12,13 @@ export interface DiffSection {
 export function diffSections(block: Block | undefined): DiffSection[] {
   if (!block) return [];
 
+  if (block.type === "flow_diagram")
+    return block.nodes.map((node) => ({
+      id: `${block.id}:${node.key}`,
+      label: node.label,
+      sources: node.attachments.flatMap((attachment) => attachment.sources),
+    }));
+
   if (block.type === "sequence")
     return block.steps.flatMap((step, index) =>
       step.source

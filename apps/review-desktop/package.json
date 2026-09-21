@@ -26,6 +26,7 @@
     "@dev.fast/review-protocol": "workspace:*"
   },
   "devDependencies": {
+    "@dev.fast/review-canvas": "workspace:*",
     "@types/node": "24.12.2",
     "jsdom": "29.1.1",
     "playwright": "1.62.1",

@@ -34,3 +34,5 @@ directory as a reference.
 - [Security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md)
 - [Desktop build and release guide](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md)
 - [Code - OSS provenance](https://github.com/devdotfast/review/blob/main/apps/review-desktop/UPSTREAM)
+
+For maintainers: [Publishing the Review CLI](cli-releases.md) covers version bumps, tags, npm credentials, and retrying releases.

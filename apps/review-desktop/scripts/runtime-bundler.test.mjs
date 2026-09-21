@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +20,7 @@ import {
   assertRuntimeContents,
   requiredPackagedArtifacts,
   runtimeRootForPackagedRoot,
+  stageDiffrBinary,
 } from "./stage-review-runtime.mjs";
 
 test("runtime closure rejects transitive esbuild packages and native binaries", async () => {
@@ -150,6 +159,15 @@ test("final package verification requires the CLI and rechecks archives outside 
     await assertRuntimeClosure(runtime);
     await assertPackagedArtifacts(packaged);
 
+    const diffr = path.join(runtime, "bin", "diffr");
+    await rm(diffr, { force: true });
+    await assert.rejects(assertRuntimeClosure(runtime), /missing bin\/diffr/);
+    await assert.rejects(
+      assertPackagedArtifacts(packaged),
+      /missing .*bin\/diffr/,
+    );
+    await writeFile(diffr, "");
+
     const archive = path.join(
       packaged,
       "Contents/Resources/app/extensions/dependency.asar",
@@ -166,6 +184,33 @@ test("final package verification requires the CLI and rechecks archives outside 
       assertPackagedArtifacts(packaged),
       /must not ship esbuild/,
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("diffr staging requires a fetched file and ships an executable copy", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "review-diffr-stage-"));
+  const runtime = path.join(root, "review-runtime");
+  const source = path.join(root, "diffr");
+
+  try {
+    await assert.rejects(
+      stageDiffrBinary(runtime, source),
+      /Run pnpm --filter @dev.fast\/review ensure:diffr/,
+    );
+    await mkdir(source);
+    await assert.rejects(
+      stageDiffrBinary(runtime, source),
+      /Run pnpm --filter @dev.fast\/review ensure:diffr/,
+    );
+    await rm(source, { recursive: true });
+    await writeFile(source, "#!/bin/sh\necho diffr\n", { mode: 0o644 });
+    await stageDiffrBinary(runtime, source);
+    const staged = path.join(runtime, "bin", "diffr");
+    assert.equal(await readFile(staged, "utf8"), "#!/bin/sh\necho diffr\n");
+    assert.ok((await stat(staged)).mode & 0o100, "staged diffr is executable");
+    assert.equal((await stat(source)).mode & 0o100, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

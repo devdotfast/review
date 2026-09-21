@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import {
   access,
   chmod,
+  copyFile,
   cp,
+  mkdir,
   open,
   readFile,
   readdir,
@@ -44,6 +46,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "THIRD_PARTY_NOTICES.md",
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
+  "bin/diffr",
   "skills/dev-review/SKILL.md",
   "skills/dev-review/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
@@ -130,6 +133,7 @@ export async function stageReviewRuntime(packagedRoot) {
   );
 
   await stageReviewDocs(runtimeRoot);
+  await stageDiffrBinary(runtimeRoot);
   await stampReviewSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
@@ -200,6 +204,22 @@ export async function stageReviewDocs(
   await assertMatchingFileTrees(sourceDocsRoot, destination);
 
   return destination;
+}
+
+export async function stageDiffrBinary(
+  runtimeRoot,
+  source = path.join(monorepoRoot, "packages", "review", "bin", "diffr"),
+) {
+  if (!(await stat(source).catch(() => null))?.isFile()) {
+    throw new Error(
+      `Missing ${source}. Run pnpm --filter @dev.fast/review ensure:diffr before packaging.`,
+    );
+  }
+
+  const destination = path.join(runtimeRoot, "bin", "diffr");
+  await mkdir(path.dirname(destination), { recursive: true });
+  await copyFile(source, destination);
+  await chmod(destination, 0o755);
 }
 
 async function assertMatchingFileTrees(sourceRoot, destinationRoot) {

@@ -18,6 +18,7 @@ import {
   assertReleaseChannel,
   releaseIdentityFor,
 } from "./release-channel.mjs";
+import { assertPackagedArtifacts } from "./stage-review-runtime.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 
@@ -100,7 +101,7 @@ function run(command, args) {
   execFileSync(command, args, { stdio: "inherit" });
 }
 
-function main() {
+async function main() {
   const { values } = parseArgs({
     options: {
       version: { type: "string" },
@@ -138,6 +139,7 @@ function main() {
   const zip = path.join(artifactDir, `Review-darwin-arm64-${version}.zip`);
   const dmg = path.join(artifactDir, `Review-darwin-arm64-${version}.dmg`);
 
+  await assertPackagedArtifacts(app);
   assertUpdaterCompatibleApp(app);
 
   const product = JSON.parse(
@@ -168,5 +170,5 @@ function main() {
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
-  main();
+  await main();
 }

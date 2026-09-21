@@ -40,7 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "prebuild": "pnpm run build:workspace-deps",
+    "prebuild": "pnpm run build:workspace-deps && pnpm run ensure:diffr",
+    "ensure:diffr": "diffr-fetch --into bin",
     "build": "tsdown",
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
     "ensure:tutorial-assets": "tsx scripts/ensure-tutorial-assets.ts",

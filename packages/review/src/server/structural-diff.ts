@@ -10,6 +10,8 @@ import {
   decodeStructuralDiffEvent,
 } from "@dev.fast/review-protocol";
 
+import { findReviewPackageRoot } from "../package-paths";
+
 export type DiffComparison =
   | { kind: "trees"; base: string; head: string }
   | { kind: "merge-base"; base: string; head: string };
@@ -21,27 +23,18 @@ export interface StructuralDiffRequest {
   signal: AbortSignal;
 }
 
-export function diffrExecutable(): string {
-  return process.env.REVIEW_DIFFR_BINARY || "diffr";
-}
+export function diffrExecutable(
+  packageRoot = findReviewPackageRoot(import.meta.url),
+): string {
+  if (process.env.REVIEW_DIFFR_BINARY) return process.env.REVIEW_DIFFR_BINARY;
+  const bundled = path.join(packageRoot, "bin", "diffr");
 
-export function bundledDiffrBinary(packageRoot: string): string {
-  return path.join(packageRoot, "bin", "diffr");
-}
-
-export function applyBundledDiffrBinary(
-  packageRoot: string,
-  env: NodeJS.ProcessEnv,
-): void {
-  if (env.REVIEW_DIFFR_BINARY) return;
-  const bundled = bundledDiffrBinary(packageRoot);
-
-  if (existsSync(bundled)) env.REVIEW_DIFFR_BINARY = bundled;
+  return existsSync(bundled) ? bundled : "diffr";
 }
 
 export function diffrMissingError(): Error {
   return new Error(
-    `Cannot find diffr at ${diffrExecutable()}. Review Desktop bundles it at bin/diffr under its runtime; in a checkout, run \`pnpm --filter @dev.fast/review ensure:diffr\` or set REVIEW_DIFFR_BINARY, then restart Review.`,
+    `Cannot find diffr at ${diffrExecutable()}. Review Desktop bundles it at bin/diffr under its runtime; in a checkout, run \`pnpm --filter @dev.fast/review ensure:diffr\` or install diffr on PATH, or set REVIEW_DIFFR_BINARY to its executable.`,
   );
 }
 

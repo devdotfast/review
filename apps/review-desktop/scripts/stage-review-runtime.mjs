@@ -13,6 +13,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -215,6 +216,21 @@ export async function stageDiffrBinary(
       `Missing ${source}. Run pnpm --filter @dev.fast/review ensure:diffr before packaging.`,
     );
   }
+
+  const require = createRequire(
+    path.join(monorepoRoot, "packages/review/package.json"),
+  );
+
+  const packageRoot = path.dirname(
+    require.resolve("@dev.fast/diffr/package.json"),
+  );
+
+  await execFileAsync(process.execPath, [
+    path.join(packageRoot, "bin/fetch.mjs"),
+    "--check",
+    "--into",
+    path.dirname(source),
+  ]);
 
   const destination = path.join(runtimeRoot, "bin", "diffr");
   await mkdir(path.dirname(destination), { recursive: true });

@@ -7,8 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import {
   type StructuralDiffRequest,
-  applyBundledDiffrBinary,
-  bundledDiffrBinary,
+  diffrExecutable,
   structuralDiff,
 } from "./structural-diff";
 
@@ -285,18 +284,12 @@ test("coverage can detach after initial files while summaries continue for later
 test("uses the bundled binary only when present and no override is set", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-bundled-diffr-"));
   roots.push(root);
-  const env: NodeJS.ProcessEnv = {};
-  applyBundledDiffrBinary(root, env);
-  expect(env.REVIEW_DIFFR_BINARY).toBeUndefined();
-
+  vi.stubEnv("REVIEW_DIFFR_BINARY", "");
+  expect(diffrExecutable(root)).toBe("diffr");
   await mkdir(path.join(root, "bin"));
   const binary = path.join(root, "bin", "diffr");
   await writeFile(binary, "#!/bin/sh\n", { mode: 0o755 });
-  expect(bundledDiffrBinary(root)).toBe(binary);
-  applyBundledDiffrBinary(root, env);
-  expect(env.REVIEW_DIFFR_BINARY).toBe(binary);
-
-  env.REVIEW_DIFFR_BINARY = "/elsewhere/diffr";
-  applyBundledDiffrBinary(root, env);
-  expect(env.REVIEW_DIFFR_BINARY).toBe("/elsewhere/diffr");
+  expect(diffrExecutable(root)).toBe(binary);
+  vi.stubEnv("REVIEW_DIFFR_BINARY", "/elsewhere/diffr");
+  expect(diffrExecutable(root)).toBe("/elsewhere/diffr");
 });

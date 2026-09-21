@@ -4,7 +4,6 @@ import {
   mkdtemp,
   readFile,
   rm,
-  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -189,28 +188,26 @@ test("final package verification requires the CLI and rechecks archives outside 
   }
 });
 
-test("diffr staging requires a fetched file and ships an executable copy", async () => {
+test("diffr staging rejects missing and stale downloads", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "review-diffr-stage-"));
   const runtime = path.join(root, "review-runtime");
   const source = path.join(root, "diffr");
 
   try {
+    await assert.rejects(stageDiffrBinary(runtime, source), /ensure:diffr/);
+    await writeFile(source, "#!/bin/sh\necho stale\n", { mode: 0o755 });
     await assert.rejects(
       stageDiffrBinary(runtime, source),
-      /Run pnpm --filter @dev.fast\/review ensure:diffr/,
+      /missing or not diffr/,
     );
-    await mkdir(source);
+    await writeFile(
+      path.join(root, "diffr.stamp.json"),
+      JSON.stringify({ version: "0.0.0", target: "wrong-target" }),
+    );
     await assert.rejects(
       stageDiffrBinary(runtime, source),
-      /Run pnpm --filter @dev.fast\/review ensure:diffr/,
+      /missing or not diffr/,
     );
-    await rm(source, { recursive: true });
-    await writeFile(source, "#!/bin/sh\necho diffr\n", { mode: 0o644 });
-    await stageDiffrBinary(runtime, source);
-    const staged = path.join(runtime, "bin", "diffr");
-    assert.equal(await readFile(staged, "utf8"), "#!/bin/sh\necho diffr\n");
-    assert.ok((await stat(staged)).mode & 0o100, "staged diffr is executable");
-    assert.equal((await stat(source)).mode & 0o100, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

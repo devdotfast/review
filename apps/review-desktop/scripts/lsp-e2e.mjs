@@ -27,21 +27,6 @@ import { chromium } from "playwright";
 
 const exec = promisify(execFile);
 
-const bundledDiffr = path.resolve(
-  import.meta.dirname,
-  "../../../packages/review/bin/diffr",
-);
-
-if (!process.env.REVIEW_DIFFR_BINARY && existsSync(bundledDiffr)) {
-  process.env.REVIEW_DIFFR_BINARY = bundledDiffr;
-}
-
-const structuralDiffAvailable = process.env.REVIEW_DIFFR_BINARY
-  ? true
-  : await exec("which", ["diffr"])
-      .then(() => true)
-      .catch(() => false);
-
 const appRoot = path.resolve(import.meta.dirname, "..");
 
 const workspace = path.resolve(appRoot, "../..");
@@ -51,6 +36,18 @@ const codeRoot = path.join(appRoot, "code-oss");
 const { values } = parseArgs({
   options: { app: { type: "string" }, keep: { type: "boolean" } },
 });
+
+const bundledDiffr = values.app
+  ? path.join(values.app, "Contents/Resources/app/review-runtime/bin/diffr")
+  : path.join(workspace, "packages/review/bin/diffr");
+
+const structuralDiffAvailable =
+  !!process.env.REVIEW_DIFFR_BINARY ||
+  existsSync(bundledDiffr) ||
+  (await exec("which", ["diffr"]).then(
+    () => true,
+    () => false,
+  ));
 
 const root = await realpath(
   await mkdtemp(

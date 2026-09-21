@@ -40,7 +40,7 @@
     "access": "public"
   },
   "scripts": {
-    "prebuild": "pnpm run build:workspace-deps && pnpm run ensure:diffr",
+    "prebuild": "pnpm run build:workspace-deps",
     "ensure:diffr": "diffr-fetch --into bin",
     "build": "tsdown",
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
@@ -60,7 +60,7 @@
     "test:legacy-corpus": ": \"${REVIEW_LEGACY_CORPUS:?set REVIEW_LEGACY_CORPUS to a directory of legacy Review UUID folders}\" && vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/review",
-    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && tsx --test scripts/bundled-diffr.integration.mjs"
+    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",

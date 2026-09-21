@@ -143,5 +143,7 @@ uses it unless `REVIEW_DIFFR_BINARY` names another executable. If the
 message names a path under the app, the install is damaged; reinstall
 Review. In a source checkout, run
 `pnpm --filter @dev.fast/review ensure:diffr` to download the pinned
-binary, or set `REVIEW_DIFFR_BINARY` to a diffr you built, then restart
-Review.
+binary. Downloads are explicit so offline and unsupported-host builds still
+work. For the npm CLI or an unbundled headless server, install `diffr` on
+PATH or set `REVIEW_DIFFR_BINARY` to its executable. A headless server
+started from the Desktop installation uses its adjacent bundled binary too.

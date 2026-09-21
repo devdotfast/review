@@ -49,7 +49,14 @@ describe("ReviewBranchRange", () => {
     expect(headCopy?.textContent).toBe(head.slice(0, 8));
     await act(async () => baseCopy?.click());
     expect(writeText).toHaveBeenLastCalledWith(base);
+    expect(baseCopy?.querySelector('[role="status"]')?.textContent).toBe(
+      "Copied",
+    );
     await act(async () => headCopy?.click());
     expect(writeText).toHaveBeenLastCalledWith(head);
+    expect(headCopy?.querySelector('[role="status"]')?.textContent).toBe(
+      "Copied",
+    );
+    expect(baseCopy?.querySelector('[role="status"]')?.textContent).toBe("");
   });
 });

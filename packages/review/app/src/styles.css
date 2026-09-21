@@ -2291,6 +2291,7 @@ button {
 }
 
 .review-branch-copy {
+  position: relative;
   display: inline-flex;
   min-width: 20px;
   height: 22px;
@@ -2311,6 +2312,17 @@ button {
   background: var(--chrome-hover-bg);
   color: var(--chrome-fg);
   outline: none;
+}
+
+.review-branch-copy[data-copied] .review-branch-name {
+  visibility: hidden;
+}
+
+.review-branch-feedback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
 }
 
 .review-branch-arrow {

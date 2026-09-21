@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 
 import { copyText } from "./copy-text";
 import { useTooltip } from "./use-tooltip";
@@ -12,13 +12,17 @@ export function ReviewBranchRange({
 }): ReactElement {
   const [copied, setCopied] = useState<"base" | "head" | null>(null);
 
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
   const copy = async (side: "base" | "head", ref: string) => {
     if (!(await copyText(ref))) return;
+    clearTimeout(resetTimer.current);
     setCopied(side);
-    window.setTimeout(
-      () => setCopied((value) => (value === side ? null : value)),
-      1500,
-    );
+    resetTimer.current = setTimeout(() => setCopied(null), 1500);
   };
 
   return (
@@ -53,7 +57,7 @@ function BranchRef({
   copied: boolean;
   onCopy: () => void;
 }): ReactElement {
-  const tooltip = useTooltip(copied ? "Copied" : "Copy commit hash");
+  const tooltip = useTooltip("Copy commit hash");
 
   const displayName = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(name)
     ? name.slice(0, 8)
@@ -65,11 +69,15 @@ function BranchRef({
       <button
         type="button"
         className="review-branch-copy"
+        data-copied={copied || undefined}
         aria-label={`Copy ${label} commit hash ${name}`}
         ref={tooltip}
         onClick={onCopy}
       >
         <span className="review-branch-name">{displayName}</span>
+        <span className="review-branch-feedback" role="status">
+          {copied ? "Copied" : ""}
+        </span>
       </button>
     </span>
   );

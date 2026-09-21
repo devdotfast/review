@@ -10,6 +10,9 @@ export function scrollToReviewHeading(
 
   // Headings inside a collapsed section have no scroll position until
   // the section expands, so expand first and scroll on the next frame.
+  // The jump is instant, like the tour feed's reveal: scroll-synced
+  // highlighting reads the geometry after every scroll, and a smooth flight
+  // would light up every heading passed on the way.
   const collapsedSection = heading.closest(".review-section--collapsed");
   collapsedSection?.dispatchEvent(new CustomEvent("review-section-expand"));
 
@@ -17,15 +20,22 @@ export function scrollToReviewHeading(
     const scrollRoot = getReviewScrollRoot(article, scrollRegion);
 
     if (scrollRoot?.contains(heading)) {
+      // Honor the heading's scroll-margin-top like scrollIntoView does, so
+      // it lands a little below the edge instead of exactly on it.
+      const scrollMargin =
+        Number.parseFloat(window.getComputedStyle(heading).scrollMarginTop) ||
+        0;
+
       scrollRoot.scrollTo({
         top:
           scrollRoot.scrollTop +
           heading.getBoundingClientRect().top -
-          scrollRoot.getBoundingClientRect().top,
-        behavior: "smooth",
+          scrollRoot.getBoundingClientRect().top -
+          scrollMargin,
+        behavior: "auto",
       });
     } else {
-      heading.scrollIntoView({ behavior: "smooth", block: "start" });
+      heading.scrollIntoView({ behavior: "auto", block: "start" });
     }
   };
 

@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 
+import { DiffCount } from "./diff-count";
 import { useReviewSession } from "./host/review-session";
 import { useReviewDiffFiles } from "./review-diff-files-context";
 import { DisplayedReviewVersionContext } from "./review-history-control";
@@ -107,8 +108,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
           <span>
             {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}
           </span>
-          <span className="review-doc-meta-added">+{diff.additions}</span>
-          <span className="review-doc-meta-removed">−{diff.deletions}</span>
+          <DiffCount additions={diff.additions} deletions={diff.deletions} />
         </>
       )}
       {updatedLabel && <span>updated {updatedLabel}</span>}

@@ -1,4 +1,3 @@
-import { ElementCounts } from "./lens-counts";
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import { useEffect, useId, useState } from "react";
 
@@ -7,6 +6,7 @@ import type {
   FlowDiagramNode,
 } from "../../src/review-api/blocks/flow_diagram";
 import { coverageProgress } from "../../src/viewed-coverage";
+import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
 
 /** Shared SVG layout, node styling and unread counts for every flow surface. */
@@ -238,4 +238,3 @@ export function FlowGraph({
     </div>
   );
 }
-

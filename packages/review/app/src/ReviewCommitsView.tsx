@@ -4,7 +4,10 @@ import {
 } from "@dev.fast/review-protocol";
 import { useMemo, useState } from "react";
 
+import { DiffCount } from "./diff-count";
+import { FileMark } from "./file-mark";
 import { useReviewSession } from "./host/review-session";
+import { DisclosureChevron } from "./icons";
 import { ReviewUnavailable } from "./review-empty-state";
 import { useReviewPanel } from "./review-panel";
 import { captureUiEvent } from "./ui-telemetry";
@@ -143,9 +146,7 @@ function CommitRow({
           aria-expanded={expanded}
           onClick={toggleExpanded}
         >
-          <span className="review-commit-chevron" aria-hidden="true">
-            {expanded ? "⌄" : "›"}
-          </span>
+          <DisclosureChevron expanded={expanded} />
           <span className="review-commit-copy">
             <strong title={commit.subject}>{commit.subject}</strong>
             <span>
@@ -154,8 +155,10 @@ function CommitRow({
           </span>
           <span className="review-commit-stats">
             <span>{commit.fileCount} files</span>
-            <span className="review-additions">+{commit.additions}</span>
-            <span className="review-deletions">−{commit.deletions}</span>
+            <DiffCount
+              additions={commit.additions}
+              deletions={commit.deletions}
+            />
             <code>{commit.commit.slice(0, 8)}</code>
           </span>
         </button>
@@ -164,7 +167,7 @@ function CommitRow({
           className="review-commit-open"
           onClick={() => onOpenDiff(commit, "row")}
         >
-          Open diff ↗
+          Open diff
         </button>
       </div>
       {expanded ? (
@@ -181,11 +184,12 @@ function CommitRow({
                 openCommitDiff({ kind: "commit-diff", commit, file });
               }}
             >
+              <FileMark status={file.status} />
               <span className="review-commit-file-path">{file.path}</span>
-              <span className="review-commit-file-stats">
-                <span className="review-additions">+{file.additions}</span>
-                <span className="review-deletions">−{file.deletions}</span>
-              </span>
+              <DiffCount
+                additions={file.additions}
+                deletions={file.deletions}
+              />
             </button>
           ))}
           {omittedFileCount > 0 ? (

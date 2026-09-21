@@ -1,6 +1,6 @@
 import { orderReviewDiffFiles } from "../common/reviewChangedFilesModel.js";
 import { structuralChangeCounts } from "../common/reviewProtocol.js";
-import type { ReviewDiffProgress } from "../common/reviewProtocol.js";
+import type { ReviewDiffProgress, ReviewDiffViewport } from "../common/reviewProtocol.js";
 import { lensRanges, withLens } from "./reviewLens.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
@@ -128,6 +128,9 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 	private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
 	setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
 	revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
+	private readonly _onDidScroll = this._register(new Emitter<ReviewDiffViewport>());
+	readonly onDidScroll = this._onDidScroll.event;
+	sourceOffset(source: ReviewDiffLens['ranges'][number]): number | undefined { return this.view?.sourceOffset(source); }
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
@@ -208,6 +211,7 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 			if (this.progress) view.setProgress(this.progress);
 			if (structuralEnabled) view.startLoading(selected);
 			store.add(view.onDidChangeActiveControl(() => this.bindActiveControl(view)));
+			store.add(view.onDidScroll(() => this._onDidScroll.fire({ height: view.viewportHeight })));
 			// A saved whole-list offset cannot be restored into a partial streamed list.
 			await view.setInput(input, structuralEnabled ? undefined : this.viewStates.get(this.viewStateKey),
 			);

@@ -15,11 +15,11 @@ import {
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
+import { elements } from "../../src/review-api/document";
 import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
   type ApiDocumentData,
-  RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
 import { retainedTrace } from "./api-trace";
@@ -333,17 +333,15 @@ export function ApiCanvas({
                 <DisplayedReviewVersionContext.Provider
                   value={data.snapshot.version}
                 >
-                  <RevealAfterFirstPaint>
-                    <MapEnabled.Provider
-                      value={content.softwareMapEnabled === true}
-                    >
-                      <CanvasDocument
-                        data={data}
-                        findHost={findHost}
-                        softwareMapEnabled={content.softwareMapEnabled === true}
-                      />
-                    </MapEnabled.Provider>
-                  </RevealAfterFirstPaint>
+                  <MapEnabled.Provider
+                    value={content.softwareMapEnabled === true}
+                  >
+                    <CanvasDocument
+                      data={data}
+                      findHost={findHost}
+                      softwareMapEnabled={content.softwareMapEnabled === true}
+                    />
+                  </MapEnabled.Provider>
                 </DisplayedReviewVersionContext.Provider>
               </AuthoringActivityContext.Provider>
             </TutorialProvider>
@@ -374,6 +372,14 @@ const CanvasDocument = memo(function CanvasDocument({
     anchors: data.anchors,
     render: DocumentBody,
     tocEntries: data.headings.entries,
+    empty: snapshot.document.length === 0,
+    authoringComplete:
+      snapshot.document.length > 0 &&
+      elements(snapshot.document).every(
+        (node) =>
+          node.type !== "section" ||
+          (node.status !== "pending" && node.status !== "in_progress"),
+      ),
   };
 
   return (

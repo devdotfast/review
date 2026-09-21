@@ -249,7 +249,8 @@ export class DiffEditorViewZones extends Disposable {
 
 						const deletedCodeDomNode = document.createElement('div');
 						deletedCodeDomNode.classList.add('view-lines', 'line-delete-selectable', 'monaco-mouse-cursor-text');
-						if (!changeHighlights) deletedCodeDomNode.classList.add('line-delete');
+						// Every injected old-code row needs version tint, even when its tokens survive on the head.
+						deletedCodeDomNode.classList.add('line-delete');
 						const originalModel = this._editors.original.getModel()!;
 						// `a.originalRange` can be out of bound when the diff has not been updated yet.
 						// In this case, we do an early return.
@@ -284,17 +285,6 @@ export class DiffEditorViewZones extends Disposable {
 							}
 						}
 						const result = renderLines(source, renderOptions, decorations, deletedCodeDomNode, false, changeHighlights !== undefined);
-						if (changeHighlights) {
-							const novelLines = new Set(changeHighlights.originalLines);
-							const viewLines = deletedCodeDomNode.querySelectorAll('.view-line');
-							let viewRow = 0;
-							for (let i = 0; i < visibleOriginalLines.length; i++) {
-								for (let wrappedRow = 0; wrappedRow < result.viewLineCounts[i]; wrappedRow++, viewRow++) {
-									if (novelLines.has(visibleOriginalLines[i])) viewLines[viewRow].classList.add('line-delete');
-
-								}
-							}
-						}
 
 						const marginDomNode = document.createElement('div');
 						marginDomNode.className = changeHighlights ? 'inline-original-margin-view-zone' : 'inline-deleted-margin-view-zone';

@@ -117,7 +117,10 @@ export function SettingsPage({
               label="Share anonymous usage data"
               description="Counts and timings only. Never code, file paths, or repository names."
             >
-              <label className="review-settings-toggle">
+              <label
+                className="review-settings-toggle"
+                aria-label="Share anonymous usage data"
+              >
                 <input
                   type="checkbox"
                   checked={telemetryEnabled}
@@ -131,7 +134,6 @@ export function SettingsPage({
                     );
                   }}
                 />
-                <span>{telemetryEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
           </Section>
@@ -203,7 +205,6 @@ export function SettingsPage({
                     );
                   }}
                 />
-                <span>{structuralDiffEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
             {structuralDiffEnabled ? (
@@ -216,6 +217,7 @@ export function SettingsPage({
               <label className="review-settings-toggle">
                 <input
                   type="checkbox"
+                  aria-label="Software Map"
                   checked={softwareMapEnabled}
                   disabled={busy !== null}
                   onChange={(event) => {
@@ -227,7 +229,6 @@ export function SettingsPage({
                     );
                   }}
                 />
-                <span>{softwareMapEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
             {install ? (
@@ -347,7 +348,12 @@ function DiffrConfigControl({
 
   if (field.kind === "boolean") {
     return (
-      <label className="review-settings-toggle">
+      <label
+        className="review-settings-toggle"
+        aria-label={
+          field.group ? `${field.group}: ${field.label}` : field.label
+        }
+      >
         <input
           type="checkbox"
           aria-label={
@@ -357,7 +363,6 @@ function DiffrConfigControl({
           disabled={disabled}
           onChange={(event) => onCommit(String(event.target.checked))}
         />
-        <span>{field.value === true ? "On" : "Off"}</span>
       </label>
     );
   }
@@ -446,26 +451,28 @@ function Choice<T extends string>({
   onChange: (choice: T) => void;
 }) {
   // SAFETY: `labels` is declared as Record<T, string>, so its own keys are
-  // exactly the T choices this select offers.
+  // exactly the T choices this control offers.
   const choices = Object.keys(labels) as T[];
 
   return (
-    <select
-      className="review-settings-select"
-      aria-label={label}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => {
-        const choice = choices.find((option) => option === event.target.value);
-
-        if (choice !== undefined) onChange(choice);
-      }}
-    >
+    <div className="review-segmented" role="radiogroup" aria-label={label}>
       {choices.map((choice) => (
-        <option key={choice} value={choice}>
+        <button
+          key={choice}
+          type="button"
+          role="radio"
+          aria-checked={choice === value}
+          disabled={disabled}
+          className={
+            choice === value
+              ? "review-segment review-segment--active"
+              : "review-segment"
+          }
+          onClick={() => onChange(choice)}
+        >
           {labels[choice]}
-        </option>
+        </button>
       ))}
-    </select>
+    </div>
   );
 }

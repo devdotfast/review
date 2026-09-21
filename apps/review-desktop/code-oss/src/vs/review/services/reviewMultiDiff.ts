@@ -6,7 +6,6 @@ import type { ReviewDiffSection } from "../common/reviewProtocol.js";
  *--------------------------------------------------------------------------------------------*/
 
 import { Button } from "../../base/browser/ui/button/button.js";
-import { Codicon } from "../../base/common/codicons.js";
 import { isEqual } from "../../base/common/resources.js";
 import { URI } from "../../base/common/uri.js";
 import type {
@@ -104,8 +103,10 @@ export class ReviewMultiDiffUIElementFactory
       element,
       {},
     );
+		// A deleted file keeps a legible name: the tree's minus already says
+		// deleted, so the header never strikes the path through.
     return {
-      setUri(uri, options = {}) {
+			setUri: (uri) => {
         if (!uri) {
           label.element.clear();
           return;
@@ -114,23 +115,14 @@ export class ReviewMultiDiffUIElementFactory
         // prints the whole path instead, and the CSS elides it from the left.
         label.element.setResource(
           { resource: uri, name: reviewMultiDiffLabelPath(uri) },
-          {
-            fileKind: FileKind.FILE,
-            forceLabel: true,
-            strikethrough: options.strikethrough,
-          },
+					{ fileKind: FileKind.FILE, forceLabel: true },
         );
       },
-      setLabel(name, description, resource, options = {}) {
+			setLabel: (name, description, resource) => {
         if (resource) {
-          label.element.setResource(
-            { resource, name, description },
-            { strikethrough: options.strikethrough },
-          );
+					label.element.setResource({ resource, name, description });
         } else {
-          label.element.setLabel(name, description, {
-            strikethrough: options.strikethrough,
-          });
+					label.element.setLabel(name, description);
         }
       },
       dispose() {
@@ -161,7 +153,7 @@ export class ReviewMultiDiffUIElementFactory
       title: "Open File",
       supportIcons: true,
     });
-    open.label = `$(${Codicon.goToFile.id}) Open file`;
+		open.label = "Open file";
     open.element.classList.add("review-multidiff-open");
 		const viewed = ownerDocument.createElement("button");
 		viewed.className = "review-header-viewed";

@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { useReviewSession } from "./host/review-session";
+import { DisclosureChevron } from "./icons";
 import { useReview } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
@@ -107,21 +108,7 @@ export function ReviewHistoryControl(): ReactElement | null {
               ? `v${displayedVersion}`
               : "Versions"}
         </span>
-        <svg
-          className="ui-icon"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path
-            d="M6 9l6 6 6-6"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.6"
-          />
-        </svg>
+        <DisclosureChevron expanded={open} />
       </button>
       {open ? (
         <ul

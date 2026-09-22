@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import type { AuthoringMode } from "../review-api/drafts.js";
 import { createReviewApi } from "../review-api/http.js";
 import { openReviewProfile } from "../review-api/profile.js";
+import { readScratchpadEnabled } from "../review-preferences.js";
 import {
   type ReviewServerDiscovery,
   reviewServerDiscoveryPath,
@@ -79,6 +80,10 @@ async function serve(input: HeadlessServerInput) {
     context.json({ ok: true, instanceId: discovery.instanceId }),
   );
 
+  // Headless shares Desktop's database, so it lists the pad on the same
+  // terms; a preference changed after start applies at the next start.
+  const scratchpadEnabled = await readScratchpadEnabled();
+
   const api = createReviewApi(
     local.store,
     local.data,
@@ -89,6 +94,7 @@ async function serve(input: HeadlessServerInput) {
       softwareMapEnabled: input.softwareMapEnabled ?? false,
     }),
     input.authoringMode,
+    () => scratchpadEnabled,
   );
 
   mountSharingPublisher(api, local.store, local.data);

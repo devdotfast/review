@@ -33,12 +33,17 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
+import { syncScratchpadSkills } from "../install";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
+import {
+  readScratchpadEnabled,
+  writeScratchpadEnabled,
+} from "../review-preferences";
 import { ReviewTelemetry } from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
 import {
@@ -119,6 +124,10 @@ export function createGlobalReviewServer(
 
   let closing = false;
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
+
+  // The scratchpad preference, read once at listen and kept current by the
+  // settings endpoint below: this server is the only writer while it runs.
+  let scratchpadEnabled = false;
 
   const discovery: ReviewDesktopDiscovery = {
     version: REVIEW_DESKTOP_DISCOVERY_VERSION,
@@ -205,8 +214,35 @@ export function createGlobalReviewServer(
           ...z.object({ softwareMapEnabled: z.boolean() }).parse(result.result),
         };
       },
+      undefined,
+      () => scratchpadEnabled,
     ),
   );
+  app.get("/preferences/scratchpad", () =>
+    globalJson(200, { enabled: scratchpadEnabled }),
+  );
+  // Turning the pad on or off also installs or removes its skill for every
+  // agent already set up, as trace capture does with its own skill.
+  app.put("/preferences/scratchpad", async (context) => {
+    const request = z
+      .object({ enabled: z.boolean() })
+      .safeParse(await readBoundedRequestJson(context.req.raw));
+
+    if (!request.success)
+      throw new ReviewServerError("enabled must be a boolean.", 400);
+
+    scratchpadEnabled = await writeScratchpadEnabled(request.data.enabled);
+    await syncScratchpadSkills({
+      enabled: scratchpadEnabled,
+      packageRoot: input.packageRoot,
+    });
+
+    // Home watches the catalog; the pad appears or goes without a store write.
+    if (scratchpadEnabled) await reviewStore.ensureScratchpad();
+    reviewStore.invalidateCatalog();
+
+    return globalJson(200, { enabled: scratchpadEnabled });
+  });
   app.post("/app/focus", async () => {
     const result = await relay.dispatch({
       name: "focusWindow",
@@ -534,6 +570,7 @@ export function createGlobalReviewServer(
       return urlForBoundPort();
     },
     listen: async () => {
+      scratchpadEnabled = await readScratchpadEnabled();
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);

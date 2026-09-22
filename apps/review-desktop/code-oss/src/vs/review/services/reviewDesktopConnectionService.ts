@@ -56,6 +56,9 @@ export interface IReviewDesktopConnectionService {
 	saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig>;
 	testDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<string>;
 	setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
+	/** The scratchpad preference: a server preference, since `review install` reads it too. */
+	readScratchpadEnabled(): Promise<boolean>;
+	setScratchpadEnabled(enabled: boolean): Promise<boolean>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
@@ -180,6 +183,29 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		});
 		await this.requireOk(response, "diffr configuration");
 		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async readScratchpadEnabled(): Promise<boolean> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/preferences/scratchpad`, {
+			headers: this.authHeaders(),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "scratchpad preference");
+		return parseScratchpadPreference(await response.json());
+	}
+
+	async setScratchpadEnabled(enabled: boolean): Promise<boolean> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/preferences/scratchpad`, {
+			method: "PUT",
+			headers: { ...this.authHeaders(), "content-type": "application/json" },
+			body: JSON.stringify({ enabled }),
+			// Also installs or removes the scratchpad skill for every agent.
+			signal: AbortSignal.timeout(120_000),
+		});
+		await this.requireOk(response, "scratchpad preference");
+		return parseScratchpadPreference(await response.json());
 	}
 
 	async saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig> {
@@ -533,4 +559,11 @@ export async function reviewResponseError(response: Response, fallback: string):
 		error?: unknown;
 	} | null;
 	return new Error(typeof payload?.error === "string" && payload.error ? payload.error : fallback);
+}
+
+function parseScratchpadPreference(value: unknown): boolean {
+	if (typeof value !== "object" || value === null || !("enabled" in value) || typeof value.enabled !== "boolean") {
+		throw new Error("scratchpad preference response is malformed.");
+	}
+	return value.enabled;
 }

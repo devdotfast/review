@@ -48,10 +48,8 @@ describe("Review Desktop tutorial preparation", () => {
 
       const catalog = await fetch(`${server.url}/reviews-api`, { headers });
       expect(catalog.status).toBe(200);
-      // Listing makes the one scratchpad; there are no reviews yet.
-      expect(await catalog.json()).toMatchObject([
-        { reviewId: "scratchpad", kind: "scratchpad" },
-      ]);
+      // The scratchpad is off by default; there are no reviews yet.
+      expect(await catalog.json()).toEqual([]);
 
       for (const route of [
         "/reviews",
@@ -71,10 +69,8 @@ describe("Review Desktop tutorial preparation", () => {
         }
       }
 
-      // Only the scratchpad the listing made; the removed routes wrote nothing.
-      expect(local.store.list().map((item) => item.reviewId)).toEqual([
-        "scratchpad",
-      ]);
+      // The removed routes wrote nothing.
+      expect(local.store.list()).toEqual([]);
     } finally {
       await server.close();
       await local.data.close();

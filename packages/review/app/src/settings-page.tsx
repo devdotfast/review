@@ -50,6 +50,10 @@ export function SettingsPage({
     settings.structuralDiffEnabled,
   );
 
+  const [scratchpadEnabled, setScratchpadEnabled] = useState(
+    settings.scratchpadEnabled,
+  );
+
   const [installStatus, setInstallStatus] = useState<
     ReviewCliInstallStatus | undefined
   >(settings.install?.status);
@@ -221,6 +225,27 @@ export function SettingsPage({
                       "software-map",
                       () => settings.setSoftwareMapEnabled(enabled),
                       setSoftwareMapEnabled,
+                    );
+                  }}
+                />
+              </label>
+            </Row>
+            <Row
+              label="Scratchpad"
+              description="Show the experimental scratchpad on Home and install its skill for agents that are set up."
+            >
+              <label className="review-settings-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Scratchpad"
+                  checked={scratchpadEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "scratchpad",
+                      () => settings.setScratchpadEnabled(enabled),
+                      setScratchpadEnabled,
                     );
                   }}
                 />

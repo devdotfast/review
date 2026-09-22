@@ -490,13 +490,16 @@ export interface ReviewCanvasSettingsContent {
   // A keymap only takes effect after the extension host restarts, so the
   // workbench offers the window reload. The page never forces one.
   setKeymap(choice: ReviewKeymapChoice): Promise<ReviewKeymapChoice>;
-  // The one value here that is not a workbench setting. The reaper runs inside
-  // the review server, which never reads workbench configuration, so this lives
-  // in the server preferences file. `null` turns reaping off.
   softwareMapEnabled: boolean;
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   structuralDiffEnabled: boolean;
   setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
+  // Not a workbench setting: the review server and `review install` both
+  // read it, so it lives in the server preferences file. Off by default.
+  // Turning it on makes the pad and installs its skill for set-up agents;
+  // turning it off hides the pad and removes the skill.
+  scratchpadEnabled: boolean;
+  setScratchpadEnabled(enabled: boolean): Promise<boolean>;
   // Shared CLI configuration, read when its disclosure opens.
   diffrConfig: ReviewDiffrConfigActions;
   reloadWindow(): Promise<void>;

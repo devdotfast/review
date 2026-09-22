@@ -496,7 +496,7 @@ export function createReviewApi(
   };
 
   /**
-   * A new review is shown where Desktop can show it, unless the author asked
+   * A created or returned review is shown where Desktop can, unless the author asked
    * not to. The review is already saved, so a failed open is reported, not thrown.
    */
   const openCreated = async (reviewId: string) => {

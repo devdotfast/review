@@ -13,6 +13,12 @@ export const pullRequestUrl = z
     "PR number is too large.",
   );
 
+/** One key per PR: GitHub owner and repository names are case-insensitive,
+ * and the URL pattern admits only ASCII, so lowercasing is canonical. */
+export function pullRequestKey(url: string): string {
+  return url.toLowerCase();
+}
+
 /** Omission preserves identity; null detaches it without changing import metadata. */
 export function setPullRequest(
   snapshot: Pick<Snapshot, "origin">,

@@ -42,12 +42,13 @@ jobs:
       - name: Install Claude Code
         run: npm install --global @anthropic-ai/claude-code@2.1.278
       - name: Author, upload and link Review
-        uses: devdotfast/review/actions/author-and-share@main
+        uses: devdotfast/review/actions/author-and-share@a3ef0e0eb33f8409cf88351b6d973df076d54f1c # temporary preview integration test
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'sonnet' }}
         with:
           review-version: ${{ vars.REVIEW_VERSION }}
+          preview: "true"
           share-token: ${{ secrets.REVIEW_SHARE_TOKEN }}
           author-command: |
             review install claude --no-shim

@@ -29,7 +29,7 @@ can still select isolated profile directories. Portable sharing remains separate
 - Headless startup owns its foreground lifecycle independently of desktop startup and its app PID.
 - Each connection serializes its writes and shares cross-process authoring ownership through SQLite. Short transactions fence commits against concurrent ownership or version changes.
 - The store retains review versions and resource bytes. Repository registrations refer to local checkout paths; saving the state directory alone does not make a review portable.
-- `review_activity` acquires one exclusive authoring session per review; mutations carry its lease ID and renewal keeps it alive. Ownership expires after 60 seconds without renewal and is checked again when edits commit. Reads remain available. A review with content and no live session reads as ready; there is no other completion state.
+- `review_activity` acquires one exclusive authoring session per review; mutations carry its lease ID, and each accepted mutation or explicit renewal keeps it alive. Ownership expires after 3 minutes without either and is checked again when edits commit. Reads remain available. A review with content and no live session reads as ready; there is no other completion state.
 - The shared skill calls `review_capabilities` to discover desktop availability and permission for map generation independently of opening a review.
 - The traces CLI demonstrates standalone npm installation and JSON output conventions, but has no local server lifecycle to reuse.
 

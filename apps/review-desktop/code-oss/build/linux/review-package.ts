@@ -141,7 +141,7 @@ Recommends: ${recommendedDeps.join(', ')}
 # that are executed by bundled Electron. Do not export bundled private libraries.
 %global __script_requires %{nil}
 %global __provides_exclude_from ^%{_datadir}/${app}/.*$
-%global __requires_exclude ^lib(EGL|GLESv2|vulkan|vk_swiftshader|ffmpeg)\.so.*$
+%global __requires_exclude ^lib(EGL|GLESv2|vulkan|vk_swiftshader|ffmpeg|vips-cpp)\.so.*$
 %global __brp_strip %{nil}
 %global __brp_strip_comment_note %{nil}
 %global debug_package %{nil}

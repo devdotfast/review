@@ -22,6 +22,12 @@ EOF
 dnf -y --setopt=install_weak_deps=False install "$PACKAGE"
 if command -v node; then echo 'Fedora package unexpectedly requires system Node' >&2; exit 1; fi
 "$APP" --help >/dev/null
+# Exercise Sharp's bundled libvips without relying on a system installation.
+ELECTRON_RUN_AS_NODE=1 "/usr/share/$APP/$APP" -e '
+  const sharp = require(process.argv[1]);
+  sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } })
+    .png().toBuffer().catch(error => { console.error(error); process.exitCode = 1; });
+' "/usr/share/$APP/resources/app/review-runtime/node_modules/sharp"
 test "$(stat -c %u:%g:%a "/usr/share/$APP/chrome-sandbox")" = "0:0:4755"
 test -f "/usr/share/applications/$PACKAGE.desktop"
 test ! -e "/usr/share/applications/$APP-url-handler.desktop"

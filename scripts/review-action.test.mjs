@@ -35,7 +35,7 @@ if(args[0]==='server' && args[1]==='start') {
 else if(args[1]==='review_register_repository') out({id:'repo'});
 else if(args[1]==='review_resolve_pins') out(pins);
 else if(args[1]==='review_list') out(existsSync(home+'/committed')?[{reviewId:'review-id',version:0,pins,target:{kind:'commits',...pins}}]:[]);
-else if(args[0]==='share') { if(!process.env.DEV_REVIEW_SHARE_TOKEN) process.exit(3); out({shareId:'11111111-1111-4111-8111-111111111111',version:0,url:'${url}'}); }
+else if(args[0]==='share') { if(process.env.TEST_SHARE_ERROR) { out({error:{code:'share_failed',message:process.env.TEST_SHARE_ERROR}}); console.error('Sharing includes retained images, maps, and full trace conversations.'); process.exit(1); } if(!process.env.DEV_REVIEW_SHARE_TOKEN) process.exit(3); out({shareId:'11111111-1111-4111-8111-111111111111',version:0,url:'${url}'}); }
 else process.exit(2);
 `,
     { mode: 0o700 },
@@ -127,6 +127,22 @@ for (const [name, author, error] of [
     );
   });
 }
+
+test("reports the CLI JSON error when sharing fails and still cleans up", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(
+    runWorkflow({
+      ...f.env,
+      TEST_SHARE_ERROR: "Your sign-in has expired. Sign in again to share.",
+    }),
+    /Your sign-in has expired\. Sign in again to share\./,
+  );
+  assert.equal((await f.calls()).at(-1).stopped, true);
+  assert.equal(
+    (await readdir(f.root)).some((name) => name.startsWith("review-action-")),
+    false,
+  );
+});
 
 test("retains link outputs when commenting fails", async (t) => {
   const f = await fixture(t);

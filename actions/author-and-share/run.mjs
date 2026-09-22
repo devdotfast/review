@@ -12,10 +12,33 @@ const exec = promisify(execFile);
 const marker = "<!-- dev-fast-review -->";
 
 async function command(file, args, options) {
-  const { stdout } = await exec(file, args, {
-    maxBuffer: 16 * 1024 * 1024,
-    ...options,
-  });
+  let stdout;
+
+  try {
+    ({ stdout } = await exec(file, args, {
+      maxBuffer: 16 * 1024 * 1024,
+      ...options,
+    }));
+  } catch (error) {
+    // JSON CLI failures are written to stdout; execFile's message only includes stderr.
+    let result;
+
+    try {
+      result = JSON.parse(error.stdout);
+    } catch {
+      throw error;
+    }
+
+    if (
+      typeof result?.error?.message === "string" &&
+      result.error.message.trim()
+    )
+      throw new Error(`${file} ${args[0]} failed: ${result.error.message}`, {
+        cause: error,
+      });
+
+    throw error;
+  }
 
   return JSON.parse(stdout);
 }

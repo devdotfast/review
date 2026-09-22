@@ -16,7 +16,12 @@ describe("nextCursor", () => {
     // The first message is the document as found: nothing was just drawn.
     cursor = nextCursor(cursor, memory, {
       version: 3,
-      lastEdit: { type: "insert", targetId: "block-1", blockId: "block-1" },
+      lastEdit: {
+        type: "insert",
+        targetId: "block-1",
+        blockId: "block-1",
+        kind: "markdown",
+      },
       activity: working(),
     });
     expect(cursor).toBeNull();
@@ -42,6 +47,7 @@ describe("nextCursor", () => {
         type: "insert",
         targetId: "node-7",
         blockId: "diagram-2",
+        kind: "flow_node",
         unit: "flow_node",
       },
       activity: working("block-1"),

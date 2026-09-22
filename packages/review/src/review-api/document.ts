@@ -388,9 +388,13 @@ export interface EditSummary {
   type: Edit["type"];
   targetId: string;
   blockId: string;
+  /** What the target is: a block type or a unit type. */
+  kind: Element["type"];
   unit?: Unit["type"];
   /** The edge a new flow node arrived with, drawn right after the node. */
   linkId?: string;
+  /** An update's patched fields, so the canvas can draw only what changed. */
+  fields?: string[];
 }
 
 /** What applying an edit produced: the target, and the edge a node came with. */
@@ -434,11 +438,14 @@ export function summarizeEdit(
     type: edit.type,
     targetId: applied.targetId,
     blockId: found.block.id,
+    kind: found.element.type,
   };
 
   if (isUnit(found.element)) summary.unit = found.element.type;
 
   if (applied.linkId) summary.linkId = applied.linkId;
+
+  if (edit.type === "update") summary.fields = Object.keys(edit.changes);
 
   return summary;
 }

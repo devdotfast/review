@@ -608,6 +608,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       targetId: diagramId,
       blockId: diagramId,
+      kind: "flow_diagram",
     });
 
     const broker = await edit(reviewId, {
@@ -655,6 +656,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       targetId: acquires.targetId,
       blockId: diagramId,
+      kind: "flow_edge",
       unit: "flow_edge",
     });
 
@@ -675,6 +677,11 @@ describe("snapshot authoring", () => {
       key: "broker",
       label: "Broker",
       kind: "decision",
+    });
+    expect(store.read(reviewId).lastEdit).toMatchObject({
+      type: "update",
+      kind: "flow_node",
+      fields: ["label", "kind"],
     });
 
     await edit(reviewId, {
@@ -748,6 +755,7 @@ describe("snapshot authoring", () => {
       type: "remove",
       targetId: broker.targetId,
       blockId: diagramId,
+      kind: "flow_node",
       unit: "flow_node",
     });
     await store.execute(request({ type: "rename", reviewId, title: "Leases" }));
@@ -778,6 +786,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       targetId: sweeper.targetId,
       blockId: diagramId,
+      kind: "flow_node",
       unit: "flow_node",
       linkId: value().edges[0]!.id,
     });

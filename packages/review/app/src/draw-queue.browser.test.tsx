@@ -160,7 +160,7 @@ const insert = (
   targetId,
   blockId,
   source: "edit",
-  edit: { type: "insert", targetId, blockId, unit },
+  edit: { type: "insert", targetId, blockId, kind: unit ?? "markdown", unit },
   seq: ++seq,
 });
 
@@ -236,7 +236,7 @@ it("keeps a removed block on the board while it is erased, then lets it go", asy
       targetId: "b2",
       blockId: "b2",
       source: "edit",
-      edit: { type: "remove", targetId: "b2", blockId: "b2" },
+      edit: { type: "remove", targetId: "b2", blockId: "b2", kind: "markdown" },
       seq: ++seq,
     },
     without,

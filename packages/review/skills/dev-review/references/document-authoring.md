@@ -55,6 +55,8 @@ Choose the component that makes the relationship visible. Use native diagram com
 
 A single subject can need several views. A sequence can show when a transaction occurs, while a database view shows the data it reads and writes. Give each view a distinct job.
 
+When a diagram supports attaching evidence, always attach evidence. In order of preference: concrete code evidence > pseudocode / explanation >> no attachments.
+
 ### Database views
 
 When storage is part of the subject, inspect the data model and its access paths. Include a database view when persisted structure, relationships or read/write responsibilities are important to the explanation. This applies to existing storage designs as well as changes, and includes document and file stores.
@@ -97,3 +99,5 @@ Read the entire document through Review’s tools, including every section and d
 Check that the Review covers the requested subject, that the sections form a coherent explanation, and that there are no gaps, repeated explanations or contradictions between sections. Check consistency of terminology and diagram participants across the document. Remove unfinished outline text.
 
 Make targeted corrections, then reread the affected sections and related diagrams. If work remains unfinished, report it as such. Report any remaining evidence or verification limitations with the result.
+
+No explanation at all on a diagram node (e.g. sequence diagram or flow diagram) is almost certainly a wrong choice. Only acceptable for self-evident nodes (where the title == content).

@@ -202,11 +202,12 @@ test("a refreshed current tree keeps its root when a file from the newer version
   t.mock.method(globalThis, "fetch", async (value: string) => {
     const url = new URL(value);
     if (url.pathname.endsWith("/tree")) {
+      assert.equal(url.pathname, "/sessions-api/review-a/tree");
       assert.equal(url.searchParams.get("version"), String(version));
       return Response.json([{ path: "src", kind: "directory" }, { path: "file.ts", kind: "file" }]);
     }
     assert.equal(url.searchParams.has("version"), false);
-    return Response.json({ reviewId: "review-a", version, pins: { worktreeRevision: String(version).repeat(64) } });
+    return Response.json({ sessionId: "review-a", version, pins: { worktreeRevision: String(version).repeat(64) } });
   });
   const first = await service.children(root);
   version = 4;

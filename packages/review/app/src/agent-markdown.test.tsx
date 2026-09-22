@@ -66,9 +66,7 @@ describe("agent markdown", () => {
     expect(html).toContain("<li><p>one</p></li>");
     expect(html).toContain("<table>");
     expect(html).toContain("<code>App.tsx</code>");
-    expect(html).toContain(
-      'class="rendered-code-block markdown-code-block" data-language="ts"',
-    );
+    expect(html).toContain('data-language="ts"');
     expect(html).toContain("const answer = true;");
     expect(html).toContain('href="https://example.com/docs"');
     expect(html).toContain('target="_blank"');

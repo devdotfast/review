@@ -94,10 +94,12 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
 
 function CodeBlock({ node }: BlockProps<"code">) {
   return (
-    <>
-      <RenderedCodeBlock code={node.text} language={node.language} />
-      {node.caption && <p>{node.caption}</p>}
-    </>
+    <RenderedCodeBlock
+      code={node.text}
+      language={node.language}
+      caption={node.caption}
+      lineNumbers
+    />
   );
 }
 

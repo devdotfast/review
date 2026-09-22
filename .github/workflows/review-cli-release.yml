@@ -66,6 +66,11 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: node scripts/smoke-review-cli.mjs "release-artifacts/dev.fast-review-${VERSION}.tgz" "$VERSION"
+      - name: Validate npm publish command
+        if: steps.release.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: npm publish "./release-artifacts/dev.fast-review-${VERSION}.tgz" --dry-run --registry=https://registry.npmjs.org --access public --tag latest --ignore-scripts
       - name: Retain tested package
         if: steps.release.outputs.published != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -89,7 +94,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
-        run: npm publish "release-artifacts/dev.fast-review-${VERSION}.tgz" --registry=https://registry.npmjs.org --access public --tag latest --provenance --ignore-scripts
+        run: npm publish "./release-artifacts/dev.fast-review-${VERSION}.tgz" --registry=https://registry.npmjs.org --access public --tag latest --provenance --ignore-scripts
       - name: Release summary
         env:
           VERSION: ${{ steps.release.outputs.version }}

@@ -82,11 +82,6 @@ export async function runWorkflow(env = process.env, send = fetch) {
   const cli = env.REVIEW_CLI || "review";
   const repo = path.resolve(env.REVIEW_REPOSITORY_PATH || ".");
 
-  if (!env.REVIEW_BASE || !env.REVIEW_HEAD)
-    throw new Error(
-      "Supply explicit base and head revisions, or run on a pull_request event.",
-    );
-
   if (!env.REVIEW_AUTHOR_COMMAND?.trim())
     throw new Error(
       "author-command is required; install your agent before this action.",
@@ -104,6 +99,11 @@ export async function runWorkflow(env = process.env, send = fetch) {
   const event = env.GITHUB_EVENT_PATH
     ? JSON.parse(await readFile(env.GITHUB_EVENT_PATH, "utf8"))
     : {};
+
+  if ((!env.REVIEW_BASE && !event.pull_request?.base.sha) || !env.REVIEW_HEAD)
+    throw new Error(
+      "Supply explicit base and head revisions, or run on a pull_request event.",
+    );
 
   if (
     comment &&
@@ -124,6 +124,29 @@ export async function runWorkflow(env = process.env, send = fetch) {
     throw new Error(
       "Fork PR authoring must run in a separately approved, trusted workflow. This action does not run fork code with secrets.",
     );
+
+  let base = env.REVIEW_BASE;
+
+  if (!base) {
+    try {
+      // PRs compare changes since the common ancestor, excluding newer base-branch work.
+      const { stdout } = await exec("git", [
+        "-C",
+        repo,
+        "merge-base",
+        "--",
+        event.pull_request.base.sha,
+        env.REVIEW_HEAD,
+      ]);
+
+      base = stdout.trim();
+    } catch (cause) {
+      throw new Error(
+        "Could not resolve the pull request merge base. Fetch the base and head commits and their history; use actions/checkout with fetch-depth: 0.",
+        { cause },
+      );
+    }
+  }
 
   const directory = await mkdtemp(
     path.join(env.RUNNER_TEMP || tmpdir(), "review-action-"),
@@ -226,7 +249,7 @@ esac
 
     const pins = await api("review_resolve_pins", {
       repositoryId: registered.id,
-      base: env.REVIEW_BASE,
+      base,
       head: env.REVIEW_HEAD,
     });
 

@@ -7,7 +7,7 @@ test -f "/publication/$PREFIX/current.json"
 cp -a "/publication/$PREFIX" /repo
 cp -a /publication/repos/keys /repo/
 cp /repo/snapshots/"$GENERATION"/rpm/repodata/repomd.xml* /repo/rpm/x86_64/repodata/
-dnf -y --setopt=install_weak_deps=False install rpm-build gnupg2
+dnf -y --setopt=install_weak_deps=False install rpm-build gnupg2 desktop-file-utils xdg-utils
 rpm --import /repo/keys/"$FINGERPRINT".asc
 cat > "/etc/yum.repos.d/$PACKAGE.repo" <<EOF
 [$PACKAGE]
@@ -24,7 +24,8 @@ if command -v node; then echo 'Fedora package unexpectedly requires system Node'
 "$APP" --help >/dev/null
 test "$(stat -c %u:%g:%a "/usr/share/$APP/chrome-sandbox")" = "0:0:4755"
 test -f "/usr/share/applications/$PACKAGE.desktop"
-test ! -e "/usr/share/applications/$APP-url-handler.desktop"
+desktop-file-validate "/usr/share/applications/$PACKAGE-url-handler.desktop"
+test "$(xdg-mime query default "x-scheme-handler/$PACKAGE")" = "$PACKAGE-url-handler.desktop"
 mkdir -p /root/.dev/reviews /root/.config/Review/User /root/.claude
 for SENTINEL in /root/.dev/reviews/package-test /root/.config/Review/User/settings.json /root/.claude/settings.json; do
   printf 'keep me\n' > "$SENTINEL"

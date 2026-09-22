@@ -183,7 +183,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "diff",
-      "Read changed-file summaries, or patch text when file is supplied. commit selects one commit from this review; repositoryId, base and head compare explicit pins of a registered repository instead.",
+      'Read this review\'s changes. paths selects files (default: all). format:"files" lists them with status and counts; format:"patch" returns plain-text patches with base and head line numbers on every line, ready for review-source links. Patches past maxBytes are listed with a paths:[…] hint. commit selects one commit from this review; repositoryId, base and head compare explicit pins of a registered repository instead.',
       read("diff"),
       "GET",
       `${sourcePath}/diff`,

@@ -41,6 +41,14 @@ Most people let the installed Review skill drive this workflow: it authors
 through `review api` or the Review MCP tools. See
 `packages/review/skills/dev-review/SKILL.md`.
 
+`review api` prints a tool's JSON result, except for text replies such as
+`review_get` and `review_diff` patches, which print as-is. List arguments are
+JSON arrays:
+
+```sh
+review api review_diff '{"reviewId":"<uuid>","format":"patch","paths":["src/app.ts","docs"]}'
+```
+
 ## Machine-readable output
 
 Commands that expose `--json` accept it after the complete command path:

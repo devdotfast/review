@@ -786,7 +786,7 @@ export function createReviewApi(
       return context.json({ ...file, ...local });
     });
     app.get("/:id/structural-diff", async (context) => {
-      const input = readQuerySchemas.diff.parse(context.req.query());
+      const input = readQuerySchemas.structuralDiff.parse(context.req.query());
       const id = context.req.param("id");
 
       const { pins } = await data.resolveSource(
@@ -835,19 +835,30 @@ export function createReviewApi(
       });
     });
     app.on("GET", sourcePaths("diff"), async (context) => {
-      const input = readQuerySchemas.diff.parse(context.req.query());
+      const query = context.req.query();
+      const paths = context.req.queries("paths");
+      const input = readQuerySchemas.diff.parse({ ...query, paths });
 
-      return context.json(
-        await data.changes(
-          (
-            await data.resolveSource(
-              sourceSnapshot(context, input.version),
-              input.commit,
-              queryAnchor(input),
-            )
-          ).pins,
-          input.file,
-        ),
+      if (input.file !== undefined && (paths || "format" in query))
+        throw new ReviewInputError(
+          'file cannot be combined with paths or format; use paths:["…"], format:"patch".',
+        );
+
+      const { pins } = await data.resolveSource(
+        sourceSnapshot(context, input.version),
+        input.commit,
+        queryAnchor(input),
+      );
+
+      if (input.format === "files" && input.file === undefined)
+        return context.json(await data.changedFiles(pins, input.paths));
+
+      return context.text(
+        await data.patches(pins, {
+          paths: input.file === undefined ? input.paths : [input.file],
+          contextLines: input.context,
+          maxBytes: input.maxBytes,
+        }),
       );
     });
     app.on("GET", sourcePaths("commits"), async (context) => {

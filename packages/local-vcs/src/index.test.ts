@@ -30,6 +30,7 @@ import {
   resolveRepoContext,
   resolveRepoContextSync,
   setLocalVcsCommandObserver,
+  splitGitPatchFiles,
 } from ".";
 
 describe("local vcs", () => {
@@ -445,6 +446,46 @@ describe("local vcs", () => {
       { path: "src/copy.ts", status: "added", additions: 2, deletions: 1 },
       { path: "src/after.ts", status: "modified", additions: 1, deletions: 0 },
     ]);
+  });
+
+  it("splits a patch into files with their paths and counts", () => {
+    const patch = [
+      "diff --git a/old.ts b/new.ts",
+      "similarity index 90%",
+      "rename from old.ts",
+      "rename to new.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+      'diff --git "a/sp ace\\t.ts" "b/sp ace\\t.ts"',
+      "deleted file mode 100644",
+      '--- "a/sp ace\\t.ts"',
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-x",
+      "",
+    ].join("\n");
+
+    const files = splitGitPatchFiles(patch);
+
+    expect(files.map((entry) => entry.file)).toEqual([
+      {
+        path: "new.ts",
+        previousPath: "old.ts",
+        status: "renamed",
+        additions: 1,
+        deletions: 1,
+      },
+      {
+        path: "sp ace\t.ts",
+        previousPath: undefined,
+        status: "deleted",
+        additions: 0,
+        deletions: 1,
+      },
+    ]);
+    expect(files[0]!.patch).toMatch(/^diff --git a\/old.ts b\/new.ts\n/);
+    expect(files[1]!.patch).toContain("@@ -1 +0,0 @@");
   });
 
   it("refuses a diff whose counts arrive before its records", () => {

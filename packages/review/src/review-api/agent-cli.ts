@@ -4,6 +4,7 @@ import {
   type AuthoringTool,
   callAuthoringTool,
   connectReviewApi,
+  toolResultText,
 } from "./agent-client.js";
 
 interface AgentCliInput {
@@ -82,11 +83,8 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
 
     if (name === "review_get" && rest.includes("--json")) args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
-    input.stdout.write(
-      (name === "review_get" && isStringValue(result)
-        ? result
-        : JSON.stringify(result)) + "\n",
-    );
+    const text = toolResultText(tool, result);
+    input.stdout.write(text.endsWith("\n") ? text : text + "\n");
 
     return 0;
   } catch (error) {
@@ -98,4 +96,4 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
   }
 }
 
-import { isJsonObject, isStringValue, parseJsonText } from "@dev.fast/json";
+import { isJsonObject, parseJsonText } from "@dev.fast/json";

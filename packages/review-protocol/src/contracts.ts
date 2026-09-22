@@ -313,6 +313,7 @@ export interface ReviewCanvasBridge {
   onDidChangeDiffLayout(
     listener: (layout: ReviewDiffLayout) => void,
   ): ReviewDisposable;
+  notify?(message: { kind: "success" | "error"; text: string }): void;
   setupTooltip?(target: HTMLElement, text: string): ReviewDisposable;
   ready(): void;
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;

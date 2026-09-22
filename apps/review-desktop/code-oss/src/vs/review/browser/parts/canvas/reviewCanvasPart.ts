@@ -19,6 +19,7 @@ import { IHoverService } from "../../../../platform/hover/browser/hover.js";
 import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { FocusMode } from "../../../../platform/native/common/native.js";
+import { INotificationService } from "../../../../platform/notification/common/notification.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
 import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
 import { IStorageService, StorageScope, StorageTarget } from "../../../../platform/storage/common/storage.js";
@@ -178,6 +179,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		private readonly reviewTelemetryService: IReviewTelemetryService,
 		@ILogService private readonly logService: ILogService,
 		@IHoverService private readonly hoverService: IHoverService,
+		@INotificationService private readonly notificationService: INotificationService,
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
@@ -968,6 +970,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		| "setDiffLayout"
 		| "onDidChangeDiffLayout"
 		| "setupTooltip"
+		| "notify"
 		| "ready"
 		| "reportDiagnostic"
 	> {
@@ -979,6 +982,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			currentDiffLayout: () => this.diffViews.diffLayout.get(),
 			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
 			onDidChangeDiffLayout: (listener) => this.diffViews.diffLayout.onDidChange(listener),
+			notify: ({ kind, text }) => {
+				if (kind === "error") this.notificationService.error(text);
+				else this.notificationService.info(text);
+			},
 			setupTooltip: (target, content) => {
 				const store = new DisposableStore();
 				const hover = store.add(new MutableDisposable<IHoverWidget>());

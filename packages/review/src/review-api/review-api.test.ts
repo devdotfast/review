@@ -1693,7 +1693,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
   try {
     await server.listen();
-    const url = server.url + "/reviews-api";
+    const url = server.url + "/sessions-api";
     expect((await fetch(url)).status).toBe(401);
     expect((await fetch(server.url + "/sessions-api")).status).toBe(401);
 
@@ -1711,32 +1711,33 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     const response = await post({ type: "create", title: "HTTP review", pins });
     expect(response.status).toBe(200);
-    const { reviewId } = await response.json();
+    const { sessionId } = await response.json();
 
     const session = await fetch(
-      `${server.url}/sessions-api/${reviewId}?full=true`,
+      `${server.url}/sessions-api/${sessionId}?full=true`,
       { headers },
     );
 
     expect(session.status).toBe(200);
     expect(await session.json()).toMatchObject({
-      sessionId: reviewId,
+      sessionId: sessionId,
       title: "HTTP review",
     });
     expect(
-      (await fetch(`${url}/${reviewId}/open`, { method: "POST" })).status,
+      (await fetch(`${url}/${sessionId}/open`, { method: "POST" })).status,
     ).toBe(401);
     expect(
       (await fetch(`${url}/missing/open`, { method: "POST", headers })).status,
     ).toBe(404);
     // A server without a desktop must not report that it opened a window.
     expect(
-      (await fetch(`${url}/${reviewId}/open`, { method: "POST", headers }))
+      (await fetch(`${url}/${sessionId}/open`, { method: "POST", headers }))
         .status,
     ).toBe(409);
 
     const client = new ReviewApiClient({
       serverUrl: server.url,
+      apiPath: "/sessions-api",
       token: "test-token",
     });
 
@@ -1750,7 +1751,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
           id,
           response:
             request.name === "openApiReview" &&
-            request.args.reviewId === reviewId
+            request.args.reviewId === sessionId
               ? { ok: true, result: { softwareMapEnabled } }
               : { ok: false, error: "Unexpected desktop request" },
         });
@@ -1763,8 +1764,8 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       expect(
         await callAuthoringTool(
           client,
-          tools.find((t) => t.name === "review_open")!,
-          { reviewId },
+          tools.find((t) => t.name === "session_open")!,
+          { sessionId },
         ),
       ).toMatchObject({
         ok: true,
@@ -1775,8 +1776,8 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     expect(
       await callAuthoringTool(
         client,
-        tools.find((t) => t.name === "review_environment")!,
-        { reviewId },
+        tools.find((t) => t.name === "session_environment")!,
+        { sessionId },
       ),
     ).toEqual({
       issues: [
@@ -1789,24 +1790,24 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     // Listing through the interactive host, with the preference on, also
     // makes the one scratchpad.
-    // SAFETY: review_list returns the catalog summaries the store lists.
+    // SAFETY: session_list returns the catalog summaries the store lists.
     const listed = (await callAuthoringTool(
       client,
-      tools.find((t) => t.name === "review_list")!,
+      tools.find((t) => t.name === "session_list")!,
       {},
-    )) as { reviewId: string; kind?: string }[];
+    )) as { sessionId: string; kind?: string }[];
 
     const reviewsOnly = (entries: { kind?: string }[]) =>
       entries.filter((entry) => entry.kind !== "scratchpad");
 
-    expect(reviewsOnly(listed)).toMatchObject([{ reviewId }]);
+    expect(reviewsOnly(listed)).toMatchObject([{ sessionId }]);
     expect(listed).toContainEqual(
-      expect.objectContaining({ reviewId: SCRATCHPAD_ID, kind: "scratchpad" }),
+      expect.objectContaining({ sessionId: SCRATCHPAD_ID, kind: "scratchpad" }),
     );
     await expect(
-      callAuthoringTool(client, tools.find((t) => t.name === "review_edit")!, {
+      callAuthoringTool(client, tools.find((t) => t.name === "session_edit")!, {
         commandId: randomUUID(),
-        reviewId,
+        sessionId,
         edit: {
           type: "insert",
           content: {
@@ -1824,16 +1825,16 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const abort = new AbortController();
     const catalog = client.watch(null, abort.signal);
     expect(reviewsOnly((await catalog.next()).value)).toMatchObject([
-      { reviewId, dismissedAt: null },
+      { sessionId, dismissedAt: null },
     ]);
-    await post({ type: "attention", reviewId, action: "dismiss" });
+    await post({ type: "attention", sessionId, action: "dismiss" });
     expect(reviewsOnly((await catalog.next()).value)).toMatchObject([
-      { reviewId, dismissedAt: expect.any(String) },
+      { sessionId, dismissedAt: expect.any(String) },
     ]);
     await catalog.return(undefined);
-    const live = client.watch(reviewId, abort.signal);
+    const live = client.watch(sessionId, abort.signal);
     expect((await live.next()).value).toMatchObject({
-      reviewId,
+      sessionId,
       version: 0,
       document: [],
     });
@@ -1841,19 +1842,19 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       (
         await post({
           type: "edit",
-          reviewId,
+          sessionId,
           edit: { type: "insert", content: diagram },
         })
       ).status,
     ).toBe(200);
-    const read = await fetch(url + "/" + reviewId + "?full=true", { headers });
+    const read = await fetch(url + "/" + sessionId + "?full=true", { headers });
     expect((await live.next()).value).toMatchObject({
       version: 1,
       document: [{ type: "sequence" }],
     });
     await live.return(undefined);
     abort.abort();
-    const reconnect = client.watch(reviewId, new AbortController().signal);
+    const reconnect = client.watch(sessionId, new AbortController().signal);
     expect((await reconnect.next()).value).toMatchObject({ version: 1 });
     await reconnect.return(undefined);
     expect(await read.json()).toMatchObject({
@@ -1864,7 +1865,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     const missing = await post({
       type: "edit",
-      reviewId,
+      sessionId,
       edit: { type: "remove", targetId: "missing" },
     });
 
@@ -1881,17 +1882,17 @@ it("serves the experiment through the real desktop HTTP server and existing auth
         })
       ).status,
     ).toBe(413);
-    const watching = client.watch(reviewId, new AbortController().signal);
+    const watching = client.watch(sessionId, new AbortController().signal);
     await watching.next();
 
     await Promise.all([
       expect(watching.next()).rejects.toThrow(Error),
-      post({ type: "delete", reviewId }).then((response) => {
+      post({ type: "delete", sessionId }).then((response) => {
         expect(response.status).toBe(200);
       }),
     ]);
     expect(
-      (await fetch(`${url}/${reviewId}?full=true`, { headers })).status,
+      (await fetch(`${url}/${sessionId}?full=true`, { headers })).status,
     ).toBe(404);
   } finally {
     await server.close();

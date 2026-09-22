@@ -83,14 +83,14 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     await server.listen();
 
     // Off by default: nothing listed, and the pad's id is refused.
-    expect(await (await get(server.url, "/reviews-api")).json()).toEqual([]);
+    expect(await (await get(server.url, "/sessions-api")).json()).toEqual([]);
     expect(
-      await (await get(server.url, "/reviews-api/capabilities")).json(),
+      await (await get(server.url, "/sessions-api/capabilities")).json(),
     ).toMatchObject({ scratchpadEnabled: false });
 
     const refused = await get(
       server.url,
-      `/reviews-api/${SCRATCHPAD_REVIEW_ID}`,
+      `/sessions-api/${SCRATCHPAD_REVIEW_ID}`,
     );
 
     expect(refused.status).toBe(409);
@@ -98,7 +98,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
       error: expect.stringMatching(/scratchpad is off/i),
     });
 
-    const created = await fetch(`${server.url}/reviews-api/commands`, {
+    const created = await fetch(`${server.url}/sessions-api/commands`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -113,14 +113,14 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     // On: the pad exists, is listed, and the skill reaches set-up agents.
     expect(await setEnabled(server.url, true)).toEqual({ enabled: true });
     expect((await readReviewPreferences(devHome)).scratchpadEnabled).toBe(true);
-    expect(await (await get(server.url, "/reviews-api")).json()).toMatchObject([
-      { reviewId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
+    expect(await (await get(server.url, "/sessions-api")).json()).toMatchObject([
+      { sessionId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
     ]);
     expect(
-      await (await get(server.url, "/reviews-api/capabilities")).json(),
+      await (await get(server.url, "/sessions-api/capabilities")).json(),
     ).toMatchObject({ scratchpadEnabled: true });
     expect(
-      (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
+      (await get(server.url, `/sessions-api/${SCRATCHPAD_REVIEW_ID}`)).status,
     ).toBe(200);
     expect(
       await readFile(path.join(installedSkill, "SKILL.md"), "utf8"),
@@ -128,9 +128,9 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
 
     // Off again: hidden and refused, but not deleted; the skill goes.
     expect(await setEnabled(server.url, false)).toEqual({ enabled: false });
-    expect(await (await get(server.url, "/reviews-api")).json()).toEqual([]);
+    expect(await (await get(server.url, "/sessions-api")).json()).toEqual([]);
     expect(
-      (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
+      (await get(server.url, `/sessions-api/${SCRATCHPAD_REVIEW_ID}`)).status,
     ).toBe(409);
     expect(local.store.has(SCRATCHPAD_REVIEW_ID)).toBe(true);
     expect(existsSync(installedSkill)).toBe(false);
@@ -140,8 +140,8 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     await server.close();
     server = serve();
     await server.listen();
-    expect(await (await get(server.url, "/reviews-api")).json()).toMatchObject([
-      { reviewId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
+    expect(await (await get(server.url, "/sessions-api")).json()).toMatchObject([
+      { sessionId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
     ]);
   } finally {
     await server.close();

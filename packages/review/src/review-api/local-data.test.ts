@@ -1929,7 +1929,7 @@ it("exposes real source and resource operations through the authenticated deskto
 
   try {
     await server.listen();
-    const url = server.url + "/reviews-api";
+    const url = server.url + "/sessions-api";
 
     const headers = {
       "content-type": "application/json",
@@ -1963,7 +1963,7 @@ it("exposes real source and resource operations through the authenticated deskto
     const read = async (route: string) =>
       (await fetch(url + route, { headers })).json();
 
-    const quote = await post(`/${review.reviewId}/source`, { source });
+    const quote = await post(`/${review.sessionId}/source`, { source });
     expect(quote.status).toBe(200);
     expect(await quote.json()).toEqual({
       side: "head",
@@ -1974,26 +1974,26 @@ it("exposes real source and resource operations through the authenticated deskto
       text: "export const value = 2;\nexport const saved = true;",
     });
     expect(
-      await read(`/${review.reviewId}/file?side=head&file=${source.file}`),
+      await read(`/${review.sessionId}/file?side=head&file=${source.file}`),
     ).toEqual({
       file: source.file,
       side: "head",
       commit: pins.head,
       text: "export const value = 2;\nexport const saved = true;\n",
     });
-    expect(await read(`/${review.reviewId}/tree`)).toEqual([
+    expect(await read(`/${review.sessionId}/tree`)).toEqual([
       { path: source.file, kind: "file" },
       { path: "literal1.ts", kind: "file" },
       { path: "literal[1].ts", kind: "file" },
     ]);
-    expect(await read(`/${review.reviewId}/diff`)).toEqual([
+    expect(await read(`/${review.sessionId}/diff`)).toEqual([
       { path: source.file, status: "modified", additions: 2, deletions: 1 },
       { path: "literal1.ts", status: "added", additions: 1, deletions: 0 },
       { path: "literal[1].ts", status: "added", additions: 1, deletions: 0 },
     ]);
     expect(
       await (
-        await fetch(url + `/${review.reviewId}/diff?file=${source.file}`, {
+        await fetch(url + `/${review.sessionId}/diff?file=${source.file}`, {
           headers,
         })
       ).text(),
@@ -2007,7 +2007,7 @@ it("exposes real source and resource operations through the authenticated deskto
         "",
       ].join("\n"),
     );
-    expect(await read(`/${review.reviewId}/commits`)).toEqual([
+    expect(await read(`/${review.sessionId}/commits`)).toEqual([
       {
         commit: pins.head,
         parentCommit: pins.base,
@@ -2029,12 +2029,12 @@ it("exposes real source and resource operations through the authenticated deskto
 
     expect((await post("/resources", resource)).status).toBe(200);
     expect(
-      (await fetch(url + "/" + review.reviewId + "/resources/" + resource.id))
+      (await fetch(url + "/" + review.sessionId + "/resources/" + resource.id))
         .status,
     ).toBe(401);
 
     const response = await fetch(
-      url + "/" + review.reviewId + "/resources/" + resource.id,
+      url + "/" + review.sessionId + "/resources/" + resource.id,
       {
         headers,
       },
@@ -2047,7 +2047,7 @@ it("exposes real source and resource operations through the authenticated deskto
     });
     expect(
       (
-        await post(`/${review.reviewId}/source`, {
+        await post(`/${review.sessionId}/source`, {
           source: { ...source, toLine: 99 },
         })
       ).status,

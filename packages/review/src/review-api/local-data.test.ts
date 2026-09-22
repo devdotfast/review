@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { setLocalVcsCommandObserver } from "@dev.fast/local-vcs";
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -371,6 +372,150 @@ it("opens without waiting for acquisition and keeps diagnostic failures nonfatal
       },
     ],
   });
+});
+
+type OpenDesktop = NonNullable<Parameters<typeof createReviewApi>[2]>;
+
+const postJson = (app: Hono, route: string, body: JsonValue) =>
+  app.request(route, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+it("opens a created review in Desktop unless the author opts out", async () => {
+  const opened: string[] = [];
+
+  const app = createReviewApi(local.store, local.data, async ({ reviewId }) => {
+    opened.push(reviewId);
+
+    return { softwareMapEnabled: true };
+  });
+
+  const shown = await postJson(
+    app,
+    "/commands",
+    command({ type: "create", title: "Shown", pins }),
+  );
+
+  expect(shown.status).toBe(200);
+  const shownReview = await shown.json();
+  expect(shownReview).toMatchObject({
+    opened: true,
+    softwareMapEnabled: true,
+  });
+  expect(opened).toEqual([shownReview.reviewId]);
+
+  const background = command({
+    type: "create",
+    title: "Background",
+    pins,
+    open: false,
+  });
+
+  const quiet = await postJson(app, "/commands", background);
+
+  expect(quiet.status).toBe(200);
+  const quietReview = await quiet.json();
+  expect(quietReview).toMatchObject({ opened: false });
+  expect(opened).toEqual([shownReview.reviewId]);
+
+  // Opening is not part of the saved command: a retry may choose to show it.
+  const { open: _open, ...retried } = background.operation;
+
+  const retry = await postJson(app, "/commands", {
+    ...background,
+    operation: retried,
+  });
+
+  expect(await retry.json()).toMatchObject({
+    reviewId: quietReview.reviewId,
+    opened: true,
+  });
+  expect(opened).toEqual([shownReview.reviewId, quietReview.reviewId]);
+});
+
+it("does not open a created review when Desktop is not attached", async () => {
+  const open = vi.fn<OpenDesktop>(async () => ({ softwareMapEnabled: false }));
+
+  const app = createReviewApi(local.store, local.data, open, undefined, () => ({
+    desktopAvailable: false,
+    softwareMapEnabled: false,
+  }));
+
+  const response = await postJson(
+    app,
+    "/commands",
+    command({ type: "create", title: "Headless", pins }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ opened: false });
+  expect(open).not.toHaveBeenCalled();
+  expect(
+    (
+      await postJson(
+        app,
+        "/commands",
+        command({ type: "rename", reviewId: "x", title: "y", open: false }),
+      )
+    ).status,
+  ).toBe(400);
+});
+
+it("keeps a created review when Desktop fails to open it", async () => {
+  const app = createReviewApi(local.store, local.data, async () => {
+    throw new Error("Desktop window closed.");
+  });
+
+  const response = await postJson(
+    app,
+    "/commands",
+    command({ type: "create", title: "Saved anyway", pins }),
+  );
+
+  expect(response.status).toBe(200);
+  const created = await response.json();
+  expect(created).toMatchObject({
+    opened: false,
+    openError: expect.stringContaining("Desktop window closed."),
+  });
+  expect(local.store.read(created.reviewId).title).toBe("Saved anyway");
+});
+
+it("does not open reviews authored in batch mode", async () => {
+  const open = vi.fn<OpenDesktop>(async () => ({ softwareMapEnabled: false }));
+
+  const app = createReviewApi(
+    local.store,
+    local.data,
+    open,
+    undefined,
+    () => ({ desktopAvailable: true, softwareMapEnabled: false }),
+    "batch",
+  );
+
+  expect(
+    (
+      await postJson(
+        app,
+        "/commands",
+        command({ type: "create", title: "Direct", pins }),
+      )
+    ).status,
+  ).toBe(409);
+
+  const draft = await (
+    await postJson(app, "/draft-commands/begin", { title: "Batch", pins })
+  ).json();
+
+  const committed = await postJson(app, "/draft-commands/commit", {
+    draftId: draft.draftId,
+    commandId: randomUUID(),
+  });
+
+  expect(committed.status).toBe(200);
+  expect(open).not.toHaveBeenCalled();
 });
 
 it("only reports acquisition issues to agents and clears them after recovery", async () => {

@@ -1,5 +1,5 @@
 {
-  "name": "@dev.fast/review",
+  "name": "@dev.fast/whiteboard",
   "version": "0.0.1",
   "private": false,
   "license": "MIT",
@@ -104,6 +104,6 @@
   "intent": {
     "version": 1,
     "repo": "devdotfast/review",
-    "docs": "packages/review/skills/dev-review/SKILL.md"
+    "docs": "packages/review/skills/whiteboard/SKILL.md"
   }
 }

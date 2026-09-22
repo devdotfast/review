@@ -569,17 +569,21 @@ jobs:
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
           # The releases/latest/ key is version-free by design, so the version
           # rides along in the filename a client saves the download as.
-          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+          DMG_DISPOSITION="attachment; filename=\"df-whiteboard-${RELEASE_VERSION}.dmg\""
 
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
             --content-type application/zip
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Review.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Whiteboard.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
 
@@ -620,7 +624,7 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            "apps/review-desktop/dist/Review-darwin-arm64-${RELEASE_VERSION}.dmg"
+            "apps/review-desktop/dist/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg"
 
       - name: Remove signing credentials
         if: always()

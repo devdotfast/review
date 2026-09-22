@@ -161,7 +161,7 @@ jobs:
           key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
 
       - name: Check the tutorial assets
-        run: pnpm --filter @dev.fast/review check:tutorial
+        run: pnpm --filter @dev.fast/whiteboard check:tutorial
 
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test

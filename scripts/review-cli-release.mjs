@@ -10,7 +10,7 @@ const registrySchema = z.object({
 
 const stable = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-export const packageName = "@dev.fast/review";
+export const packageName = "@dev.fast/whiteboard";
 
 export function parseVersion(version) {
   if (!stable.test(version))
@@ -94,12 +94,12 @@ export async function resolveRelease(env = process.env, send = fetch) {
 
     if (!/^\d+$/.test(env.GITHUB_RUN_ID ?? ""))
       throw new Error("Missing workflow run ID");
-    const marker = `Review CLI release run ${env.GITHUB_RUN_ID}`;
+    const marker = `Whiteboard CLI release run ${env.GITHUB_RUN_ID}`;
 
     const existing = git(
       "for-each-ref",
       "--format=%(refname:short)|%(contents:subject)",
-      "refs/tags/review-v*",
+      "refs/tags/whiteboard-v*",
     )
       .split("\n")
       .filter((line) => line.endsWith(`|${marker}`));
@@ -109,21 +109,22 @@ export async function resolveRelease(env = process.env, send = fetch) {
 
     if (existing.length) tag = existing[0].split("|")[0];
     else {
-      const tags = git("tag", "--list", "review-v*")
+      const tags = git("tag", "--list", "whiteboard-v*")
         .split("\n")
-        .map((value) => value.slice("review-v".length));
+        .map((value) => value.slice("whiteboard-v".length));
 
       const pkg = JSON.parse(
         readFileSync("packages/review/package.json", "utf8"),
       );
 
-      tag = `review-v${nextVersion([...Object.keys(metadata.versions), ...tags, pkg.version], env.RELEASE_BUMP)}`;
+      tag = `whiteboard-v${nextVersion([...Object.keys(metadata.versions), ...tags, pkg.version], env.RELEASE_BUMP)}`;
     }
-  } else throw new Error("Use workflow_dispatch or a review-vX.Y.Z tag push");
+  } else
+    throw new Error("Use workflow_dispatch or a whiteboard-vX.Y.Z tag push");
 
-  if (!tag?.startsWith("review-v"))
-    throw new Error("Expected a review-vX.Y.Z tag");
-  const version = tag.slice("review-v".length);
+  if (!tag?.startsWith("whiteboard-v"))
+    throw new Error("Expected a whiteboard-vX.Y.Z tag");
+  const version = tag.slice("whiteboard-v".length);
   parseVersion(version);
   const exists = git("tag", "--list", tag) === tag;
 
@@ -156,7 +157,7 @@ export async function resolveRelease(env = process.env, send = fetch) {
 export function createTag(plan) {
   parseVersion(plan.version);
 
-  if (plan.tag !== `review-v${plan.version}`)
+  if (plan.tag !== `whiteboard-v${plan.version}`)
     throw new Error("Tag/version mismatch");
 
   const existing = git(
@@ -190,7 +191,7 @@ export function createTag(plan) {
     plan.tag,
     plan.commit,
     "-m",
-    `Review CLI release run ${plan.runId}`,
+    `Whiteboard CLI release run ${plan.runId}`,
   );
   git("push", "origin", `refs/tags/${plan.tag}`);
 }

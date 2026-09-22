@@ -51,7 +51,7 @@ try {
   console.log(
     `Production dependency audit passed (${dependencyCount} unique packages).`,
   );
-  const pkgRoot = path.join(prefix, "node_modules/@dev.fast/review");
+  const pkgRoot = path.join(prefix, "node_modules/@dev.fast/whiteboard");
 
   const pkg = JSON.parse(
     await readFile(path.join(pkgRoot, "package.json"), "utf8"),
@@ -68,7 +68,7 @@ try {
   assert.equal(build.commit, pkg.gitHead);
 
   for (const file of [
-    "dist/cli.js",
+    "dist/whiteboard-cli.js",
     "skills/whiteboard/docs/README.md",
     "skills/trace-archaeology/SKILL.md",
   ])
@@ -78,14 +78,14 @@ try {
     await readFile(path.join(pkgRoot, "skills/whiteboard/SKILL.md"), "utf8"),
     new RegExp(`review-version: "${expectedVersion.replaceAll(".", "\\.")}"`),
   );
-  const cli = path.join(prefix, "node_modules/.bin/review");
+  const cli = path.join(prefix, "node_modules/.bin/whiteboard");
 
   const env = {
     ...process.env,
     PATH: `${path.join(prefix, "node_modules/.bin")}${path.delimiter}${process.env.PATH ?? ""}`,
     DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
-    DEV_REVIEW_HOME: path.join(root, "profile"),
-    DEV_REVIEW_SERVER_DIR: path.join(root, "server"),
+    DEV_WHITEBOARD_HOME: path.join(root, "profile"),
+    DEV_WHITEBOARD_SERVER_DIR: path.join(root, "server"),
     TRACE_HOME_DIR: path.join(root, "home"),
   };
 
@@ -124,11 +124,11 @@ try {
   );
   const removed = JSON.parse(await run(["trace", "uninstall-hooks", "--json"]));
   assert.equal(removed.removed.length, 4);
-  server = spawn(
-    cli,
-    ["server", "start", "--json"],
-    { cwd: root, env, stdio: ["ignore", "ignore", "inherit"] },
-  );
+  server = spawn(cli, ["server", "start", "--json"], {
+    cwd: root,
+    env,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
   exited = new Promise((resolve) => {
     server.once("exit", resolve);
     server.once("error", resolve);
@@ -165,26 +165,26 @@ try {
   );
   const head = (await git("rev-parse", "HEAD")).stdout.trim();
 
-  const registered = await api("review_register_repository", {
+  const registered = await api("session_register_repository", {
     path: repository,
   });
 
-  const pins = await api("review_resolve_pins", {
+  const pins = await api("session_resolve_pins", {
     repositoryId: registered.id,
     base: head,
     head,
   });
 
-  const created = await api("review_create", {
+  const created = await api("session_create", {
     commandId: randomUUID(),
     title: "Packed CLI smoke",
     target: { kind: "commits", ...pins },
     open: false,
   });
 
-  const lease = { reviewId: created.reviewId, leaseId: randomUUID() };
-  await api("review_activity", { ...lease, action: "begin" });
-  await api("review_edit", {
+  const lease = { sessionId: created.sessionId, leaseId: randomUUID() };
+  await api("session_activity", { ...lease, action: "begin" });
+  await api("session_edit", {
     ...lease,
     commandId: randomUUID(),
     edit: {
@@ -201,8 +201,8 @@ try {
       },
     },
   });
-  await api("review_activity", { ...lease, action: "end" });
-  const reviews = await api("review_list");
+  await api("session_activity", { ...lease, action: "end" });
+  const reviews = await api("session_list");
   assert.equal(reviews.length, 1);
   console.log(
     `Installed ${pkg.name}@${pkg.version}: tracing and headless authoring passed without Desktop.`,

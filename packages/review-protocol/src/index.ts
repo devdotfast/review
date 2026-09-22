@@ -1,4 +1,4 @@
-export * from "./diffr-contract.js";
+export * from "@dev.fast/diffr";
 
 export * from "./structural-diff.js";
 

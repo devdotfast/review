@@ -138,6 +138,9 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@dev.fast/diffr':
+        specifier: 0.1.1
+        version: 0.1.1(zod@4.4.3)
       '@dev.fast/json':
         specifier: workspace:*
         version: link:../json
@@ -186,6 +189,9 @@ importers:
 
   packages/review-protocol:
     dependencies:
+      '@dev.fast/diffr':
+        specifier: 0.1.1
+        version: 0.1.1(zod@4.4.3)
       '@dev.fast/json':
         specifier: workspace:*
         version: link:../json
@@ -386,6 +392,13 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
+
+  '@dev.fast/diffr@0.1.1':
+    resolution: {integrity: sha512-WSL78kqOsnTea06WOo4OfZtf9KcaCdKi2V5LYg4N7qVVs12lv61QSkavkKFZ0mJh26/lVodgNUuB0gXJkKKLyA==}
+    engines: {node: '>=20'}
+    hasBin: true
+    peerDependencies:
+      zod: ^4.0.0
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -3117,6 +3130,10 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
+
+  '@dev.fast/diffr@0.1.1(zod@4.4.3)':
+    dependencies:
+      zod: 4.4.3
 
   '@emnapi/core@1.10.0':
     dependencies:

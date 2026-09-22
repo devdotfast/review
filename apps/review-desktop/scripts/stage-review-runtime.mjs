@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import {
   access,
   chmod,
+  copyFile,
   cp,
+  mkdir,
   open,
   readFile,
   readdir,
@@ -11,6 +13,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -44,6 +47,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "THIRD_PARTY_NOTICES.md",
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
+  "bin/diffr",
   "skills/dev-review/SKILL.md",
   "skills/dev-review/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
@@ -130,6 +134,7 @@ export async function stageReviewRuntime(packagedRoot) {
   );
 
   await stageReviewDocs(runtimeRoot);
+  await stageDiffrBinary(runtimeRoot);
   await stampReviewSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
@@ -200,6 +205,37 @@ export async function stageReviewDocs(
   await assertMatchingFileTrees(sourceDocsRoot, destination);
 
   return destination;
+}
+
+export async function stageDiffrBinary(
+  runtimeRoot,
+  source = path.join(monorepoRoot, "packages", "review", "bin", "diffr"),
+) {
+  if (!(await stat(source).catch(() => null))?.isFile()) {
+    throw new Error(
+      `Missing ${source}. Run pnpm --filter @dev.fast/review ensure:diffr before packaging.`,
+    );
+  }
+
+  const require = createRequire(
+    path.join(monorepoRoot, "packages/review/package.json"),
+  );
+
+  const packageRoot = path.dirname(
+    require.resolve("@dev.fast/diffr/package.json"),
+  );
+
+  await execFileAsync(process.execPath, [
+    path.join(packageRoot, "bin/fetch.mjs"),
+    "--check",
+    "--into",
+    path.dirname(source),
+  ]);
+
+  const destination = path.join(runtimeRoot, "bin", "diffr");
+  await mkdir(path.dirname(destination), { recursive: true });
+  await copyFile(source, destination);
+  await chmod(destination, 0o755);
 }
 
 async function assertMatchingFileTrees(sourceRoot, destinationRoot) {

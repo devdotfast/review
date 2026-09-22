@@ -56,6 +56,7 @@ export default defineConfig({
   deps: {
     alwaysBundle: [
       "@dev.fast/trace-core",
+      /^@dev\.fast\/diffr$/,
       /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,

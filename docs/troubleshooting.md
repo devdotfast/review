@@ -135,3 +135,15 @@ or exploit details.
 Use [GitHub Issues](https://github.com/devdotfast/review/issues) for
 reproducible bugs and feature requests. For setup questions and community help,
 join the [dev.fast Discord](https://discord.gg/wYvd2cpMQg).
+
+## Structural diffs say diffr cannot be found
+
+Review Desktop ships its own `diffr` at `bin/diffr` inside its runtime and
+uses it unless `REVIEW_DIFFR_BINARY` names another executable. If the
+message names a path under the app, the install is damaged; reinstall
+Review. In a source checkout, run
+`pnpm --filter @dev.fast/review ensure:diffr` to download the pinned
+binary. Downloads are explicit so offline and unsupported-host builds still
+work. For the npm CLI or an unbundled headless server, install `diffr` on
+PATH or set `REVIEW_DIFFR_BINARY` to its executable. A headless server
+started from the Desktop installation uses its adjacent bundled binary too.

@@ -6,6 +6,7 @@
 // before any schema is built. bug-report.ts is deliberately not part of the
 // overlay.
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -106,11 +107,19 @@ const jsonSourceRoot =
       )
     : sourceRoot;
 
+const diffrSourceRoot = path.join(
+  path.dirname(
+    createRequire(import.meta.url).resolve("@dev.fast/diffr/package.json"),
+  ),
+  "src",
+);
+
 const MODULE_PATHS = [
   path.join(jsonSourceRoot, "runtime-value.ts"),
   path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,
-  path.join(sourceRoot, "diffr-contract.ts"),
+  path.join(diffrSourceRoot, "contract.ts"),
+  path.join(diffrSourceRoot, "stream.ts"),
   path.join(sourceRoot, "structural-diff.ts"),
   path.join(sourceRoot, "source-alignment.ts"),
   path.join(sourceRoot, "contracts.ts"),

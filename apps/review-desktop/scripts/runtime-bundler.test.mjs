@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +19,7 @@ import {
   assertRuntimeContents,
   requiredPackagedArtifacts,
   runtimeRootForPackagedRoot,
+  stageDiffrBinary,
 } from "./stage-review-runtime.mjs";
 
 test("runtime closure rejects transitive esbuild packages and native binaries", async () => {
@@ -150,6 +158,15 @@ test("final package verification requires the CLI and rechecks archives outside 
     await assertRuntimeClosure(runtime);
     await assertPackagedArtifacts(packaged);
 
+    const diffr = path.join(runtime, "bin", "diffr");
+    await rm(diffr, { force: true });
+    await assert.rejects(assertRuntimeClosure(runtime), /missing bin\/diffr/);
+    await assert.rejects(
+      assertPackagedArtifacts(packaged),
+      /missing .*bin\/diffr/,
+    );
+    await writeFile(diffr, "");
+
     const archive = path.join(
       packaged,
       "Contents/Resources/app/extensions/dependency.asar",
@@ -165,6 +182,31 @@ test("final package verification requires the CLI and rechecks archives outside 
     await assert.rejects(
       assertPackagedArtifacts(packaged),
       /must not ship esbuild/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("diffr staging rejects missing and stale downloads", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "review-diffr-stage-"));
+  const runtime = path.join(root, "review-runtime");
+  const source = path.join(root, "diffr");
+
+  try {
+    await assert.rejects(stageDiffrBinary(runtime, source), /ensure:diffr/);
+    await writeFile(source, "#!/bin/sh\necho stale\n", { mode: 0o755 });
+    await assert.rejects(
+      stageDiffrBinary(runtime, source),
+      /missing or not diffr/,
+    );
+    await writeFile(
+      path.join(root, "diffr.stamp.json"),
+      JSON.stringify({ version: "0.0.0", target: "wrong-target" }),
+    );
+    await assert.rejects(
+      stageDiffrBinary(runtime, source),
+      /missing or not diffr/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });

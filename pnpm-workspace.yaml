@@ -11,6 +11,7 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
+  - "@dev.fast/diffr@0.1.1"
   # Vitest 4.1.11 requires this exact release, which is not yet seven days old.
   - obug@2.2.1
   - "@dev.fast/trace-protocol@0.5.0"

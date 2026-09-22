@@ -7,5 +7,11 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts", "vitest.config.ts", "test-config.ts"]
+  "include": [
+    "src",
+    "scripts",
+    "vitest.config.ts",
+    "vitest.integration.config.ts",
+    "test-config.ts"
+  ]
 }

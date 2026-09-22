@@ -2,7 +2,7 @@ import type {
   StructuralDiff,
   StructuralRegion,
   StructuralSource,
-} from "./diffr-contract.js";
+} from "@dev.fast/diffr";
 
 type AlignmentLeaf = Extract<StructuralRegion, { kind: "leaf" }>;
 

@@ -41,6 +41,7 @@
   },
   "scripts": {
     "prebuild": "pnpm run build:workspace-deps",
+    "ensure:diffr": "diffr-fetch --into bin",
     "build": "tsdown",
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
     "ensure:tutorial-assets": "tsx scripts/ensure-tutorial-assets.ts",
@@ -58,7 +59,8 @@
     "test:node": "vitest run --config vitest.config.ts --project shared-module-graph",
     "test:legacy-corpus": ": \"${REVIEW_LEGACY_CORPUS:?set REVIEW_LEGACY_CORPUS to a directory of legacy Review UUID folders}\" && vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
-    "typecheck": "pnpm -w exec tsc --noEmit -p packages/review"
+    "typecheck": "pnpm -w exec tsc --noEmit -p packages/review",
+    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",
@@ -77,6 +79,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@dev.fast/diffr": "0.1.1",
     "@dev.fast/json": "workspace:*",
     "@dev.fast/local-vcs": "^0.1.0",
     "@dev.fast/review-protocol": "workspace:*",

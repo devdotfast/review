@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -26,12 +27,6 @@ import { chromium } from "playwright";
 
 const exec = promisify(execFile);
 
-const structuralDiffAvailable = process.env.REVIEW_DIFFR_BINARY
-  ? true
-  : await exec("which", ["diffr"])
-      .then(() => true)
-      .catch(() => false);
-
 const appRoot = path.resolve(import.meta.dirname, "..");
 
 const workspace = path.resolve(appRoot, "../..");
@@ -41,6 +36,18 @@ const codeRoot = path.join(appRoot, "code-oss");
 const { values } = parseArgs({
   options: { app: { type: "string" }, keep: { type: "boolean" } },
 });
+
+const bundledDiffr = values.app
+  ? path.join(values.app, "Contents/Resources/app/review-runtime/bin/diffr")
+  : path.join(workspace, "packages/review/bin/diffr");
+
+const structuralDiffAvailable =
+  !!process.env.REVIEW_DIFFR_BINARY ||
+  existsSync(bundledDiffr) ||
+  (await exec("which", ["diffr"]).then(
+    () => true,
+    () => false,
+  ));
 
 const root = await realpath(
   await mkdtemp(
@@ -1376,9 +1383,9 @@ try {
       .first()
       .waitFor();
     assert.ok(
-      !(await page.locator(".monaco-hover:visible").first().innerText()).includes(
-        "Language information from local checkout",
-      ),
+      !(
+        await page.locator(".monaco-hover:visible").first().innerText()
+      ).includes("Language information from local checkout"),
     );
     await probe({ command: "editor.action.hideHover" });
     await clickGreet(liveLine);
@@ -1613,9 +1620,11 @@ try {
       .filter((entry) => entry !== `worktree ${liveFixture.repo}`)
       .every((entry) => entry.includes("/.git/dev-fast/reviews/")),
   );
-  assert.ok((await api(`/${live.reviewId}/workspaces`)).every((workspace) =>
-    workspace.rootPath.includes("/.git/dev-fast/reviews/"),
-  ));
+  assert.ok(
+    (await api(`/${live.reviewId}/workspaces`)).every((workspace) =>
+      workspace.rootPath.includes("/.git/dev-fast/reviews/"),
+    ),
+  );
   await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
   await record(
     "live worktree source and language services follow saved edits without preparation",

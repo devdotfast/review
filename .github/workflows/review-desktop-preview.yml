@@ -27,6 +27,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve:
+    name: Approve release
+    environment: review-release-approval
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "Release approved"
+
   # Previews publish a signed dev-fast-review-preview package, so the Linux
   # build signs with the production repository key rather than a CI key.
   linux:
@@ -39,9 +47,9 @@ jobs:
     secrets: inherit
 
   version:
+    needs: approve
     name: Compute preview version
-    # Approval gates every downstream job before any preview code reaches the
-    # release-only build infrastructure or signing credentials.
+    # Approval is handled by approve; this environment supplies credentials.
     environment: review-release
     runs-on: review_big_boy
     outputs:
@@ -477,7 +485,7 @@ jobs:
           curl -fsS https://install.dev.fast/repos/dev-fast-review-preview.repo | grep -F 'baseurl=https://install.dev.fast/repos/preview/rpm/x86_64/'
 
   # The one job here that can write to the repository, and it holds no signing
-  # or R2 credentials. `needs: version` carries the review-release environment
+  # or R2 credentials. `needs: version` carries the initial approval
   # gate transitively, and `needs: build` plus `needs: publish-linux` mean a tag
   # only ever names a preview that published on both platforms, answered its
   # update feeds, and served its installers.

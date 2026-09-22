@@ -19,7 +19,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve:
+    name: Approve release
+    if: github.ref == 'refs/heads/main'
+    environment: review-release-approval
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "Release approved"
+
   resolve:
+    needs: approve
     name: Resolve current stable version
     if: github.ref == 'refs/heads/main'
     environment: review-release

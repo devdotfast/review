@@ -39,10 +39,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve:
+    name: Approve release
+    environment: review-release-approval
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "Release approved"
+
   tag:
+    needs: approve
     name: Tag release
-    # The environment requires repository-admin approval before GitHub assigns
-    # this job to the release-only runner group.
+    # Approval is handled by approve; this environment supplies credentials.
     environment: review-release
     runs-on: review_big_boy
     outputs:

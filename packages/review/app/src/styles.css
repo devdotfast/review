@@ -6449,6 +6449,10 @@ button.review-stack-row:disabled .review-stack-relation {
   font-size: 12px;
 }
 
+.review-onboarding-step-body > button + button {
+  margin-left: 8px;
+}
+
 .review-onboarding-step-badge {
   display: flex;
   align-items: center;

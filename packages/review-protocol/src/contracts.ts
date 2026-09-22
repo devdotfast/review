@@ -319,6 +319,11 @@ export interface ReviewCanvasBridge {
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;
 }
 
+export interface ReviewCanvasSetupActions {
+  load(): Promise<ReviewCanvasInstallContent>;
+  installCli(): Promise<void>;
+}
+
 /**
  * Install state and actions the workbench hands to the Home canvas. `apply`,
  * `skip`, and `enablePrompts` resolve with the refreshed status so the card can
@@ -657,6 +662,7 @@ export type ReviewCanvasContent =
       // state of its own, so it needs what Welcome needs. Both absent when
       // the install status endpoint is unavailable.
       install?: ReviewCanvasInstallContent;
+      setupActions?: ReviewCanvasSetupActions;
       onboarding?: ReviewCanvasOnboarding;
       // Opens the tutorial tab. Never gated on install status: the tutorial
       // needs no agent.
@@ -666,6 +672,7 @@ export type ReviewCanvasContent =
       kind: "welcome";
       // Absent when the install status endpoint is unavailable.
       install?: ReviewCanvasInstallContent;
+      setupActions?: ReviewCanvasSetupActions;
       // Closes the Welcome tab ("Skip for now" on first run).
       close?(): void;
       // Drives the step rail. Absent when the install status is unavailable.

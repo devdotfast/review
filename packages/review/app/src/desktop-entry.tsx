@@ -58,6 +58,7 @@ function ReviewCanvas({
     return (
       <WelcomePage
         install={content.install}
+        setupActions={content.setupActions}
         onClose={content.close}
         onboarding={content.onboarding}
         onOpenTutorial={content.openTutorial}
@@ -108,6 +109,7 @@ function Home({
       }
       setup={content.setup}
       install={content.install}
+      setupActions={content.setupActions}
       onboarding={content.onboarding}
       onOpenTutorial={content.openTutorial}
     />

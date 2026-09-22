@@ -47,6 +47,30 @@ function mockFetch(t: { after(callback: () => void): void }, handler: typeof fet
 	});
 }
 
+test("refreshing install status detects an agent after a cached no-agent response", async (t) => {
+	const service = serviceWith();
+	t.after(() => service.dispose());
+	let requests = 0;
+	mockFetch(t, async () => {
+		requests += 1;
+		return Response.json({
+			agents: [{ target: "codex", present: requests > 1, installed: false }],
+			fingerprint: "test", stamp: null, stale: false,
+			shim: { path: "/tmp/review", installed: false, profileConfigured: false, onPath: false },
+			fff: { serverName: "fff", corpusRoot: "/tmp/traces", binary: { path: "/tmp/fff", installed: false }, registrations: [] },
+			trace: { enabled: false, configured: false, autoActivateRepositories: false, envPath: "/tmp/env", settingsPath: "/tmp/settings" },
+			cli: null,
+		});
+	});
+
+	assert.equal((await service.getCliInstallStatus()).agents[0].present, false);
+	assert.equal((await service.getCliInstallStatus()).agents[0].present, false);
+	assert.equal(requests, 1);
+	assert.equal((await service.getCliInstallStatus(true)).agents[0].present, true);
+	assert.equal((await service.getCliInstallStatus()).agents[0].present, true);
+	assert.equal(requests, 2);
+});
+
 test("tutorial auto-prepare runs at most once per app process", async (t) => {
 	const service = serviceWith();
 	let requests = 0;

@@ -1,14 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { useOptionalReviewSession } from "./host/review-session";
 
 type ToastMessage = { kind: "success" | "error"; text: string };
 
-/** Share the existing feedback UI and timer; render inside the canvas CSS scope. */
 export function useToast(durationMs = 6_000) {
-  const [message, showToast] = useState<ToastMessage | null>(null);
+  const session = useOptionalReviewSession();
+  const [message, setMessage] = useState<ToastMessage | null>(null);
+
+  const showToast = useCallback(
+    (message: ToastMessage) => {
+      if (session?.bridge.notify) session.bridge.notify(message);
+      else setMessage(message);
+    },
+    [session],
+  );
 
   useEffect(() => {
     if (!message) return;
-    const timeout = window.setTimeout(() => showToast(null), durationMs);
+    const timeout = window.setTimeout(() => setMessage(null), durationMs);
 
     return () => window.clearTimeout(timeout);
   }, [message, durationMs]);

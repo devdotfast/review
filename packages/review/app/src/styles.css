@@ -3015,9 +3015,9 @@ button {
   border: 1px solid var(--chrome-border);
   border-radius: 5px;
   padding: 10px 12px;
-  background: var(--tray);
+  background: var(--vscode-notifications-background, var(--tray));
   box-shadow: 0 8px 28px var(--shadow-color);
-  color: var(--ink);
+  color: var(--vscode-notifications-foreground, var(--ink));
   font: 11px/1.4 var(--font-mono);
 }
 

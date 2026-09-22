@@ -2,7 +2,7 @@ name: Author and share a Review
 description: Run your agent against a prepared checkout, publish its batch Review, and update a PR comment.
 inputs:
   review-version:
-    description: Exact @dev.fast/review package version containing headless sharing.
+    description: Exact @dev.fast/review package version or latest npm release.
     required: true
   author-command:
     description: Bash command invoking your installed agent. Read REVIEW_PROMPT_FILE and commit exactly one review.
@@ -14,8 +14,8 @@ inputs:
     description: Prepared checkout with the reviewed commits and a GitHub origin.
     default: .
   base:
-    description: Explicit base revision (defaults to the pull request base SHA).
-    default: ${{ github.event.pull_request.base.sha }}
+    description: Explicit base revision (defaults to the merge base of the pull request base and head).
+    default: ""
   head:
     description: Explicit head revision (defaults to the pull request head SHA).
     default: ${{ github.event.pull_request.head.sha }}
@@ -58,8 +58,8 @@ runs:
       env:
         REVIEW_VERSION: ${{ inputs.review-version }}
       run: |
-        if [[ ! "$REVIEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-          echo 'review-version must be an exact package version.' >&2
+        if [[ "$REVIEW_VERSION" != "latest" && ! "$REVIEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+          echo 'review-version must be an exact package version or latest.' >&2
           exit 1
         fi
         npm install --global "@dev.fast/review@$REVIEW_VERSION"

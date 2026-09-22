@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 
 import {
   runWorkflow,
@@ -10,6 +12,8 @@ import {
 } from "../actions/author-and-share/run.mjs";
 
 const sha = "a".repeat(40);
+
+const exec = promisify(execFile);
 
 const url =
   "https://app.dev.fast/s/11111111-1111-4111-8111-111111111111#capability";
@@ -22,10 +26,9 @@ async function fixture(t, author = "node author.mjs") {
   await writeFile(
     cli,
     `#!/usr/bin/env node
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 const args=process.argv.slice(2), home=process.env.DEV_REVIEW_HOME;
 appendFileSync(process.env.TEST_LOG, JSON.stringify({args,home})+'\\n');
-const pins={repositoryId:'repo',base:'${sha}',head:'${sha}'};
 const out=value=>console.log(JSON.stringify(value));
 if(args[0]==='server' && args[1]==='start') {
  writeFileSync(home+'/ready','');
@@ -33,8 +36,8 @@ if(args[0]==='server' && args[1]==='start') {
  setInterval(()=>{},1000);
 } else if(args[0]==='server') { if(!existsSync(home+'/ready')) process.exit(1); out({ready:true}); }
 else if(args[1]==='review_register_repository') out({id:'repo'});
-else if(args[1]==='review_resolve_pins') out(pins);
-else if(args[1]==='review_list') out(existsSync(home+'/committed')?[{reviewId:'review-id',version:0,pins,target:{kind:'commits',...pins}}]:[]);
+else if(args[1]==='review_resolve_pins') { const pins=JSON.parse(args[2]); writeFileSync(home+'/pins',JSON.stringify(pins)); out(pins); }
+else if(args[1]==='review_list') { const pins=JSON.parse(readFileSync(home+'/pins','utf8')); out(existsSync(home+'/committed')?[{reviewId:'review-id',version:0,pins,target:{kind:'commits',...pins}}]:[]); }
 else if(args[0]==='share') { if(process.env.TEST_SHARE_ERROR) { out({error:{code:'share_failed',message:process.env.TEST_SHARE_ERROR}}); console.error(process.env.TEST_SHARE_ERROR); process.exit(1); } if(!process.env.DEV_REVIEW_SHARE_TOKEN) process.exit(3); out({shareId:'11111111-1111-4111-8111-111111111111',version:0,url:args.includes('--preview')?'${url.replace("#", "?app=preview#")}':'${url}'}); }
 else process.exit(2);
 `,
@@ -47,9 +50,10 @@ import assert from 'node:assert/strict';
 assert.equal(process.env.DEV_REVIEW_SHARE_TOKEN,undefined);
 assert.equal(process.env.REVIEW_GITHUB_TOKEN,undefined);
 assert.equal(process.env.MODEL_SECRET,'model-token');
-assert.equal(process.env.REVIEW_HEAD,'${sha}');
+assert.equal(process.env.REVIEW_HEAD,process.env.TEST_EXPECTED_HEAD || '${sha}');
 assert.ok(readFileSync(process.env.REVIEW_PROMPT_FILE,'utf8').includes('Custom prompt: $not_shell'));
 writeFileSync(process.env.DEV_REVIEW_HOME+'/committed','');
+writeFileSync('authored-pins.json',process.env.REVIEW_PINS_JSON);
 `,
   );
   await writeFile(
@@ -89,6 +93,123 @@ writeFileSync(process.env.DEV_REVIEW_HOME+'/committed','');
     calls: async () =>
       (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse),
   };
+}
+
+async function divergedPullRequest(t) {
+  const f = await fixture(t);
+
+  const git = async (...args) =>
+    (await exec("git", ["-C", f.root, ...args])).stdout.trim();
+
+  await git("init", "--initial-branch=main");
+  await git("config", "user.name", "Review test");
+  await git("config", "user.email", "review@example.com");
+  await git("config", "commit.gpgsign", "false");
+  await writeFile(path.join(f.root, "guidance.txt"), "Original guidance\n");
+  await git("add", "guidance.txt");
+  await git("commit", "-m", "Common ancestor");
+  const mergeBase = await git("rev-parse", "HEAD");
+  await git("switch", "-c", "feature");
+  await writeFile(path.join(f.root, "guidance.txt"), "Updated guidance\n");
+  await git("add", "guidance.txt");
+  await git("commit", "-m", "PR change");
+  const head = await git("rev-parse", "HEAD");
+  await git("switch", "main");
+  await writeFile(path.join(f.root, "unrelated.txt"), "Only on main\n");
+  await git("add", "unrelated.txt");
+  await git("commit", "-m", "Unrelated main change");
+  const base = await git("rev-parse", "HEAD");
+  await git("switch", "feature");
+  await writeFile(
+    f.env.GITHUB_EVENT_PATH,
+    JSON.stringify({
+      pull_request: {
+        number: 42,
+        head: { sha: head, repo: { full_name: "owner/repo" } },
+        base: { sha: base, repo: { full_name: "owner/repo" } },
+      },
+    }),
+  );
+
+  return {
+    ...f,
+    env: {
+      ...f.env,
+      REVIEW_BASE: "",
+      REVIEW_HEAD: head,
+      TEST_EXPECTED_HEAD: head,
+    },
+    git,
+    base,
+    head,
+    mergeBase,
+  };
+}
+
+test("PR defaults exclude unrelated changes made on the base branch", async (t) => {
+  const f = await divergedPullRequest(t);
+  await runWorkflow(f.env);
+
+  const pins = JSON.parse(
+    await readFile(path.join(f.root, "authored-pins.json"), "utf8"),
+  );
+
+  assert.equal(pins.base, f.mergeBase);
+  assert.equal(pins.head, f.head);
+  assert.equal(
+    await f.git("diff", "--numstat", pins.base, pins.head),
+    "1\t1\tguidance.txt",
+  );
+});
+
+test("missing PR history fails before starting the author or publishing", async (t) => {
+  const f = await divergedPullRequest(t);
+  const checkout = path.join(f.root, "shallow");
+  await exec("git", [
+    "clone",
+    "--no-local",
+    "--depth",
+    "1",
+    "--branch",
+    "feature",
+    f.root,
+    checkout,
+  ]);
+  await exec("git", [
+    "-C",
+    checkout,
+    "fetch",
+    "--depth",
+    "1",
+    "origin",
+    "main",
+  ]);
+  await assert.rejects(
+    runWorkflow({ ...f.env, REVIEW_REPOSITORY_PATH: checkout }),
+    /Could not resolve the pull request merge base.*fetch-depth: 0/,
+  );
+  assert.equal((await readdir(f.root)).includes("calls.jsonl"), false);
+});
+
+for (const pullRequest of [true, false]) {
+  test(`preserves explicit base comparisons with pullRequest=${pullRequest}`, async (t) => {
+    const f = await divergedPullRequest(t);
+    await runWorkflow({
+      ...f.env,
+      REVIEW_BASE: f.base,
+      GITHUB_EVENT_PATH: pullRequest ? f.env.GITHUB_EVENT_PATH : undefined,
+    });
+
+    const pins = JSON.parse(
+      await readFile(path.join(f.root, "authored-pins.json"), "utf8"),
+    );
+
+    assert.equal(pins.base, f.base);
+    assert.equal(
+      await f.git("diff", "--numstat", pins.base, pins.head),
+      "1\t1\tguidance.txt\n0\t1\tunrelated.txt",
+    );
+  });
 }
 
 for (const preview of [undefined, "false", "true"]) {

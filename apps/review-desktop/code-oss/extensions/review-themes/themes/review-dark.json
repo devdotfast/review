@@ -1,8 +1,185 @@
 {
+	// Whiteboard Dark: the Whiteboard syntax palette. Token colors below override the
+	// included stock theme; scopes it does not list keep their stock colors.
 	"$schema": "vscode://schemas/color-theme",
 	"name": "Review Dark",
 	"include": "./../../theme-defaults/themes/dark_plus.json",
-	"tokenColors": [],
+	"tokenColors": [
+		{
+			"name": "Whiteboard: comment",
+			"scope": [
+				"comment",
+				"punctuation.definition.comment"
+			],
+			"settings": {
+				"foreground": "#778090",
+				"fontStyle": "italic"
+			}
+		},
+		{
+			"name": "Whiteboard: keyword",
+			"scope": [
+				"keyword",
+				"storage.type",
+				"storage.modifier",
+				"keyword.control"
+			],
+			"settings": {
+				"foreground": "#5B7CFF"
+			}
+		},
+		{
+			"name": "Whiteboard: type",
+			"scope": [
+				"entity.name.type",
+				"support.type",
+				"support.class",
+				"entity.other.inherited-class"
+			],
+			"settings": {
+				"foreground": "#6FC3E6"
+			}
+		},
+		{
+			"name": "Whiteboard: class name",
+			"scope": [
+				"entity.name.type.class",
+				"entity.name.class"
+			],
+			"settings": {
+				"foreground": "#6FC3E6",
+				"fontStyle": "bold"
+			}
+		},
+		{
+			"name": "Whiteboard: function",
+			"scope": [
+				"entity.name.function",
+				"support.function",
+				"meta.function-call entity.name.function",
+				"meta.decorator",
+				"punctuation.decorator"
+			],
+			"settings": {
+				"foreground": "#B7C4FF"
+			}
+		},
+		{
+			"name": "Whiteboard: section",
+			"scope": [
+				"entity.name.section",
+				"markup.heading"
+			],
+			"settings": {
+				"foreground": "#B7C4FF",
+				"fontStyle": "bold"
+			}
+		},
+		{
+			"name": "Whiteboard: variable",
+			"scope": [
+				"variable",
+				"variable.parameter",
+				"variable.other",
+				"variable.other.property",
+				"variable.other.object.property",
+				"support.variable.property",
+				"meta.definition.variable.name",
+				"meta.object-literal.key"
+			],
+			"settings": {
+				"foreground": "#EEF0F4"
+			}
+		},
+		{
+			"name": "Whiteboard: string",
+			"scope": [
+				"string",
+				"string.template",
+				"punctuation.definition.string"
+			],
+			"settings": {
+				"foreground": "#D9A85C"
+			}
+		},
+		{
+			"name": "Whiteboard: template expression",
+			"scope": [
+				"punctuation.definition.template-expression",
+				"meta.template.expression"
+			],
+			"settings": {
+				"foreground": "#9199A8"
+			}
+		},
+		{
+			"name": "Whiteboard: number",
+			"scope": [
+				"constant.numeric"
+			],
+			"settings": {
+				"foreground": "#D48FD6"
+			}
+		},
+		{
+			"name": "Whiteboard: boolean and language constant",
+			"scope": [
+				"constant.language"
+			],
+			"settings": {
+				"foreground": "#D48FD6",
+				"fontStyle": "bold"
+			}
+		},
+		{
+			"name": "Whiteboard: operator",
+			"scope": [
+				"keyword.operator"
+			],
+			"settings": {
+				"foreground": "#9199A8"
+			}
+		},
+		{
+			"name": "Whiteboard: punctuation",
+			"scope": [
+				"punctuation",
+				"meta.brace"
+			],
+			"settings": {
+				"foreground": "#9199A8"
+			}
+		},
+		{
+			"name": "Whiteboard: inserted",
+			"scope": [
+				"markup.inserted"
+			],
+			"settings": {
+				"foreground": "#4ED990"
+			}
+		},
+		{
+			"name": "Whiteboard: deleted",
+			"scope": [
+				"markup.deleted"
+			],
+			"settings": {
+				"foreground": "#F26A55"
+			}
+		},
+		{
+			"name": "Whiteboard: invalid",
+			"scope": [
+				"invalid",
+				"invalid.illegal"
+			],
+			"settings": {
+				"foreground": "#F26A55",
+				"fontStyle": "underline"
+			}
+		}
+	],
 	"colors": {
 		"editor.background": "#0C0F15",
 		"editorWidget.background": "#12161E",
@@ -43,10 +220,23 @@
 		"input.background": "#1A1F29",
 		"editorGutter.background": "#0C0F15",
 		"editorLineNumber.activeForeground": "#9199A8",
-		"editorLineNumber.foreground": "#5F6776",
+		"editorLineNumber.foreground": "#343A46",
 		"foreground": "#EEF0F4",
 		"disabledForeground": "#5F6776",
 		"descriptionForeground": "#9199A8",
-		"editor.foreground": "#EEF0F4"
+		"editor.foreground": "#EEF0F4",
+		"editorCursor.foreground": "#5B7CFF",
+		"editorBracketMatch.background": "#5B7CFF24",
+		"editorBracketMatch.border": "#5B7CFF4D",
+		"editorIndentGuide.background1": "#262C37",
+		"editorIndentGuide.activeBackground1": "#39404D",
+		"editorWhitespace.foreground": "#343A46",
+		"editorBracketHighlight.foreground1": "#9199A8",
+		"editorBracketHighlight.foreground2": "#9199A8",
+		"editorBracketHighlight.foreground3": "#9199A8",
+		"editorBracketHighlight.foreground4": "#9199A8",
+		"editorBracketHighlight.foreground5": "#9199A8",
+		"editorBracketHighlight.foreground6": "#9199A8",
+		"editorBracketHighlight.unexpectedBracket.foreground": "#F26A55"
 	}
 }

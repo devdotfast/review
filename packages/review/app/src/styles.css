@@ -120,10 +120,17 @@
   --review-home-view-toggle-active-bg: #0c0f15;
   --review-home-view-toggle-shadow: rgb(0 0 0 / 45%);
   --review-home-view-toggle-highlight: rgb(255 255 255 / 4%);
-  /* Code: the marker for words the language owns, pencil for values the
-     author wrote. */
-  --code-type: #8fa5ff;
-  --pencil: #d9a85c;
+  /* Code (Whiteboard Dark): ink at three strengths, the marker for keywords,
+     sky and periwinkle for types and functions, straw strings, orchid
+     numbers. Every value clears WCAG AA on the editor background. */
+  --syntax-comment: #778090;
+  --syntax-type: #6fc3e6;
+  --syntax-function: #b7c4ff;
+  --syntax-string: #d9a85c;
+  --syntax-number: #d48fd6;
+  --syntax-operator: #9199a8;
+  --syntax-inserted: #4ed990;
+  --syntax-deleted: #f26a55;
   --review-debug-layer: 2147483000;
   --review-find-match-background: color-mix(
     in srgb,
@@ -2139,8 +2146,17 @@ button {
   --review-home-view-toggle-active-bg: #ffffff;
   --review-home-view-toggle-shadow: rgba(21, 24, 30, 0.06);
   --review-home-view-toggle-highlight: rgba(255, 255, 255, 0.8);
-  --code-type: #1e3fb0;
-  --pencil: #8a5a1c;
+  /* Code (Whiteboard Light): petrol and navy for types and functions, sepia
+     strings, plum numbers; inserted and deleted sit one step deeper than the
+     change colors so they hold AA as text on white. */
+  --syntax-comment: #6b7382;
+  --syntax-type: #0c6e8e;
+  --syntax-function: #1f3f99;
+  --syntax-string: #8a5a1c;
+  --syntax-number: #8b3f8a;
+  --syntax-operator: #5d6472;
+  --syntax-inserted: #167a47;
+  --syntax-deleted: #c93a27;
 }
 
 .review-app::selection,

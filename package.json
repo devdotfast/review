@@ -13,6 +13,7 @@
     "desktop:watch": "pnpm --filter @dev.fast/review-desktop app:watch",
     "desktop:package:linux": "pnpm --filter @dev.fast/review-desktop app:package:linux",
     "review": "pnpm --filter @dev.fast/review review",
+    "whiteboard": "pnpm --filter @dev.fast/review whiteboard",
     "format": "oxfmt --write \"apps/**/*.{ts,tsx,js,jsx,json,css}\" \"!apps/review-desktop/code-oss/**\" \"packages/**/*.{ts,tsx,js,jsx,json,css}\" \"!packages/review/app/icons/dev-fast.icon/**\" \"*.json\" \".*.json\"",
     "format:check": "oxfmt --check \"apps/**/*.{ts,tsx,js,jsx,json,css}\" \"!apps/review-desktop/code-oss/**\" \"packages/**/*.{ts,tsx,js,jsx,json,css}\" \"!packages/review/app/icons/dev-fast.icon/**\" \"*.json\" \".*.json\"",
     "lint": "oxlint --disable-nested-config .",

@@ -26,6 +26,7 @@ if command -v node; then echo 'Fedora package unexpectedly requires system Node'
 timeout 120 env ELECTRON_RUN_AS_NODE=1 "/usr/share/$APP/$APP" -e '
   const assert = require("node:assert/strict");
   const sharp = require(process.argv[1]);
+  assert.ok(sharp.versions.emscripten, "Linux package must use Sharp WebAssembly");
   (async () => {
     for (const format of ["png", "jpeg", "webp"]) {
       const input = await sharp({

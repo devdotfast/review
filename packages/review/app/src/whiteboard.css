@@ -843,39 +843,129 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   font-size: 11px;
 }
 
-.lens-flow-node rect {
+/* Flow nodes are React Flow nodes: a shape (rect, pill or diamond) under
+   the label. The handles exist only so edges can attach. */
+.lens-flow .react-flow,
+.lens-flow .react-flow__pane,
+.lens-flow .react-flow__viewport {
+  background: var(--transparent);
+}
+
+.lens-flow .react-flow__node {
+  cursor: default;
+}
+
+.flow-node {
+  position: relative;
+  box-sizing: border-box;
+  cursor: pointer;
+  font: 12px/1.4 var(--font-mono);
+  color: var(--ink);
+}
+
+.flow-node-handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flow-node-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.flow-node-shape :is(rect, polygon) {
   fill: var(--surface);
   stroke: var(--rule-soft);
   stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transition:
+    fill 200ms ease,
+    stroke 200ms ease;
 }
 
-.lens-flow-node--added rect {
+.lens-flow-node--added .flow-node-shape :is(rect, polygon) {
   fill: var(--diff-added-bg);
   stroke: var(--change-added);
 }
 
-.lens-flow-node--removed rect {
+.lens-flow-node--removed .flow-node-shape :is(rect, polygon) {
   fill: var(--diff-removed-bg);
   stroke: var(--change-removed);
 }
 
-.lens-flow-node--modified rect {
+.lens-flow-node--modified .flow-node-shape :is(rect, polygon) {
   fill: var(--diff-modified-bg);
   stroke: var(--change-modified);
 }
 
-.lens-flow-node.is-selected rect,
-.lens-flow-node:focus-visible rect {
+.lens-flow-node.is-selected .flow-node-shape :is(rect, polygon),
+.lens-flow-node:focus-visible .flow-node-shape :is(rect, polygon) {
   stroke: var(--accent);
   stroke-width: 1.5;
 }
 
+.lens-flow-node:focus-visible {
+  outline: none;
+}
+
+.lens-flow-node.is-viewed {
+  opacity: 0.42;
+}
+
+.flow-node-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+.lens-flow-node--decision .flow-node-text {
+  padding: 0 48px;
+  text-align: center;
+  align-items: center;
+}
+
+.flow-node-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.flow-node-caption {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
 .lens-flow-edge {
+  stroke: var(--ink-muted);
+  stroke-width: 1.4;
+  fill: none;
+}
+
+.lens-flow .react-flow__edge-path.lens-flow-edge {
   stroke: var(--ink-muted);
 }
 
-.lens-flow marker path {
+.lens-flow-edge-label {
+  font: 9px var(--font-mono);
   fill: var(--ink-muted);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1940,11 +2030,12 @@ button:focus-visible > .review-chevron {
    edge) end to end, brightest at the head; nothing is inside yet. Fill: the
    marker wash and a pulse, then the label. Relabel: only the label goes. */
 .lens-flow-node[data-motion="queued"],
-.lens-flow-edge-group[data-motion="queued"] {
+.lens-flow-edge[data-motion="queued"],
+.lens-flow-edge-label[data-motion="queued"] {
   opacity: 0;
 }
 
-.lens-flow-node[data-motion="outline"] rect {
+.lens-flow-node[data-motion="outline"] .flow-node-shape :is(rect, polygon) {
   fill: var(--transparent);
   stroke: var(--accent);
   stroke-width: 1.6;
@@ -1952,35 +2043,35 @@ button:focus-visible > .review-chevron {
   animation: wb-trace 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.lens-flow-node[data-motion="outline"] text {
+.lens-flow-node[data-motion="outline"] .flow-node-text {
   opacity: 0;
 }
 
-.lens-flow-node[data-motion="fill"] rect {
+.lens-flow-node[data-motion="fill"] .flow-node-shape :is(rect, polygon) {
   animation: wb-node-fill 330ms ease-out both;
 }
 
-.lens-flow-node[data-motion="fill"] text,
-.lens-flow-node[data-motion="relabel"] text {
+.lens-flow-node[data-motion="fill"] .flow-node-text,
+.lens-flow-node[data-motion="relabel"] .flow-node-text {
   animation: wb-label 330ms steps(12) 90ms both;
 }
 
-.lens-flow-node[data-motion="relabel"] rect {
+.lens-flow-node[data-motion="relabel"] .flow-node-shape :is(rect, polygon) {
   animation: wb-node-fill 420ms ease-out both;
 }
 
-.lens-flow-edge-group[data-motion="outline"] .lens-flow-edge {
+.lens-flow-edge[data-motion="outline"] {
   stroke: var(--accent);
   stroke-width: 1.6;
   stroke-dasharray: 1;
   animation: wb-trace 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.lens-flow-edge-group[data-motion="outline"] text {
+.lens-flow-edge-label[data-motion="outline"] {
   animation: wb-label 200ms steps(8) 300ms both;
 }
 
-.lens-flow-node[data-motion="attention"] rect {
+.lens-flow-node[data-motion="attention"] .flow-node-shape :is(rect, polygon) {
   stroke: var(--accent);
   stroke-width: 1.6;
   fill: var(--marker-tint);
@@ -2070,10 +2161,10 @@ button:focus-visible > .review-chevron {
   .api-document-node[data-motion="erasing"] > :not(.host-authoring-activity),
   .api-document-node[data-motion="erasing"]::before,
   .api-document-node[data-motion="attention"],
-  .lens-flow-node[data-motion] rect,
-  .lens-flow-node[data-motion] text,
-  .lens-flow-edge-group[data-motion] .lens-flow-edge,
-  .lens-flow-edge-group[data-motion] text,
+  .lens-flow-node[data-motion] .flow-node-shape :is(rect, polygon),
+  .lens-flow-node[data-motion] .flow-node-text,
+  .lens-flow-edge[data-motion],
+  .lens-flow-edge-label[data-motion],
   .sequence-message[data-motion],
   .sequence-message-dot[data-motion] {
     animation: none !important;

@@ -16,16 +16,17 @@
 }
 .flow-diagram-body {
   display: flex;
-  max-height: 520px;
-  min-height: 180px;
   border-top: 1px solid var(--rule);
 }
 .flow-diagram-canvas {
   flex: 1;
   min-width: 0;
-  overflow: auto;
   position: relative;
   background: var(--bg);
+}
+.lens-flow {
+  width: 100%;
+  min-height: 120px;
 }
 .flow-diagram > footer {
   display: flex;
@@ -58,20 +59,8 @@
 .flow-legend-modified {
   background: var(--change-modified);
 }
-.lens-flow-node.is-selected rect {
-  stroke: var(--accent);
-  stroke-width: 2.5;
+.lens-flow-node.is-selected .flow-node-shape :is(rect, polygon) {
   fill: var(--marker-tint);
-}
-.lens-flow-node:focus-visible {
-  outline: none;
-}
-.lens-flow-node:focus-visible rect {
-  stroke: var(--accent);
-  stroke-width: 2.5;
-}
-.lens-flow-node.is-viewed {
-  opacity: 0.42;
 }
 
 .diagram-tour-stage .flow-diagram {

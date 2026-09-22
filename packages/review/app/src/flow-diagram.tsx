@@ -113,6 +113,12 @@ export function FlowDiagram({
             block={node}
             selectedKey={fullscreen ? selectedKey : undefined}
             onSelect={(item) => open(item.key)}
+            interactive={fullscreen}
+            // Inline, a top-to-bottom flow stacks its layers and wants the
+            // room; a left-to-right one reads fine shorter.
+            height={
+              fullscreen ? "100%" : node.direction === "right" ? 420 : 560
+            }
           />
         </div>
       </div>

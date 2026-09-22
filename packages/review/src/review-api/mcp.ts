@@ -22,7 +22,7 @@ export async function serveReviewMcp(
     {
       capabilities: { tools: { listChanged: true } },
       instructions:
-        "Author through the running Review server. Read review_capabilities before authoring; call review_open only when desktopAvailable is true, and dispatch software-map workers only when softwareMapEnabled is true. Accepted edits are validated and saved immediately. Never read or write Review files or SQL. Reuse commandId and identical input after a lost response. Use returned target IDs to edit components; there is no expectedVersion or publish step.",
+        "Author through the running Review server. Read review_capabilities and select the workflow by authoringMode: interactive edits save immediately; batch writes stay in a draft until review_draft_commit saves a finished version. Call review_open only when desktopAvailable is true, and generate software maps only when softwareMapEnabled is true. Never read or write Review files or SQL. Reuse commandId and identical input after a lost response. Use returned component IDs for targeted edits.",
     },
   );
 

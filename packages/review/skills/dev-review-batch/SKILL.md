@@ -1,6 +1,6 @@
 ---
 name: dev-review-batch
-description: Author one finished Review version through an explicitly selected batch server, using scratch drafts and an atomic commit. Use when Review capabilities report authoringMode batch.
+description: Author a finished Review in batch mode. Use when review_capabilities reports authoringMode batch.
 metadata:
   review-managed-by: "Review Desktop"
   review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
@@ -9,17 +9,17 @@ metadata:
 
 # Batch Review authoring
 
-Use the running Review server through MCP tools or `review api <tool-name> '<json>'` (use `-` for JSON on stdin). Call `review_capabilities` and require `authoringMode:"batch"`; Desktop availability does not select the workflow. The caller supplies the agent, prepared checkout, and explicit base/head revisions. Setup examples are in [Headless authoring](../dev-review/references/headless-authoring.md).
+Use the running Review server through MCP tools or `review api <tool-name> '<json>'` (`-` reads JSON from stdin). Confirm `review_capabilities` reports `authoringMode:"batch"` and follow the tool descriptions and schemas (`review api tools` lists them for CLI callers).
 
-Read user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md` when present; repository guidance takes precedence. Read the shared [authoring guidance](../dev-review/references/document-authoring.md) for planning, writing, component choice and self-review. Never edit Review's database or files directly.
+Read user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md` when present; repository guidance takes precedence. Read the shared [authoring guidance](../dev-review/references/document-authoring.md) before writing for planning, component selection, source evidence and self-review.
 
-Readers see the result only after commit. Plan the full outline before filling a new draft; preserve the existing structure for an update unless the request calls for reorganizing it. Use brief chat updates to communicate progress while authoring. Drafts have no live activity indicator, heartbeat or section-status transitions.
+1. For a new Review, use the resolved pins supplied by the caller (`REVIEW_PINS_JSON` in the CI action). If absent, register the prepared checkout with `review_register_repository` and resolve the supplied base/head revisions with `review_resolve_pins`.
+2. Begin a draft with `review_draft_begin`, including the supplied PR URL when present. For a requested update, supply `reviewId` and read the draft before editing; follow the tool description when changing pins or converting a worktree target. Retain `draftId` for source reads and subsequent draft tools.
+3. Investigate the pinned source and plan the explanation using the shared authoring guidance.
+4. Use `review_draft_write` for a new document or substantial rewrite; use `review_draft_edit` with returned IDs for targeted updates, corrections and cross references. Read the content with `review_draft_get` and apply the shared [section checks](../dev-review/references/document-authoring.md#check-each-section).
+5. Read the full draft and perform the shared [self-review](../dev-review/references/document-authoring.md#self-review-before-completion), then call `review_draft_validate`. Correct issues in the same draft and reread affected content before validating again.
+6. Commit one finished version with `review_draft_commit` and a fresh `commandId` UUID. Retry the same input after a lost response. Return the committed review ID and version.
 
-1. Register the prepared checkout with `review_register_repository({path})` and resolve `review_resolve_pins({repositoryId,base,head})`. Missing commits must be fetched by the caller. For architecture reviews, use the same revision for both sides.
-2. Begin with `review_draft_begin({title,pins,pullRequestUrl?})`, or supply `reviewId` to update an appropriate existing review from its last committed version. An existing live-worktree review requires explicit resolved pins and becomes a fixed commit target on commit. Retain the returned `draftId`. A new draft has no committed placeholder. A conflict means another author owns the review; do not take over their session.
-3. Reuse known context about the subject and verify the evidence you need. In batch mode, `review_source`, `review_file`, `review_tree`, `review_diff` and `review_commits` take `draftId`. `review_upload` retains images, traces and maps before the review is committed. Generate optional maps only when capabilities permit it.
-4. Format repository links as `[label](review-source:head/src/file.ts#L10-L24)` (or `base`), using verified lines. Relative file links are rejected at validation and commit. Prefer `review_draft_write({draftId,document,...})` to write substantial content or the entire document. Omit component IDs: the server allocates fresh IDs on each bulk replacement. Read returned IDs or `review_draft_get({draftId})` and use `review_draft_edit({draftId,edit})` for targeted corrections and cross references. This reuses the normal edit language. Scratch writes persist without creating history. As you fill each section, read the draft with `review_draft_get({draftId})` and apply the shared [section checks](../dev-review/references/document-authoring.md#check-each-section). Use targeted edits for corrections to preserve the current draft IDs.
-5. Read the full draft with `review_draft_get({draftId})` and perform the shared [self-review](../dev-review/references/document-authoring.md#self-review-before-completion). Correct issues and reread the affected content, then call `review_draft_validate({draftId})`. Correct validation errors in the same draft. Validation checks structure and references; it does not prove that claims are accurate or prose is useful.
-6. Call `review_draft_commit({draftId,commandId})` with a fresh UUID. Retry that exact input after a lost response. Commit validates again, marks every section complete and saves one version atomically. Return the committed review ID and version. When Desktop is available and opening is requested, use `review_open` after commit.
+If abandoning the draft, call `review_draft_abort`. The CI action handles publishing and server teardown.
 
-On an intentional failure path, call `review_draft_abort({draftId})`. This discards scratch work and preserves the last committed version. The server owns the lock until commit, abort or server shutdown; an agent disconnect does not release it. CI must stop its server during teardown. Abandoned drafts are discarded after server death, with no resume, rebase or merge. Ordinary review reads expose only committed content.
+For server setup outside the action, see [Headless authoring](../dev-review/references/headless-authoring.md).

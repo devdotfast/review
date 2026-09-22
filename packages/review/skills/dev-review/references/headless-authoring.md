@@ -19,13 +19,13 @@ The server binds to loopback on an available port. `--port <port>` selects a fix
 
 ## Configure the agent
 
-Install the shared skill for your harness, for example `review install codex --no-shim` or `review install claude --no-shim`. The npm installation already supplies the CLI. Agents can use `review api` directly, or a stdio MCP configuration with command `review`, arguments `["mcp"]`, and the same profile environment variables.
+Install the Review skills for your harness, for example `review install codex --no-shim` or `review install claude --no-shim`. The npm installation already supplies the CLI. Agents can use `review api` directly, or a stdio MCP configuration with command `review`, arguments `["mcp"]`, and the same profile environment variables.
 
-Supply the local repository path and explicit base/head revisions. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; it shares the authoring guidance.
+Supply the local repository path and explicit base/head revisions, or already resolved pins as the author-and-share action does. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; both Review authoring modes read the shared [authoring guidance](document-authoring.md) for component selection, source evidence and self-review. The scratchpad requires Desktop and interactive mode.
 
 Batch authors begin a scratch draft, investigate source using its `draftId`, write substantial content, validate and commit. Only commit creates a saved version and marks all sections complete. Existing readers see the previous committed version until then; new drafts are absent from Home. On intentional failure, abort the draft. The server retains exclusive ownership without heartbeats until commit, abort or shutdown. CI must stop it during teardown. After a killed server, abandoned scratch content is discarded safely; there is no resume or merge.
 
-Omit `--authoring-mode batch` (or choose `interactive`) to retain immediate committed edits and the interactive skill's section progress and renewable activity lease. An agent disconnect does not release a batch draft's lock while its server remains alive.
+Omit `--authoring-mode batch` (or choose `interactive`) to use `dev-review` with immediate committed edits, section progress and a renewable activity lease. Desktop is optional for interactive Reviews; call `review_open` only when capabilities report it available. An agent disconnect does not release a batch draft's lock while its server remains alive.
 
 ## Try batch authoring locally
 
@@ -72,7 +72,7 @@ build and launch the matching Desktop.
 
 Both hosts use `review-api.db` in the same profile. Open Desktop and select the
 review from Home: it has the original review ID, full history and retained
-resources. New edits appear live; the headless server need not remain running
+resources. Committed changes refresh live; the headless server need not remain running
 after authoring finishes. The registered checkout must remain available.
 
 The default profile is shared automatically. For an isolated profile, set
@@ -125,6 +125,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
+          export DEV_REVIEW_SERVER_DIR="$DEV_REVIEW_HOME"
           review server start --authoring-mode batch --json > "$RUNNER_TEMP/review-server.jsonl" &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true' EXIT

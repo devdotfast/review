@@ -1,5 +1,7 @@
 # Authoring guidance
 
+Interactive and batch Reviews share this guidance for planning, component selection, source evidence and self-review. Their skills define edit cadence and completion. For scratchpad explanations, use [Choose components](#choose-components) and [Check against the code](#check-against-the-code); the scratchpad skill defines structure and completion.
+
 ## Plan the explanation
 
 Start with the subject and scope the user requested. A Review may explain existing code, an architecture, a workflow or a proposed or implemented change. Use comparisons when the subject calls for them.
@@ -17,7 +19,7 @@ When reviewing a change, use these sections in this order unless the user reques
 3. **Requirements:** The behavior and constraints the change must satisfy, including important edge cases. Distinguish stated requirements from inferred expectations.
 4. **Implementation:** How the code delivers the design and meets the requirements, using focused source links and diffs. Identify any requirements the implementation leaves unmet.
 
-Use retained trace decisions as evidence for why an approach was chosen or an alternative rejected; include a `trace_quote` when the actual excerpt helps. Verify what was implemented against the current code, since trace intent may differ from the final implementation.
+Use retained trace decisions as evidence for why an approach was chosen or an alternative rejected; include a `trace_quote` when the actual excerpt helps. When you need to investigate past agent decisions, follow [Trace archaeology](../../trace-archaeology/SKILL.md). Verify what was implemented against the current code, since trace intent may differ from the final implementation.
 
 ## Write the explanation
 
@@ -27,7 +29,6 @@ The overview is a starting point. Follow it with enough detail to explain how th
 - Use concrete examples. For a retry mechanism, show what happens to a particular failed request, including what causes it to stop retrying.
 - Explain design decisions and tradeoffs when there is evidence for them. Distinguish documented reasons from your interpretation.
 - Explain boundaries, failure paths and constraints that materially affect the behavior.
-- Link to the code that supports the explanation using `[label](review-source:head/src/file.ts#L10-L24)` (or `base` for the previous revision). Use repository-relative paths and line numbers verified with the source tools; a single line uses `#L10`. Encode spaces in paths as `%20`. Relative Markdown file links, absolute filesystem paths, and file/editor URLs are rejected during validation and commit. External links use `https://`, `http://`, or `mailto:`; document anchors use `#heading`. Include relevant existing test evidence and distinguish it from checks actually run.
 
 Choose depth according to the subject's complexity. A small function can encode an important invariant that needs a full explanation. Cover each major question in the outline in the initial completed Review; expand sections that only list symbols, files or one-line descriptions.
 
@@ -37,7 +38,7 @@ When explaining a change, show the relevant previous and new behavior. When expl
 
 ## Choose components
 
-Choose the component that makes the relationship visible. Use native diagram components for interactions, control flow and storage; use tables for comparisons of independent properties.
+Choose the component that makes the relationship visible. Use native diagram components for interactions, control flow and storage; use tables for comparisons of independent properties. Read the relevant component schemas from the authoring tools before constructing them.
 
 | What you need to explain | Component | How to use it |
 | --- | --- | --- |
@@ -55,6 +56,8 @@ Choose the component that makes the relationship visible. Use native diagram com
 
 A single subject can need several views. A sequence can show when a transaction occurs, while a database view shows the data it reads and writes. Give each view a distinct job.
 
+Generate software maps only when `review_capabilities` reports `softwareMapEnabled:true`. Existing maps can be uploaded regardless of that setting. Use `review_upload` to retain images, traces and maps before referencing them in a document.
+
 ### Database views
 
 When storage is part of the subject, inspect the data model and its access paths. Include a database view when persisted structure, relationships or read/write responsibilities are important to the explanation. This applies to existing storage designs as well as changes, and includes document and file stores.
@@ -63,11 +66,7 @@ Show the relevant stores, collections and fields, with keys and relationships th
 
 For example, a Review of session persistence should show where sessions are stored and which operations create, retrieve or update them. A list of table names alone leaves that behavior unexplained.
 
-Read the component schema when constructing the view. A database view requires use cases with source-backed operations; if the available code does not establish those operations, explain the evidence gap rather than inventing them.
-
-### Diagrams
-
-Write a new diagram whole: one insert with all its nodes and edges, or all its steps. The board traces it in one quick pass, in the order a hand would draw it. Grow or fix a diagram already on the board one unit at a time, each as its own edit with `parentId` set to the diagram's returned ID. A new `flow_node` carries the edge that attaches it: `link:{from:"<key already drawn>",label?,style?}` (or `to` when the arrow runs from the new node), so it is drawn in its final place and the edge follows it. Never leave a node unconnected while you add others; a reader cannot place an orphan. Insert a `flow_edge` on its own only between nodes that already exist. Patch a node, edge or step by its returned ID; removing a node removes its edges. Read the diagram with `targetId` to get its unit IDs.
+A database view requires use cases with source-backed operations; if the available code does not establish those operations, explain the evidence gap rather than inventing them.
 
 ## Check against the code
 
@@ -75,11 +74,13 @@ Check that prose, examples and diagrams agree with the relevant source. Verify t
 
 Reuse knowledge from the current task, but verify the code cited in the Review. Keep illustrative examples distinct from excerpts of actual code. Identify evidence gaps where they affect the explanation.
 
-Use existing test evidence when it helps explain behavior. Running repository tests, typechecks or linters is outside authoring unless the user asks for it.
+Link to the code that supports the explanation using `[label](review-source:head/src/file.ts#L10-L24)` (or `base` for the previous revision). Use repository-relative paths and line numbers verified with the source tools; a single line uses `#L10`. Encode spaces in paths as `%20`. Relative Markdown file links, absolute filesystem paths, and file/editor URLs are rejected during validation and commit. External links use `https://`, `http://`, or `mailto:`; document anchors use `#heading`.
+
+Use existing test evidence when it helps explain behavior and distinguish it from checks actually run. Running repository tests, typechecks or linters is outside authoring unless the user asks for it.
 
 ## Check each section
 
-After filling a section, read its content and diagram data through Review’s tools before moving on. Check the following and summarize your assessment in a brief progress update:
+Read each completed section’s content and diagram data through Review’s tools. Check the following:
 
 - **Coverage:** Does it answer the question the section sets out to explain? Expand thin content and fill missing explanations.
 - **Correctness:** Do the explanations and examples match the code? Do the diagrams agree with both? Correct unsupported claims and contradictions.

@@ -165,7 +165,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 				.filter(([key, value]) => key !== "reviewId" && value !== undefined)
 				.map(([key, value]) => [key, String(value)]),
 		);
-		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(reviewId)}${route}?${params}`, {
+		const response = await fetch(`${serverUrl}/sessions-api/${encodeURIComponent(reviewId)}${route}?${params}`, {
 			headers: { "x-review-token": token },
 			signal: AbortSignal.timeout(30_000),
 		});

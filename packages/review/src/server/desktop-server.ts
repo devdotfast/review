@@ -179,6 +179,12 @@ export function createGlobalReviewServer(
       shared: input.sharedReviews,
     }),
   );
+  app.route(
+    "/sessions-api",
+    createJsonReviewReporting(input.reviewStore, telemetry, {
+      shared: input.sharedReviews,
+    }),
+  );
 
   for (const vocabulary of ["review", "session"] as const) {
     app.route(

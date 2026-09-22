@@ -26,7 +26,7 @@ async function openShare(
 	progress: IProgressService,
 ) {
 	try {
-		const client = new ReviewApiClient(await session.getConnection());
+		const client = new ReviewApiClient({ ...await session.getConnection(), apiPath: "/sessions-api", modelNames: "review" });
 		await progress.withProgress({ location: ProgressLocation.Notification, title: "Opening shared review" }, async (reporter) => {
 			const started = await client.post<{ reviewId: string }>("/sharing/import", { url });
 			for (;;) {

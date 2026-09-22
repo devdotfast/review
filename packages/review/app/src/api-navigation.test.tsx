@@ -68,7 +68,7 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
     ],
   });
   const app = new Hono();
-  app.get("/reviews-api/:id/stack", (c) =>
+  app.get("/sessions-api/:id/stack", (c) =>
     c.json({
       layers: [
         {
@@ -90,8 +90,19 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
       ],
     }),
   );
-  app.route("/reviews-api", createReviewApi(store));
-  app.get("/reviews-api/:id/commits", (c) => c.json([]));
+  app.route(
+    "/sessions-api",
+    createReviewApi(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "interactive",
+      "session",
+    ),
+  );
+  app.get("/sessions-api/:id/commits", (c) => c.json([]));
   const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
 
   const bridge = testReviewBridge(

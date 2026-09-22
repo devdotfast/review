@@ -166,7 +166,15 @@ export function AgentSelectionProvider({
       const response = await session.fetch("/copy-context", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...payload, revision }),
+        body: JSON.stringify({
+          ...payload,
+          revision,
+          apiSource: payload.apiSource && {
+            sessionId: payload.apiSource.reviewId,
+            version: payload.apiSource.version,
+            commit: payload.apiSource.commit,
+          },
+        }),
       });
 
       if (!response.ok) throw new Error("Context unavailable");

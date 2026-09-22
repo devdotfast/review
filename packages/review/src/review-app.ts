@@ -72,14 +72,19 @@ export async function runReviewAppPick(
   );
 
   const client = new ReviewApiClient(
-    { serverUrl: discovery.url, token: discovery.token },
+    {
+      serverUrl: discovery.url,
+      apiPath: "/sessions-api",
+      modelNames: "review",
+      token: discovery.token,
+    },
     runtime.fetch,
   );
 
   let review: Pick<ReviewApiSummary, "reviewId" | "title">;
 
   if (input.reviewUuid) {
-    // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
+    // Without `full`, GET /sessions-api/:id answers inspectSnapshot(): block
     // descriptors with no reviewId or title.
     review = await client.read(
       `/${encodeURIComponent(input.reviewUuid)}?full=true`,

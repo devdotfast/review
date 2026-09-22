@@ -45,8 +45,8 @@ describe("native Review picker", () => {
     });
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:5570/health",
-      "http://127.0.0.1:5570/reviews-api/review?full=true",
-      "http://127.0.0.1:5570/reviews-api/review/open",
+      "http://127.0.0.1:5570/sessions-api/review?full=true",
+      "http://127.0.0.1:5570/sessions-api/review/open",
     ]);
     expect(
       new Headers(fetch.mock.calls[2]?.[1]?.headers).get("x-review-token"),
@@ -77,8 +77,8 @@ describe("native Review picker", () => {
     });
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:5570/health",
-      "http://127.0.0.1:5570/reviews-api/review?full=true",
-      "http://127.0.0.1:5570/reviews-api/review/open",
+      "http://127.0.0.1:5570/sessions-api/review?full=true",
+      "http://127.0.0.1:5570/sessions-api/review/open",
     ]);
   });
   it("offers only undismissed reviews from the current repository and handles cancellation", async () => {
@@ -221,8 +221,8 @@ describe("native Review picker", () => {
     );
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:5570/health",
-      "http://127.0.0.1:5570/reviews-api/review?full=true",
-      "http://127.0.0.1:5570/reviews-api/review/open",
+      "http://127.0.0.1:5570/sessions-api/review?full=true",
+      "http://127.0.0.1:5570/sessions-api/review/open",
       "http://127.0.0.1:5570/app/focus",
     ]);
     expect(

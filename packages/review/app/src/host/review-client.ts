@@ -15,7 +15,7 @@ export function jsonReviewApiUrl(
   options: { version?: number; tokenInQuery?: boolean } = {},
 ): string {
   const url = new URL(
-    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/reviews-api/${encodeURIComponent(reviewId)}${endpoint}`,
+    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/sessions-api/${encodeURIComponent(reviewId)}${endpoint}`,
   );
 
   if (options.version !== undefined)

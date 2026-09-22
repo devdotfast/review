@@ -109,6 +109,8 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
 
     const client = new ReviewApiClient({
       serverUrl: discovery.url,
+      apiPath: "/sessions-api",
+      modelNames: "review",
       token: discovery.token,
     });
 
@@ -177,11 +179,12 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       });
 
       const code = await runReviewCli({
+        product: "whiteboard",
         argv: [
           "--state-dir",
           stateDir,
           "share",
-          "--review",
+          "--session",
           d.reviewId,
           "--version",
           "1",

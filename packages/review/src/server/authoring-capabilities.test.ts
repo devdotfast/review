@@ -68,7 +68,7 @@ it("discovers the live Desktop map preference without opening a review", async (
         token: "expired-headless-token",
       }),
     );
-    const client = await connectReviewApi(env);
+    const client = await connectReviewApi(env, "session");
     expect(await client.read("/capabilities")).toMatchObject({
       desktopAvailable: true,
       softwareMapEnabled: false,

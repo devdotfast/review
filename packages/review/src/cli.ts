@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
-import { runCliBootstrap } from "./cli-bootstrap.js";
+import { runLegacyReviewCli } from "./legacy-rename.js";
 
-process.exitCode = await runCliBootstrap("review", import.meta.url);
+process.exitCode = await runLegacyReviewCli(
+  process.argv.slice(2),
+  process.stdin,
+  process.stdout,
+  process.stderr,
+);

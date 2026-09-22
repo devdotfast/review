@@ -70,7 +70,13 @@ async function start(
   ]);
 
   const env = { ...process.env, DEV_REVIEW_SERVER_DIR: stateDir };
-  const client = await connectReviewApi(env);
+
+  const client = new ReviewApiClient({
+    serverUrl: discovery.url,
+    token: discovery.token,
+    apiPath: "/sessions-api",
+    modelNames: "review",
+  });
 
   return { client, discovery, env, stateDir, stop };
 }
@@ -107,7 +113,7 @@ async function repository() {
 async function cli(
   argv: string[],
   env: NodeJS.ProcessEnv,
-  product: "review" | "whiteboard" = "review",
+  product: "review" | "whiteboard" = "whiteboard",
 ) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -166,6 +172,27 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       commandId: randomUUID(),
       operation: { type: "create", title: "Shared review", pins },
     });
+
+    const retired = await fetch(
+      `${server.discovery.url}/reviews-api/commands`,
+      {
+        method: "POST",
+        headers: {
+          "x-review-token": server.discovery.token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          commandId: randomUUID(),
+          operation: { type: "delete", reviewId: created.reviewId },
+        }),
+      },
+    );
+
+    expect(retired.status).toBe(410);
+    expect(await retired.json()).toMatchObject({ code: "review_renamed" });
+    expect(
+      await server.client.read(`/${created.reviewId}?full=true`),
+    ).toMatchObject({ reviewId: created.reviewId });
 
     // Catalog refreshes can also report repository registration before creation.
     for await (const value of catalog) {
@@ -311,7 +338,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
       "--state-dir",
       server.stateDir,
       "api",
-      "review_create",
+      "session_create",
       JSON.stringify({
         commandId: randomUUID(),
         title: "CI review",
@@ -323,8 +350,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
 
   expect(created).toMatchObject({ exitCode: 0, errors: "" });
 
-  const { reviewId } = z
-    .object({ reviewId: z.string() })
+  const { sessionId: reviewId } = z
+    .object({ sessionId: z.string() })
     .parse(JSON.parse(created.output));
 
   await client.post("/commands", {
@@ -469,9 +496,11 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     stdout = new PassThrough();
 
   const mcp = await serveReviewMcp(
-    () => connectReviewApi(restarted.env),
+    () => connectReviewApi(restarted.env, "session"),
     stdin,
     stdout,
+    process.stderr,
+    "whiteboard",
   );
 
   const replies: {
@@ -510,8 +539,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
         id: 2,
         method: "tools/call",
         params: {
-          name: "review_get",
-          arguments: { reviewId, full: true, format: "json" },
+          name: "session_get",
+          arguments: { sessionId: reviewId, full: true, format: "json" },
         },
       }) + "\n",
     );
@@ -521,7 +550,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     const result = replies.find((reply) => reply.id === 2)!.result;
     expect(result.isError).not.toBe(true);
     expect(JSON.parse(result.content![0].text)).toMatchObject({
-      reviewId,
+      sessionId: reviewId,
       version: 2,
     });
   } finally {

@@ -7,7 +7,6 @@ import {
 } from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
-import { SectionAuthoringProgress } from "./authoring-activity";
 import { blockSectionSummary } from "./block-document-derivations";
 import { DocumentCallTree } from "./call-tree-view";
 import { RenderedCodeBlock } from "./code-block";
@@ -46,9 +45,8 @@ type BlockByType = { [K in BlockType]: Extract<StoredBlock, { type: K }> };
 export interface BlockProps<K extends BlockType> {
   node: BlockByType[K];
   data: ApiDocumentData;
-  /** Renders nested blocks; `awaiting` keeps a slot open at the end for the
-   * block the agent has yet to write. */
-  children(nodes: Block[], awaiting?: boolean): ReactNode;
+  /** Renders nested blocks. */
+  children(nodes: Block[]): ReactNode;
 }
 
 export type BlockComponent<K extends BlockType> = (
@@ -115,14 +113,8 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
       id={data.headings.get(node.id)}
       defaultCollapsed={node.defaultCollapsed}
       summary={blockSectionSummary(node.children)}
-      authoringProgress={
-        <SectionAuthoringProgress targetId={node.id} status={node.status} />
-      }
     >
-      {children(
-        node.children,
-        node.status === "pending" || node.status === "in_progress",
-      )}
+      {children(node.children)}
     </ReviewSection>
   );
 }

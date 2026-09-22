@@ -29,7 +29,7 @@ export async function run(ctx) {
   const first = legacyFixtures[0];
 
   const info = await ctx.cliRaw(
-    ["info", "--review", first.metadata.sourceUuid, "--json"],
+    ["info", "--session", first.metadata.sourceUuid, "--json"],
     first.worktreePath,
   );
 
@@ -102,9 +102,9 @@ export async function run(ctx) {
     );
 
     if (metadata.sourceRepository !== "devdotfast/review") {
-      await apiOk("/reviews-api");
+      await apiOk("/sessions-api");
       assert.equal(
-        (await api(`/reviews-api/${metadata.sourceUuid}`)).status,
+        (await api(`/sessions-api/${metadata.sourceUuid}`)).status,
         404,
         `${fixtureName} without its repository stays legacy`,
       );
@@ -136,7 +136,7 @@ export async function run(ctx) {
       `${fixtureName} carries origin`,
     );
 
-    const history = await apiOk(`/reviews-api/${metadata.sourceUuid}/history`);
+    const history = await apiOk(`/sessions-api/${metadata.sourceUuid}/history`);
 
     assert.equal(
       history.length,
@@ -148,7 +148,7 @@ export async function run(ctx) {
       `${fixtureName}: ${snapshot.version + 1} versions from ${revisions} revisions`,
     );
     assert.ok(
-      (await apiOk("/reviews-api")).some(
+      (await apiOk("/sessions-api")).some(
         (row) => row.reviewId === metadata.sourceUuid,
       ),
       `${fixtureName} is listed by the review API`,

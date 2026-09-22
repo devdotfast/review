@@ -121,7 +121,7 @@ export async function run(ctx) {
   const probe = async (contents) => {
     await writeFile(pointer, contents);
 
-    return ctx.cliRaw(["info", "--review", review.reviewId]);
+    return ctx.cliRaw(["info", "--session", review.reviewId]);
   };
 
   const output = (result) => `${result.stdout}${result.stderr}`;
@@ -263,7 +263,7 @@ export async function run(ctx) {
   const stray = async () => [...(await installedDesktopPids(probeHome))];
 
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", review.reviewId],
+    ["app", "pick", "--session", review.reviewId],
     ctx.repo,
     {
       timeout: 25000,

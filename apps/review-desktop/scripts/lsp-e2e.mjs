@@ -1,3 +1,4 @@
+import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Real Desktop -> extension host -> language server regression gate.
  * Run after app:build: node scripts/lsp-e2e.mjs [--app /path/Review.app] [--keep]
  * Linux CI: xvfb-run -a node scripts/lsp-e2e.mjs
@@ -398,16 +399,16 @@ async function stop() {
 }
 
 async function api(route, method = "GET", body) {
-  const response = await fetch(`${discovery.url}/reviews-api${route}`, {
+  const response = await fetch(`${discovery.url}/sessions-api${route}`, {
     method,
     headers: {
       "x-review-token": discovery.token,
       "content-type": "application/json",
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(sessionModelRequest(route, body)),
   });
 
-  const result = await response.json();
+  const result = sessionModelResponse(route, await response.json());
   assert.ok(response.ok, `${route}: ${JSON.stringify(result)}`);
 
   return result;

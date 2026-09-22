@@ -1,3 +1,4 @@
+import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Visible Desktop proof of an imported JSON review with an independently fetched pinned checkout. */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -167,16 +168,16 @@ try {
   assert.equal(discovery.appPid, app.pid, "isolated implementation process");
 
   const api = async (route, body) => {
-    const response = await fetch(discovery.url + "/reviews-api" + route, {
+    const response = await fetch(discovery.url + "/sessions-api" + route, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         "x-review-token": discovery.token,
         "content-type": "application/json",
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(sessionModelRequest(route, body)),
     });
 
-    const value = await response.json();
+    const value = sessionModelResponse(route, await response.json());
     assert.equal(response.status, 200, `${route}: ${JSON.stringify(value)}`);
 
     return value;

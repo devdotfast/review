@@ -1,3 +1,4 @@
+import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Real-review import smoke: launch the built Desktop on a COPIED review home
  * and verify every published legacy review imports into the JSON store, opens
  * in the JSON canvas, and renders without page errors.
@@ -192,12 +193,14 @@ const api = async (route, method = "GET", body) => {
       "x-review-token": discovery.token,
       "content-type": "application/json",
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(route.startsWith("/sessions-api") ? sessionModelRequest(route.slice("/sessions-api".length), body) : body),
   });
+
+  const value = await response.json().catch(() => null);
 
   return {
     status: response.status,
-    value: await response.json().catch(() => null),
+    value: route.startsWith("/sessions-api") ? sessionModelResponse(route.slice("/sessions-api".length), value) : value,
   };
 };
 
@@ -239,7 +242,7 @@ for (const review of expected) {
     } else {
       const snapshot = await until(async () => {
         await api("/reviews");
-        const candidate = await api(`/reviews-api/${review.uuid}?full=true`);
+        const candidate = await api(`/sessions-api/${review.uuid}?full=true`);
 
         if (candidate.status === 200) return candidate.value;
 

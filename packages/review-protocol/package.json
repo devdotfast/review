@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./session-model-transport": {
+      "types": "./dist/session-model-transport.d.ts",
+      "import": "./dist/session-model-transport.js",
+      "default": "./dist/session-model-transport.js"
     }
   },
   "scripts": {

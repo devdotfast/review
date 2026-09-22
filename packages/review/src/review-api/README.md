@@ -208,9 +208,12 @@ new edits and draft writes that send one are rejected by the strict section
 schema.
 
 Activity uses a caller-chosen lease UUID and no command receipt. Begin acquires
-exclusive authoring ownership, renew extends it, and end releases it. Clients
-renew at least every 30 seconds; ownership expires after 60 seconds without a
-renewal. Pass `leaseId` alongside `commandId` on content mutations. Another lease
+exclusive authoring ownership, renew extends it, and end releases it. Pass
+`leaseId` alongside `commandId` on content mutations; each accepted mutation
+under the live lease also extends it, inside the same transaction, so a rejected
+edit extends nothing. Clients renew only across long reads or pauses; ownership
+expires after 3 minutes without an accepted mutation or renewal, which is also
+how long a crashed author blocks others and reads as working. Another lease
 or an omitted lease gets HTTP 409 while the review is owned. One-off mutations
 without a lease remain available while no session owns the review; concurrent
 version changes produce a conflict rather than merging.

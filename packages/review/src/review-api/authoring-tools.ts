@@ -69,7 +69,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "activity",
-      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, target change, restore or delete, renew at least every 30 seconds, and end when finished. Another session gets a conflict while this lease is active. The lease expires after 60 seconds without renewal. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.",
+      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, target change, restore or delete, and end when finished. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.",
       activitySchema.extend(review),
       "POST",
       "/:reviewId/activity",

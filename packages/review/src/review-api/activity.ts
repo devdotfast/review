@@ -21,8 +21,9 @@ export interface ActivitySnapshot {
   focuses?: z.infer<typeof focusSchema>[];
 }
 
-// The author owns the review until end or a minute without renewal.
-export const ACTIVITY_TTL_MS = 60_000;
+// The author owns the review until end or three minutes without an accepted
+// write or renewal. A crashed author blocks others for at most this long.
+export const ACTIVITY_TTL_MS = 180_000;
 
 export class ReviewActivity {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -94,6 +95,27 @@ export class ReviewActivity {
         "Authoring session ended or expired. Begin a new session and reread the review before editing.",
         409,
       );
+  }
+  /** Inside the caller's write transaction, after `assertWrite`: a write
+   * under the live lease keeps it alive like a renewal, focus unchanged. It
+   * rolls back with the write, so a rejected edit extends nothing. Call
+   * `extended` once the transaction commits. */
+  extend(reviewId: string, leaseId?: string): boolean {
+    if (!leaseId) return false;
+    const now = Date.now();
+
+    return (
+      this.db
+        .prepare(
+          "UPDATE authoring_sessions SET expires_at=? WHERE review_id=? AND lease_id=? AND expires_at>?",
+        )
+        .run(now + ACTIVITY_TTL_MS, reviewId, leaseId, now).changes > 0
+    );
+  }
+
+  /** Move the expiry timer after a committed `extend`. */
+  extended(reviewId: string) {
+    this.scheduleExpiry(reviewId);
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Activity boundary: activitySchema.parse below validates incoming JSON.
   update(reviewId: string, value: unknown) {

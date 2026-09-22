@@ -1198,6 +1198,7 @@ export class ReviewStore {
         previous
           ? () => this.assertMutation(id, previous.version, command.leaseId)
           : undefined,
+        command.leaseId,
       );
 
       return result;
@@ -1267,8 +1268,10 @@ export class ReviewStore {
     result: Result,
     apply: () => void,
     guard?: () => void,
+    leaseId?: string,
   ) {
     this.db.exec("BEGIN IMMEDIATE");
+    let extended = false;
 
     try {
       guard?.();
@@ -1278,6 +1281,8 @@ export class ReviewStore {
           "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
         )
         .run(commandId, request, JSON.stringify(result));
+      // An accepted write is proof of life: it renews the author's lease.
+      extended = this.activity.extend(result.reviewId, leaseId);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1285,6 +1290,7 @@ export class ReviewStore {
     }
 
     if (result.deleted) this.activity.deleted(result.reviewId);
+    else if (extended) this.activity.extended(result.reviewId);
     this.notify(result);
   }
   private assertMutation(

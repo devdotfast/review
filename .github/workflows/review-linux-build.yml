@@ -68,6 +68,10 @@ jobs:
         run: |
           pnpm desktop:build
           pnpm desktop:package:linux
+      - name: Configure packaged Electron sandbox
+        run: |
+          sudo chown root:root apps/review-desktop/VSCode-linux-x64/chrome-sandbox
+          sudo chmod 4755 apps/review-desktop/VSCode-linux-x64/chrome-sandbox
       - name: Smoke test the packaged app
         run: xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app apps/review-desktop/VSCode-linux-x64
       # Preview versions build the dev-fast-review-preview package; see

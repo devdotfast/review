@@ -619,6 +619,176 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Code blocks. The same figure as a diagram: hairline frame, tray header with
+   the language as its kind, the caption as its title, a line count and an
+   icon-only copy button; then the code, scrolling sideways, never wrapping.
+   JSON code blocks and fenced markdown share it.
+   --------------------------------------------------------------------------- */
+.rendered-code-block {
+  min-width: 0;
+  max-width: 100%;
+  margin-block: 24px;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.agent-markdown .rendered-code-block {
+  margin-block: 8px;
+}
+
+.rendered-code-block > .diagram-header {
+  padding-right: 8px;
+}
+
+.rendered-code-block .diagram-header-meta {
+  margin-left: 0;
+}
+
+.rendered-code-copy {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.rendered-code-copy > .ui-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5px;
+}
+
+.rendered-code-copy:hover,
+.rendered-code-copy[data-copied] {
+  background: var(--well);
+}
+
+.rendered-code-copy[data-copied] {
+  color: var(--ink);
+}
+
+.rendered-code-copy:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.rendered-code-body {
+  display: flex;
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink);
+  font: 13px/20px var(--font-mono);
+  text-align: left;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ghost) var(--tray);
+}
+
+.rendered-code-body::-webkit-scrollbar {
+  height: 4px;
+}
+
+.rendered-code-body::-webkit-scrollbar-track {
+  background: var(--tray);
+}
+
+.rendered-code-body::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--ghost);
+}
+
+.rendered-code-block .rendered-code-body code {
+  display: block;
+  flex: 1 0 auto;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: var(--transparent);
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+}
+
+.rendered-code-gutter {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  min-width: 50px;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--ghost);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+}
+
+.rendered-code-gutter + code {
+  padding-left: 0;
+}
+
+/* Two hues only: marker for the words the language owns, pencil for the
+   values the author wrote; ink at three strengths for everything else.
+   Diff green and red are reserved for the diff language. */
+.rendered-code-block .shj-syn-kwd {
+  color: var(--accent);
+}
+
+.rendered-code-block .shj-syn-type,
+.rendered-code-block .shj-syn-class {
+  color: var(--code-type);
+}
+
+.rendered-code-block .shj-syn-func,
+.rendered-code-block .shj-syn-section {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.rendered-code-block .shj-syn-var {
+  color: var(--ink);
+}
+
+.rendered-code-block .shj-syn-str {
+  color: var(--pencil);
+}
+
+.rendered-code-block .shj-syn-num,
+.rendered-code-block .shj-syn-bool {
+  color: var(--pencil);
+  font-weight: 500;
+}
+
+.rendered-code-block .shj-syn-cmnt {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.rendered-code-block .shj-syn-oper {
+  color: var(--ink-muted);
+}
+
+.rendered-code-block .shj-syn-insert {
+  color: var(--change-added);
+}
+
+.rendered-code-block .shj-syn-deleted {
+  color: var(--change-removed);
+}
+
+.rendered-code-block .shj-syn-err {
+  color: var(--change-removed);
+  text-decoration: wavy underline;
+}
+
+/* ---------------------------------------------------------------------------
    Figures. Hairline frame, tray header and footer, a dot grid on the board.
    --------------------------------------------------------------------------- */
 .diagram-header,

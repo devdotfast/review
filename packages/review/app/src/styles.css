@@ -120,11 +120,10 @@
   --review-home-view-toggle-active-bg: #0c0f15;
   --review-home-view-toggle-shadow: rgb(0 0 0 / 45%);
   --review-home-view-toggle-highlight: rgb(255 255 255 / 4%);
-  --syntax-comment: #85857f;
-  --syntax-string: #2f855a;
-  --syntax-number: #b45309;
-  --syntax-function: #6d43b3;
-  --syntax-variable: #a3483f;
+  /* Code: the marker for words the language owns, pencil for values the
+     author wrote. */
+  --code-type: #8fa5ff;
+  --pencil: #d9a85c;
   --review-debug-layer: 2147483000;
   --review-find-match-background: color-mix(
     in srgb,
@@ -2140,11 +2139,8 @@ button {
   --review-home-view-toggle-active-bg: #ffffff;
   --review-home-view-toggle-shadow: rgba(21, 24, 30, 0.06);
   --review-home-view-toggle-highlight: rgba(255, 255, 255, 0.8);
-  --syntax-comment: #767672;
-  --syntax-string: #2e9e66;
-  --syntax-number: #b0791f;
-  --syntax-function: #6d43b3;
-  --syntax-variable: #b5453b;
+  --code-type: #1e3fb0;
+  --pencil: #8a5a1c;
 }
 
 .review-app::selection,
@@ -3714,37 +3710,6 @@ button {
   font-size: 0.92em;
 }
 
-.agent-markdown pre.markdown-code-block {
-  display: block;
-  max-width: 100%;
-  margin: 2px 0;
-  padding: 10px 12px;
-  overflow-x: auto;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.agent-markdown pre.markdown-code-block[data-language] {
-  padding-top: 28px;
-}
-
-.agent-markdown pre.markdown-code-block code {
-  display: block;
-  padding: 0;
-  border-radius: 0;
-  background: var(--transparent);
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  white-space: pre;
-}
-
 .agent-markdown blockquote {
   padding-left: 10px;
   border-left: 3px solid var(--rule-soft);
@@ -4420,29 +4385,6 @@ button {
   width: calc(100% + var(--tour-rail-breakout));
   margin-left: calc(-1 * var(--tour-rail-breakout));
   background: var(--bg);
-}
-
-.rendered-code-block {
-  position: relative;
-}
-
-.rendered-code-block[data-language]::before {
-  position: absolute;
-  top: 8px;
-  left: 10px;
-  padding: 1px 6px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 82%, var(--transparent));
-  color: var(--ink-faint);
-  content: attr(data-language);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1.5;
-  text-transform: uppercase;
-  pointer-events: none;
 }
 
 .tour-stop-header {
@@ -5200,37 +5142,6 @@ button.review-stack-row:disabled .review-stack-relation {
   color: var(--ink);
 }
 
-.review-document pre.markdown-code-block {
-  display: block;
-  margin-block: 24px;
-  padding: 14px 16px;
-  overflow-x: auto;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.65;
-  text-align: left;
-}
-
-.review-document pre.markdown-code-block[data-language] {
-  padding-top: 30px;
-}
-
-.review-document pre.markdown-code-block code {
-  display: block;
-  padding: 0;
-  border-radius: 0;
-  background: var(--transparent);
-  color: inherit;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  white-space: pre;
-}
-
 .review-document table {
   width: min(100%, 600px);
   margin: 24px auto;
@@ -5255,37 +5166,6 @@ button.review-stack-row:disabled .review-stack-relation {
   background: var(--tray);
   color: var(--ink);
   font-weight: 600;
-}
-
-.markdown-code-block .shj-syn-cmnt {
-  color: var(--syntax-comment);
-  font-style: italic;
-}
-
-.markdown-code-block .shj-syn-kwd,
-.markdown-code-block .shj-syn-type {
-  color: var(--accent);
-}
-
-.markdown-code-block .shj-syn-str,
-.markdown-code-block .shj-syn-insert {
-  color: var(--syntax-string);
-}
-
-.markdown-code-block .shj-syn-num,
-.markdown-code-block .shj-syn-bool,
-.markdown-code-block .shj-syn-class {
-  color: var(--syntax-number);
-}
-
-.markdown-code-block .shj-syn-func,
-.markdown-code-block .shj-syn-section {
-  color: var(--syntax-function);
-}
-
-.markdown-code-block .shj-syn-var,
-.markdown-code-block .shj-syn-oper {
-  color: var(--syntax-variable);
 }
 
 .sequence-diagram,

@@ -13,20 +13,30 @@ import {
   useState,
 } from "react";
 
+import { copyText } from "./copy-text";
+import { DiagramHeader } from "./diagram-header";
+import { CheckIcon, CopyIcon } from "./icons";
+
 export interface RenderedCodeBlockProps extends ComponentProps<"pre"> {
   code: string;
   language?: string | null;
+  /** Header title; a fenced markdown block has none. */
+  caption?: string;
+  /** Ghost line numbers in a sticky gutter; off for fenced markdown. */
+  lineNumbers?: boolean;
   codeClassName?: string;
   codeAttributes?: Record<string, string>;
-  lineGutter?: ReactNode;
 }
 
+/** A code figure: the same header as the other figures (language badge,
+ * caption, line count, copy), then the highlighted code. */
 export function RenderedCodeBlock({
   code,
   language,
+  caption,
+  lineNumbers = false,
   codeClassName,
   codeAttributes,
-  lineGutter,
   className,
   ...props
 }: RenderedCodeBlockProps): ReactElement {
@@ -61,38 +71,85 @@ export function RenderedCodeBlock({
     };
   }, [code, normalizedLanguage]);
 
-  const preClassName = ["rendered-code-block", className]
+  const figureClassName = ["rendered-code-block", className]
     .filter(Boolean)
     .join(" ");
 
   const displayLanguage = normalizedLanguage ?? language?.trim() ?? undefined;
-
-  if (normalizedLanguage && highlightedTokens) {
-    return (
-      <pre {...props} className={preClassName} data-language={displayLanguage}>
-        {lineGutter}
-        <code {...codeAttributes} className={codeClassName}>
-          {highlightedTokens.map((item, index) =>
-            item.token ? (
-              <span className={`shj-syn-${item.token}`} key={index}>
-                {item.text}
-              </span>
-            ) : (
-              item.text
-            ),
-          )}
-        </code>
-      </pre>
-    );
-  }
+  const lineCount = countLines(code);
 
   return (
-    <pre {...props} className={preClassName} data-language={displayLanguage}>
-      {lineGutter}
-      <code {...codeAttributes} className={codeClassName}>
-        {code}
-      </code>
-    </pre>
+    <figure className={figureClassName} data-language={displayLanguage}>
+      <DiagramHeader
+        kind={displayLanguage || "code"}
+        title={caption}
+        meta={`${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
+        action={<CopyCodeButton code={code} />}
+      />
+      <pre {...props} className="rendered-code-body">
+        {lineNumbers && (
+          <span aria-hidden="true" className="rendered-code-gutter">
+            {Array.from({ length: lineCount }, (_, index) => index + 1).join(
+              "\n",
+            )}
+          </span>
+        )}
+        <code {...codeAttributes} className={codeClassName}>
+          {normalizedLanguage && highlightedTokens
+            ? highlightedTokens.map((item, index) =>
+                item.token ? (
+                  <span className={`shj-syn-${item.token}`} key={index}>
+                    {item.text}
+                  </span>
+                ) : (
+                  item.text
+                ),
+              )
+            : code}
+        </code>
+      </pre>
+    </figure>
+  );
+}
+
+/** A trailing newline ends the last line rather than starting an empty one. */
+function countLines(code: string): number {
+  const lines = code.split("\n");
+
+  return lines.length > 1 && lines.at(-1) === ""
+    ? lines.length - 1
+    : lines.length;
+}
+
+const COPIED_FOR_MS = 1200;
+
+function CopyCodeButton({ code }: { code: string }): ReactElement {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), COPIED_FOR_MS);
+
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      className="rendered-code-copy"
+      aria-label="Copy"
+      title="Copy"
+      data-copied={copied ? "" : undefined}
+      onClick={() => {
+        // The workbench denies DOM clipboard requests; copyText falls back to
+        // execCommand and reports whether anything was copied.
+        void copyText(code).then((ok) => {
+          if (ok) setCopied(true);
+        });
+      }}
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </button>
   );
 }
 

@@ -235,3 +235,30 @@ export function ShareIcon(): ReactElement {
     </svg>
   );
 }
+
+export function CopyIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--copy"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </svg>
+  );
+}
+
+export function CheckIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--check"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </svg>
+  );
+}

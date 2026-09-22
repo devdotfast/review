@@ -7,7 +7,7 @@ export function DiagramHeader({
   action,
 }: {
   kind: string;
-  title: string;
+  title?: string;
   meta?: string;
   action?: ReactNode;
 }) {
@@ -15,7 +15,7 @@ export function DiagramHeader({
     <figcaption className="diagram-header">
       <div className="diagram-header-main">
         <span className="diagram-kind-badge">{kind}</span>
-        <span className="diagram-header-title">{title}</span>
+        {title && <span className="diagram-header-title">{title}</span>}
         {meta && <em className="diagram-header-meta">{meta}</em>}
       </div>
       {action}

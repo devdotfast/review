@@ -645,7 +645,6 @@ button {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  transition: grid-template-columns 200ms ease-out;
   color: var(--ink);
   background: var(--bg);
   color-scheme: dark;

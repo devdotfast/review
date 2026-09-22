@@ -1966,6 +1966,12 @@ button:focus-visible > .review-chevron {
   }
 }
 
+/* Retitle: a section or callout heading recomposes; its children stay. */
+.api-document-node[data-motion="retitle"] .review-section-heading h2,
+.api-document-node[data-motion="retitle"] > blockquote > strong {
+  animation: wb-label 420ms steps(14) both;
+}
+
 /* Erasing: a removed block gets the eraser's three passes, then the board
    closes over the gap. Nothing is left behind. */
 .api-document-node[data-motion="erasing"] {
@@ -2160,6 +2166,8 @@ button:focus-visible > .review-chevron {
   .api-document-node[data-motion="erasing"],
   .api-document-node[data-motion="erasing"] > :not(.host-authoring-activity),
   .api-document-node[data-motion="erasing"]::before,
+  .api-document-node[data-motion="retitle"] .review-section-heading h2,
+  .api-document-node[data-motion="retitle"] > blockquote > strong,
   .api-document-node[data-motion="attention"],
   .lens-flow-node[data-motion] .flow-node-shape :is(rect, polygon),
   .lens-flow-node[data-motion] .flow-node-text,

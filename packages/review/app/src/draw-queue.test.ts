@@ -17,7 +17,13 @@ const node = (id: string, diagram = "diagram-1"): AuthoringCursor => ({
   targetId: id,
   blockId: diagram,
   source: "edit",
-  edit: { type: "insert", targetId: id, blockId: diagram, unit: "flow_node" },
+  edit: {
+    type: "insert",
+    targetId: id,
+    blockId: diagram,
+    kind: "flow_node",
+    unit: "flow_node",
+  },
   seq: ++seq,
 });
 
@@ -25,7 +31,7 @@ const block = (id: string): AuthoringCursor => ({
   targetId: id,
   blockId: id,
   source: "edit",
-  edit: { type: "insert", targetId: id, blockId: id },
+  edit: { type: "insert", targetId: id, blockId: id, kind: "markdown" },
   seq: ++seq,
 });
 
@@ -117,6 +123,7 @@ describe("draw queue", () => {
         type: "insert",
         targetId: "node-3",
         blockId: "diagram-1",
+        kind: "flow_node",
         unit: "flow_node",
         linkId: "edge-4",
       },
@@ -150,6 +157,7 @@ describe("draw queue", () => {
         type: "remove",
         targetId: id,
         blockId: unit ? "diagram-1" : id,
+        kind: unit ?? "markdown",
         unit,
       },
       seq: ++seq,
@@ -163,6 +171,44 @@ describe("draw queue", () => {
     state = tick(state, 660);
     expect(phases(state).size).toBe(0);
     expect(standingCursor(state)?.targetId).toBe("node-2");
+  });
+
+  it("draws only what an update changed", () => {
+    const update = (
+      id: string,
+      kind: "section" | "markdown",
+      fields: string[],
+    ): AuthoringCursor => ({
+      targetId: id,
+      blockId: id,
+      source: "edit",
+      edit: { type: "update", targetId: id, blockId: id, kind, fields },
+      seq: ++seq,
+    });
+
+    // A status patch on a section draws nothing and moves nobody.
+    let state = arrive(EMPTY_QUEUE, node("node-1"), 0);
+    state = tick(state, 750);
+    const before = state;
+    state = arrive(state, update("section-1", "section", ["status"]), 800);
+    expect(state).toBe(before);
+    expect(standingCursor(state)?.targetId).toBe("node-1");
+
+    // A retitle recomposes the heading; a section's children are never rewritten.
+    state = arrive(state, update("section-1", "section", ["title"]), 800);
+    expect(phases(state).get("section-1")).toBe("retitle");
+    state = tick(state, 800 + 420);
+    state = arrive(
+      state,
+      update("section-1", "section", ["title", "status"]),
+      1300,
+    );
+    expect(phases(state).get("section-1")).toBe("retitle");
+    state = tick(state, 1300 + 420);
+
+    // Prose that changed is rewritten.
+    state = arrive(state, update("block-2", "markdown", ["markdown"]), 2000);
+    expect(phases(state).get("block-2")).toBe("rewriting");
   });
 
   it("keeps a burst at the threshold node by node", () => {

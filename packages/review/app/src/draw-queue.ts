@@ -1,3 +1,4 @@
+import type { EditSummary } from "../../src/review-api/document";
 import type { AuthoringCursor } from "./authoring-cursor";
 
 /**
@@ -14,6 +15,7 @@ export type MotionPhase =
   | "fill"
   | "rewriting"
   | "relabel"
+  | "retitle"
   | "erasing"
   | "attention";
 
@@ -84,9 +86,9 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
       return [{ phase: "landing", ms: 680 }];
     case "update":
     case "replace":
-      return edit.unit
-        ? [{ phase: "relabel", ms: 420 }]
-        : [{ phase: "rewriting", ms: 1100 }];
+      if (edit.unit) return [{ phase: "relabel", ms: 420 }];
+
+      return updateSteps(edit);
     case "remove":
       // A block is erased on the board, then collapses; a unit is simply
       // gone from its diagram, so the courier only visits.
@@ -96,6 +98,29 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
     case "move":
       return [{ phase: null, ms: 300 }];
   }
+}
+
+/** Fields a reader cannot see change; a patch of only these draws nothing. */
+const INVISIBLE_FIELDS = new Set(["status", "defaultCollapsed"]);
+
+/** Fields on a container that only its heading shows. */
+const HEADING_FIELDS = new Set(["title", "tone"]);
+
+const CONTAINERS = new Set(["section", "callout", "tutorial"]);
+
+/** A block update draws what changed: nothing for a status patch, the
+ * heading for a retitle, and never a container's children. */
+function updateSteps(edit: EditSummary): DrawStep[] {
+  const fields = edit.fields?.filter((field) => !INVISIBLE_FIELDS.has(field));
+
+  if (fields && !fields.length) return [];
+
+  if (CONTAINERS.has(edit.kind))
+    return fields && fields.every((field) => HEADING_FIELDS.has(field))
+      ? [{ phase: "retitle", ms: 420 }]
+      : [];
+
+  return [{ phase: "rewriting", ms: 1100 }];
 }
 
 const isUnitInsert = (entry: DrawEntry) =>
@@ -135,6 +160,7 @@ function coalesce(pending: DrawEntry[]): DrawEntry[] {
             type: "insert",
             targetId: last.blockId,
             blockId: last.blockId,
+            kind: "flow_diagram",
           },
           seq: last.seq,
         },
@@ -171,6 +197,9 @@ export function arrive(
   const steps = stepsFor(cursor).map((step) =>
     reduced && step.ms !== HOLD ? { ...step, ms: 0 } : step,
   );
+
+  // Nothing to draw: the courier stays where he is.
+  if (!steps.length) return state;
 
   const entry: DrawEntry = { cursor, steps };
 

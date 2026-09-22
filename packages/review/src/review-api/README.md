@@ -126,9 +126,10 @@ preserve omitted values; null removes optional fields. Child collections use
 structural edits or replacement. Use fresh content without IDs for insert/replace.
 
 Each accepted edit is one saved version, and the version carries
-`lastEdit: {type, targetId, blockId, unit?}`: the edit's kind, the element it
-landed on, and the block that element belongs to (`unit` names a step, flow
-node or flow edge inside `blockId`). Versions made by rename, repin, restore or
+`lastEdit: {type, targetId, blockId, kind, unit?, fields?}`: the edit's kind,
+the element it landed on, what that element is, and the block it belongs to
+(`unit` names a step, flow node or flow edge inside `blockId`; `fields` lists
+an update's patched keys, so a status patch draws nothing). Versions made by rename, repin, restore or
 import carry none. While a reader is watching, the canvas draws each version's
 edit as it lands, so an agent that inserts one paragraph, one step, one node or
 one edge per edit sees the document draw itself; a whole diagram inserted at

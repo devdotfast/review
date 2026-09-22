@@ -123,7 +123,7 @@ it("stands on the cursor's block, hops when it moves, and stands in for a hidden
 
   await render(working("Adding evidence"), {
     ...at("b4", "edit", 2),
-    edit: { type: "insert", targetId: "b4", blockId: "b4" },
+    edit: { type: "insert", targetId: "b4", blockId: "b4", kind: "markdown" },
   });
   await vi.waitFor(() => standsOn("b4"));
   expect(courier()!.dataset.motion).toBe("hopping");

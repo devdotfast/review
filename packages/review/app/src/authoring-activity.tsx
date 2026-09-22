@@ -72,9 +72,12 @@ export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
 export function ReviewSurfaceLabel({
   complete,
   active,
+  label = "Review",
 }: {
   complete: boolean;
   active: boolean;
+  /** The tab's word; the scratchpad names itself. */
+  label?: string;
 }) {
   const activity = useContext(AuthoringActivityContext);
   const version = useContext(DisplayedReviewVersionContext) ?? null;
@@ -98,7 +101,7 @@ export function ReviewSurfaceLabel({
       className="review-segment-word"
       data-working={(live && !complete) || undefined}
     >
-      Review
+      {label}
       {unread && <span className="review-segment-unread" aria-hidden="true" />}
     </span>
   );

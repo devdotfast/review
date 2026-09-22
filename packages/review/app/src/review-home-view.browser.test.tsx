@@ -57,6 +57,45 @@ describe("ReviewHome", () => {
     ]);
   });
 
+  it("keeps the scratchpad above the reviews and out of their workspaces", async () => {
+    const {
+      pins: _pins,
+      repositoryPath: _path,
+      ...base
+    } = summary({
+      reviewId: "scratchpad",
+      title: "Scratchpad",
+      repositoryName: "",
+    });
+
+    const pad: ReviewApiSummary = { ...base, kind: "scratchpad" };
+
+    const review = summary({ reviewId: uuid(1), title: "A review" });
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    await act(async () =>
+      root.render(<ReviewHome reviews={[review, pad]} onOpen={onOpen} />),
+    );
+
+    const labels = Array.from(container.querySelectorAll("button")).map(
+      (button) => button.textContent ?? "",
+    );
+
+    expect(
+      labels.findIndex((text) => text.includes("Scratchpad")),
+    ).toBeLessThan(labels.findIndex((text) => text.includes("A review")));
+    expect(container.querySelectorAll(".review-home-workspace")).toHaveLength(
+      1,
+    );
+    expect(container.textContent).not.toContain("Dismiss Scratchpad");
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Scratchpad"),
+    )!;
+
+    await act(async () => button.click());
+    expect(onOpen).toHaveBeenCalledWith(pad);
+  });
+
   it("opens API reviews grouped by repository without needing a checkout path", async () => {
     const { repositoryPath: _, ...review } = summary({ title: "API review" });
     const item = { ...review, repositoryName: "Review repository" };

@@ -6,6 +6,8 @@ import type {
 import type { LoadedAgentTrace } from "../use-agent-trace";
 
 export interface ReviewSessionData {
+  /** Absent for a review. The scratchpad hides review-only chrome. */
+  kind?: "scratchpad";
   /** Absent for a document whose references all carry their own pins. */
   pins?: { base: string; head: string };
   historicalRevision: string | null;

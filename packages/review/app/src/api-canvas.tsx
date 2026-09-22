@@ -243,6 +243,7 @@ export function ApiCanvas({
     return {
       ...baseSession,
       review: {
+        kind: snapshot.kind,
         pins: snapshot.pins
           ? { base: snapshot.pins.base, head: snapshot.pins.head }
           : undefined,

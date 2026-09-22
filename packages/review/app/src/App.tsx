@@ -345,6 +345,9 @@ function ReviewLayoutContent({
 }): ReactElement {
   const session = useReviewSession();
   const review = useReview();
+  // The scratchpad is a document and nothing else: no source tree to browse,
+  // nothing to share, nothing to dismiss.
+  const scratchpad = session.review?.kind === "scratchpad";
   const discordTooltip = useTooltip("Join our Discord community");
   const sourceTreeTooltip = useTooltip("Open full read-only source");
   const panelStore = useReviewPanelStore();
@@ -420,10 +423,12 @@ function ReviewLayoutContent({
   const storedList = useTraceList();
   const diffFiles = useReviewDiffFiles();
 
+  // The scratchpad has no repository of its own, so no traces to show.
   const hasTraceSessions =
-    (session.review?.traces.size ?? 0) > 0 ||
-    storedList.status !== "loaded" ||
-    storedList.sessions.length > 0;
+    !scratchpad &&
+    ((session.review?.traces.size ?? 0) > 0 ||
+      storedList.status !== "loaded" ||
+      storedList.sessions.length > 0);
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
@@ -593,6 +598,7 @@ function ReviewLayoutContent({
                   >
                     {view === "review" ? (
                       <ReviewSurfaceLabel
+                        label={scratchpad ? "Scratchpad" : "Review"}
                         complete={
                           documentState.state === "ready" &&
                           documentState.document.authoringComplete === true
@@ -619,22 +625,27 @@ function ReviewLayoutContent({
             </div>
             <div className="review-topbar-actions">
               <div className="review-topbar-context">
-                <button
-                  type="button"
-                  className="review-open-source-tree"
-                  ref={sourceTreeTooltip}
-                  onClick={() => {
-                    captureUiEvent(session, "source_tree_opened", {
-                      via: "topbar",
-                    });
-                    session.surface.post({ name: "openSourceTree", args: {} });
-                  }}
-                >
-                  Source tree ↗
-                </button>
+                {!scratchpad && (
+                  <button
+                    type="button"
+                    className="review-open-source-tree"
+                    ref={sourceTreeTooltip}
+                    onClick={() => {
+                      captureUiEvent(session, "source_tree_opened", {
+                        via: "topbar",
+                      });
+                      session.surface.post({
+                        name: "openSourceTree",
+                        args: {},
+                      });
+                    }}
+                  >
+                    Source tree ↗
+                  </button>
+                )}
                 <AuthoringActivityBadge />
               </div>
-              <ShareControl />
+              {!scratchpad && <ShareControl />}
               <button
                 type="button"
                 className="review-topbar-icon-button"
@@ -649,10 +660,14 @@ function ReviewLayoutContent({
               <BugReportControl />
               <ReviewBatonChip outcome={review.submissionOutcome} />
               <DiffLayoutControl />
-              {!review.historicalRevision && !review.submissionOutcome && (
-                <div className="topbar-actions-divider" />
-              )}
-              {!review.historicalRevision && !review.submissionOutcome ? (
+              {!scratchpad &&
+                !review.historicalRevision &&
+                !review.submissionOutcome && (
+                  <div className="topbar-actions-divider" />
+                )}
+              {!scratchpad &&
+              !review.historicalRevision &&
+              !review.submissionOutcome ? (
                 <ReviewCornerAction />
               ) : null}
             </div>
@@ -686,7 +701,11 @@ function ReviewLayoutContent({
             >
               {documentState.state === "ready" ? (
                 <>
-                  <article ref={articleRef} className="review-document">
+                  <article
+                    ref={articleRef}
+                    className="review-document"
+                    data-kind={scratchpad ? "scratchpad" : undefined}
+                  >
                     <ReviewDocumentBoundary
                       key={documentRevision}
                       session={session}

@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
-import type { ReviewApiSummary } from "@dev.fast/review-protocol";
+import {
+  type ReviewApiSummary,
+  SCRATCHPAD_REVIEW_ID,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { migrateDiffSelections } from "../diff-selection-migration.js";
@@ -37,6 +40,14 @@ import { pullRequestUrl, setPullRequest } from "./origin.js";
 
 const reviewId = z.string().min(1);
 
+/** There is one scratchpad. Its id is fixed so a skill can name it. */
+export const SCRATCHPAD_ID = SCRATCHPAD_REVIEW_ID;
+
+export const SCRATCHPAD_TITLE = "Scratchpad";
+
+/** The create command that makes it, with one id so a repeat is a receipt. */
+const SCRATCHPAD_COMMAND_ID = "5c7a7c6e-0000-4000-8000-5c7a7c6e0000";
+
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   leaseId: z.uuid().optional(),
@@ -53,6 +64,8 @@ export const commandSchema = z.strictObject({
       pins: pinsSchema.optional(),
       target: reviewTargetSchema.optional(),
       pullRequestUrl: pullRequestUrl.optional(),
+      /** The one scratchpad: no target, no pins; every reference names its own. */
+      kind: z.literal("scratchpad").optional(),
     }),
     z.strictObject({
       type: z.literal("set_target"),
@@ -103,6 +116,8 @@ export interface Snapshot {
   reviewId: string;
   version: number;
   title: string;
+  /** Absent for a review. The scratchpad has no pins, target or lifecycle. */
+  kind?: "scratchpad";
   /** The default pins for references that name none. A document whose
    * references all carry their own pins has neither pins nor target. */
   pins?: Pins;
@@ -720,6 +735,24 @@ export class ReviewStore {
         };
       });
   }
+  /** The one scratchpad, made on first use. The fixed command id makes a
+   * repeat, even from another host on the same home, find its receipt. */
+  async ensureScratchpad(): Promise<void> {
+    if (this.has(SCRATCHPAD_ID)) return;
+
+    try {
+      await this.execute({
+        commandId: SCRATCHPAD_COMMAND_ID,
+        operation: {
+          type: "create",
+          title: SCRATCHPAD_TITLE,
+          kind: "scratchpad",
+        },
+      });
+    } catch (error) {
+      if (!this.has(SCRATCHPAD_ID)) throw error;
+    }
+  }
   history(id: string) {
     return this.db
       .prepare(
@@ -794,7 +827,30 @@ export class ReviewStore {
         this.activity.assertWrite(op.reviewId, command.leaseId);
       }
 
-      if (op.type === "create" && Boolean(op.pins) === Boolean(op.target))
+      // The scratchpad is edited and restored like a review, and nothing else.
+      if (
+        op.type !== "create" &&
+        op.type !== "edit" &&
+        op.type !== "restore" &&
+        this.read(op.reviewId).kind === "scratchpad"
+      )
+        throw new ReviewInputError(
+          "The scratchpad has no lifecycle, title or pins of its own.",
+          409,
+        );
+
+      if (op.type === "create" && op.kind === "scratchpad") {
+        if (op.pins || op.target)
+          throw new ReviewInputError(
+            "A scratchpad has no target or pins of its own.",
+          );
+
+        if (this.has(SCRATCHPAD_ID))
+          throw new ReviewInputError("The scratchpad already exists.", 409);
+      } else if (
+        op.type === "create" &&
+        Boolean(op.pins) === Boolean(op.target)
+      )
         throw new ReviewInputError(
           "Supply exactly one of target or legacy pins.",
         );
@@ -882,23 +938,18 @@ export class ReviewStore {
         return result;
       }
 
-      const id = op.type === "create" ? randomUUID() : op.reviewId;
+      const id =
+        op.type !== "create"
+          ? op.reviewId
+          : op.kind === "scratchpad"
+            ? SCRATCHPAD_ID
+            : randomUUID();
+
       const previous = op.type === "create" ? undefined : this.read(id);
 
       let snapshot: Snapshot =
         op.type === "create"
-          ? {
-              reviewId: id,
-              version: 0,
-              title: op.title,
-              pins: resolvedTarget?.pins ?? op.pins!,
-              target: resolvedTarget?.target ?? {
-                kind: "commits",
-                ...op.pins!,
-              },
-              document: [],
-              createdAt: "",
-            }
+          ? createdSnapshot(id, op, resolvedTarget)
           : structuredClone(previous!);
 
       // Overlay state: a degraded read must not persist unavailability.
@@ -1385,6 +1436,40 @@ export class ReviewStore {
 
     return warnings.sort();
   }
+}
+
+/** A new document's first version, before its initial content. Field order
+ * is kept so stored JSON reads as it always has. */
+function createdSnapshot(
+  id: string,
+  op: {
+    title: string;
+    kind?: "scratchpad";
+    pins?: z.infer<typeof pinsSchema>;
+  },
+  resolved: { target: ReviewTarget; pins: Pins } | undefined,
+): Snapshot {
+  const pins = resolved?.pins ?? op.pins;
+
+  if (!pins)
+    return {
+      reviewId: id,
+      version: 0,
+      title: op.title,
+      kind: op.kind,
+      document: [],
+      createdAt: "",
+    };
+
+  return {
+    reviewId: id,
+    version: 0,
+    title: op.title,
+    pins,
+    target: resolved?.target ?? { kind: "commits", ...pins },
+    document: [],
+    createdAt: "",
+  };
 }
 
 export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {

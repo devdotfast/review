@@ -14,7 +14,7 @@ import { ReviewApiClient } from "./client.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError } from "./document.js";
 import { LocalReviewData } from "./local-data";
-import { type ReviewProviders, ReviewStore } from "./store.js";
+import { type ReviewProviders, ReviewStore, SCRATCHPAD_ID } from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
 
@@ -788,6 +788,69 @@ describe("snapshot authoring", () => {
     ).rejects.toThrow(/base-side endpoint needs base pins/);
   });
 
+  it("keeps one scratchpad: made on demand, drawn on at explicit pins only, outside the review lifecycle", async () => {
+    await store.ensureScratchpad();
+    await store.ensureScratchpad();
+    const pad = store.read(SCRATCHPAD_ID);
+    expect(pad).toMatchObject({ kind: "scratchpad", title: "Scratchpad" });
+    expect(pad.pins).toBeUndefined();
+    expect(pad.target).toBeUndefined();
+    expect(store.list()).toMatchObject([
+      { reviewId: SCRATCHPAD_ID, kind: "scratchpad" },
+    ]);
+    await expect(
+      store.execute(
+        request({ type: "create", title: "Another", kind: "scratchpad" }),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+
+    // Nothing to inherit: a reference must name its own pins.
+    await expect(
+      edit(SCRATCHPAD_ID, {
+        type: "insert",
+        content: { type: "code_peek", source: selectSource(source) },
+      }),
+    ).rejects.toThrow(/document has no pins/);
+    const own = { repositoryId: "repo-b", head: "b".repeat(40) };
+    await edit(SCRATCHPAD_ID, {
+      type: "insert",
+      content: {
+        type: "code_peek",
+        source: { ...selectSource(source), pins: own },
+      },
+    });
+    await edit(SCRATCHPAD_ID, {
+      type: "insert",
+      content: {
+        type: "markdown",
+        markdown: "[store](review-source:head/src/store.ts#L1)",
+        pins: own,
+      },
+    });
+
+    const refused = [
+      { type: "delete", reviewId: SCRATCHPAD_ID },
+      { type: "attention", reviewId: SCRATCHPAD_ID, action: "view" },
+      { type: "rename", reviewId: SCRATCHPAD_ID, title: "Notes" },
+      { type: "repin", reviewId: SCRATCHPAD_ID, pins },
+      {
+        type: "set_target",
+        reviewId: SCRATCHPAD_ID,
+        target: { kind: "commits", repositoryId: "repo", head: "h" },
+      },
+    ];
+
+    for (const operation of refused)
+      await expect(store.execute(request(operation))).rejects.toMatchObject({
+        status: 409,
+      });
+    expect(store.read(SCRATCHPAD_ID).version).toBe(2);
+    await store.execute(
+      request({ type: "restore", reviewId: SCRATCHPAD_ID, version: 1 }),
+    );
+    expect(store.read(SCRATCHPAD_ID).document).toHaveLength(1);
+  });
+
   it("serializes edits through async validation and preserves different-field patches", async () => {
     const { reviewId } = await create();
 
@@ -973,13 +1036,21 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     relay.close();
 
-    expect(
-      await callAuthoringTool(
-        client,
-        tools.find((t) => t.name === "review_list")!,
-        {},
-      ),
-    ).toMatchObject([{ reviewId }]);
+    // Listing through the interactive host also makes the one scratchpad.
+    // SAFETY: review_list returns the catalog summaries the store lists.
+    const listed = (await callAuthoringTool(
+      client,
+      tools.find((t) => t.name === "review_list")!,
+      {},
+    )) as { reviewId: string; kind?: string }[];
+
+    const reviewsOnly = (entries: { kind?: string }[]) =>
+      entries.filter((entry) => entry.kind !== "scratchpad");
+
+    expect(reviewsOnly(listed)).toMatchObject([{ reviewId }]);
+    expect(listed).toContainEqual(
+      expect.objectContaining({ reviewId: SCRATCHPAD_ID, kind: "scratchpad" }),
+    );
     await expect(
       callAuthoringTool(client, tools.find((t) => t.name === "review_edit")!, {
         commandId: randomUUID(),
@@ -1000,11 +1071,11 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     ).rejects.toThrow(/start.line/);
     const abort = new AbortController();
     const catalog = client.watch(null, abort.signal);
-    expect((await catalog.next()).value).toMatchObject([
+    expect(reviewsOnly((await catalog.next()).value)).toMatchObject([
       { reviewId, dismissedAt: null },
     ]);
     await post({ type: "attention", reviewId, action: "dismiss" });
-    expect((await catalog.next()).value).toMatchObject([
+    expect(reviewsOnly((await catalog.next()).value)).toMatchObject([
       { reviewId, dismissedAt: expect.any(String) },
     ]);
     await catalog.return(undefined);

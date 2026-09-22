@@ -27,7 +27,11 @@ import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
-const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-batch"] as const;
+const REQUIRED_SKILL_NAMES = [
+  "dev-review",
+  "dev-review-batch",
+  "scratchpad",
+] as const;
 
 // Installed only on machines that capture traces; removed when capture is
 // disabled so agents are not steered toward an unconfigured feature.

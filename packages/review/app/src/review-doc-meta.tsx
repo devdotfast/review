@@ -102,7 +102,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       {stackLayers.length > 1 ? (
         <ReviewStackSelector layers={stackLayers} />
       ) : null}
-      {diff && (
+      {diff && review.pins && (
         <>
           <span>
             {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}

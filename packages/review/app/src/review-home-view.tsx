@@ -130,9 +130,21 @@ export function ReviewHome({
 
   const needle = query.trim();
 
+  // The one scratchpad sits above the reviews, outside their workspaces,
+  // their new-first order and their lifecycle. The filter still finds it.
+  const scratchpad = reviews.find((review) => review.kind === "scratchpad");
+
+  const listed = useMemo(
+    () => reviews.filter((review) => review.kind !== "scratchpad"),
+    [reviews],
+  );
+
+  const scratchpadShown =
+    scratchpad !== undefined && matchesQuery(scratchpad, needle);
+
   const found = useMemo(
-    () => reviews.filter((review) => matchesQuery(review, needle)),
-    [reviews, needle],
+    () => listed.filter((review) => matchesQuery(review, needle)),
+    [listed, needle],
   );
 
   /* New first, then viewed. Dismissed leaves the main list entirely: it is the
@@ -162,7 +174,7 @@ export function ReviewHome({
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
  */
-  if (reviews.length === 0) {
+  if (listed.length === 0) {
     return (
       <WelcomePage
         install={install}
@@ -187,7 +199,7 @@ export function ReviewHome({
           {/* Keyed off the active list, not the whole result: a query that hits
               only dismissed reviews empties the main area, and the collapsed
               Dismissed count alone does not explain why. */}
-          {needle && active.length === 0 ? (
+          {needle && active.length === 0 && !scratchpadShown ? (
             <p className="review-home-search-empty">
               {dismissed.length > 0
                 ? `No active reviews match “${needle}”. Look in Dismissed below.`
@@ -196,6 +208,9 @@ export function ReviewHome({
           ) : null}
           <SearchQueryContext.Provider value={needle}>
             <AttentionActionsContext.Provider value={actions}>
+              {scratchpadShown ? (
+                <ScratchpadCard review={scratchpad} onOpen={onOpen} />
+              ) : null}
               {active.length === 0 ? null : view === "cards" ? (
                 <CardView workspaces={workspaces} onOpen={onOpen} />
               ) : (
@@ -493,6 +508,51 @@ function ReviewCard({
       </button>
       <DismissReviewButton review={review} />
     </div>
+  );
+}
+
+/**
+ * The scratchpad's row: one full-width card in the review card's grammar,
+ * with no status, workspace or dismissal since it has none.
+ */
+function ScratchpadCard({
+  review,
+  onOpen,
+}: {
+  review: ReviewApiSummary;
+  onOpen(review: ReviewApiSummary): void;
+}) {
+  return (
+    <section className="review-home-scratchpad" aria-label="Scratchpad">
+      <button
+        type="button"
+        className="review-home-card review-home-scratchpad-card"
+        onClick={() => onOpen(review)}
+      >
+        <span className="review-home-card-main">
+          <span className="review-home-review-title">
+            <PencilIcon />
+            <MatchedText text={reviewTitle(review)} />
+          </span>
+          <span className="review-home-card-meta">
+            <span>updated {formatRelativeTime(reviewUpdatedAt(review))}</span>
+          </span>
+        </span>
+      </button>
+    </section>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      className="review-home-scratchpad-glyph"
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+    >
+      <path d="M3 13l1-4 7-7 3 3-7 7-4 1z" />
+      <path d="M10 3l3 3" />
+    </svg>
   );
 }
 

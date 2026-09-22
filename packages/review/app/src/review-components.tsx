@@ -261,7 +261,7 @@ function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {
 interface ProsePeekAnchorProps {
   href: string;
   isOpen: boolean;
-  onOpen: () => void;
+  onOpen: (text: string) => void;
   onAlreadyOpen?: () => void;
   className?: string;
   anchorId?: string;
@@ -309,7 +309,7 @@ export function ProsePeekAnchor({
           captureUiEvent(session, "peek_opened", { via: "prose_link" });
         }
 
-        onOpen();
+        onOpen(event.currentTarget.textContent?.trim() ?? "");
         keepAnchorLinkVisible(event.currentTarget);
       }}
     >
@@ -334,10 +334,10 @@ export function AnchorLink({
       href={`#review-anchor-${anchor.id}`}
       anchorId={anchor.id}
       isOpen={peekOpen}
-      onOpen={() => {
+      onOpen={(text) => {
         openPeek({
           kind: "peek",
-          anchor,
+          anchor: { ...anchor, title: text || anchor.title },
           content: { kind: "source", source: anchor.peek },
         });
       }}

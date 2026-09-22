@@ -592,10 +592,16 @@ export function assignFreshIds(
     }
 }
 
+export interface ApplyEditOptions {
+  /** Where a root-level insert with no placement lands: the end by default. */
+  placement?: "first" | "last";
+}
+
 export function applyEdit(
   document: Block[],
   edit: Edit,
   allocate: (prefix: string) => string,
+  options: ApplyEditOptions = {},
 ): Applied {
   adoptFlowUnits(document, allocate);
 
@@ -657,10 +663,14 @@ export function applyEdit(
     // Resolve the destination before detaching, then compute its final position.
     if (from) from.splice(from.indexOf(element), 1);
 
+    // A running log reads newest first, so a root insert with no placement
+    // may lead the document; a move or a unit inside a diagram never does.
     const index =
-      afterId === undefined
-        ? siblings.length
-        : siblings.findIndex((s) => s.id === afterId) + 1;
+      afterId !== undefined
+        ? siblings.findIndex((s) => s.id === afterId) + 1
+        : !parent && !from && options.placement === "first"
+          ? 0
+          : siblings.length;
 
     siblings.splice(index, 0, element);
   };

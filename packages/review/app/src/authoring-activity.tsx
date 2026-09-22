@@ -1,7 +1,11 @@
 import { createContext, useContext, useState } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
+import { AuthoringCursorContext } from "./courier";
+import { CourierFigure } from "./courier-figure";
+import { cursorElement } from "./cursor-element";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
+import { useReviewRoots } from "./review-root-context";
 import { useTooltip } from "./use-tooltip";
 
 import "./authoring-activity.css";
@@ -10,52 +14,94 @@ export const AuthoringActivityContext = createContext<
   ActivitySnapshot | "unknown" | undefined
 >(undefined);
 
-export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
+/**
+ * The top-bar badge: the mini courier and what the agent is doing. Clicking
+ * it takes the reader to the big courier, on the Review surface, and he
+ * jumps so the eye finds him.
+ */
+export function AuthoringActivityBadge({
+  onLocate,
+}: {
+  /** Show the Review surface before scrolling to the courier. */
+  onLocate?(): void;
+}) {
   const activity = useContext(AuthoringActivityContext);
+  const cursor = useContext(AuthoringCursorContext);
+  const roots = useReviewRoots();
 
   const working = activity && activity !== "unknown";
 
-  const focuses = working
-    ? (activity.focuses ?? []).filter(
-        (focus) => !targetId || focus.targetId === targetId,
-      )
-    : [];
+  const focuses = working ? (activity.focuses ?? []) : [];
 
   const description = [
     ...new Set(focuses.map((focus) => focus.description)),
   ].join(" · ");
 
-  const tooltip = useTooltip<HTMLSpanElement>(
+  const locatable = Boolean(cursor && working);
+
+  const tooltip = useTooltip<HTMLElement>(
     working
-      ? description ||
-          "An agent has reported ongoing authoring work. This signal expires if updates stop."
+      ? `${description || "An agent has reported ongoing authoring work. This signal expires if updates stop."}${locatable ? " · Click to go to the courier." : ""}`
       : "Activity updates stopped. This does not mean the agent finished.",
   );
 
-  if (
-    !activity ||
-    (working && !activity.workingCount) ||
-    (targetId && !focuses.length)
-  )
-    return null;
+  const locate = () => {
+    if (!locatable) return;
+    onLocate?.();
+
+    // The Review surface may only be mounting now; measure after it paints.
+    requestAnimationFrame(() => {
+      const article = roots?.articleRef.current;
+
+      if (!article || !cursor) return;
+      const target = cursorElement(article, cursor);
+
+      if (!target) return;
+      target.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      article.querySelector<HTMLButtonElement>(".courier-figure")?.click();
+    });
+  };
+
+  if (!activity || (working && !activity.workingCount)) return null;
+
+  const text = working
+    ? description ||
+      (activity.workingCount > 1
+        ? `${activity.workingCount} agents working…`
+        : "Agent working…")
+    : "Activity unknown";
+
+  const className = "host-authoring-activity";
+
+  if (!locatable)
+    return (
+      <span
+        className={className}
+        data-active={working || undefined}
+        role="status"
+        aria-live="polite"
+        ref={tooltip}
+      >
+        <CourierFigure className="host-authoring-courier" />
+        {text}
+      </span>
+    );
 
   return (
-    <span
-      className={`host-authoring-activity${targetId ? " host-authoring-activity-inline" : ""}`}
-      data-targeted={Boolean(targetId) || undefined}
-      data-active={working || undefined}
-      role="status"
-      aria-live="polite"
+    <button
+      type="button"
+      className={className}
+      data-active
+      data-locatable
+      aria-label={`${text}. Go to the courier.`}
       ref={tooltip}
+      onClick={locate}
     >
-      <span className="host-authoring-activity-dot" aria-hidden="true" />
-      {working
-        ? description ||
-          (activity.workingCount > 1
-            ? `${activity.workingCount} agents working…`
-            : "Agent working…")
-        : "Activity unknown"}
-    </span>
+      <CourierFigure className="host-authoring-courier" />
+      <span role="status" aria-live="polite">
+        {text}
+      </span>
+    </button>
   );
 }
 

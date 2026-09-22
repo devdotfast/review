@@ -26,6 +26,12 @@ import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
 import { AuthoringActivityContext } from "./authoring-activity";
+import {
+  type AuthoringCursor,
+  type CursorMemory,
+  nextCursor,
+} from "./authoring-cursor";
+import { AuthoringCursorContext } from "./courier";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import {
   ReviewSessionProvider,
@@ -83,6 +89,7 @@ export function ApiCanvas({
   const [version, setVersion] = useState(content.version);
   const [coverageRevision, setCoverageRevision] = useState(0);
   const [activity, setActivity] = useState<ActivitySnapshot | "unknown">();
+  const [cursor, setCursor] = useState<AuthoringCursor | null>(null);
   useEffect(() => setVersion(content.version), [content.version]);
   const [data, setData] = useState<ApiDocumentData>();
   const dataRef = useRef(data);
@@ -95,6 +102,8 @@ export function ApiCanvas({
     const loader = createDocumentLoader(client);
     setData(undefined);
     setActivity(undefined);
+    setCursor(null);
+    const cursorMemory: CursorMemory = {};
 
     const show = async (snapshot: Snapshot) => {
       const next = await loader.load(snapshot);
@@ -147,6 +156,7 @@ export function ApiCanvas({
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
+          setCursor((current) => nextCursor(current, cursorMemory, snapshot));
           setCoverageRevision(snapshot.coverageRevision ?? 0);
 
           if (version !== undefined) return;
@@ -172,6 +182,14 @@ export function ApiCanvas({
         },
         (cause) => {
           setActivity("unknown");
+          setCursor((current) =>
+            current
+              ? nextCursor(current, cursorMemory, {
+                  version: cursorMemory.version ?? 0,
+                  activity: "unknown",
+                })
+              : current,
+          );
 
           if (
             cause instanceof ReviewApiError &&
@@ -334,19 +352,23 @@ export function ApiCanvas({
               <AuthoringActivityContext.Provider
                 value={version === undefined ? activity : undefined}
               >
-                <DisplayedReviewVersionContext.Provider
-                  value={data.snapshot.version}
+                <AuthoringCursorContext.Provider
+                  value={version === undefined ? cursor : undefined}
                 >
-                  <MapEnabled.Provider
-                    value={content.softwareMapEnabled === true}
+                  <DisplayedReviewVersionContext.Provider
+                    value={data.snapshot.version}
                   >
-                    <CanvasDocument
-                      data={data}
-                      findHost={findHost}
-                      softwareMapEnabled={content.softwareMapEnabled === true}
-                    />
-                  </MapEnabled.Provider>
-                </DisplayedReviewVersionContext.Provider>
+                    <MapEnabled.Provider
+                      value={content.softwareMapEnabled === true}
+                    >
+                      <CanvasDocument
+                        data={data}
+                        findHost={findHost}
+                        softwareMapEnabled={content.softwareMapEnabled === true}
+                      />
+                    </MapEnabled.Provider>
+                  </DisplayedReviewVersionContext.Provider>
+                </AuthoringCursorContext.Provider>
               </AuthoringActivityContext.Provider>
             </TutorialProvider>
           </ReviewLensesProvider>

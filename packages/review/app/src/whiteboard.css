@@ -226,18 +226,34 @@
 }
 
 /* ---------------------------------------------------------------------------
-   The marker. One blue dot is the frontier; the halo breathes while the agent
-   is writing (study 01, "Frontier"). Nothing else in the chrome moves.
+   The badge. The mini courier says whether an agent is here: he marches
+   while one is, and goes grey and slumps when the stream has dropped.
+   Nothing else in the chrome moves.
    --------------------------------------------------------------------------- */
 .host-authoring-activity {
   gap: 7px;
   height: var(--chrome-control-height);
   margin-inline: 4px;
   padding: 0 10px 0 6px;
+  border: 0;
   border-radius: 999px;
+  background: var(--transparent);
   color: var(--ink-muted);
   font: 500 11px var(--font-mono);
   white-space: nowrap;
+}
+
+button.host-authoring-activity[data-locatable] {
+  cursor: pointer;
+}
+
+button.host-authoring-activity[data-locatable]:hover {
+  background: var(--marker-glow);
+}
+
+button.host-authoring-activity[data-locatable]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .host-authoring-activity[data-active] {
@@ -246,45 +262,29 @@
   font-weight: 600;
 }
 
-.host-authoring-activity-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--ink-faint);
+.host-authoring-courier {
+  color: var(--ink-faint);
+  transform: translateY(2px) rotate(-8deg);
 }
 
-.host-authoring-activity[data-active] .host-authoring-activity-dot {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--marker-glow);
-  animation: wb-breathe 1.4s ease-in-out infinite;
+.host-authoring-activity[data-active] .host-authoring-courier {
+  color: var(--accent);
+  transform: none;
+  animation: courier-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.host-authoring-activity-inline {
-  height: auto;
-  margin: 10px 0;
-  padding: 8px 12px;
-  border-inline-start: 2px solid var(--accent);
-  border-radius: 0 6px 6px 0;
-  background: var(--marker-tint);
-  font-family: var(--font-serif);
-  font-size: 15px;
-  font-style: italic;
-  font-weight: 400;
-  color: var(--ink-muted);
-  white-space: normal;
+.host-authoring-activity[data-active] .courier-leg--left {
+  animation: courier-march-left 480ms ease-in-out infinite;
 }
 
-@keyframes wb-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px var(--marker-glow);
-  }
-  50% {
-    box-shadow: 0 0 0 6px var(--marker-glow);
-  }
+.host-authoring-activity[data-active] .courier-leg--right {
+  animation: courier-march-right 480ms ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .host-authoring-activity[data-active] .host-authoring-activity-dot {
+  .host-authoring-activity[data-active] .host-authoring-courier,
+  .host-authoring-activity[data-active] .courier-leg--left,
+  .host-authoring-activity[data-active] .courier-leg--right {
     animation: none;
   }
 }
@@ -1246,4 +1246,415 @@ button:focus-visible > .review-chevron {
   border-color: var(--accent);
   background-color: var(--accent);
   background-image: var(--check-mark);
+}
+
+/* ---------------------------------------------------------------------------
+   The courier (study 05 "Drawing", section E). One character for the whole
+   board, drawn with the marker: outline on the board color, two dot eyes,
+   two feet. He stands on the top edge of whatever the cursor names, hops to
+   the next (260ms, arc scaled to the distance, capped at 72px, a squash on
+   landing), marches in place while the lease is live and nothing is
+   arriving, sits after three seconds, and hops up and out when the lease
+   ends. Click him and he jumps. courier.tsx measures and moves him; every
+   pose is drawn here. Reduced motion keeps him and drops the hops.
+   --------------------------------------------------------------------------- */
+.courier-figure .courier-shell,
+.host-authoring-courier .courier-shell {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.courier-figure .courier-eye,
+.host-authoring-courier .courier-eye {
+  fill: currentColor;
+}
+
+.courier-figure .courier-leg,
+.host-authoring-courier .courier-leg,
+.courier-figure .courier-lids,
+.host-authoring-courier .courier-lids {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.courier-figure .courier-lids,
+.host-authoring-courier .courier-lids {
+  stroke-width: 1.4;
+  opacity: 0;
+}
+
+.courier-figure .courier-whoosh,
+.host-authoring-courier .courier-whoosh {
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.courier {
+  position: absolute;
+  z-index: 4;
+  width: 32px;
+  height: 39px;
+  margin: -39px 0 0 -16px;
+  color: var(--accent);
+  pointer-events: none;
+  transition:
+    left 260ms linear,
+    top 260ms linear;
+}
+
+.courier[data-state="unknown"] {
+  color: var(--ink-faint);
+}
+
+.courier-figure {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.courier-figure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.courier-arc,
+.courier-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.courier-body {
+  transform-origin: 50% 100%;
+}
+
+.courier-body svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.courier-shadow {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  width: 18px;
+  height: 4px;
+  margin-left: -9px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.18;
+}
+
+.courier-tag {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font: 500 10px var(--font-mono);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.courier-figure:hover .courier-tag,
+.courier-figure:focus-visible .courier-tag {
+  opacity: 1;
+}
+
+/* The hop: the wrapper slides, the arc lifts, the body squashes on landing. */
+.courier[data-motion="hopping"] .courier-arc {
+  animation: courier-hop-arc 260ms ease-out;
+}
+
+.courier[data-motion="hopping"] .courier-body {
+  animation: courier-hop-squash 340ms ease-out;
+}
+
+.courier[data-motion="hopping"] .courier-shadow {
+  animation: courier-hop-shadow 260ms ease-out;
+}
+
+@keyframes courier-hop-arc {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(calc(var(--courier-arc, 40px) * -1));
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-hop-squash {
+  0% {
+    transform: scale(1.1, 0.9);
+  }
+  30% {
+    transform: scale(0.92, 1.1);
+  }
+  76% {
+    transform: scale(0.92, 1.06);
+  }
+  84% {
+    transform: scale(1.14, 0.84);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes courier-hop-shadow {
+  0% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  45% {
+    transform: scale(0.6);
+    opacity: 0.08;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+}
+
+/* The jump, on click: higher, with a wobble and happy eyes. */
+.courier[data-motion="jumping"] .courier-arc {
+  animation: courier-jump-arc 420ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+
+.courier[data-motion="jumping"] .courier-body {
+  animation: courier-jump-squash 520ms ease-out;
+}
+
+.courier[data-motion="jumping"] .courier-lids {
+  animation: courier-happy 520ms steps(1) forwards;
+}
+
+.courier[data-motion="jumping"] .courier-shadow {
+  animation: courier-jump-shadow 420ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+
+@keyframes courier-jump-arc {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-58px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-jump-squash {
+  0% {
+    transform: scale(1.25, 0.7);
+  }
+  18% {
+    transform: scale(0.82, 1.24) rotate(-6deg);
+  }
+  50% {
+    transform: scale(0.9, 1.1) rotate(6deg);
+  }
+  80% {
+    transform: scale(0.9, 1.06) rotate(0);
+  }
+  88% {
+    transform: scale(1.22, 0.76);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes courier-jump-shadow {
+  0% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  50% {
+    transform: scale(0.45);
+    opacity: 0.05;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+}
+
+@keyframes courier-happy {
+  0%,
+  10% {
+    opacity: 0;
+  }
+  12%,
+  70% {
+    opacity: 1;
+  }
+  72%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Idle: march in place, then sit. */
+.courier[data-idle="march"] .courier-leg--left,
+.host-authoring-activity[data-active] .courier-leg--left {
+  animation: courier-march-left 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-leg--right,
+.host-authoring-activity[data-active] .courier-leg--right {
+  animation: courier-march-right 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-body {
+  animation: courier-march-bob 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-whoosh {
+  opacity: 0.5;
+}
+
+@keyframes courier-march-left {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes courier-march-right {
+  0%,
+  100% {
+    transform: translateY(-4px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-march-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(2deg);
+  }
+}
+
+.courier[data-idle="sit"] .courier-leg--left {
+  transform: rotate(-80deg);
+  transform-origin: 9px 24px;
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-leg--right {
+  transform: rotate(80deg);
+  transform-origin: 19px 24px;
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-body {
+  transform: translateY(7px);
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-eyes {
+  animation: courier-doze 5s steps(1) infinite;
+}
+
+@keyframes courier-doze {
+  0%,
+  80% {
+    transform: translateY(0);
+  }
+  81%,
+  100% {
+    transform: translateY(1.5px);
+  }
+}
+
+/* The lease ended: up and out. Unknown: grey and slumped, no motion. */
+.courier[data-motion="leaving"] .courier-arc {
+  animation: courier-leave 420ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes courier-leave {
+  0% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(-260px);
+    opacity: 0;
+  }
+}
+
+.courier[data-state="unknown"] .courier-body {
+  transform: translateY(2px) rotate(-8deg);
+}
+
+/* Arriving: the badge's mini courier drops in when a lease begins. */
+@keyframes courier-arrive {
+  0% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  70% {
+    transform: translateY(2px) scale(1.1, 0.9);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .courier {
+    transition: none;
+  }
+
+  .courier .courier-arc,
+  .courier .courier-body,
+  .courier .courier-shadow,
+  .courier .courier-leg,
+  .courier .courier-eyes,
+  .courier .courier-lids {
+    animation: none !important;
+    transition: none;
+  }
+
+  .courier .courier-tag {
+    opacity: 1;
+  }
 }

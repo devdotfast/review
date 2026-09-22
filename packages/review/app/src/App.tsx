@@ -643,7 +643,9 @@ function ReviewLayoutContent({
                     Source tree ↗
                   </button>
                 )}
-                <AuthoringActivityBadge />
+                <AuthoringActivityBadge
+                  onLocate={() => applyReviewView("review")}
+                />
               </div>
               {!scratchpad && <ShareControl />}
               <button

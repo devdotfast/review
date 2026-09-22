@@ -12,36 +12,9 @@
   overflow-wrap: anywhere;
 }
 
-.host-authoring-activity-dot {
+.host-authoring-courier {
   flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.host-authoring-activity[data-active] .host-authoring-activity-dot {
-  background: var(--accent);
-  animation: host-authoring-pulse 1.4s ease-in-out infinite alternate;
-}
-
-@keyframes host-authoring-pulse {
-  to {
-    opacity: 0.3;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .host-authoring-activity[data-active] .host-authoring-activity-dot {
-    animation: none;
-  }
-}
-
-.host-authoring-activity-inline {
-  display: flex;
-  max-width: none;
-  margin: 8px 0;
-  padding: 8px 12px;
-  border-inline-start: 2px solid var(--accent);
-  color: var(--ink-muted);
+  width: 16px;
+  height: 20px;
+  overflow: visible;
 }

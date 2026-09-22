@@ -504,3 +504,30 @@ it("blocks publishing relative file links and lets the author correct the same d
     markdown: "[source](review-source:head/src/save.ts#L2)",
   });
 });
+
+it("reports a PR's review held by a batch draft, and a batch begin names its review explicitly", async () => {
+  const pullRequestUrl = "https://github.com/devdotfast/review/pull/452";
+
+  const { reviewId } = await a.execute(
+    command({ type: "create", title: "PR", pins, pullRequestUrl }),
+  );
+
+  await draft(a, reviewId);
+
+  expect(
+    await b.execute(
+      command({ type: "create", title: "PR", pins, pullRequestUrl }),
+    ),
+  ).toMatchObject({ created: false, reviewId, ownedBy: "another session" });
+
+  // Batch revises a review only by reviewId; a PR URL alone begins a new one.
+  const separate = await b.executeDraft({
+    type: "begin",
+    title: "Another",
+    pins,
+    pullRequestUrl,
+  });
+
+  expect(separate).toMatchObject({ baseVersion: null });
+  expect(separate).not.toMatchObject({ reviewId });
+});

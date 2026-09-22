@@ -435,6 +435,43 @@ it("opens a created review in Desktop unless the author opts out", async () => {
   expect(opened).toEqual([shownReview.reviewId, quietReview.reviewId]);
 });
 
+it("opens the PR's existing review that create returns instead of a new one", async () => {
+  const opened: string[] = [];
+
+  const app = createReviewApi(local.store, local.data, async ({ reviewId }) => {
+    opened.push(reviewId);
+
+    return { softwareMapEnabled: false };
+  });
+
+  const pullRequestUrl = "https://github.com/devdotfast/review/pull/452";
+
+  const first = await (
+    await postJson(
+      app,
+      "/commands",
+      command({ type: "create", title: "PR", pins, pullRequestUrl }),
+    )
+  ).json();
+
+  const again = await postJson(
+    app,
+    "/commands",
+    command({ type: "create", title: "PR again", pins, pullRequestUrl }),
+  );
+
+  expect(again.status).toBe(200);
+  const body = await again.json();
+  expect(body).toMatchObject({
+    created: false,
+    reviewId: first.reviewId,
+    opened: true,
+  });
+  expect(body.note).toEqual(expect.any(String));
+  expect(Object.keys(body).slice(0, 2)).toEqual(["created", "note"]);
+  expect(opened).toEqual([first.reviewId, first.reviewId]);
+});
+
 it("does not open a created review when Desktop is not attached", async () => {
   const open = vi.fn<OpenDesktop>(async () => ({ softwareMapEnabled: false }));
 

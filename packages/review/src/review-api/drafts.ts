@@ -116,15 +116,20 @@ export class ReviewDrafts {
         .run(row.draft_id);
   }
 
-  /** Called at every interactive/import mutation boundary, including commit. */
-  assertUnlocked(reviewId: string) {
+  /** Whether a live server's batch draft owns the review. */
+  held(reviewId: string): boolean {
     this.discardOrphan(reviewId);
 
-    if (
+    return (
       this.db
         .prepare("SELECT 1 FROM authoring_drafts WHERE review_id=?")
-        .get(reviewId)
-    )
+        .get(reviewId) !== undefined
+    );
+  }
+
+  /** Called at every interactive/import mutation boundary, including commit. */
+  assertUnlocked(reviewId: string) {
+    if (this.held(reviewId))
       throw new ReviewInputError(
         "This review is owned by a batch draft. Commit or abort it, or stop its authoring server, before editing elsewhere.",
         409,

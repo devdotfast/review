@@ -70,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await store.close();
   vi.unstubAllEnvs();
   rmSync(directory, { recursive: true, force: true });
@@ -1266,6 +1267,205 @@ describe("snapshot authoring", () => {
         operation: { type: "rename", reviewId, title: "Different" },
       }),
     ).rejects.toThrow(/already used/);
+  });
+});
+
+describe("create for a pull request", () => {
+  const url = "https://github.com/devdotfast/review/pull/452";
+
+  const createFor = (
+    pullRequestUrl?: string,
+    fields: {
+      pins?: typeof pins;
+      reuseExisting?: boolean;
+      title?: string;
+    } = {},
+  ) =>
+    store.execute(
+      request({
+        type: "create",
+        title: fields.title ?? "PR review",
+        pins: fields.pins ?? pins,
+        pullRequestUrl,
+        ...(fields.reuseExisting !== undefined && {
+          reuseExisting: fields.reuseExisting,
+        }),
+      }),
+    );
+
+  it("returns the PR's existing review, unchanged, instead of making another", async () => {
+    const first = await createFor(url);
+    expect(first).toMatchObject({ created: true });
+    await edit(first.reviewId, {
+      type: "insert",
+      content: { type: "markdown", markdown: "Keep this" },
+    });
+
+    const again = await createFor(
+      url.replace("devdotfast/review", "DevDotFast/Review"),
+      {
+        title: "Ignored title",
+      },
+    );
+
+    expect(again).toMatchObject({
+      created: false,
+      reviewId: first.reviewId,
+      version: 1,
+      target: { kind: "commits", ...pins },
+      headMoved: false,
+    });
+    expect(again.note).toEqual(expect.any(String));
+    expect(again.ownedBy).toBeUndefined();
+    expect(again.otherReviewIds).toBeUndefined();
+    expect(store.list()).toHaveLength(1);
+    expect(store.read(first.reviewId)).toMatchObject({
+      title: "PR review",
+      version: 1,
+      origin: { pullRequestUrl: url },
+    });
+  });
+
+  it("reports a moved head without moving the target", async () => {
+    const { reviewId } = await createFor(url);
+
+    const moved = await createFor(url, { pins: { ...pins, head: "new-head" } });
+
+    expect(moved).toMatchObject({ created: false, reviewId, headMoved: true });
+    expect(moved.note).toMatch(/review_set_target/);
+    expect(store.read(reviewId).pins).toEqual(pins);
+  });
+
+  it("compares a requested target by the head it resolves to", async () => {
+    providers.resolveTarget = vi.fn<
+      NonNullable<ReviewProviders["resolveTarget"]>
+    >(async (target) => ({
+      target,
+      pins: {
+        ...pins,
+        head:
+          target.kind === "commits" && target.head === "main"
+            ? pins.head
+            : "other",
+      },
+    }));
+    const target = { kind: "commits", repositoryId: "repo", head: "main" };
+
+    const { reviewId } = await store.execute(
+      request({ type: "create", title: "PR", target, pullRequestUrl: url }),
+    );
+
+    expect(
+      await store.execute(
+        request({ type: "create", title: "PR", target, pullRequestUrl: url }),
+      ),
+    ).toMatchObject({ created: false, reviewId, headMoved: false });
+    expect(
+      await store.execute(
+        request({
+          type: "create",
+          title: "PR",
+          target: { ...target, head: "feature" },
+          pullRequestUrl: url,
+        }),
+      ),
+    ).toMatchObject({ created: false, reviewId, headMoved: true });
+  });
+
+  it("creates another review on request and then returns the newest, naming the rest", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+
+    const at = (minute: number) =>
+      vi.setSystemTime(new Date(Date.UTC(2026, 8, 22, 12, minute)));
+
+    at(0);
+    const oldest = await createFor(url);
+    at(1);
+    const newer = await createFor(url, { reuseExisting: false });
+
+    expect(newer).toMatchObject({ created: true });
+    expect(newer.reviewId).not.toBe(oldest.reviewId);
+
+    const found = await createFor(url);
+
+    expect(found).toMatchObject({
+      created: false,
+      reviewId: newer.reviewId,
+      otherReviewIds: [oldest.reviewId],
+    });
+
+    // Editing the older review makes it the most recently updated.
+    at(2);
+    await edit(oldest.reviewId, {
+      type: "insert",
+      content: { type: "divider" },
+    });
+    expect(await createFor(url)).toMatchObject({
+      reviewId: oldest.reviewId,
+      otherReviewIds: [newer.reviewId],
+    });
+    expect(store.list()).toHaveLength(2);
+  });
+
+  it("says when another session is authoring the review it returns", async () => {
+    const { reviewId } = await createFor(url);
+    const leaseId = randomUUID();
+    store.activity.update(reviewId, { action: "begin", leaseId });
+
+    const found = await createFor(url);
+
+    expect(found).toMatchObject({
+      created: false,
+      reviewId,
+      ownedBy: "another session",
+    });
+    expect(
+      await store.execute({
+        ...request({ type: "create", title: "PR", pins, pullRequestUrl: url }),
+        leaseId,
+      }),
+    ).not.toHaveProperty("ownedBy");
+  });
+
+  it("replays a found review for a repeated command and rejects a changed one", async () => {
+    const { reviewId } = await createFor(url);
+
+    const repeat = request({
+      type: "create",
+      title: "PR",
+      pins,
+      pullRequestUrl: url,
+    });
+
+    const found = await store.execute(repeat);
+    await edit(reviewId, { type: "insert", content: { type: "divider" } });
+    await store.close();
+    store = new ReviewStore(database, providers);
+
+    expect(await store.execute(repeat)).toEqual(found);
+    await expect(
+      store.execute({
+        ...repeat,
+        operation: { ...repeat.operation, reuseExisting: false },
+      }),
+    ).rejects.toThrow(/already used/);
+    expect(store.list()).toHaveLength(1);
+
+    await store.execute(request({ type: "delete", reviewId }));
+    await expect(store.execute(repeat)).rejects.toThrow(/was deleted/);
+  });
+
+  it("leaves creates without a PR, other PRs and the scratchpad alone", async () => {
+    const first = await createFor(undefined);
+    const second = await createFor(undefined);
+    const otherPr = await createFor(url);
+    const samePrElsewhere = await createFor(url.replace("452", "4520"));
+
+    for (const result of [first, second, otherPr, samePrElsewhere])
+      expect(result).toMatchObject({ created: true });
+    await store.ensureScratchpad();
+    expect(store.read(SCRATCHPAD_ID).kind).toBe("scratchpad");
+    expect(store.list()).toHaveLength(5);
   });
 });
 

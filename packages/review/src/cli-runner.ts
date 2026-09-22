@@ -539,7 +539,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       const installInput: RunInstallInput = {
         targets: selectedTargets,
         env,
-        fff: true,
+        fff: traceCredentialsRequested(options) && options.traces !== false,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,

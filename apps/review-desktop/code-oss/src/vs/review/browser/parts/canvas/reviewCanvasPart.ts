@@ -55,6 +55,7 @@ import type {
 	ReviewCanvasModule,
 	ReviewCanvasOnboarding,
 	ReviewCanvasSettingsContent,
+	ReviewCanvasSetupActions,
 	ReviewCanvasTutorialBridge,
 	ReviewCliInstallStatus,
 	ReviewKeymapChoice,
@@ -476,6 +477,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						setup,
 						// Home shows the Welcome rail while the list is empty.
 						install,
+						setupActions: this.setupActions(),
 						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
 					},
@@ -509,6 +511,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{
 						kind: "welcome",
 						install,
+						setupActions: this.setupActions(),
 						close: () => void this.group.closeEditor(input),
 						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
@@ -630,40 +633,47 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// The canvas uses normal CSS flow and fills the editor pane.
 	}
 
-	/**
-	 * Install status for the Agent Setup page. The page must render even when
-	 * the status endpoint fails (an older server, a race during startup), so a
-	 * failure yields no install content rather than an error state.
-	 */
+	private setupActions(): ReviewCanvasSetupActions {
+		return {
+			load: () => this.loadInstallContent(true),
+			installCli: async () => { await this.commandService.executeCommand("review.installCliInPath"); },
+		};
+	}
+
 	private async resolveInstallContent(): Promise<ReviewCanvasInstallContent | undefined> {
 		try {
-			const status = await this.desktopConnection.getCliInstallStatus();
-			return {
-				status,
-				apply: async (request) => {
-					await this.desktopConnection.applyCliInstall(request);
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				remove: async (request) => {
-					await this.desktopConnection.removeCliInstall(request);
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				decline: async () => {
-					await this.desktopConnection.declineCliInstall();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				skip: async () => {
-					await this.desktopConnection.skipCliInstallPrompts();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				enablePrompts: async () => {
-					await this.desktopConnection.resetCliInstallPrompts();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-			};
-		} catch {
+			return await this.loadInstallContent();
+		} catch (error) {
+			this.logService.warn("Review agent setup status failed", error);
 			return undefined;
 		}
+	}
+
+	private async loadInstallContent(refresh = false): Promise<ReviewCanvasInstallContent> {
+		const status = await this.desktopConnection.getCliInstallStatus(refresh);
+		return {
+			status,
+			apply: async (request) => {
+				await this.desktopConnection.applyCliInstall(request);
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			remove: async (request) => {
+				await this.desktopConnection.removeCliInstall(request);
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			decline: async () => {
+				await this.desktopConnection.declineCliInstall();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			skip: async () => {
+				await this.desktopConnection.skipCliInstallPrompts();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			enablePrompts: async () => {
+				await this.desktopConnection.resetCliInstallPrompts();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+		};
 	}
 
 	private openTutorial(): void {

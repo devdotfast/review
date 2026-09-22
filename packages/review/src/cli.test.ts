@@ -37,6 +37,75 @@ import {
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Review CLI", () => {
+  it.each([[], ["codex"]])(
+    "installs skills and PATH without agent executables: %j",
+    async (...targets) => {
+      const homeDir = await mkdtemp(
+        path.join(os.tmpdir(), "review-no-agents-"),
+      );
+
+      const cliPath = path.join(homeDir, "cli.js");
+      const discoveryDir = path.join(homeDir, ".dev", "review-desktop");
+
+      const env = {
+        HOME: homeDir,
+        PATH: "/usr/bin:/bin",
+        SHELL: "/bin/zsh",
+        DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      };
+
+      try {
+        await mkdir(discoveryDir, { recursive: true });
+        await writeFile(cliPath, "// fixture CLI\n");
+        await writeFile(
+          path.join(discoveryDir, "server.json"),
+          JSON.stringify({
+            version: 3,
+            instanceId: "test-instance",
+            url: "http://127.0.0.1:43819",
+            appPid: 100,
+            serverPid: 101,
+            token: "test-token",
+            startedAt: 1,
+            cliPath,
+            cliRuntimePath: process.execPath,
+          }),
+        );
+        const stderr = outputStream();
+
+        const code = await runReviewCli({
+          argv: ["install", ...targets],
+          cwd: homeDir,
+          env,
+          stdout: outputStream(),
+          stderr,
+          runtime: {
+            runInstall: (input) =>
+              runInstallActual({ ...input, homeDir, cwd: homeDir }),
+            installReviewCommand: (input) =>
+              installReviewCommandActual({ ...input, homeDir }),
+          },
+        });
+
+        expect(code).toBe(0);
+        expect(
+          await readFile(
+            path.join(homeDir, ".agents/skills/dev-review/SKILL.md"),
+            "utf8",
+          ),
+        ).toContain("dev-review");
+        expect(await readFile(pathShimPath(homeDir), "utf8")).toContain(
+          cliPath,
+        );
+        expect(
+          await readFile(path.join(homeDir, ".zprofile"), "utf8"),
+        ).toContain(".local/bin");
+      } finally {
+        await rm(homeDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("routes own-upload status filters without requesting trace content", async () => {
     const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
 

@@ -63,7 +63,7 @@ export interface IReviewDesktopConnectionService {
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
 	deleteTutorial(): Promise<void>;
-	getCliInstallStatus(): Promise<ReviewCliInstallStatus>;
+	getCliInstallStatus(refresh?: boolean): Promise<ReviewCliInstallStatus>;
 	applyCliInstall(request: {
 		autoUpdate?: boolean;
 		targets: readonly ReviewCliInstallTarget[];
@@ -323,17 +323,15 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		throw new Error(typeof payload.error === "string" ? payload.error : `${what} returned ${response.status}.`);
 	}
 
-	async getCliInstallStatus(): Promise<ReviewCliInstallStatus> {
+	async getCliInstallStatus(refresh = false): Promise<ReviewCliInstallStatus> {
 		await this.initialize();
-		if (this.cliInstallStatus) return this.cliInstallStatus;
+		if (!refresh && this.cliInstallStatus) return this.cliInstallStatus;
 		this.cliInstallStatusPromise ??= (async () => {
 			const response = await fetch(`${this.serverUrl}/install/status`, {
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			});
-			if (!response.ok) {
-				throw new Error(`Review install status returned ${response.status}.`);
-			}
+			await this.requireOk(response, "Review install status");
 			const status = parseReviewCliInstallStatus(await response.json());
 			this.cliInstallStatus = status;
 			return status;

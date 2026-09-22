@@ -620,6 +620,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   )
     .option("--review <id>", "Review ID")
     .option("--version <number>", "Saved version to share")
+    .option("--preview", "Open the share link in Review Preview by default")
     .option(
       "--request-id <uuid>",
       "Reuse this ID when retrying the same immutable upload",
@@ -629,6 +630,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         review?: string;
         version?: string;
         requestId?: string;
+        preview?: boolean;
         json?: boolean;
       }) => {
         const { runShareCli } = await import("./sharing/cli.js");

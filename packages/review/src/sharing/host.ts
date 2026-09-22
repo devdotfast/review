@@ -242,7 +242,19 @@ export function mountSharingPublisher(
         if (!result.ok) throw result.error;
       });
 
-      return context.json({ ...result, version: snapshot.version });
+      const url = new URL(result.url);
+
+      if (
+        process.env.DEV_FAST_REVIEW_APP_URL_PROTOCOL ===
+        "dev-fast-review-preview"
+      )
+        url.searchParams.set("app", "preview");
+
+      return context.json({
+        ...result,
+        url: url.href,
+        version: snapshot.version,
+      });
     } catch (error) {
       if (error instanceof SharePreflightError)
         return context.json({ error: error.message }, 422);

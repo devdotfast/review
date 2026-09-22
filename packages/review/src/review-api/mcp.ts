@@ -1,6 +1,5 @@
 import type { Readable, Writable } from "node:stream";
 
-import { isStringValue } from "@dev.fast/json";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -8,7 +7,11 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
+import {
+  type AuthoringTool,
+  callAuthoringTool,
+  toolResultText,
+} from "./agent-client.js";
 import type { ReviewApiClient } from "./client.js";
 
 export async function serveReviewMcp(
@@ -82,10 +85,7 @@ export async function serveReviewMcp(
         content: [
           {
             type: "text",
-            text:
-              tool.name === "review_get" && isStringValue(result)
-                ? result
-                : JSON.stringify(result),
+            text: toolResultText(tool, result),
           },
         ],
       };

@@ -69,7 +69,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/file?side=head&file=src/app.ts` | Read current target source; version selects authored content; live source always follows the checkout                   |
 | `GET /:id/tree?path=src&side=head` | Immediate target directory entries; path defaults to root, side to head; optional version/commit |
 | `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version |
-| `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
+| `GET /:id/diff?paths=a&paths=dir&format=patch` | Changed-file summaries (JSON); `format=patch` returns numbered plain-text patches. `paths` repeats as a pathspec; also `context`, `maxBytes`, version and commit |
 
 Example request:
 
@@ -77,6 +77,30 @@ Example request:
 `review api review_get '{"reviewId":"…","full":true}'` prints it without JSON
 escaping. Use `format:"json"` (or CLI `--json`) when raw objects are needed.
 The canvas continues to use the JSON snapshot routes above.
+
+`review_diff` reads a review's changes the way `git diff` does: `paths` is the
+pathspec (files or directories, matching either side of a rename; omitted means
+every changed file) and `format` chooses the reply. `format:"files"` (the
+default) returns `[{path, previousPath?, status, additions, deletions}]`.
+`format:"patch"` returns `text/plain`, which MCP and `review api` pass through
+unescaped: each file keeps its `diff --git`, mode, rename and `@@` lines, drops
+`index`/`---`/`+++`, and prefixes every hunk line with its base and head line
+numbers:
+
+```
+diff --git a/x.ts b/x.ts
+@@ -95,6 +96,27 @@
+ 95  96          409,
+     99 +   extend(reviewId: string, leaseId?: string): boolean {
+120     -   old line
+```
+
+`context` sets context lines (like `-U<n>`). Whole files are returned in patch
+order up to `maxBytes` (default 40000); the rest are listed in a closing
+`[N more files over the …-byte budget: …. Fetch them with paths:[…], format:"patch".]`
+line. A first file larger than the budget is cut at a line boundary with a
+marker, so the budget holds and each call makes progress. Legacy `file` is
+`paths:[file], format:"patch"` and cannot be combined with either.
 
 ```json
 {

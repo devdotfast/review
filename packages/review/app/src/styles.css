@@ -1123,40 +1123,16 @@ button {
   min-width: 0;
 }
 
-/* The scratchpad: one thin row above the workspaces, title left and the
-   update time right, both centered. Specific enough to beat the card height
-   the restyle layer sets. */
+/* The scratchpad's group sits last, with the workspace groups' spacing. */
 .review-home-scratchpad {
-  margin-top: 14px;
-}
-
-.review-home-scratchpad .review-home-scratchpad-card {
-  height: 40px;
-  min-height: 0;
-  padding: 0 14px;
-  justify-content: center;
-}
-
-.review-home-scratchpad .review-home-scratchpad-card .review-home-card-main {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  padding-top: 14px;
+  margin-bottom: 16px;
 }
 
 .review-home-scratchpad .review-home-scratchpad-card .review-home-review-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  line-height: 20px;
-  white-space: nowrap;
-}
-
-.review-home-scratchpad .review-home-scratchpad-card .review-home-card-meta {
-  flex-wrap: nowrap;
-  align-items: center;
-  line-height: 20px;
-  white-space: nowrap;
 }
 
 .review-home-delete {

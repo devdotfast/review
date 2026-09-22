@@ -148,7 +148,7 @@ describe("ReviewHome", () => {
     ).toEqual(["Unread dev", "Newest dev", "Old dev", "Fresh other"]);
   });
 
-  it("keeps the scratchpad above the reviews and out of their workspaces", async () => {
+  it("puts the scratchpad first, above the reviews and out of their workspaces", async () => {
     const {
       pins: _pins,
       repositoryPath: _path,
@@ -159,7 +159,11 @@ describe("ReviewHome", () => {
       repositoryName: "",
     });
 
-    const pad: ReviewApiSummary = { ...base, kind: "scratchpad" };
+    const pad: ReviewApiSummary = {
+      ...base,
+      kind: "scratchpad",
+      contents: { blocks: 6, diagrams: 2 },
+    };
 
     const review = summary({ reviewId: uuid(1), title: "A review" });
     const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
@@ -171,13 +175,17 @@ describe("ReviewHome", () => {
       (button) => button.textContent ?? "",
     );
 
-    expect(
-      labels.findIndex((text) => text.includes("Scratchpad")),
-    ).toBeLessThan(labels.findIndex((text) => text.includes("A review")));
+    const padIndex = labels.findIndex((text) => text.includes("Scratchpad"));
+    expect(padIndex).toBeGreaterThanOrEqual(0);
+    expect(padIndex).toBeLessThan(
+      labels.findIndex((text) => text.includes("A review")),
+    );
     expect(container.querySelectorAll(".review-home-workspace")).toHaveLength(
       1,
     );
     expect(container.textContent).not.toContain("Dismiss Scratchpad");
+    expect(container.textContent).toContain("6 blocks");
+    expect(container.textContent).toContain("2 diagrams");
 
     const button = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Scratchpad"),

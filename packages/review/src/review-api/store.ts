@@ -31,6 +31,7 @@ import {
   editSchema,
   elements,
   explicitPins,
+  isUnit,
   pinsSchema,
   resourceReferences,
   reviewTargetSchema,
@@ -44,6 +45,14 @@ const reviewId = z.string().min(1);
 
 /** There is one scratchpad. Its id is fixed so a skill can name it. */
 export const SCRATCHPAD_ID = SCRATCHPAD_REVIEW_ID;
+
+const DIAGRAM_TYPES = new Set([
+  "sequence",
+  "flow_diagram",
+  "call_stack_diff",
+  "database_lens",
+  "software_map",
+]);
 
 export const SCRATCHPAD_TITLE = "Scratchpad";
 
@@ -724,7 +733,7 @@ export class ReviewStore {
         )
           summary.pins = live.pins;
 
-        return {
+        const listed: ReviewApiSummary = {
           ...summary,
           repositoryPath: row.repository_path
             ? String(row.repository_path)
@@ -738,7 +747,23 @@ export class ReviewStore {
           viewedAt: row.viewed_at ? String(row.viewed_at) : null,
           dismissedAt: row.dismissed_at ? String(row.dismissed_at) : null,
         };
+
+        if (summary.kind === "scratchpad")
+          listed.contents = this.scratchpadContents();
+
+        return listed;
       });
+  }
+  /** What the pad holds, for its Home card: blocks, and the diagrams among them. */
+  private scratchpadContents(): NonNullable<ReviewApiSummary["contents"]> {
+    const blocks = elements(this.read(SCRATCHPAD_ID).document).filter(
+      (element) => !isUnit(element),
+    );
+
+    return {
+      blocks: blocks.length,
+      diagrams: blocks.filter((block) => DIAGRAM_TYPES.has(block.type)).length,
+    };
   }
   /** The one scratchpad, made on first use. The fixed command id makes a
    * repeat, even from another host on the same home, find its receipt. */

@@ -130,7 +130,7 @@ export function ReviewHome({
 
   const needle = query.trim();
 
-  // The one scratchpad sits above the reviews, outside their workspaces,
+  // The one scratchpad is the last group on Home, outside the workspaces,
   // their new-first order and their lifecycle. The filter still finds it.
   const scratchpad = reviews.find((review) => review.kind === "scratchpad");
 
@@ -215,7 +215,7 @@ export function ReviewHome({
           <SearchQueryContext.Provider value={needle}>
             <AttentionActionsContext.Provider value={actions}>
               {scratchpadShown ? (
-                <ScratchpadCard review={scratchpad} onOpen={onOpen} />
+                <ScratchpadGroup review={scratchpad} onOpen={onOpen} />
               ) : null}
               {active.length === 0 ? null : view === "cards" ? (
                 <CardView workspaces={workspaces} onOpen={onOpen} />
@@ -518,33 +518,48 @@ function ReviewCard({
 }
 
 /**
- * The scratchpad's row: one full-width card in the review card's grammar,
- * with no status, workspace or dismissal since it has none.
+ * The scratchpad's own group, last on Home: a header in the workspace
+ * header's grammar, then one card in the review card's grammar. No status,
+ * workspace or dismissal, since it has none.
  */
-function ScratchpadCard({
+function ScratchpadGroup({
   review,
   onOpen,
 }: {
   review: ReviewApiSummary;
   onOpen(review: ReviewApiSummary): void;
 }) {
+  const contents = review.contents;
+
   return (
     <section className="review-home-scratchpad" aria-label="Scratchpad">
-      <button
-        type="button"
-        className="review-home-card review-home-scratchpad-card"
-        onClick={() => onOpen(review)}
-      >
-        <span className="review-home-card-main">
-          <span className="review-home-review-title">
-            <PencilIcon />
-            <MatchedText text={reviewTitle(review)} />
-          </span>
-          <span className="review-home-card-meta">
-            <span>updated {formatRelativeTime(reviewUpdatedAt(review))}</span>
-          </span>
-        </span>
-      </button>
+      <div className="review-home-cards">
+        <div className="review-home-card-shell">
+          <button
+            type="button"
+            className="review-home-card review-home-scratchpad-card"
+            onClick={() => onOpen(review)}
+          >
+            <span className="review-home-card-main">
+              <span className="review-home-review-title">
+                <PencilIcon />
+                <MatchedText text={reviewTitle(review)} />
+              </span>
+              <span className="review-home-card-meta">
+                {contents ? (
+                  <>
+                    <span>{countLabel(contents.blocks, "block")}</span>
+                    <span>{countLabel(contents.diagrams, "diagram")}</span>
+                  </>
+                ) : null}
+                <span>
+                  updated {formatRelativeTime(reviewUpdatedAt(review))}
+                </span>
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

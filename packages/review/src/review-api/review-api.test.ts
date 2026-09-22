@@ -752,6 +752,55 @@ describe("snapshot authoring", () => {
     });
     await store.execute(request({ type: "rename", reviewId, title: "Leases" }));
     expect(store.read(reviewId).lastEdit).toBeUndefined();
+
+    // A node can arrive with the edge that attaches it, in one version.
+    const sweeper = await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      content: {
+        type: "flow_node",
+        key: "sweeper",
+        label: "Sweeper",
+        attachments: [],
+        link: { from: "sup", label: "expires", style: "dashed" },
+      },
+    });
+
+    expect(value().nodes.at(-1)).toMatchObject({
+      id: sweeper.targetId,
+      key: "sweeper",
+    });
+    expect(value().nodes.at(-1)).not.toHaveProperty("link");
+    expect(value().edges).toMatchObject([
+      { from: "sup", to: "sweeper", label: "expires", style: "dashed" },
+    ]);
+    expect(store.read(reviewId).lastEdit).toEqual({
+      type: "insert",
+      targetId: sweeper.targetId,
+      blockId: diagramId,
+      unit: "flow_node",
+      linkId: value().edges[0]!.id,
+    });
+    await expect(
+      edit(reviewId, {
+        type: "insert",
+        parentId: diagramId,
+        content: {
+          type: "flow_node",
+          key: "both",
+          label: "Both",
+          attachments: [],
+          link: { from: "sup", to: "sweeper" },
+        },
+      }),
+    ).rejects.toThrow(/exactly one of from or to/);
+    await expect(
+      edit(reviewId, {
+        type: "update",
+        targetId: sweeper.targetId,
+        changes: { link: { from: "session" } },
+      }),
+    ).rejects.toThrow(/only comes with a new node/);
   });
 
   it("moves blocks in both directions and between containers without duplicating them", async () => {

@@ -21,6 +21,9 @@ export interface DrawStep {
   phase: MotionPhase | null;
   /** Infinity holds the step until the next arrival. */
   ms: number;
+  /** The element this step draws when it is not the cursor's target: the
+   * edge a new node arrived with. */
+  target?: string;
 }
 
 export interface DrawEntry {
@@ -65,6 +68,9 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
         return [
           { phase: "outline", ms: 420 },
           { phase: "fill", ms: 330 },
+          ...(edit.linkId
+            ? [{ phase: "outline" as const, ms: 450, target: edit.linkId }]
+            : []),
         ];
 
       if (edit.unit === "flow_edge") return [{ phase: "outline", ms: 450 }];
@@ -224,21 +230,34 @@ export function standingCursor(state: DrawState): AuthoringCursor | null {
   return state.head?.cursor ?? state.standing;
 }
 
-/** Every element's phase: pending inserts wait unseen, the head is drawn. */
+/** Every element's phase: pending inserts wait unseen (a node's edge with
+ * it), the head is drawn one step at a time. */
 export function phases(state: DrawState): Map<string, MotionPhase> {
   const map = new Map<string, MotionPhase>();
 
   for (const entry of state.pending)
-    if (isUnitInsert(entry) || entry.cursor.edit?.type === "insert")
+    if (isUnitInsert(entry) || entry.cursor.edit?.type === "insert") {
       map.set(entry.cursor.targetId, "queued");
+
+      if (entry.cursor.edit?.linkId)
+        map.set(entry.cursor.edit.linkId, "queued");
+    }
 
   const head = state.head;
 
   if (head) {
-    const phase = head.steps[head.index]?.phase;
+    const step = head.steps[head.index];
+    const linkId = head.cursor.edit?.linkId;
 
-    if (phase)
-      map.set(head.whole ? head.cursor.blockId : head.cursor.targetId, phase);
+    // The edge waits, unseen, until its own step.
+    if (linkId && step?.target !== linkId) map.set(linkId, "queued");
+
+    if (step?.phase)
+      map.set(
+        step.target ??
+          (head.whole ? head.cursor.blockId : head.cursor.targetId),
+        step.phase,
+      );
   }
 
   return map;

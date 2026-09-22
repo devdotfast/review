@@ -108,6 +108,39 @@ describe("draw queue", () => {
     expect(standingCursor(state)?.targetId).toBe("diagram-1");
   });
 
+  it("draws a node that came with its edge as node, then edge", () => {
+    const linked: AuthoringCursor = {
+      targetId: "node-3",
+      blockId: "diagram-1",
+      source: "edit",
+      edit: {
+        type: "insert",
+        targetId: "node-3",
+        blockId: "diagram-1",
+        unit: "flow_node",
+        linkId: "edge-4",
+      },
+      seq: ++seq,
+    };
+
+    let state = arrive(EMPTY_QUEUE, node("node-1"), 0);
+    state = arrive(state, linked, 0);
+    expect(phases(state).get("node-3")).toBe("queued");
+    expect(phases(state).get("edge-4")).toBe("queued");
+
+    state = tick(state, 750);
+    expect(phases(state).get("node-3")).toBe("outline");
+    expect(phases(state).get("edge-4")).toBe("queued");
+
+    state = tick(state, 750 + 420 + 330);
+    expect(phases(state).get("node-3")).toBeUndefined();
+    expect(phases(state).get("edge-4")).toBe("outline");
+    expect(standingCursor(state)?.targetId).toBe("node-3");
+
+    state = tick(state, 750 + 420 + 330 + 450);
+    expect(phases(state).size).toBe(0);
+  });
+
   it("erases a removed block on the board, and only visits a removed unit", () => {
     const removed = (id: string, unit?: "flow_node"): AuthoringCursor => ({
       targetId: id,

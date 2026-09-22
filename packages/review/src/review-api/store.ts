@@ -1011,16 +1011,18 @@ export class ReviewStore {
           snapshot = this.read(id, op.version);
           delete snapshot.lastEdit;
           break;
-        case "edit":
-          targetId = applyEdit(
+        case "edit": {
+          const applied = applyEdit(
             snapshot.document,
             op.edit,
             (prefix) => `${prefix}-${++nextId}`,
           );
 
+          targetId = applied.targetId;
+
           snapshot.lastEdit = summarizeEdit(
             op.edit,
-            targetId,
+            applied,
             previous!.document,
             snapshot.document,
           );
@@ -1047,6 +1049,7 @@ export class ReviewStore {
           }
 
           break;
+        }
       }
 
       if (

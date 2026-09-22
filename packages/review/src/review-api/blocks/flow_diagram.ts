@@ -33,6 +33,22 @@ export const flowEdgeSchema = z.strictObject({
   style: z.enum(["solid", "dashed"]).optional(),
 });
 
+/** The edge a new node arrives with: `from` a node already drawn to this
+ * one, or from this one `to` a node already drawn. Insert-time only; the
+ * server stores it as an ordinary edge. */
+export const flowLinkSchema = z.strictObject({
+  from: label.optional(),
+  to: label.optional(),
+  label: z.string().optional(),
+  style: z.enum(["solid", "dashed"]).optional(),
+});
+
+export const flowNodeInsertSchema = flowNodeSchema.extend({
+  link: flowLinkSchema.optional(),
+});
+
+export type FlowLink = z.infer<typeof flowLinkSchema>;
+
 export const flowDiagramSchema = defineBlock("flow_diagram", {
   title: label,
   description: z.string().optional(),

@@ -50,7 +50,7 @@ export async function run(ctx) {
 
   const canvas = page.locator(".review-canvas-root [data-review-api]");
 
-  const views = page.locator('[aria-label="Review views"]');
+  const views = page.locator('[aria-label="Session views"]');
 
   const viewLabels = () =>
     views
@@ -70,7 +70,7 @@ export async function run(ctx) {
 
   // A two-commit range offers Commits and Diff, Map needs a software map this review has none of, Trace needs traces.
   const offered = [
-    "Review",
+    "Session",
     "Commits",
     "Diff",
     ...(traces.sessions.length > 0 ? ["Trace"] : []),
@@ -82,7 +82,7 @@ export async function run(ctx) {
   );
 
   // Review goes last so the reader ends on the document the rest of the journey reads.
-  for (const label of [...offered.slice(1), "Review"]) {
+  for (const label of [...offered.slice(1), "Session"]) {
     const button = views.locator(`button[aria-label="${label}"]`);
 
     await button.click();
@@ -94,7 +94,7 @@ export async function run(ctx) {
 
   ctx.check("all offered review views activate");
 
-  const find = page.locator('[role="search"][aria-label="Find in Review"]');
+  const find = page.locator('[role="search"][aria-label="Find in session"]');
 
   const input = find.locator('[aria-label="Find"]');
 
@@ -168,7 +168,9 @@ export async function run(ctx) {
 
   await input.press("Escape");
   await find.waitFor({ state: "hidden" });
-  ctx.check("find handles plain, whole-word, regex and invalid regex, and wraps");
+  ctx.check(
+    "find handles plain, whole-word, regex and invalid regex, and wraps",
+  );
 
   const toc = page.locator("nav#review-toc");
 
@@ -276,7 +278,9 @@ export async function run(ctx) {
     .getByText("You are viewing an older version of this review.")
     .waitFor();
   await canvas.getByRole("heading", { name: TITLE, exact: true }).waitFor();
-  await canvas.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  await canvas
+    .getByRole("heading", { name: "Overview", exact: true })
+    .waitFor();
   await banner.getByRole("button", { name: "Back to latest" }).click();
   await banner.waitFor({ state: "hidden" });
   await canvas.getByRole("heading", { name: RENAMED, exact: true }).waitFor();

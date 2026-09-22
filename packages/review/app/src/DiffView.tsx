@@ -372,7 +372,9 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
               );
             })}
             {lenses.progress && !lenses.diagrams.length && (
-              <p className="lens-diagram-note">No lenses in this review yet.</p>
+              <p className="lens-diagram-note">
+                No lenses in this session yet.
+              </p>
             )}
           </div>
           <div

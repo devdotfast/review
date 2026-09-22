@@ -72,7 +72,7 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		lifecycleService.onWillShutdown((event) => {
 			event.join(this.flush(), {
 				id: "reviewTelemetryService.flush",
-				label: "Sending Review telemetry",
+				label: "Sending Whiteboard telemetry",
 			});
 		});
 	}

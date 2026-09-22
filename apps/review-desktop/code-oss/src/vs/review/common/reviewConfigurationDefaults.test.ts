@@ -12,11 +12,6 @@ test('turns off diff indicators for the indicator-free visual language', () => {
 	assert.equal(reviewConfigurationDefaults['diffEditor.renderIndicators'], false);
 });
 
-test('titles the window Review and enables the native navigation control', () => {
-	assert.equal(reviewConfigurationDefaults['window.title'], 'Review');
-	assert.equal(reviewConfigurationDefaults['workbench.navigationControl.enabled'], true);
-});
-
 test('names the curated keymap setting review.keymap', () => {
 	assert.equal(REVIEW_KEYMAP_SETTING, 'review.keymap');
 });

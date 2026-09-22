@@ -146,11 +146,11 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installs the Review skills and <code>review</code> command. For Codex
-        and Claude Code, it also connects the Review MCP tools. App updates
-        refresh this setup automatically. Generated skills are replaced; custom
-        MCP settings are left alone. Restart your agent or reconnect its MCP
-        server after setup, and start a new session to load updated skills.
+        Installs the Whiteboard skills and <code>whiteboard</code> command. For
+        Codex and Claude Code, it also connects the Whiteboard MCP tools. App
+        updates refresh this setup automatically. Generated skills are replaced;
+        custom MCP settings are left alone. Restart your agent or reconnect its
+        MCP server after setup, and start a new session to load updated skills.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>
@@ -170,7 +170,7 @@ export function AgentSetupCard({
         .map((item) => (
           <p className="review-agent-setup-error" key={item.target}>
             {item.error ??
-              `${TARGET_LABELS[item.target]} already has custom Review MCP settings. Remove that entry in your agent's settings, then reinstall here to let Review manage it.`}
+              `${TARGET_LABELS[item.target]} already has custom Whiteboard MCP settings. Remove that entry in your agent's settings, then reinstall here to let Whiteboard manage it.`}
           </p>
         ))}
     </section>

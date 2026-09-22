@@ -108,7 +108,7 @@ describe("BugReportControl", () => {
   it("maps the Review checkbox to both wire flags", async () => {
     await renderAndOpen();
 
-    await act(async () => checkbox("Review").click());
+    await act(async () => checkbox("Session").click());
     await act(async () => sendButton().click());
 
     expect(reportBody()).toMatchObject({

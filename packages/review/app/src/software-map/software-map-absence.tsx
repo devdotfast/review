@@ -38,7 +38,7 @@ export function SoftwareMapUnavailable({
           components in this repo.
         </p>
         <p>
-          Author one with <code>review map</code>.
+          Author one with <code>whiteboard map</code>.
         </p>
         <p>The rest of the document works without it.</p>
       </div>

@@ -51,9 +51,9 @@ export async function run(ctx) {
   await ctx.page.keyboard.press("F1");
   await ctx.page
     .locator(".quick-input-widget input")
-    .fill(">Review: Open Tutorial");
+    .fill(">Whiteboard: Open Tutorial");
   await ctx.page
-    .getByRole("option", { name: /Review: Open Tutorial/ })
+    .getByRole("option", { name: /Whiteboard: Open Tutorial/ })
     .click();
 
   const page = await apiCanvasFor(TITLE);
@@ -83,7 +83,7 @@ export async function run(ctx) {
   );
 
   const viewTab = (label) =>
-    page.locator(`[aria-label="Review views"] button[aria-label="${label}"]`);
+    page.locator(`[aria-label="Session views"] button[aria-label="${label}"]`);
 
   await guide.waitFor();
 
@@ -152,7 +152,7 @@ export async function run(ctx) {
   await waitChecked(ctx, "openCommits");
   await page.locator(".review-commit-open").first().click();
   await waitChecked(ctx, "openDiff");
-  await viewTab("Review").click();
+  await viewTab("Session").click();
 
   // The two `external` steps complete when the tour overlay mounts, not when the reader steps through it.
   await canvas
@@ -167,7 +167,7 @@ export async function run(ctx) {
 
   await viewTab("Map (Experimental)").click();
   await waitChecked(ctx, "openMap");
-  await viewTab("Review").click();
+  await viewTab("Session").click();
 
   await canvas
     .locator(

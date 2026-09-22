@@ -48,7 +48,7 @@ export const reviewConfigurationDefaults = {
 	'workbench.startupEditor': 'none',
 	'workbench.activityBar.location': 'hidden',
 	'workbench.statusBar.visible': false,
-	'window.title': 'Review',
+	'window.title': 'Whiteboard',
 	'window.commandCenter': false,
 	'workbench.navigationControl.enabled': true,
 	'window.menuBarVisibility': 'hidden',

@@ -191,7 +191,7 @@ class ReviewExplorerRenderer extends Disposable implements ITreeRenderer<IFileSt
 }
 
 const reviewExplorerAccessibilityProvider: IListAccessibilityProvider<IFileStat> = {
-	getWidgetAriaLabel: () => localize("review.explorer.ariaLabel", "Review Files"),
+	getWidgetAriaLabel: () => localize("review.explorer.ariaLabel", "Session files"),
 	getAriaLabel: (element: IFileStat) => basename(element.resource),
 };
 

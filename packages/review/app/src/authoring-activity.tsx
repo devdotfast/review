@@ -118,7 +118,7 @@ export function AuthoringActivityBadge({
 export function ReviewSurfaceLabel({
   hasContent,
   active,
-  label = "Review",
+  label = "Session",
 }: {
   hasContent: boolean;
   active: boolean;

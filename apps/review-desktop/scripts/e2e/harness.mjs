@@ -204,7 +204,7 @@ export async function createHarness({
 
     // New workbench windows can show the isolated profile's community invitation.
     await candidate.addLocatorHandler(
-      candidate.getByText("Join the Review community", { exact: true }),
+      candidate.getByText("Join the Whiteboard community", { exact: true }),
       async () => {
         await candidate
           .getByRole("checkbox", { name: "Don't show again" })
@@ -315,7 +315,7 @@ export async function createHarness({
   async function dismissCommunityDialog(candidate) {
     if (disableCommunityHandler) return;
 
-    const dialog = candidate.getByText("Join the Review community", {
+    const dialog = candidate.getByText("Join the Whiteboard community", {
       exact: true,
     });
 
@@ -507,7 +507,8 @@ export async function createHarness({
 
     while (app.exitCode === null && Date.now() < deadline) await sleep(100);
 
-    if (app.exitCode === null) throw new Error(`Timed out waiting for ${label}`);
+    if (app.exitCode === null)
+      throw new Error(`Timed out waiting for ${label}`);
   }
 
   async function restartDesktop() {
@@ -616,7 +617,11 @@ export async function createReview(ctx, spec) {
   });
 
   for (const content of spec.blocks)
-    await command({ type: "edit", reviewId, edit: { type: "insert", content } });
+    await command({
+      type: "edit",
+      reviewId,
+      edit: { type: "insert", content },
+    });
 
   const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
 

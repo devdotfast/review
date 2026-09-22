@@ -58,7 +58,7 @@ export class ReviewTelemetryNotice implements IWorkbenchContribution {
 			Severity.Info,
 			localize(
 				'review.telemetry.notice',
-				"Review sends anonymous usage data. You can change this in Settings.",
+				"Whiteboard sends anonymous usage data. You can change this in Settings.",
 			),
 			[{
 				label: localize(

@@ -143,7 +143,7 @@ it("asks a signed-out user to sign in, then uploads the version chosen before lo
   const { container } = harness;
 
   await harness.render(4);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(
     [...container.querySelectorAll("[role=dialog] button")].map(
@@ -173,7 +173,7 @@ it("uploads on open for a signed-in user, retries after a failure, and copies th
   const { container } = harness;
 
   await harness.render(4);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(publishes(harness)).toHaveLength(1);
   expect(container.textContent).toContain("Review exceeds the sharing limit.");
@@ -212,7 +212,7 @@ it("shows the uploading state until the upload resolves", async () => {
   const { container } = harness;
 
   await harness.render(1);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(container.textContent).toContain("Uploading…");
   expect(container.querySelector("input")).toBeNull();
@@ -229,11 +229,11 @@ it("knows the sign-in state before the popover opens and refreshes it on focus",
   await harness.render(1);
   await harness.settle();
   expect(harness.accountReads()).toBe(1);
-  await harness.click("Share review");
+  await harness.click("Share session");
   expect(publishes(harness)).toHaveLength(1);
   await harness.settle();
-  await harness.click("Share review");
-  await harness.click("Share review");
+  await harness.click("Share session");
+  await harness.click("Share session");
   expect(harness.accountReads()).toBe(1);
   expect(container.querySelector("input")?.value).toContain("#capability");
   await act(async () => window.dispatchEvent(new Event("focus")));
@@ -247,7 +247,7 @@ it("falls back to sign-in when the stored login has expired, then uploads after 
 
   await harness.render(4);
   await harness.settle();
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(publishes(harness)).toHaveLength(1);
   expect(container.textContent).toContain("Your sign-in has expired.");
@@ -274,19 +274,19 @@ it("reuses the link for a version that was already shared and uploads again for 
 
   await harness.render(4);
   await harness.settle();
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(publishes(harness)).toHaveLength(1);
   expect(container.querySelector("input")?.value).toContain("#capability");
-  await harness.click("Share review");
-  await harness.click("Share review");
+  await harness.click("Share session");
+  await harness.click("Share session");
   expect(container.textContent).not.toContain("Uploading");
   expect(container.querySelector("input")?.value).toContain("#capability");
   await harness.settle();
   expect(publishes(harness)).toHaveLength(1);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.render(5);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   expect(publishes(harness).map((post) => post.body)).toEqual([
     expect.objectContaining({ version: 4 }),
@@ -297,7 +297,7 @@ it("reuses the link for a version that was already shared and uploads again for 
 it("uses a fresh request after failed verification revokes the staged share", async () => {
   const harness = mount({ signedIn: true, preflightFails: true });
   await harness.render(1);
-  await harness.click("Share review");
+  await harness.click("Share session");
   await harness.settle();
   harness.state.preflightFails = false;
   await harness.click("Retry");

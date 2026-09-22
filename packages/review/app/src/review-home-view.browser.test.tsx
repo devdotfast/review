@@ -520,7 +520,7 @@ describe("ReviewHome", () => {
     expect(onRestore).toHaveBeenCalledWith(dismissed);
     await render({ ...dismissed, dismissedAt: null });
     expect(container.querySelector(".review-home-status")?.textContent).toBe(
-      "Review ready",
+      "Session ready",
     );
   });
 
@@ -602,7 +602,7 @@ describe("setupBannerMessage", () => {
     };
 
     expect(setupBannerMessage(status)).toBe(
-      "Review is not set up for your coding agents yet.",
+      "Whiteboard is not set up for your coding agents yet.",
     );
   });
 });

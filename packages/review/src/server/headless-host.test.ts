@@ -104,7 +104,11 @@ async function repository() {
   return { directory, base, head: git("rev-parse", "HEAD") };
 }
 
-async function cli(argv: string[], env: NodeJS.ProcessEnv) {
+async function cli(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  product: "review" | "whiteboard" = "review",
+) {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
 
@@ -117,7 +121,7 @@ async function cli(argv: string[], env: NodeJS.ProcessEnv) {
   stderr.on("data", (chunk) => {
     errors += chunk;
   });
-  const exitCode = await runReviewCli({ argv, env, stdout, stderr });
+  const exitCode = await runReviewCli({ argv, env, product, stdout, stderr });
 
   return { exitCode, output, errors };
 }
@@ -673,4 +677,61 @@ it("refuses the removed batch authoring mode instead of ignoring it", async () =
 
   expect(result.exitCode).not.toBe(0);
   expect(result.errors).toContain("--authoring-mode was removed");
+});
+
+it("authors through Whiteboard discovery and session tools without changing the saved identity", async () => {
+  const repo = await repository();
+  const server = await start();
+
+  const registered = await server.client.post<{ id: string }>("/repositories", {
+    path: repo.directory,
+  });
+
+  const env = {
+    ...process.env,
+    DEV_WHITEBOARD_SERVER_DIR: server.stateDir,
+    DEV_REVIEW_SERVER_DIR: "/missing-old-server",
+  };
+
+  const created = await cli(
+    [
+      "api",
+      "session_create",
+      JSON.stringify({
+        commandId: randomUUID(),
+        title: "Whiteboard session",
+        pins: { repositoryId: registered.id, base: repo.base, head: repo.head },
+      }),
+    ],
+    env,
+    "whiteboard",
+  );
+
+  expect(created.exitCode).toBe(0);
+  const { sessionId } = JSON.parse(created.output);
+
+  const read = await cli(
+    ["api", "session_get", JSON.stringify({ sessionId, full: true }), "--json"],
+    env,
+    "whiteboard",
+  );
+
+  expect(read.exitCode).toBe(0);
+  expect(JSON.parse(read.output)).toMatchObject({
+    sessionId,
+    title: "Whiteboard session",
+  });
+  expect(await server.client.read(`/${sessionId}?full=true`)).toMatchObject({
+    reviewId: sessionId,
+    title: "Whiteboard session",
+  });
+
+  const text = await cli(
+    ["api", "session_get", JSON.stringify({ sessionId })],
+    env,
+    "whiteboard",
+  );
+
+  expect(text.output).toContain(`Session ${sessionId}`);
+  expect(text.output).not.toMatch(/^"/);
 });

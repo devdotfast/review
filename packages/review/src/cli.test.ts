@@ -34,7 +34,10 @@ import {
   type ReviewCommandTelemetry,
   ReviewTelemetry,
 } from "./review-telemetry";
-import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
+import {
+  runTracePull as runTracePullActual,
+  runTraceStatus as runTraceStatusActual,
+} from "./trace-cli";
 
 describe("Review CLI", () => {
   it.each([[], ["codex"]])(
@@ -862,4 +865,63 @@ it("emits one JSON error when a trace command needs repository authorization", a
       remedy: "review login --traces",
     },
   });
+});
+
+it("keeps Whiteboard sessions and agent conversations distinct while preserving legacy selectors", async () => {
+  const runTracePull = vi.fn<typeof runTracePullActual>(async () => 0);
+  const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
+
+  const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
+    event: "info",
+    reviews: [],
+  }));
+
+  const invoke = (product: "review" | "whiteboard", argv: string[]) =>
+    runReviewCli({
+      product,
+      argv,
+      stdout: outputStream(),
+      stderr: outputStream(),
+      runtime: { runTracePull, runTraceStatus, runReviewInfo },
+    });
+
+  expect(
+    await invoke("whiteboard", ["trace", "pull", "--session", "board"]),
+  ).toBe(0);
+  expect(runTracePull).toHaveBeenLastCalledWith(
+    expect.objectContaining({ reviewUuid: "board", session: undefined }),
+  );
+  expect(
+    await invoke("whiteboard", ["trace", "pull", "--agent-session", "agent"]),
+  ).toBe(0);
+  expect(runTracePull).toHaveBeenLastCalledWith(
+    expect.objectContaining({ reviewUuid: undefined, session: "agent" }),
+  );
+  expect(
+    await invoke("review", ["trace", "pull", "--session", "legacy-agent"]),
+  ).toBe(0);
+  expect(runTracePull).toHaveBeenLastCalledWith(
+    expect.objectContaining({ reviewUuid: undefined, session: "legacy-agent" }),
+  );
+  expect(
+    await invoke("whiteboard", [
+      "trace",
+      "pull",
+      "--session",
+      "board",
+      "--agent-session",
+      "agent",
+    ]),
+  ).toBe(1);
+  expect(runTracePull).toHaveBeenCalledTimes(3);
+  expect(
+    await invoke("whiteboard", ["trace", "status", "--agent-session", "agent"]),
+  ).toBe(0);
+  expect(runTraceStatus).toHaveBeenLastCalledWith(
+    expect.objectContaining({ session: "agent" }),
+  );
+  expect(await invoke("whiteboard", ["info", "--session", "board"])).toBe(0);
+  expect(runReviewInfo).toHaveBeenLastCalledWith(
+    expect.objectContaining({ reviewUuid: "board" }),
+  );
 });

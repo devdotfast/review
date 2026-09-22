@@ -149,103 +149,134 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
   ).toContain("Updated through the reading view.");
 });
 
-it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const server = await serveReviewMcp(async () => client, stdin, stdout);
-  let output = "";
-  stdout.on("data", (chunk) => {
-    output += chunk;
-  });
+it.each(["review", "whiteboard"] as const)(
+  "serves %s MCP framing without stdout diagnostics and returns host errors as tool errors",
+  async (product) => {
+    const vocabulary = product === "whiteboard" ? "session" : "review";
+    const idKey = `${vocabulary}Id`;
 
-  const request = async <Params>(
-    id: number,
-    method: string,
-    params: Params,
-  ) => {
-    stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-    await expect
-      .poll(() =>
-        output
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => JSON.parse(line))
-          .find((reply) => reply.id === id),
-      )
-      .toBeTruthy();
-
-    return output
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .find((reply) => reply.id === id);
-  };
-
-  try {
-    await request(1, "initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "test", version: "1" },
-    });
-    const list = await request(2, "tools/list", {});
-    ListToolsResultSchema.parse(list.result);
-    expect(
-      list.result.tools.find(
-        (tool: AuthoringTool) => tool.name === "review_edit",
-      ).inputSchema,
-    ).toMatchObject({
-      type: "object",
-      required: expect.arrayContaining(["reviewId", "commandId", "edit"]),
-    });
-
-    const error = await request(3, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: "missing" },
-    });
-
-    expect(error.result).toMatchObject({
-      isError: true,
-      content: [{ type: "text", text: expect.stringMatching(/not found/i) }],
-    });
-
-    const next = await request(4, "tools/call", {
-      name: "review_list",
-      arguments: {},
-    });
-
-    expect(reviewsOnly(JSON.parse(next.result.content[0].text))).toEqual([]);
-
-    const created = await store.execute({
-      commandId: randomUUID(),
-      operation: {
-        type: "create",
-        title: "Readable review",
-        pins: { repositoryId: "repo", base: "base", head: "head" },
-      },
-    });
-
-    const read = await request(5, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: created.reviewId },
-    });
-
-    expect(read.result.content[0].text.startsWith("# Readable review\n")).toBe(
-      true,
+    const api = createReviewApi(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vocabulary,
     );
 
-    const raw = await request(6, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: created.reviewId, full: true, format: "json" },
+    const apiClient = new ReviewApiClient(
+      { serverUrl: "http://test", token: "test" },
+      async (url, init) => api.request(url.replace("/reviews-api", ""), init),
+    );
+
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+
+    const server = await serveReviewMcp(
+      async () => apiClient,
+      stdin,
+      stdout,
+      process.stderr,
+      product,
+    );
+
+    let output = "";
+    stdout.on("data", (chunk) => {
+      output += chunk;
     });
 
-    expect(JSON.parse(raw.result.content[0].text)).toMatchObject({
-      reviewId: created.reviewId,
-      document: [],
-    });
-  } finally {
-    await server.close();
-  }
-});
+    const request = async <Params>(
+      id: number,
+      method: string,
+      params: Params,
+    ) => {
+      stdin.write(
+        JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
+      );
+      await expect
+        .poll(() =>
+          output
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+            .find((reply) => reply.id === id),
+        )
+        .toBeTruthy();
+
+      return output
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .find((reply) => reply.id === id);
+    };
+
+    try {
+      await request(1, "initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "test", version: "1" },
+      });
+      const list = await request(2, "tools/list", {});
+      ListToolsResultSchema.parse(list.result);
+      expect(
+        list.result.tools.find(
+          (tool: AuthoringTool) => tool.name === `${vocabulary}_edit`,
+        ).inputSchema,
+      ).toMatchObject({
+        type: "object",
+        required: expect.arrayContaining([idKey, "commandId", "edit"]),
+      });
+
+      const error = await request(3, "tools/call", {
+        name: `${vocabulary}_get`,
+        arguments: { [idKey]: "missing" },
+      });
+
+      expect(error.result).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: expect.stringMatching(/not found/i) }],
+      });
+
+      const next = await request(4, "tools/call", {
+        name: `${vocabulary}_list`,
+        arguments: {},
+      });
+
+      expect(reviewsOnly(JSON.parse(next.result.content[0].text))).toEqual([]);
+
+      const created = await store.execute({
+        commandId: randomUUID(),
+        operation: {
+          type: "create",
+          title: "Readable review",
+          pins: { repositoryId: "repo", base: "base", head: "head" },
+        },
+      });
+
+      const read = await request(5, "tools/call", {
+        name: `${vocabulary}_get`,
+        arguments: { [idKey]: created.reviewId },
+      });
+
+      expect(
+        read.result.content[0].text.startsWith("# Readable review\n"),
+      ).toBe(true);
+
+      const raw = await request(6, "tools/call", {
+        name: `${vocabulary}_get`,
+        arguments: { [idKey]: created.reviewId, full: true, format: "json" },
+      });
+
+      expect(JSON.parse(raw.result.content[0].text)).toMatchObject({
+        [idKey]: created.reviewId,
+        document: [],
+      });
+    } finally {
+      await server.close();
+    }
+  },
+);
 
 it("shows CLI help without requiring Desktop or touching review storage", async () => {
   let output = "";

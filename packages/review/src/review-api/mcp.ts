@@ -19,13 +19,16 @@ export async function serveReviewMcp(
   stdin: Readable,
   stdout: Writable,
   stderr: Writable = process.stderr,
+  product: "review" | "whiteboard" = "review",
 ) {
+  const vocabulary = product === "whiteboard" ? "session" : "review";
+  const displayName = product === "whiteboard" ? "Whiteboard" : "Review";
+
   const server = new Server(
-    { name: "review", version: "1.0.0" },
+    { name: product, version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions:
-        "Author through the running Review server. Read review_capabilities before authoring; review_create opens the new review in Desktop when it is available, so call review_open only for an existing review. Dispatch software-map workers only when softwareMapEnabled is true, and name the scratchpad only when scratchpadEnabled is true. Accepted edits are validated and saved immediately. Never read or write Review files or SQL. Reuse commandId and identical input after a lost response. Use returned target IDs to edit components; there is no expectedVersion or publish step.",
+      instructions: `Author through the running ${displayName} server. Read ${vocabulary}_capabilities before authoring; ${vocabulary}_create opens the new review in Desktop when it is available, so call ${vocabulary}_open only for an existing review. Dispatch software-map workers only when softwareMapEnabled is true, and name the scratchpad only when scratchpadEnabled is true. Accepted edits are validated and saved immediately. Never read or write ${displayName} files or SQL. Reuse commandId and identical input after a lost response. Use returned target IDs to edit components; there is no expectedVersion or publish step.`,
     },
   );
 
@@ -55,7 +58,7 @@ export async function serveReviewMcp(
     } catch (error) {
       announceCatalog = true;
       stderr.write(
-        `review mcp: ${error instanceof Error ? error.message : String(error)}\n`,
+        `${product} mcp: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
 
@@ -72,7 +75,8 @@ export async function serveReviewMcp(
       const { client, tools } = await load(extra.signal);
       const tool = tools.find((tool) => tool.name === request.params.name);
 
-      if (!tool) throw new Error(`Unknown Review tool: ${request.params.name}`);
+      if (!tool)
+        throw new Error(`Unknown ${displayName} tool: ${request.params.name}`);
 
       const result = await callAuthoringTool(
         client,

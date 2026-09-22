@@ -142,6 +142,11 @@ export function validateShareBundle(bundle: ShareBundle) {
     json(manifest.presentation),
   );
 
+  const traces = new Map<
+    string,
+    Map<string, z.infer<typeof traceSchema>["events"][number]>
+  >();
+
   for (const block of resourceReferences(snapshot.document)) {
     const reference = resourceReference(block);
 
@@ -153,14 +158,18 @@ export function validateShareBundle(bundle: ShareBundle) {
       throw new Error("Missing or mismatched shared resource.");
 
     if (block.type === "trace_quote") {
-      const trace = traceSchema.parse(json(resource.object));
+      let events = traces.get(resource.object);
 
-      if (
-        new Set(trace.events.map((event) => event.id)).size !==
-        trace.events.length
-      )
-        throw new Error("Duplicate shared trace event.");
-      const event = trace.events.find((event) => event.id === block.eventId);
+      if (!events) {
+        const trace = traceSchema.parse(json(resource.object));
+        events = new Map(trace.events.map((event) => [event.id, event]));
+
+        if (events.size !== trace.events.length)
+          throw new Error("Duplicate shared trace event.");
+        traces.set(resource.object, events);
+      }
+
+      const event = events.get(block.eventId);
 
       if (!event || !textIncludesQuote(event.text, block.text))
         throw new Error("Shared quote does not match its trace.");
@@ -325,7 +334,7 @@ export class SharedReviewStore {
           for (const range of element.sourceRanges ?? [])
             references.push({ ...range, side: map.side });
 
-      for (const source of references) await local.data.quote(pins, source);
+      await local.data.validateSources(pins, references);
       await local.data.workspaces.open(id, pins);
 
       if (

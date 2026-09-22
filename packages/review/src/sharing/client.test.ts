@@ -254,3 +254,68 @@ it.each([409, 503])(
     expect(revoked).toBe(lookupStatus === 409);
   },
 );
+
+it("bounds concurrent downloads and still rejects corrupt objects", async () => {
+  const root = await mkdtemp("/tmp/share-download-");
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const fixture = await createShareFixture(root);
+  cleanup.push(async () => {
+    await fixture.data.close();
+    fixture.store.close();
+  });
+  const bundle = await exportShare(fixture);
+  let release!: () => void;
+
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  let active = 0;
+  let peak = 0;
+  let corrupt = false;
+
+  const network: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+
+    if (url.hostname !== "objects.test") {
+      if (!url.pathname.includes("/objects/"))
+        return Response.json({
+          manifest: bundle.manifest,
+          sender: { login: "sender" },
+          sharedAt: 123,
+        });
+
+      return Response.json({
+        url: `https://objects.test/${url.pathname.split("/").at(-1)}`,
+        expiresAt: "2099",
+      });
+    }
+
+    active++;
+    peak = Math.max(peak, active);
+    await gate;
+    active--;
+    const id = url.pathname.slice(1);
+    const bytes = Uint8Array.from(bundle.objects.get(id)!);
+
+    if (corrupt) bytes[0] = bytes[0]! ^ 255;
+
+    return new Response(bytes);
+  };
+
+  const client = new ShareClient("https://app.dev.fast", undefined, network);
+  const download = client.download(randomUUID(), "x".repeat(43));
+
+  try {
+    await expect.poll(() => active).toBe(4);
+  } finally {
+    release();
+  }
+
+  expect((await download).objects.size).toBe(bundle.objects.size);
+  expect(peak).toBe(4);
+  corrupt = true;
+  await expect(client.download(randomUUID(), "x".repeat(43))).rejects.toThrow(
+    "integrity",
+  );
+});

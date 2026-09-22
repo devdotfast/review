@@ -286,7 +286,7 @@ export class ShareClient {
     const manifest: ShareManifest = received.manifest;
     const objects = new Map<string, Uint8Array>();
 
-    for (const object of manifest.objects) {
+    const download = async (object: ShareManifest["objects"][number]) => {
       const signed = downloadSchema.parse(
         await this.api(
           `${route}/objects/${object.id}`,
@@ -313,7 +313,10 @@ export class ShareClient {
       )
         throw new Error("Downloaded share object failed its integrity check.");
       objects.set(object.id, bytes);
-    }
+    };
+
+    for (let start = 0; start < manifest.objects.length; start += 4)
+      await Promise.all(manifest.objects.slice(start, start + 4).map(download));
 
     const bundle = {
       manifest,

@@ -25,6 +25,9 @@ inputs:
   share-origin:
     description: Optional HTTPS origin for a non-default sharing service.
     default: ""
+  preview:
+    description: Generate links that open Review Preview. Requires a CLI version supporting review share --preview.
+    default: "false"
   comment:
     description: Create or update one link comment on the triggering pull request.
     default: "true"
@@ -72,6 +75,7 @@ runs:
         REVIEW_HEAD: ${{ inputs.head }}
         DEV_REVIEW_SHARE_TOKEN: ${{ inputs.share-token }}
         REVIEW_SHARE_ORIGIN: ${{ inputs.share-origin }}
+        REVIEW_PREVIEW: ${{ inputs.preview }}
         REVIEW_COMMENT: ${{ inputs.comment }}
         REVIEW_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: node "$REVIEW_ACTION_PATH/run.mjs"

@@ -310,6 +310,7 @@ esac
         "--request-id",
         randomUUID(),
         "--json",
+        ...(env.REVIEW_PREVIEW === "true" ? ["--preview"] : []),
       ],
       { env: runtimeEnv, signal: controller.signal },
     );

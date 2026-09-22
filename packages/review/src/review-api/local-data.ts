@@ -829,6 +829,31 @@ export class LocalReviewData {
 
     return files;
   }
+  async validateSources(pins: Pins, sources: FileLineRange[]) {
+    const files = new Map<string, FileLineRange[]>();
+
+    for (const input of sources) {
+      const source = fileLineRangeSchema.parse(input);
+
+      const key = JSON.stringify([
+        pins[source.side],
+        pins.worktreeRevision ? source.side : null,
+        source.file,
+      ]);
+
+      const ranges = files.get(key);
+
+      if (ranges) ranges.push(source);
+      else files.set(key, [source]);
+    }
+
+    for (const ranges of files.values()) {
+      const first = ranges[0]!;
+      const file = await this.file(pins, first.side, first.file);
+
+      for (const source of ranges) sliceRange(file, source);
+    }
+  }
   async quote(pins: Pins, source: FileLineRange) {
     source = fileLineRangeSchema.parse(source);
 

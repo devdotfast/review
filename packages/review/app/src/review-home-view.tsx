@@ -147,19 +147,25 @@ export function ReviewHome({
     [listed, needle],
   );
 
-  /* New first, then viewed. Dismissed leaves the main list entirely: it is the
-     one group you asked to stop seeing. */
+  /* Dismissed leaves the main list entirely: it is the one group you asked to
+     stop seeing. */
   const active = found.filter((review) => !review.dismissedAt);
-  const dismissed = found.filter((review) => review.dismissedAt);
 
-  const sortedActive = [...active].sort((left, right) => {
-    const leftNew = left.viewedAt ? 1 : 0;
-    const rightNew = right.viewedAt ? 1 : 0;
+  const dismissed = found
+    .filter((review) => review.dismissedAt)
+    .sort(latestFirst);
 
-    return leftNew - rightNew;
-  });
+  /* Folders order by their most recently updated review. Within a folder, new
+     comes before viewed, then latest update. The list view reads the same
+     flattened order, so both views agree. */
+  const workspaces = groupReviewsByWorktree([...active].sort(latestFirst)).map(
+    (workspace) => ({
+      ...workspace,
+      reviews: [...workspace.reviews].sort(newFirstThenLatest),
+    }),
+  );
 
-  const workspaces = groupReviewsByWorktree(sortedActive);
+  const sortedActive = workspaces.flatMap((workspace) => workspace.reviews);
 
   const selectView = (next: ReviewHomeView) => {
     setView(next);
@@ -1052,6 +1058,20 @@ export function reviewUpdatedAt(review: ReviewApiSummary): string {
 /** {@link reviewUpdatedAt} as epoch milliseconds; 0 when unknown. */
 function reviewUpdatedAtMs(review: ReviewApiSummary): number {
   return Date.parse(reviewUpdatedAt(review) ?? "") || 0;
+}
+
+function latestFirst(left: ReviewApiSummary, right: ReviewApiSummary): number {
+  return reviewUpdatedAtMs(right) - reviewUpdatedAtMs(left);
+}
+
+function newFirstThenLatest(
+  left: ReviewApiSummary,
+  right: ReviewApiSummary,
+): number {
+  const leftNew = left.viewedAt ? 1 : 0;
+  const rightNew = right.viewedAt ? 1 : 0;
+
+  return leftNew - rightNew || latestFirst(left, right);
 }
 
 export function formatRelativeTime(

@@ -57,6 +57,97 @@ describe("ReviewHome", () => {
     ]);
   });
 
+  it("orders folders and reviews by latest update, new before viewed", async () => {
+    const reviews = [
+      summary({
+        reviewId: uuid(1),
+        title: "Old dev",
+        repositoryPath: "/repo/dev",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        viewedAt: "2026-07-01T01:00:00.000Z",
+      }),
+      summary({
+        reviewId: uuid(2),
+        title: "Fresh other",
+        repositoryPath: "/repo/other",
+        createdAt: "2026-07-03T00:00:00.000Z",
+        viewedAt: "2026-07-03T01:00:00.000Z",
+      }),
+      summary({
+        reviewId: uuid(3),
+        title: "Newest dev",
+        repositoryPath: "/repo/dev",
+        createdAt: "2026-07-04T00:00:00.000Z",
+        viewedAt: "2026-07-04T01:00:00.000Z",
+      }),
+      summary({
+        reviewId: uuid(4),
+        title: "Unread dev",
+        repositoryPath: "/repo/dev",
+        createdAt: "2026-07-02T00:00:00.000Z",
+      }),
+      summary({
+        reviewId: uuid(5),
+        title: "Dismissed late",
+        createdAt: "2026-07-05T00:00:00.000Z",
+        dismissedAt: "2026-07-05T01:00:00.000Z",
+      }),
+      summary({
+        reviewId: uuid(6),
+        title: "Dismissed early",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        dismissedAt: "2026-07-01T01:00:00.000Z",
+      }),
+    ];
+
+    await act(async () =>
+      root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
+    );
+
+    const cardTitles = () =>
+      [...container.querySelectorAll(".review-home-card")].map(
+        (card) =>
+          card.querySelector(".review-home-review-title")?.textContent ?? "",
+      );
+
+    expect(
+      [...container.querySelectorAll(".review-home-workspace")].map(
+        (workspace) => workspace.textContent?.includes("/repo/dev"),
+      ),
+    ).toEqual([true, false]);
+    expect(cardTitles()).toEqual([
+      "Unread dev",
+      "Newest dev",
+      "Old dev",
+      "Fresh other",
+    ]);
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-expanded="false"].review-home-dismissed-toggle',
+        )
+        ?.click(),
+    );
+    expect(
+      [...container.querySelectorAll(".review-home-dismissed-row")].map(
+        (row) => row.querySelector(".review-home-dismissed-open")?.textContent,
+      ),
+    ).toEqual(["Dismissed late", "Dismissed early"]);
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="List view"]')
+        ?.click(),
+    );
+    expect(
+      [...container.querySelectorAll(".review-home-list-row")].map(
+        (row) =>
+          row.querySelector(".review-home-review-title")?.textContent ?? "",
+      ),
+    ).toEqual(["Unread dev", "Newest dev", "Old dev", "Fresh other"]);
+  });
+
   it("keeps the scratchpad above the reviews and out of their workspaces", async () => {
     const {
       pins: _pins,

@@ -138,21 +138,21 @@ test("dispatch plans without mutations, reserves an annotated tag, and retries t
 
 test("tag push selects that exact version, rejects rollback, and detects npm collisions", async (t) => {
   const { git, env } = repository(t);
-  git("tag", "review-v0.3.0");
+  git("tag", "whiteboard-v0.3.0");
 
   const push = {
     ...env,
     GITHUB_EVENT_NAME: "push",
-    GITHUB_REF_NAME: "review-v0.3.0",
+    GITHUB_REF_NAME: "whiteboard-v0.3.0",
   };
 
   assert.equal((await resolveRelease(push, send)).version, "0.3.0");
   await assert.rejects(
-    resolveRelease({ ...push, GITHUB_REF_NAME: "review-v0.2.8" }, send),
+    resolveRelease({ ...push, GITHUB_REF_NAME: "whiteboard-v0.2.8" }, send),
     /newer/,
   );
   await assert.rejects(
-    resolveRelease({ ...push, GITHUB_REF_NAME: "review-v0.2.10" }, send),
+    resolveRelease({ ...push, GITHUB_REF_NAME: "whiteboard-v0.2.10" }, send),
     /already exists/,
   );
   const commit = git("rev-parse", "HEAD");

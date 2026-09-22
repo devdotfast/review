@@ -33,12 +33,18 @@ export async function packReviewCli({ version, commit }, outputDirectory) {
     await writeFile(manifestPath, `${JSON.stringify(pkg, null, 2)}\n`);
     execFileSync(
       "pnpm",
-      ["--filter", "@dev.fast/review", "pack", "--pack-destination", scratch],
+      [
+        "--filter",
+        "@dev.fast/whiteboard",
+        "pack",
+        "--pack-destination",
+        scratch,
+      ],
       { stdio: "inherit" },
     );
     execFileSync("tar", [
       "-xzf",
-      path.join(scratch, `dev.fast-review-${version}.tgz`),
+      path.join(scratch, `dev.fast-whiteboard-${version}.tgz`),
       "-C",
       scratch,
     ]);
@@ -52,7 +58,7 @@ export async function packReviewCli({ version, commit }, outputDirectory) {
       { cwd: staged, stdio: "inherit" },
     );
 
-    return path.join(output, `dev.fast-review-${version}.tgz`);
+    return path.join(output, `dev.fast-whiteboard-${version}.tgz`);
   } finally {
     await writeFile(manifestPath, original);
     await rm(scratch, { recursive: true, force: true });

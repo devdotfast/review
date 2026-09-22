@@ -2051,6 +2051,30 @@ button:focus-visible > .review-chevron {
   opacity: 0;
 }
 
+/* Stroke: one quick pass over a diagram written whole. Each unit is traced
+   in one short stroke and its label follows at once. */
+.lens-flow-node[data-motion="stroke"] .flow-node-shape :is(rect, polygon) {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.lens-flow-node[data-motion="stroke"] .flow-node-text {
+  animation: wb-label 160ms steps(8) 60ms both;
+}
+
+.lens-flow-edge[data-motion="stroke"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.lens-flow-edge-label[data-motion="stroke"] {
+  animation: wb-label 120ms steps(6) 100ms both;
+}
+
 .lens-flow-node[data-motion="outline"] .flow-node-shape :is(rect, polygon) {
   fill: var(--transparent);
   stroke: var(--accent);
@@ -2130,6 +2154,24 @@ button:focus-visible > .review-chevron {
 
 /* A sequence step: the message line is one stroke drawn from its source
    to its target, the arrowhead lands last, then the dot pops. */
+.sequence-message[data-motion="queued"],
+.sequence-message-dot[data-motion="queued"],
+.sequence-message-label-anchor[data-motion="queued"] {
+  opacity: 0;
+}
+
+.sequence-message[data-motion="stroke"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.sequence-message-label-anchor[data-motion="outline"],
+.sequence-message-label-anchor[data-motion="stroke"] {
+  animation: wb-label 160ms steps(8) 120ms both;
+}
+
 .sequence-message[data-motion="outline"] {
   stroke: var(--accent);
   stroke-width: 1.6;
@@ -2184,7 +2226,8 @@ button:focus-visible > .review-chevron {
   .lens-flow-edge[data-motion],
   .lens-flow-edge-label[data-motion],
   .sequence-message[data-motion],
-  .sequence-message-dot[data-motion] {
+  .sequence-message-dot[data-motion],
+  .sequence-message-label-anchor[data-motion] {
     animation: none !important;
     -webkit-mask-image: none;
     mask-image: none;

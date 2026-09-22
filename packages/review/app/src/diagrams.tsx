@@ -755,7 +755,11 @@ function SequenceMessageEdge(
         id={props.id}
         path={edgePath}
         // The arrowhead is the last stroke: it appears once the line has run.
-        markerEnd={stepMotion === "outline" ? undefined : props.markerEnd}
+        markerEnd={
+          stepMotion === "outline" || stepMotion === "stroke"
+            ? undefined
+            : props.markerEnd
+        }
         className={edgeClassName}
         style={props.style}
         pathLength={1}
@@ -795,6 +799,7 @@ function SequenceMessageEdge(
         </button>
         <div
           className="sequence-message-label-anchor"
+          data-motion={stepMotion}
           style={{
             transform: `translate(-50%, -100%) translate(${labelX}px,${labelY}px)`,
           }}

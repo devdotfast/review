@@ -49,10 +49,12 @@ export async function exportShare(input: {
   version?: number;
   repository: ShareManifest["repository"];
 }): Promise<ShareBundle> {
+  // A share is the finished document: what edit last touched it stays home.
   const {
     target,
     staleSources: _staleSources,
     sourceUnavailable: _sourceUnavailable,
+    lastEdit: _lastEdit,
     ...snapshot
   } = structuredClone(input.store.read(input.reviewId, input.version));
 

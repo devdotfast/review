@@ -604,6 +604,11 @@ describe("snapshot authoring", () => {
 
     const session = value().nodes[0]!.id!;
     expect(session).toMatch(/^node-/);
+    expect(store.read(reviewId).lastEdit).toEqual({
+      type: "insert",
+      targetId: diagramId,
+      blockId: diagramId,
+    });
 
     const broker = await edit(reviewId, {
       type: "insert",
@@ -646,6 +651,12 @@ describe("snapshot authoring", () => {
     });
 
     expect(acquires.targetId).toMatch(/^edge-/);
+    expect(store.read(reviewId).lastEdit).toEqual({
+      type: "insert",
+      targetId: acquires.targetId,
+      blockId: diagramId,
+      unit: "flow_edge",
+    });
 
     await edit(reviewId, {
       type: "insert",
@@ -731,6 +742,16 @@ describe("snapshot authoring", () => {
     expect(value().nodes.map((node) => node.key)).toEqual(["session", "sup"]);
     expect(value().edges).toEqual([]);
     expect(supervisor.targetId).toMatch(/^node-/);
+
+    // A removed unit is still attributed to its diagram; a rename is not an edit.
+    expect(store.read(reviewId).lastEdit).toEqual({
+      type: "remove",
+      targetId: broker.targetId,
+      blockId: diagramId,
+      unit: "flow_node",
+    });
+    await store.execute(request({ type: "rename", reviewId, title: "Leases" }));
+    expect(store.read(reviewId).lastEdit).toBeUndefined();
   });
 
   it("moves blocks in both directions and between containers without duplicating them", async () => {

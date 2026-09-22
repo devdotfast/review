@@ -23,7 +23,7 @@ jobs:
     name: Resolve current stable version
     if: github.ref == 'refs/heads/main'
     environment: review-release
-    runs-on: ubuntu-22.04
+    runs-on: review_big_boy
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
@@ -76,7 +76,7 @@ jobs:
     name: Publish Linux only
     needs: [resolve, linux]
     environment: review-release
-    runs-on: ubuntu-22.04
+    runs-on: review_big_boy
     permissions:
       contents: write
     steps:

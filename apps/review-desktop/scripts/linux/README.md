@@ -1,10 +1,20 @@
 # Fedora packages and release repository
 
-Review supports Fedora Workstation 43/44 on x86-64. The package is
+Review supports Fedora Workstation 43/44 on x86-64. The stable package is
 `dev-fast-review-X.Y.Z-1.x86_64.rpm`, using the Review version and
-`REVIEW_LINUX_PACKAGE_REVISION` (default `1`). Preview builds remain CI archives.
-Atomic desktops, other desktop environments, other distributions, and ARM64 are
-outside this support target.
+`REVIEW_LINUX_PACKAGE_REVISION` (default `1`). Atomic desktops, other desktop
+environments, other distributions, and ARM64 are outside this support target.
+
+Preview builds are a separate package, `dev-fast-review-preview`, that installs
+alongside stable Review the way Review Preview does on macOS: its own
+`/usr/share/review-preview` tree, `review-preview` CLI, `review-preview-desktop`
+launcher, desktop entry, and data folder. The RPM version is the tilde form of
+the preview version, `X.Y.Z~preview.YYYYMMDD.N`, so every preview sorts below
+the stable release it precedes. `code-oss/build/linux/review-package.ts` derives
+all of this from the stamped `product.json`. Previews publish to their own
+repository under `repos/preview/` with the same signing key; users add
+`https://install.dev.fast/repos/dev-fast-review-preview.repo` and install from
+`/linux/preview`.
 
 ## Build
 
@@ -66,7 +76,9 @@ same version can change its bytes; increment the package revision for new bytes.
 Retain prior packages and metadata for clients with cached indexes or interrupted
 downloads. The active pointer includes `format: "rpm"`.
 
-DNF uses `/repos/rpm/x86_64/`. Named `repomd.xml` and its `.asc` signature redirect
+DNF uses `/repos/rpm/x86_64/` for stable and `/repos/preview/rpm/x86_64/` for
+preview; each channel has its own `current.json` pointer and the publisher
+refuses a publication built for the other channel. Named `repomd.xml` and its `.asc` signature redirect
 to an immutable snapshot. Index filenames contain their SHA-256 checksums; packages
 have immutable versioned names. If requests straddle promotion, mismatched root
 metadata/signatures must fail verification. Refresh and retry; never disable

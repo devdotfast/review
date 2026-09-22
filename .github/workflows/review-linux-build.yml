@@ -79,17 +79,12 @@ jobs:
           name: linux-ui
           path: apps/review-desktop/dist/linux-ui
           if-no-files-found: ignore
-      - name: Archive preview build
-        if: contains(inputs.version, '-preview.')
-        run: |
-          mkdir -p apps/review-desktop/dist/linux
-          tar --zstd -cf apps/review-desktop/dist/linux/Review-linux-x64-preview.tar.zst -C apps/review-desktop VSCode-linux-x64
+      # Preview versions build the dev-fast-review-preview package; see
+      # code-oss/build/linux/review-package.ts for the channel mapping.
       - name: Create Fedora RPM
-        if: ${{ !contains(inputs.version, '-preview.') }}
         run: |
           pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
       - name: Prepare repository signing key
-        if: ${{ !contains(inputs.version, '-preview.') }}
         id: signing
         env:
           RELEASE_SIGNING: ${{ inputs.release_signing }}
@@ -110,20 +105,20 @@ jobs:
           fi
           echo "fingerprint=$SIGNING_FINGERPRINT" >> "$GITHUB_OUTPUT"
       - name: Build signed repository snapshot
-        if: ${{ !contains(inputs.version, '-preview.') }}
         env:
           FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+          CHANNEL: ${{ contains(inputs.version, '-preview.') && 'preview' || 'stable' }}
         run: |
-          VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          # The RPM version is the tilde form of a preview version.
+          VERSION=$(node -p "require('./apps/review-desktop/package.json').version.replace('-preview.', '~preview.')")
           python3 apps/review-desktop/scripts/build-linux-repository.py \
             --packages apps/review-desktop/dist/linux \
             --output apps/review-desktop/dist/linux-repository \
             --version "$VERSION" --revision "$REVIEW_LINUX_PACKAGE_REVISION" \
-            --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
-          cp apps/review-desktop/dist/linux-repository/repos/rpm/x86_64/Packages/*.rpm apps/review-desktop/dist/linux/
+            --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT" --channel "$CHANNEL"
+          find apps/review-desktop/dist/linux-repository -name '*.rpm' -exec cp {} apps/review-desktop/dist/linux/ \;
           tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
       - name: Validate clean installs and rejected signatures
-        if: ${{ !contains(inputs.version, '-preview.') }}
         run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

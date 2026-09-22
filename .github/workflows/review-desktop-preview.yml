@@ -22,12 +22,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Previews publish a signed dev-fast-review-preview package, so the Linux
+  # build signs with the production repository key rather than a CI key.
   linux:
     needs: version
     uses: ./.github/workflows/review-linux-build.yml
     with:
       commit: ${{ needs.version.outputs.commit }}
       version: ${{ needs.version.outputs.version }}
+      release_signing: ${{ !inputs.dry_run }}
+    secrets: inherit
 
   version:
     name: Compute preview version
@@ -434,13 +438,46 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
           rm -f "$RUNNER_TEMP/notary-key.p8"
 
+  publish-linux:
+    name: Publish Linux preview repository
+    environment: review-release
+    needs: [version, build, linux]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-packages
+          path: linux-packages
+      - name: Publish verified snapshot
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          mkdir linux-repository
+          tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET" --channel preview
+      - name: Check the preview channel is served
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          curl -fsS https://install.dev.fast/linux/preview | grep -F "Version ${RELEASE_VERSION/-preview./~preview.}"
+          curl -fsS https://install.dev.fast/repos/dev-fast-review-preview.repo | grep -F 'baseurl=https://install.dev.fast/repos/preview/rpm/x86_64/'
+
   # The one job here that can write to the repository, and it holds no signing
   # or R2 credentials. `needs: version` carries the review-release environment
-  # gate transitively, and `needs: build` means a tag only ever names a preview
-  # that uploaded, answered its update feed, and served its installer.
+  # gate transitively, and `needs: build` plus `needs: publish-linux` mean a tag
+  # only ever names a preview that published on both platforms, answered its
+  # update feeds, and served its installers.
   tag-preview:
     name: Tag published preview
-    needs: [version, build]
+    needs: [version, build, publish-linux]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:

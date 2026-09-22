@@ -644,7 +644,7 @@ jobs:
         run: |
           mkdir linux-repository
           tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
-          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET" --channel stable
       - name: Attach Linux packages
         env:
           GH_TOKEN: ${{ github.token }}

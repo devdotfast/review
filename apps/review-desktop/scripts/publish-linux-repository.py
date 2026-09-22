@@ -33,12 +33,33 @@ def fetch_json(url):
         return json.load(response)
 
 
-def publish(directory, bucket, base_url):
+# Each channel is a separate package in a separate repository prefix. The sealed
+# publication identifies its channel by which pointer it carries.
+CHANNELS = {"stable": "repos", "preview": "repos/preview"}
+GENERATION = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:~preview\.([0-9]{8})\.([0-9]+))?-([1-9][0-9]*)-([a-f0-9]{40})")
+
+
+def parse_generation(pointer):
+    generation = GENERATION.fullmatch(pointer.get("generation", ""))
+    if not generation:
+        return None, None
+    major, minor, patch, date, number, revision, commit = generation.groups()
+    version = f"{major}.{minor}.{patch}" + (f"~preview.{date}.{number}" if date else "")
+    # Previews order by build date and run; a stable release has no prerelease part.
+    order = (int(major), int(minor), int(patch), int(date or 0), int(number or 0), int(revision))
+    return (version, commit, date is not None), order
+
+
+def publish(directory, bucket, base_url, channel=None):
     if fetch_json(base_url + "/repos/health") != {"schemaVersion": 1, "format": "rpm"}:
         raise RuntimeError("Deploy the Linux repository Worker before publishing")
     files = json.loads((directory / "sha256.json").read_text())
-    if "repos/current.json" not in files:
-        raise ValueError("Publication has no active pointer")
+    pointers = [name for name, prefix in CHANNELS.items() if f"{prefix}/current.json" in files]
+    if len(pointers) != 1 or (channel and channel != pointers[0]):
+        raise ValueError(f"Publication is not a single {channel or 'channel'} pointer")
+    channel = pointers[0]
+    prefix = CHANNELS[channel]
+    pointer_key = f"{prefix}/current.json"
     for name, sha in files.items():
         path = Path(name)
         if path.is_absolute() or ".." in path.parts or not name.startswith("repos/") or not re.fullmatch(r"[a-f0-9]{64}", sha):
@@ -46,12 +67,12 @@ def publish(directory, bucket, base_url):
         if checksum(directory / name) != sha:
             raise ValueError(f"Publication checksum mismatch: {name}")
 
-    pointer = directory / "repos/current.json"
+    pointer = directory / pointer_key
     current = json.loads(pointer.read_text())
-    generation = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)-([1-9][0-9]*)-([a-f0-9]{40})", current.get("generation", ""))
-    if (not generation or current.get("schemaVersion") != 1 or current.get("format") != "rpm"
-            or current.get("version") != ".".join(generation.groups()[:3])
-            or current.get("commit") != generation.group(5)
+    identity, new_version = parse_generation(current)
+    if (not identity or identity[2] != (channel == "preview")
+            or current.get("schemaVersion") != 1 or current.get("format") != "rpm"
+            or current.get("version") != identity[0] or current.get("commit") != identity[1]
             or not re.fullmatch(r"[A-F0-9]{40}", current.get("keyFingerprint", ""))):
         raise ValueError("Invalid repository pointer")
     # Compare-and-swap prevents concurrent or stale workflow reruns from moving
@@ -59,18 +80,16 @@ def publish(directory, bucket, base_url):
     with tempfile.TemporaryDirectory(prefix="review-current-") as temporary:
         previous_path = Path(temporary) / "current.json"
         try:
-            previous_object = aws("get-object", "--bucket", bucket, "--key", "repos/current.json", str(previous_path))
+            previous_object = aws("get-object", "--bucket", bucket, "--key", pointer_key, str(previous_path))
         except RuntimeError as error:
             if "NoSuchKey" not in str(error) and "(404)" not in str(error):
                 raise
             condition = ["--if-none-match", "*"]
         else:
             previous = json.loads(previous_path.read_text())
-            previous_generation = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)-([1-9][0-9]*)-([a-f0-9]{40})", previous.get("generation", ""))
-            if not previous_generation:
+            _, old_version = parse_generation(previous)
+            if not old_version:
                 raise ValueError("Existing repository pointer is invalid")
-            old_version = tuple(map(int, previous_generation.groups()[:4]))
-            new_version = tuple(map(int, generation.groups()[:4]))
             if new_version < old_version or (new_version == old_version and current != previous):
                 raise ValueError("Refusing to replace an equal or newer package release")
             condition = ["--if-match", previous_object["ETag"]]
@@ -78,7 +97,7 @@ def publish(directory, bucket, base_url):
     # A rerun can resume immutable uploads. Never replace an object with other
     # bytes under a versioned filename; rebuilds must increment package revision.
     for name, sha in files.items():
-        if name == "repos/current.json":
+        if name == pointer_key:
             continue
         try:
             aws("put-object", "--bucket", bucket, "--key", name,
@@ -90,9 +109,9 @@ def publish(directory, bucket, base_url):
             existing = aws("head-object", "--bucket", bucket, "--key", name)
             if existing.get("Metadata", {}).get("sha256") != sha:
                 raise RuntimeError(f"Immutable object differs: {name}; increment the package revision") from error
-    aws("put-object", "--bucket", bucket, "--key", "repos/current.json", "--body", str(pointer),
+    aws("put-object", "--bucket", bucket, "--key", pointer_key, "--body", str(pointer),
         "--content-type", "application/json", "--cache-control", "no-store", *condition)
-    latest = fetch_json(base_url + "/api/update/linux-x64/stable/" + "0" * 40)
+    latest = fetch_json(f"{base_url}/api/update/linux-x64/{channel}/" + "0" * 40)
     if latest.get("version") != current["commit"] or latest.get("productVersion") != current["version"]:
         raise RuntimeError("Published Linux feed does not match the release")
 
@@ -102,5 +121,6 @@ if __name__ == "__main__":
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--bucket", required=True)
     parser.add_argument("--base-url", default="https://install.dev.fast")
+    parser.add_argument("--channel", choices=sorted(CHANNELS), help="Refuse a publication built for another channel")
     args = parser.parse_args()
-    publish(args.directory.resolve(), args.bucket, args.base_url.rstrip("/"))
+    publish(args.directory.resolve(), args.bucket, args.base_url.rstrip("/"), args.channel)

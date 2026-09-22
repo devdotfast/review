@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      linux_only:
+        description: "Build and publish only Linux. Do not create a preview tag."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -97,6 +102,7 @@ jobs:
   compile:
     name: Compile Darwin payload on Linux
     needs: version
+    if: ${{ !inputs.linux_only }}
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
@@ -442,7 +448,7 @@ jobs:
     name: Publish Linux preview repository
     environment: review-release
     needs: [version, build, linux]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !cancelled() && !inputs.dry_run && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.linux_only || needs.build.result == 'success') }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -478,7 +484,7 @@ jobs:
   tag-preview:
     name: Tag published preview
     needs: [version, build, publish-linux]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && !inputs.linux_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

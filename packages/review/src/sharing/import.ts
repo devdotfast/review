@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/json";
+import { isJsonObject } from "@dev.fast/review-protocol";
 import {
   MAX_SHARE_MANIFEST_BYTES,
   type ShareManifest,
@@ -38,6 +39,7 @@ import {
   normalizedSoftwareElementSchema,
   normalizedSoftwareRelationshipSchema,
 } from "../software-map-model.js";
+import { migrateStoredDocument } from "../stored-document-migration.js";
 import { type ShareBundle, digestBytes } from "./export.js";
 import {
   fetchPinnedRepository,
@@ -128,7 +130,15 @@ export function validateShareBundle(bundle: ShareBundle) {
   const json = (id: string) =>
     parseJsonText(Buffer.from(bundle.objects.get(id)!).toString());
 
-  const snapshot = sharedSnapshotSchema.parse(json(manifest.snapshot));
+  const stored = json(manifest.snapshot);
+
+  // Bundles shared before a field was retired still open; the bytes stay
+  // sealed and only the parsed document drops the retired form.
+  const snapshot = sharedSnapshotSchema.parse(
+    isJsonObject(stored) && "document" in stored
+      ? { ...stored, document: migrateStoredDocument(stored.document) }
+      : stored,
+  );
 
   if (
     snapshot.reviewId !== manifest.reviewId ||

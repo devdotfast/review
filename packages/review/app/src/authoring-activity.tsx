@@ -107,19 +107,20 @@ export function AuthoringActivityBadge({
 
 /**
  * The word "Review" in the top bar's surface tabs. While an agent is writing,
- * marker ink sweeps through the word; when the document becomes ready (agent
- * gone, every section complete) while the reader is on another surface, an
- * unread dot sits just past the word until they visit the tab, and it comes
- * back only when a later version arrives while they are elsewhere again. A
- * document that is already ready when this mounts counts as read. Neither
- * state changes the tab's layout box.
+ * marker ink sweeps through the word. The document is ready once it has
+ * content and no authoring session is live, so ending (or losing) the lease is
+ * what finishes it. When it becomes ready while the reader is on another
+ * surface, an unread dot sits just past the word until they visit the tab, and
+ * it comes back only when a later version arrives while they are elsewhere
+ * again. A document that is already ready when this mounts counts as read.
+ * Neither state changes the tab's layout box.
  */
 export function ReviewSurfaceLabel({
-  complete,
+  hasContent,
   active,
   label = "Review",
 }: {
-  complete: boolean;
+  hasContent: boolean;
   active: boolean;
   /** The tab's word; the scratchpad names itself. */
   label?: string;
@@ -132,7 +133,7 @@ export function ReviewSurfaceLabel({
     activity !== "unknown" &&
     activity.workingCount > 0;
 
-  const ready = complete && !live;
+  const ready = hasContent && !live;
 
   const [readVersion, setReadVersion] = useState<number | null>(() =>
     active || ready ? version : null,
@@ -142,10 +143,7 @@ export function ReviewSurfaceLabel({
   const unread = !active && ready && readVersion !== version;
 
   return (
-    <span
-      className="review-segment-word"
-      data-working={(live && !complete) || undefined}
-    >
+    <span className="review-segment-word" data-working={live || undefined}>
       {label}
       {unread && <span className="review-segment-unread" aria-hidden="true" />}
     </span>

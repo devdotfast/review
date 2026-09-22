@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -10,7 +11,7 @@ import { selectSource } from "../lens-selection";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import { openLocalReviewStore } from "../review-api/local-data.js";
-import { exportShare } from "./export.js";
+import { type ShareBundle, digestBytes, exportShare } from "./export.js";
 import { SharedReviewStore, validateShareBundle } from "./import.js";
 import { fetchPinnedRepository } from "./repository.js";
 
@@ -120,10 +121,20 @@ async function fixture() {
 
 const repository = { cloneUrl: "https://github.com/fixture/review.git" };
 
-async function importFixture() {
+async function importFixture(
+  prepare: (
+    fixtureData: Awaited<ReturnType<typeof fixture>>,
+    bundle: ShareBundle,
+  ) => Promise<ShareBundle> | ShareBundle = (_, bundle) => bundle,
+) {
   const fixtureData = await fixture();
   const { root, repo, local, reviewId } = fixtureData;
-  const bundle = await exportShare({ ...local, reviewId, repository });
+
+  const bundle = await prepare(
+    fixtureData,
+    await exportShare({ ...local, reviewId, repository }),
+  );
+
   const recipient = openLocalReviewStore(path.join(root, "recipient.db"));
   cleanup.push(() => recipient.store.close());
   cleanup.push(() => recipient.data.close());
@@ -164,6 +175,76 @@ async function importFixture() {
     fetchRepository,
   };
 }
+
+/** Stand in for a bundle shared by an older Review: its sealed snapshot
+ * carries `status` on every section. */
+function withLegacySectionStatus(bundle: ShareBundle): ShareBundle {
+  const snapshot = JSON.parse(
+    Buffer.from(bundle.objects.get(bundle.manifest.snapshot)!).toString(),
+  );
+
+  for (const block of snapshot.document)
+    if (block.type === "section") block.status = "complete";
+  const bytes = Buffer.from(JSON.stringify(snapshot));
+  const id = digestBytes(bytes);
+  const objects = new Map(bundle.objects);
+  objects.delete(bundle.manifest.snapshot);
+  objects.set(id, bytes);
+
+  return {
+    ...bundle,
+    objects,
+    manifest: {
+      ...bundle.manifest,
+      snapshot: id,
+      objects: bundle.manifest.objects.map((object) =>
+        object.id === bundle.manifest.snapshot
+          ? { id, sha256: id, size: bytes.byteLength }
+          : object,
+      ),
+    },
+  };
+}
+
+it("exports a review saved with the retired section status and imports a bundle that still carries it", async () => {
+  const { imported, id, bundle } = await importFixture(
+    async ({ root, local, reviewId }) => {
+      const { version } = await local.store.execute({
+        commandId: randomUUID(),
+        operation: {
+          type: "edit",
+          reviewId,
+          edit: {
+            type: "insert",
+            content: { type: "section", title: "Notes", children: [] },
+          },
+        },
+      });
+
+      const db = new DatabaseSync(path.join(root, "review.db"));
+      db.prepare(
+        `UPDATE versions SET snapshot=json_set(snapshot,'$.document[3].status','in_progress') WHERE review_id=? AND version=?`,
+      ).run(reviewId, version);
+      db.close();
+
+      const exported = await exportShare({ ...local, reviewId, repository });
+      const { snapshot } = validateShareBundle(exported);
+      expect(snapshot.document[3]).toMatchObject({ title: "Notes" });
+      expect(snapshot.document[3]).not.toHaveProperty("status");
+
+      return withLegacySectionStatus(exported);
+    },
+  );
+
+  expect(
+    JSON.parse(
+      Buffer.from(bundle.objects.get(bundle.manifest.snapshot)!).toString(),
+    ).document[3],
+  ).toMatchObject({ status: "complete" });
+  const shared = imported.get(id).snapshot.document[3];
+  expect(shared).toMatchObject({ type: "section", title: "Notes" });
+  expect(shared).not.toHaveProperty("status");
+});
 
 it("fetches pinned source into an independent repository and retains complete traces offline", async () => {
   const { bundle, imported, id, repo, app, recipient } = await importFixture();

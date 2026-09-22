@@ -130,7 +130,7 @@ Each accepted edit is one saved version, and the version carries
 `lastEdit: {type, targetId, blockId, kind, unit?, linkId?, fields?, units?}`:
 the edit's kind, the element it landed on, what that element is, and the block
 it belongs to (`unit` names a step, flow node or flow edge inside `blockId`;
-`fields` lists an update's patched keys, so a status patch draws nothing;
+`fields` lists an update's patched keys, so a `defaultCollapsed` patch draws nothing;
 `units` lists a diagram's steps, or its nodes and edges, in drawing order when
 the diagram was inserted or replaced whole, each edge once both of its nodes
 are drawn). Versions made by rename, repin, restore or import carry none.
@@ -200,7 +200,12 @@ the read routes share their query schemas with the catalog (`read-schemas.ts`);
 the MCP SDK handles framing. The checkout skill describes this JSON workflow while
 preserving the writing guidance. No integration is installed automatically.
 
-Sections may carry `status:"pending" | "in_progress" | "complete"`. Status is saved in document versions. Unfinished sections show a slim bar along their left edge: muted gray for pending, pulsing blue for in progress or a live targeted task. No visible placeholder text is added; completed sections show no progress decoration. Reduced-motion mode keeps the bar static. Omitted status is unspecified; old reviews are not marked complete automatically. Authors set pending when outlining, in_progress before filling or revising, and complete after checking the content. Parent and child statuses are independent. Activity expiry, disconnects and ending a lease never complete a section. `review_get` includes status in the text outline.
+The Review tab counts a review as ready once it has content and no authoring
+session is live. Ending a lease (or letting it expire) is the only completion
+signal; there is no per-section progress state. Versions and share bundles
+saved while sections carried a `status` field are read and imported without it;
+new edits and draft writes that send one are rejected by the strict section
+schema.
 
 Activity uses a caller-chosen lease UUID and no command receipt. Begin acquires
 exclusive authoring ownership, renew extends it, and end releases it. Clients
@@ -290,9 +295,8 @@ Normal reads, catalog and history expose committed state only. Interactive
 mutations, imports and leases cannot modify a review owned by a batch draft.
 
 Commit validates the entire document, references, pins, sources and resources,
-marks every nested section complete, then rechecks owner and starting version in
-the write transaction. It saves one snapshot and receipt and clears the draft
-atomically. Retry the same commit commandId and draftId after a lost response.
+then rechecks owner and starting version in the write transaction. It saves one
+snapshot and receipt and clears the draft atomically. Retry the same commit commandId and draftId after a lost response.
 Validation errors preserve scratch content for correction. Notifications use the
 normal committed-review path.
 

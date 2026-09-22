@@ -340,7 +340,6 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
         content: {
           type: "section",
           title: "Work in progress",
-          status: "in_progress",
           children: [],
         },
       },
@@ -447,7 +446,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
   ).toMatchObject({
     reviewId,
     pins,
-    document: [{ status: "in_progress" }, { assetId: imageId }],
+    document: [{ title: "Work in progress" }, { assetId: imageId }],
   });
 
   const retained = await restarted.client.response(
@@ -833,7 +832,7 @@ it("authors one batch snapshot through MCP and CLI with draft source reads, uplo
     expect(await call("review_draft_commit", request)).toEqual(committed);
     expect(await client.read(`/${d.reviewId}/history`)).toHaveLength(1);
     expect(await client.read(`/${d.reviewId}?full=true`)).toMatchObject({
-      document: [{ status: "complete" }],
+      document: [{ type: "section", title: "Summary" }],
     });
 
     const abandoned = await client.post<Draft>("/draft-commands/begin", {
@@ -851,7 +850,9 @@ it("authors one batch snapshot through MCP and CLI with draft source reads, uplo
       reviewId: d.reviewId,
     });
 
-    expect(next.document).toMatchObject([{ status: "complete" }]);
+    expect(next.document).toMatchObject([
+      { type: "section", title: "Summary" },
+    ]);
     await expect(
       restarted.client.read(`/drafts/${abandoned.draftId}`),
     ).rejects.toThrow(/not found/i);

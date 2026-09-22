@@ -243,11 +243,15 @@ describe("draw queue", () => {
       seq: ++seq,
     });
 
-    // A status patch on a section draws nothing and moves nobody.
+    // A collapse patch on a section draws nothing and moves nobody.
     let state = arrive(EMPTY_QUEUE, node("node-1"), 0);
     state = tick(state, 750);
     const before = state;
-    state = arrive(state, update("section-1", "section", ["status"]), 800);
+    state = arrive(
+      state,
+      update("section-1", "section", ["defaultCollapsed"]),
+      800,
+    );
     expect(state).toBe(before);
     expect(standingCursor(state)?.targetId).toBe("node-1");
 
@@ -257,7 +261,7 @@ describe("draw queue", () => {
     state = tick(state, 800 + 420);
     state = arrive(
       state,
-      update("section-1", "section", ["title", "status"]),
+      update("section-1", "section", ["title", "defaultCollapsed"]),
       1300,
     );
     expect(phases(state).get("section-1")).toBe("retitle");

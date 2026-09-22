@@ -145,8 +145,6 @@ export interface RenderedReviewDocument {
   >;
   documentSoftwareModels: NormalizedSoftwareModel[];
   tocEntries?: import("./review-document-headings").ReviewTocEntry[];
-  /** True once the document has content and no section is still being written. */
-  authoringComplete?: boolean;
   /** True while the document has no blocks at all, as right after creation. */
   empty?: boolean;
 }
@@ -599,9 +597,9 @@ function ReviewLayoutContent({
                     {view === "review" ? (
                       <ReviewSurfaceLabel
                         label={scratchpad ? "Scratchpad" : "Review"}
-                        complete={
+                        hasContent={
                           documentState.state === "ready" &&
-                          documentState.document.authoringComplete === true
+                          documentState.document.empty === false
                         }
                         active={activeView === "review"}
                       />

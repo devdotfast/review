@@ -1,5 +1,11 @@
 import type { JsonValue } from "@dev.fast/json";
 
+import {
+  sessionModelRequest,
+  sessionModelResponse,
+  sessionModelWatch,
+} from "./session-model-transport.js";
+
 /** List metadata for the authenticated local catalog; document contents stay in snapshots. */
 export interface ReviewApiSummary {
   reviewId: string;
@@ -74,6 +80,8 @@ export class ReviewApiClient {
       serverUrl: string;
       token: string;
       apiPath?: "/reviews-api" | "/sessions-api";
+      /** Adapt the existing app model while using the public session transport. */
+      modelNames?: "review";
     },
     private readonly request: Request = defaultRequest,
   ) {}
@@ -99,7 +107,12 @@ export class ReviewApiClient {
     return response;
   }
   async read<T>(route: string, signal?: AbortSignal): Promise<T> {
-    return (await this.response(route, { signal })).json();
+    const value = await (await this.response(route, { signal })).json();
+
+    // SAFETY: the authenticated route returns T; the adapter changes only its declared metadata keys.
+    return this.connection.modelNames === "review"
+      ? (sessionModelResponse(route, value) as T)
+      : value;
   }
   async post<T>(
     route: string,
@@ -107,13 +120,23 @@ export class ReviewApiClient {
     input: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
-    return (
+    const serialized = JSON.stringify(input);
+
+    const value = await (
       await this.response(route, {
         method: "POST",
-        body: JSON.stringify(input),
+        body:
+          this.connection.modelNames === "review"
+            ? JSON.stringify(sessionModelRequest(route, JSON.parse(serialized)))
+            : serialized,
         signal,
       })
     ).json();
+
+    // SAFETY: the authenticated route returns T; the adapter changes only its declared metadata keys.
+    return this.connection.modelNames === "review"
+      ? (sessionModelResponse(route, value) as T)
+      : value;
   }
   async *watch<T = unknown>(
     reviewId: string | null | Subscription[],
@@ -150,8 +173,13 @@ export class ReviewApiClient {
         let end: number;
 
         while ((end = pending.indexOf("\n")) !== -1) {
-          // SAFETY: the authenticated host serializes the snapshot type requested by this caller.
-          yield JSON.parse(pending.slice(0, end)) as T;
+          const parsed = JSON.parse(pending.slice(0, end));
+          // SAFETY: the authenticated host serializes the requested snapshot; the adapter only renames its metadata.
+          yield (
+            this.connection.modelNames === "review"
+              ? sessionModelWatch(parsed, Array.isArray(reviewId))
+              : parsed
+          ) as T;
           pending = pending.slice(end + 1);
         }
       }
@@ -178,6 +206,7 @@ export class ReviewApiClient {
       this.connection.serverUrl,
       this.connection.token,
       this.connection.apiPath ?? "/reviews-api",
+      this.connection.modelNames,
     ]);
 
     let live = connections.get(key);

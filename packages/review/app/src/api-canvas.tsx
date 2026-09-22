@@ -81,7 +81,15 @@ export function ApiCanvas({
   findHost?: ReviewFindHost;
 }) {
   const client = useMemo(
-    () => new ReviewApiClient(content.bridge.config, content.bridge.request),
+    () =>
+      new ReviewApiClient(
+        {
+          ...content.bridge.config,
+          apiPath: "/sessions-api",
+          modelNames: "review",
+        },
+        content.bridge.request,
+      ),
     [content.bridge],
   );
 

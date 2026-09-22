@@ -30,7 +30,7 @@ describe("ReviewSessionProvider", () => {
     await session.fetch("/versions");
 
     expect(request).toHaveBeenCalledWith(
-      "http://127.0.0.1:5570/reviews-api/test-review/versions",
+      "http://127.0.0.1:5570/sessions-api/test-review/versions",
       expect.objectContaining({
         headers: expect.any(Headers),
       }),
@@ -92,13 +92,13 @@ describe("ReviewSessionProvider", () => {
     });
 
     expect(containerA.querySelector("output")?.textContent).toContain(
-      "/reviews-api/a/file",
+      "/sessions-api/a/file",
     );
     expect(containerA.querySelector("output")?.textContent).toContain(
       "progressive-review:probe:a",
     );
     expect(containerB.querySelector("output")?.textContent).toContain(
-      "/reviews-api/b/file",
+      "/sessions-api/b/file",
     );
     expect(containerB.querySelector("output")?.textContent).toContain(
       "progressive-review:probe:b",
@@ -116,7 +116,7 @@ describe("ReviewSessionProvider", () => {
       { name: "showReviewView", args: { view: "diff" } },
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:5570/reviews-api/b/file",
+      "http://127.0.0.1:5570/sessions-api/b/file",
       expect.objectContaining({
         headers: expect.objectContaining({}),
       }),

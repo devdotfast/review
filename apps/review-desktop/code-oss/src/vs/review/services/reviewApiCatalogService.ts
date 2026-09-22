@@ -71,7 +71,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		const abort = new AbortController();
 		this.connectionAbort = abort;
 		const mode = this.configuration.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === false ? "textual" : "structural";
-		const client = new ReviewApiClient(await this.session.getConnection());
+		const client = new ReviewApiClient({ ...await this.session.getConnection(), apiPath: "/sessions-api", modelNames: "review" });
 		this._register(toDisposable(() => abort.abort()));
 		const accept = (reviews: ReviewApiSummary[]) => {
 			if (abort.signal.aborted) return;

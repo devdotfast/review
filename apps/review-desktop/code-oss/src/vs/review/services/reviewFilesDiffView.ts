@@ -44,6 +44,9 @@ const REVIEW_FILES_DIFF_EDITOR_OPTIONS = {
 	readOnly: true,
 	glyphMargin: false,
 	lineNumbersMinChars: 3,
+	// A peek or diff on the page is read until it is clicked into; the current
+	// line highlight belongs to the cursor, not to the first revealed line.
+	renderLineHighlightOnlyWhenFocus: true,
 } satisfies IDiffEditorOptions;
 
 export interface ReviewFilesEditorEntry {

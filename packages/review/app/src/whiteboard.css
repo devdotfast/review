@@ -734,22 +734,30 @@
   padding-left: 0;
 }
 
-/* Two hues only: marker for the words the language owns, pencil for the
-   values the author wrote; ink at three strengths for everything else.
-   Diff green and red are reserved for the diff language. */
+/* The Whiteboard palette: ink at three strengths, the marker for keywords,
+   two more blues for types and functions, one warm pencil for strings and one
+   plum for numbers. Comments are quiet and italic. Diff green and red are
+   reserved for the diff language. The editor themes carry the same values. */
 .rendered-code-block .shj-syn-kwd {
   color: var(--accent);
 }
 
-.rendered-code-block .shj-syn-type,
-.rendered-code-block .shj-syn-class {
-  color: var(--code-type);
+.rendered-code-block .shj-syn-type {
+  color: var(--syntax-type);
 }
 
-.rendered-code-block .shj-syn-func,
-.rendered-code-block .shj-syn-section {
-  color: var(--ink);
+.rendered-code-block .shj-syn-class {
+  color: var(--syntax-type);
   font-weight: 500;
+}
+
+.rendered-code-block .shj-syn-func {
+  color: var(--syntax-function);
+}
+
+.rendered-code-block .shj-syn-section {
+  color: var(--syntax-function);
+  font-weight: 600;
 }
 
 .rendered-code-block .shj-syn-var {
@@ -757,34 +765,37 @@
 }
 
 .rendered-code-block .shj-syn-str {
-  color: var(--pencil);
+  color: var(--syntax-string);
 }
 
-.rendered-code-block .shj-syn-num,
+.rendered-code-block .shj-syn-num {
+  color: var(--syntax-number);
+}
+
 .rendered-code-block .shj-syn-bool {
-  color: var(--pencil);
+  color: var(--syntax-number);
   font-weight: 500;
 }
 
 .rendered-code-block .shj-syn-cmnt {
-  color: var(--ink-faint);
+  color: var(--syntax-comment);
   font-style: italic;
 }
 
 .rendered-code-block .shj-syn-oper {
-  color: var(--ink-muted);
+  color: var(--syntax-operator);
 }
 
 .rendered-code-block .shj-syn-insert {
-  color: var(--change-added);
+  color: var(--syntax-inserted);
 }
 
 .rendered-code-block .shj-syn-deleted {
-  color: var(--change-removed);
+  color: var(--syntax-deleted);
 }
 
 .rendered-code-block .shj-syn-err {
-  color: var(--change-removed);
+  color: var(--syntax-deleted);
   text-decoration: wavy underline;
 }
 

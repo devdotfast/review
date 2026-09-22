@@ -231,7 +231,9 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
           .replace(/immutable review snapshot/g, "immutable session snapshot")
           .replace(/Select a Review/g, "Select a session")
           .replace(/Review Desktop/g, "Whiteboard")
-          .replace(/Reviews/g, "sessions")
+          .replace(/Review documents/g, "sessions")
+          .replace(/Reviews/g, "Sessions")
+          .replace(/\breviews\b/g, "sessions")
           .replace(/Review/g, "Whiteboard")
           .replace(/\breview\b/g, "whiteboard")
           .replace(/--whiteboard/g, "--session")
@@ -402,7 +404,14 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     options: { json?: boolean; focus?: boolean },
   ) => {
     if (options.json) {
-      input.stdout.write(`${JSON.stringify(event)}\n`);
+      const publicEvent =
+        product === "whiteboard" && event.action === "pick"
+          ? (({ reviewUuid, ...rest }) => ({ ...rest, sessionId: reviewUuid }))(
+              event,
+            )
+          : event;
+
+      input.stdout.write(`${JSON.stringify(publicEvent)}\n`);
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
@@ -492,7 +501,18 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         reviewUuid: options[selector],
       });
 
-      input.stdout.write(`${JSON.stringify(event)}\n`);
+      const publicEvent =
+        product === "whiteboard"
+          ? {
+              event: event.event,
+              sessions: event.reviews.map(({ reviewId, ...rest }) => ({
+                ...rest,
+                sessionId: reviewId,
+              })),
+            }
+          : event;
+
+      input.stdout.write(`${JSON.stringify(publicEvent)}\n`);
       state.exitCode = 0;
     });
 
@@ -601,7 +621,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
       if (!cliSource) {
         human.write(
-          "Review did not install the review command because no built CLI was found. The skills were installed.\n",
+          `${displayName} did not install the ${product} command because no built CLI was found. The skills were installed.\n`,
         );
 
         return;
@@ -1026,7 +1046,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         error.code === "repository_authorization_required"
       ) {
         serialized.code = error.code;
-        serialized.remedy = "review login --traces";
+        serialized.remedy = `${product} login --traces`;
       }
 
       emitReviewEvent(input.stdout, { event: "error", error: serialized });

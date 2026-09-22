@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough, Readable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 
 import {
   StoreClient,
@@ -924,4 +924,61 @@ it("keeps Whiteboard sessions and agent conversations distinct while preserving 
   expect(runReviewInfo).toHaveBeenLastCalledWith(
     expect.objectContaining({ reviewUuid: "board" }),
   );
+});
+
+it("uses session identifiers in Whiteboard discovery and picker output", async () => {
+  const summary = {
+    reviewId: "saved-id",
+    version: 4,
+    title: "Review my reviewId field",
+    viewedAt: null,
+    dismissedAt: null,
+    pins: { repositoryId: "repo", base: "base", head: "head" },
+    createdAt: "2026-09-21T00:00:00Z",
+    repositoryName: "repo",
+  };
+
+  const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
+    event: "info",
+    reviews: [summary],
+  }));
+
+  const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
+    event: "app",
+    action: "pick",
+    reviewUuid: summary.reviewId,
+    title: summary.title,
+  }));
+
+  for (const argv of [
+    ["info", "--session", "saved-id"],
+    ["app", "pick", "--session", "saved-id", "--json"],
+  ]) {
+    let output = "";
+
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk;
+        callback();
+      },
+    });
+
+    expect(
+      await runReviewCli({
+        product: "whiteboard",
+        argv,
+        stdout,
+        stderr: outputStream(),
+        runtime: { runReviewInfo, runReviewAppPick },
+      }),
+    ).toBe(0);
+    const result = JSON.parse(output);
+    const session = result.sessions?.[0] ?? result;
+    expect(session).toMatchObject({
+      sessionId: "saved-id",
+      title: summary.title,
+    });
+    expect(session).not.toHaveProperty("reviewId");
+    expect(session).not.toHaveProperty("reviewUuid");
+  }
 });

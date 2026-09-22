@@ -98,7 +98,7 @@ export function cliInstallStampPath(
 }
 
 export function pathShimPath(homeDir = os.homedir()): string {
-  return path.join(homeDir, ".local", "bin", "review");
+  return path.join(homeDir, ".local", "bin", "whiteboard");
 }
 
 /** Reads only the filesystem-backed agent state needed to choose a harness. */
@@ -176,7 +176,7 @@ export async function resolveCliInstallStatus(input: {
   );
 
   const shimPath = pathShimPath(homeDir);
-  const cliPath = path.join(input.packageRoot, "dist", "cli.js");
+  const cliPath = path.join(input.packageRoot, "dist", "whiteboard-cli.js");
   const fffBinary = fffBinaryPath(homeDir);
   const fffCorpus = fffCorpusRoot(homeDir);
 
@@ -260,6 +260,12 @@ export async function applyCliInstall(
   input: ApplyCliInstallInput,
 ): Promise<{ code: number; output: string; shimPath?: string }> {
   const homeDir = input.homeDir ?? os.homedir();
+
+  if (input.cliPath && path.basename(input.cliPath) === "cli.js")
+    input = {
+      ...input,
+      cliPath: path.join(path.dirname(input.cliPath), "whiteboard-cli.js"),
+    };
 
   try {
     const result = await withDesktopInstallLock(input.env, async () => {
@@ -356,7 +362,7 @@ async function applyCliInstallUnlocked(
       reviewCommand:
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
-          : "review",
+          : "whiteboard",
       stdout: sink,
       stderr: sink,
     };
@@ -483,7 +489,7 @@ async function applyCliInstallUnlocked(
 
       if (!installed) {
         chunks.push(
-          `The ${target} Review MCP entry was customized; left unchanged.\n`,
+          `The ${target} Whiteboard MCP entry was customized; left unchanged.\n`,
         );
         continue;
       }
@@ -494,7 +500,7 @@ async function applyCliInstallUnlocked(
       ];
       await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
       chunks.push(
-        `[ok] Review MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
+        `[ok] Whiteboard MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
       );
     }
   }
@@ -587,7 +593,7 @@ async function removeCliInstallUnlocked(
     chunks.push(
       removed
         ? `[ok] removed ${registration.target} Review MCP\n`
-        : `The ${registration.target} Review MCP entry changed after installation; left in place.\n`,
+        : `The ${registration.target} Whiteboard MCP entry changed after installation; left in place.\n`,
     );
   }
 
@@ -609,7 +615,7 @@ async function removeCliInstallUnlocked(
 
     if (contents.includes(SHIM_MARKER)) {
       await rm(shimPath, { force: true });
-      chunks.push(`[ok] removed review command ${shimPath}\n`);
+      chunks.push(`[ok] removed whiteboard command ${shimPath}\n`);
     } else if (contents) {
       chunks.push(
         `${shimPath} was not installed by Review Desktop; left in place.\n`,
@@ -744,7 +750,7 @@ async function removeCliInstallUnlocked(
 export async function installFingerprint(packageRoot: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await readTextIfExists(path.join(packageRoot, "package.json")));
-  const cliPath = path.join(packageRoot, "dist", "cli.js");
+  const cliPath = path.join(packageRoot, "dist", "whiteboard-cli.js");
   hash.update("dist/cli.js\0");
   hash.update(await readTextIfExists(cliPath));
 
@@ -809,7 +815,7 @@ export async function writePathShim(
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DEFAULT_HOME=${shSingleQuote(devHome)}
-export DEV_REVIEW_HOME="\${DEV_REVIEW_HOME:-$DEFAULT_HOME}"
+export DEV_REVIEW_HOME="\${DEV_WHITEBOARD_HOME:-\${DEV_REVIEW_HOME:-$DEFAULT_HOME}}"
 DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
 
 cli=""
@@ -817,6 +823,9 @@ runtime=""
 delegated=""
 if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
+  case "$FALLBACK_CLI" in
+    */whiteboard-cli.js) cli="\${cli%/*}/whiteboard-cli.js" ;;
+  esac
   delegated="1"
   runtime=$(sed -n 's/.*"cliRuntimePath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
 fi
@@ -876,15 +885,21 @@ export async function installReviewCommand(input: {
   if ((await isFile(shimPath)) && !(await isOwnedShim(shimPath))) {
     return {
       shimPath,
-      output: `[skip] kept the existing review command at ${shimPath}\n`,
+      output: `[skip] kept the existing whiteboard command at ${shimPath}\n`,
     };
   }
 
-  const shadowingCommand = await resolvePathCommand("review", shimPath, env);
+  const shadowingCommand = await resolvePathCommand(
+    "whiteboard",
+    shimPath,
+    env,
+  );
 
   await writePathShim(
     shimPath,
-    input.cliPath,
+    path.basename(input.cliPath) === "cli.js"
+      ? path.join(path.dirname(input.cliPath), "whiteboard-cli.js")
+      : input.cliPath,
     input.cliRuntimePath,
     devReviewHome(env, homeDir),
   );
@@ -896,7 +911,7 @@ export async function installReviewCommand(input: {
 
   return {
     shimPath,
-    output: `[ok] review command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
+    output: `[ok] whiteboard command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
   };
 }
 

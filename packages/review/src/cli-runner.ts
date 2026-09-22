@@ -161,6 +161,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   // The command every installed hook re-enters. The Review CLI resolves it
   // the same way the hooks did on their own, so `review` behaves as before.
   const traceCommand = resolveTraceCommand({
+    commandName: product,
     env,
     homeDir: traceHomeDir(env),
   });
@@ -1112,10 +1113,16 @@ async function resolveInstallCliSource(
       reviewDesktopDiscoveryPath(env),
     );
 
-    if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      const source: InstallCliSource = { cliPath: discovery.cliPath };
+    const cliPath =
+      discovery?.cliPath &&
+      (path.basename(discovery.cliPath) === "cli.js"
+        ? path.join(path.dirname(discovery.cliPath), "whiteboard-cli.js")
+        : discovery.cliPath);
 
-      if (discovery.cliRuntimePath) {
+    if (cliPath && (await isFile(cliPath))) {
+      const source: InstallCliSource = { cliPath };
+
+      if (discovery?.cliRuntimePath) {
         source.cliRuntimePath = discovery.cliRuntimePath;
       }
 
@@ -1125,7 +1132,11 @@ async function resolveInstallCliSource(
     // A packaged CLI remains a valid fallback when discovery is stale.
   }
 
-  const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
+  const packageCliPath = path.join(
+    defaultPackageRoot(),
+    "dist",
+    "whiteboard-cli.js",
+  );
 
   return (await isFile(packageCliPath))
     ? { cliPath: packageCliPath }

@@ -25,7 +25,7 @@ import type {
 	ReviewSourceEntry,
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
-import { resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
+import { sessionModelResponse, resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
 import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
@@ -170,7 +170,8 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) throw await reviewResponseError(response, `Could not read pinned source (${response.status}).`);
-		return response.json();
+		// SAFETY: the route selects the response type; only the session metadata envelope changes.
+		return sessionModelResponse(`/${reviewId}${route}`, await response.json()) as T;
 	}
 
 	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {

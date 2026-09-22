@@ -48,7 +48,7 @@ export async function connectReviewApi(env = process.env) {
 }
 
 /** Only translate the tool envelope. The host owns validation and persistence. */
-export function callAuthoringTool(
+export async function callAuthoringTool(
   client: ReviewApiClient,
   tool: AuthoringTool,
   input: NonNullable<CallToolRequest["params"]["arguments"]>,
@@ -57,7 +57,7 @@ export function callAuthoringTool(
   if (tool.commandType) {
     const { commandId, leaseId, ...fields } = input;
 
-    return client.post(
+    return client.post<JsonValue>(
       tool.path,
       { commandId, leaseId, operation: { ...fields, type: tool.commandType } },
       signal,
@@ -79,25 +79,57 @@ export function callAuthoringTool(
     },
   );
 
-  if (tool.method === "POST") return client.post(route, fields, signal);
+  if (tool.method === "POST")
+    return client.post<JsonValue>(route, fields, signal);
   const query = new URLSearchParams();
 
   for (const [key, value] of Object.entries(fields)) {
     // Hosts often send null for an unused optional field; the route reads absence.
     if (value === null || value === undefined) continue;
 
-    if (
-      !isStringValue(value) &&
-      !isNumberValue(value) &&
-      !isBooleanValue(value)
-    )
-      throw new Error(`${key} must be a string, number or boolean.`);
+    // Arrays travel as repeated keys, as in paths=a&paths=b.
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (!isStringValue(item) && !isNumberValue(item) && !isBooleanValue(item))
+        throw new Error(
+          `${key} must be a string, number, boolean or list of them.`,
+        );
 
-    query.set(key, String(value));
+      query.append(key, String(item));
+    }
   }
 
-  return client.read(route + (query.size ? `?${query}` : ""), signal);
+  const response = await client.response(
+    route + (query.size ? `?${query}` : ""),
+    { signal },
+  );
+
+  return response.headers.get("content-type")?.startsWith("text/plain")
+    ? new ToolText(await response.text())
+    : parseJsonText(await response.text());
 }
 
-import { isBooleanValue, isNumberValue, isStringValue } from "@dev.fast/json";
+/** A plain-text reply, shown to the agent as-is instead of as a JSON string. */
+export class ToolText {
+  constructor(readonly text: string) {}
+}
+
+/** The text an agent sees for a tool result. */
+export function toolResultText(
+  tool: Pick<AuthoringTool, "name">,
+  result: JsonValue | ToolText,
+) {
+  if (result instanceof ToolText) return result.text;
+
+  return tool.name === "review_get" && isStringValue(result)
+    ? result
+    : JSON.stringify(result);
+}
+
+import {
+  isBooleanValue,
+  isNumberValue,
+  isStringValue,
+  type JsonValue,
+  parseJsonText,
+} from "@dev.fast/json";
 import type { CallToolRequest, Tool } from "@modelcontextprotocol/sdk/types.js";

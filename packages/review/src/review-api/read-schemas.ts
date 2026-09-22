@@ -80,6 +80,21 @@ export const readQuerySchemas = {
     version,
     commit,
     ...anchor,
+    /** Pathspec, like `git diff -- a b`: files or directories. Omit for every changed file. */
+    paths: z.array(z.string().min(1)).max(200).optional(),
+    /** "files" lists changes (like --numstat); "patch" returns numbered patches (like -p). */
+    format: z.enum(["files", "patch"]).default("files"),
+    /** Context lines around each change, like -U<n>. */
+    context: z.coerce.number().int().min(0).max(50).optional(),
+    /** Patch budget; files past it are listed with a paths:[…] hint. */
+    maxBytes: z.coerce.number().int().positive().max(500_000).default(40_000),
+    /** Legacy: same as paths:[file], format:"patch". */
+    file: z.string().min(1).optional(),
+  }),
+  structuralDiff: z.strictObject({
+    version,
+    commit,
+    ...anchor,
     file: z.string().min(1).optional(),
   }),
   commits: z.strictObject({ version }),

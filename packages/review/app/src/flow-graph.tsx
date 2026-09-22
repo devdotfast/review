@@ -444,7 +444,9 @@ function FlowEdge({ id, data, markerEnd }: EdgeProps<FlowEdgeType>) {
         path={path}
         className="lens-flow-edge"
         // The arrowhead is the last stroke.
-        markerEnd={motion === "outline" ? undefined : markerEnd}
+        markerEnd={
+          motion === "outline" || motion === "stroke" ? undefined : markerEnd
+        }
         strokeDasharray={data.dashed ? "6 4" : undefined}
         pathLength={1}
         interactionWidth={0}

@@ -581,6 +581,74 @@ describe("snapshot authoring", () => {
     ).rejects.toThrow(/does not exist/);
   });
 
+  it("lists a whole diagram's units in drawing order: each edge once both ends are drawn", async () => {
+    const { reviewId } = await create();
+
+    const { targetId } = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "flow_diagram",
+        title: "Lease",
+        nodes: [
+          { key: "a", label: "A", attachments: [] },
+          { key: "b", label: "B", attachments: [] },
+          { key: "c", label: "C", attachments: [] },
+        ],
+        edges: [
+          { from: "a", to: "c" },
+          { from: "a", to: "b" },
+          { from: "c", to: "b" },
+        ],
+      },
+    });
+
+    const block = store.read(reviewId).document[0]!;
+
+    if (block.type !== "flow_diagram") throw new Error("Expected flow");
+    const [a, b, c] = block.nodes.map((node) => node.id);
+    const [ac, ab, cb] = block.edges.map((edge) => edge.id);
+    expect(store.read(reviewId).lastEdit).toMatchObject({
+      type: "insert",
+      targetId,
+      units: [a, b, ab, c, ac, cb],
+    });
+
+    const sequence = await edit(reviewId, {
+      type: "replace",
+      targetId,
+      content: {
+        type: "sequence",
+        title: "Renewal",
+        actors: { agent: "Agent", server: "Server" },
+        steps: [
+          {
+            from: "agent",
+            to: "server",
+            label: "renew",
+            style: "call",
+            explanation: "Fresh expiry.",
+          },
+          {
+            from: "server",
+            to: "agent",
+            label: "ok",
+            style: "return",
+            explanation: "Renewed.",
+          },
+        ],
+      },
+    });
+
+    const replaced = store.read(reviewId).document[0]!;
+
+    if (replaced.type !== "sequence") throw new Error("Expected sequence");
+    expect(store.read(reviewId).lastEdit).toMatchObject({
+      type: "replace",
+      targetId: sequence.targetId,
+      units: replaced.steps.map((step) => step.id),
+    });
+  });
+
   it("draws a flow diagram one node and edge at a time, and a removed node takes its edges", async () => {
     const { reviewId } = await create();
 
@@ -609,6 +677,7 @@ describe("snapshot authoring", () => {
       targetId: diagramId,
       blockId: diagramId,
       kind: "flow_diagram",
+      units: [session],
     });
 
     const broker = await edit(reviewId, {

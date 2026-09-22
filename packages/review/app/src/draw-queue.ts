@@ -5,13 +5,16 @@ import type { AuthoringCursor } from "./authoring-cursor";
  * The draw queue: every cursor move the stream delivers is drawn in order,
  * one at a time, for as long as its drawing takes, and the courier stands on
  * the one being drawn. A focus is held on the board until the next arrival.
- * A burst of units for one diagram larger than WHOLE_THRESHOLD is drawn as
- * the whole diagram landing at once instead of a strobe of outlines.
+ * A diagram written whole is traced in one quick pass, unit by unit in the
+ * order a hand would draw it; a burst of units for one diagram larger than
+ * WHOLE_THRESHOLD is folded into the same quick pass instead of a strobe of
+ * full outlines.
  */
 export type MotionPhase =
   | "queued"
   | "landing"
   | "outline"
+  | "stroke"
   | "fill"
   | "rewriting"
   | "relabel"
@@ -23,16 +26,14 @@ export interface DrawStep {
   phase: MotionPhase | null;
   /** Infinity holds the step until the next arrival. */
   ms: number;
-  /** The element this step draws when it is not the cursor's target: the
-   * edge a new node arrived with. */
-  target?: string;
+  /** The elements this step draws when they are not the cursor's target:
+   * the edge a new node arrived with, or the units of one quick stroke. */
+  targets?: string[];
 }
 
 export interface DrawEntry {
   cursor: AuthoringCursor;
   steps: DrawStep[];
-  /** A collapsed burst: the phase goes on the block, not the units. */
-  whole?: boolean;
 }
 
 export interface DrawHead extends DrawEntry {
@@ -57,12 +58,35 @@ export const EMPTY_QUEUE: DrawState = {
 
 const HOLD = Infinity;
 
+/** One quick pass over a whole diagram: a stroke per unit, each as long as
+ * its trace, and a large diagram takes several units per stroke so the pass
+ * still ends within a few seconds. */
+export function quickSteps(units: string[]): DrawStep[] {
+  const perStroke = Math.ceil(units.length / MAX_STROKES);
+  const steps: DrawStep[] = [];
+
+  for (let i = 0; i < units.length; i += perStroke)
+    steps.push({
+      phase: "stroke",
+      ms: STROKE_MS,
+      targets: units.slice(i, i + perStroke),
+    });
+
+  return steps;
+}
+
+export const STROKE_MS = 220;
+
+const MAX_STROKES = 16;
+
 /** The timeline one arrival plays, from the whiteboard motion boards. */
 export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
   if (cursor.source === "focus") return [{ phase: "attention", ms: HOLD }];
   const edit = cursor.edit;
 
   if (!edit) return [{ phase: null, ms: 300 }];
+
+  if (edit.units?.length) return quickSteps(edit.units);
 
   switch (edit.type) {
     case "insert":
@@ -71,7 +95,7 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
           { phase: "outline", ms: 420 },
           { phase: "fill", ms: 330 },
           ...(edit.linkId
-            ? [{ phase: "outline" as const, ms: 450, target: edit.linkId }]
+            ? [{ phase: "outline" as const, ms: 450, targets: [edit.linkId] }]
             : []),
         ];
 
@@ -126,7 +150,7 @@ function updateSteps(edit: EditSummary): DrawStep[] {
 const isUnitInsert = (entry: DrawEntry) =>
   entry.cursor.edit?.type === "insert" && entry.cursor.edit.unit !== undefined;
 
-/** Fold a long run of unit inserts for one diagram into the diagram landing. */
+/** Fold a long run of unit inserts for one diagram into one quick pass. */
 function coalesce(pending: DrawEntry[]): DrawEntry[] {
   const out: DrawEntry[] = [];
 
@@ -151,6 +175,13 @@ function coalesce(pending: DrawEntry[]): DrawEntry[] {
     if (end - start > WHOLE_THRESHOLD) {
       const last = pending[end - 1]!.cursor;
 
+      const units = pending
+        .slice(start, end)
+        .flatMap(({ cursor }) => [
+          cursor.targetId,
+          ...(cursor.edit?.linkId ? [cursor.edit.linkId] : []),
+        ]);
+
       out.push({
         cursor: {
           targetId: last.blockId,
@@ -160,12 +191,13 @@ function coalesce(pending: DrawEntry[]): DrawEntry[] {
             type: "insert",
             targetId: last.blockId,
             blockId: last.blockId,
-            kind: "flow_diagram",
+            kind:
+              first.cursor.edit?.unit === "step" ? "sequence" : "flow_diagram",
+            units,
           },
           seq: last.seq,
         },
-        steps: [{ phase: "landing", ms: 680 }],
-        whole: true,
+        steps: quickSteps(units),
       });
     } else out.push(...pending.slice(start, end));
 
@@ -260,33 +292,33 @@ export function standingCursor(state: DrawState): AuthoringCursor | null {
 }
 
 /** Every element's phase: pending inserts wait unseen (a node's edge with
- * it), the head is drawn one step at a time. */
+ * it, a whole diagram's units), the head is drawn one step at a time. */
 export function phases(state: DrawState): Map<string, MotionPhase> {
   const map = new Map<string, MotionPhase>();
 
-  for (const entry of state.pending)
-    if (isUnitInsert(entry) || entry.cursor.edit?.type === "insert") {
-      map.set(entry.cursor.targetId, "queued");
+  for (const entry of state.pending) {
+    const edit = entry.cursor.edit;
 
-      if (entry.cursor.edit?.linkId)
-        map.set(entry.cursor.edit.linkId, "queued");
-    }
+    if (edit?.type === "insert") map.set(entry.cursor.targetId, "queued");
+
+    if (edit?.linkId) map.set(edit.linkId, "queued");
+
+    for (const unit of edit?.units ?? []) map.set(unit, "queued");
+  }
 
   const head = state.head;
 
   if (head) {
     const step = head.steps[head.index];
-    const linkId = head.cursor.edit?.linkId;
 
-    // The edge waits, unseen, until its own step.
-    if (linkId && step?.target !== linkId) map.set(linkId, "queued");
+    // Everything a later step draws waits, unseen: a node's edge, a whole
+    // diagram's remaining units.
+    for (const later of head.steps.slice(head.index + 1))
+      for (const target of later.targets ?? []) map.set(target, "queued");
 
     if (step?.phase)
-      map.set(
-        step.target ??
-          (head.whole ? head.cursor.blockId : head.cursor.targetId),
-        step.phase,
-      );
+      for (const target of step.targets ?? [head.cursor.targetId])
+        map.set(target, step.phase);
   }
 
   return map;

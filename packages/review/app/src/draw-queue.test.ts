@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AuthoringCursor } from "./authoring-cursor";
 import {
   EMPTY_QUEUE,
+  STROKE_MS,
   WHOLE_THRESHOLD,
   arrive,
   nextDue,
@@ -93,7 +94,7 @@ describe("draw queue", () => {
     expect(phases(state).get("block-3")).toBe("attention");
   });
 
-  it("lands a burst of units for one diagram as the whole diagram", () => {
+  it("folds a burst of units for one diagram into one quick pass", () => {
     let state = EMPTY_QUEUE;
     state = arrive(state, block("block-0"), 0);
 
@@ -104,13 +105,69 @@ describe("draw queue", () => {
 
     expect(state.pending).toHaveLength(2);
     expect(state.pending[0]).toMatchObject({
-      whole: true,
-      cursor: { targetId: "diagram-1", blockId: "diagram-1" },
+      cursor: {
+        targetId: "diagram-1",
+        blockId: "diagram-1",
+        edit: { units: expect.arrayContaining(["node-1", "node-21"]) },
+      },
     });
+    // Above sixteen units, a stroke takes two at a time.
+    expect(state.pending[0]!.steps).toHaveLength(
+      Math.ceil((WHOLE_THRESHOLD + 1) / 2),
+    );
     expect(state.pending[1]!.cursor.targetId).toBe("other-1");
 
     state = tick(state, 680);
-    expect(phases(state).get("diagram-1")).toBe("landing");
+    expect(phases(state).get("node-1")).toBe("stroke");
+    expect(phases(state).get("node-2")).toBe("stroke");
+    expect(phases(state).get("node-3")).toBe("queued");
+    expect(standingCursor(state)?.targetId).toBe("diagram-1");
+  });
+
+  it("traces a diagram written whole in one quick pass, unit by unit", () => {
+    const units = ["n1", "n2", "e1", "n3", "e2"];
+
+    const whole: AuthoringCursor = {
+      targetId: "diagram-1",
+      blockId: "diagram-1",
+      source: "edit",
+      edit: {
+        type: "insert",
+        targetId: "diagram-1",
+        blockId: "diagram-1",
+        kind: "flow_diagram",
+        units,
+      },
+      seq: ++seq,
+    };
+
+    let state = arrive(EMPTY_QUEUE, block("block-0"), 0);
+    state = arrive(state, whole, 0);
+    // Waiting its turn: the block and every unit stay unseen.
+    expect(phases(state).get("diagram-1")).toBe("queued");
+    expect(phases(state).get("n3")).toBe("queued");
+
+    state = tick(state, 680);
+    expect(phases(state)).toEqual(
+      new Map([
+        ["n1", "stroke"],
+        ["n2", "queued"],
+        ["e1", "queued"],
+        ["n3", "queued"],
+        ["e2", "queued"],
+      ]),
+    );
+    expect(standingCursor(state)?.targetId).toBe("diagram-1");
+
+    // Each stroke is quick, and the drawn ones stay.
+    expect(nextDue(state)).toBe(680 + STROKE_MS);
+    state = tick(state, 680 + STROKE_MS * 2);
+    expect(phases(state).get("n1")).toBeUndefined();
+    expect(phases(state).get("e1")).toBe("stroke");
+    expect(phases(state).get("n3")).toBe("queued");
+
+    state = tick(state, 680 + STROKE_MS * 5);
+    expect(phases(state).size).toBe(0);
     expect(standingCursor(state)?.targetId).toBe("diagram-1");
   });
 
@@ -218,7 +275,9 @@ describe("draw queue", () => {
       state = arrive(state, node(`node-${i}`), i);
 
     expect(state.pending).toHaveLength(WHOLE_THRESHOLD - 1);
-    expect(state.pending.every((entry) => !entry.whole)).toBe(true);
+    expect(state.pending.every((entry) => !entry.cursor.edit?.units)).toBe(
+      true,
+    );
   });
 
   it("plays every phase instantly with reduced motion, still in order", () => {

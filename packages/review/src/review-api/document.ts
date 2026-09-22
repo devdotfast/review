@@ -395,6 +395,9 @@ export interface EditSummary {
   linkId?: string;
   /** An update's patched fields, so the canvas can draw only what changed. */
   fields?: string[];
+  /** A diagram written whole: its units in the order a hand would draw
+   * them, so the canvas can trace the whole diagram in one quick pass. */
+  units?: string[];
 }
 
 /** What applying an edit produced: the target, and the edge a node came with. */
@@ -447,7 +450,44 @@ export function summarizeEdit(
 
   if (edit.type === "update") summary.fields = Object.keys(edit.changes);
 
+  if (edit.type === "insert" || edit.type === "replace") {
+    const units = drawOrder(found.element);
+
+    if (units.length) summary.units = units;
+  }
+
   return summary;
+}
+
+/** The order a hand draws a diagram: a sequence step by step; a flow node by
+ * node, each edge as soon as both of its ends are on the board. */
+export function drawOrder(element: Element): string[] {
+  if (element.type === "sequence")
+    return element.steps.flatMap((step) => (step.id ? [step.id] : []));
+
+  if (element.type !== "flow_diagram") return [];
+
+  const order: string[] = [];
+  const drawn = new Set<string>();
+  const waiting = [...element.edges];
+
+  for (const node of element.nodes) {
+    if (node.id) order.push(node.id);
+
+    drawn.add(node.key);
+
+    for (let i = 0; i < waiting.length; ) {
+      const edge = waiting[i]!;
+
+      if (drawn.has(edge.from) && drawn.has(edge.to)) {
+        if (edge.id) order.push(edge.id);
+
+        waiting.splice(i, 1);
+      } else i++;
+    }
+  }
+
+  return order;
 }
 
 /** The arrays an element's children live in, so an edit can splice the

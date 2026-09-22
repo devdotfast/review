@@ -390,6 +390,30 @@ describe("Review Desktop launcher", () => {
     },
   );
 
+  it("launches the channel's own Linux launcher when the CLI wrapper names it", () => {
+    const child = new FakeChild();
+
+    const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+      () => child,
+    );
+
+    const attempt = launchDesktopApplication({
+      platform: "linux",
+      electron: false,
+      env: {
+        DEV_FAST_REVIEW_DESKTOP_COMMAND: "/usr/bin/review-preview-desktop",
+      },
+      spawn,
+    });
+
+    expect(spawn).toHaveBeenCalledWith(
+      "/usr/bin/review-preview-desktop",
+      [],
+      expect.objectContaining({ detached: true }),
+    );
+    expect(attempt.method).toContain("/usr/bin/review-preview-desktop");
+  });
+
   it("does not mark a focused direct launch as background", () => {
     const child = new FakeChild();
 

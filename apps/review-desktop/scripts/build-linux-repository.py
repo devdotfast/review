@@ -55,22 +55,31 @@ def sign_rpm(file, fingerprint, public_key):
             raise ValueError("RPM has no valid package signature")
 
 
-def build(packages, output, version, revision, commit, fingerprint):
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        raise ValueError("Expected stable X.Y.Z version")
+# Each channel is a separate package in a separate repository. Preview builds
+# use RPM's tilde form so they sort below the stable release they precede.
+CHANNELS = {
+    "stable": ("dev-fast-review", "repos", r"[0-9]+\.[0-9]+\.[0-9]+"),
+    "preview": ("dev-fast-review-preview", "repos/preview", r"[0-9]+\.[0-9]+\.[0-9]+~preview\.[0-9]{8}\.[0-9]+"),
+}
+
+
+def build(packages, output, version, revision, commit, fingerprint, channel="stable"):
+    package_name, prefix, version_pattern = CHANNELS[channel]
+    if not re.fullmatch(version_pattern, version):
+        raise ValueError(f"Expected a {channel} package version")
     if not re.fullmatch(r"[1-9][0-9]*", revision) or not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Invalid package revision or source commit")
     if not re.fullmatch(r"[A-F0-9]{40}", fingerprint):
         raise ValueError("Expected the full signing key fingerprint")
     if output.exists():
         raise ValueError("Output already exists; use a fresh directory to avoid mixing publications")
-    name = f"dev-fast-review-{version}-{revision}.x86_64.rpm"
+    name = f"{package_name}-{version}-{revision}.x86_64.rpm"
     source = packages / name
     metadata = run("rpm", "-qp", "--queryformat", "%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n", str(source)).decode().splitlines()
-    if metadata != ["dev-fast-review", version, revision, "x86_64"]:
+    if metadata != [package_name, version, revision, "x86_64"]:
         raise ValueError("RPM metadata does not match the release")
     generation = f"{version}-{revision}-{commit}"
-    repos = output / "repos"
+    repos = output / prefix
     snapshot = repos / "snapshots" / generation / "rpm/repodata"
     snapshot.mkdir(parents=True)
     keys = repos / "keys"
@@ -113,5 +122,6 @@ if __name__ == "__main__":
     parser.add_argument("--revision", default="1")
     parser.add_argument("--commit", required=True)
     parser.add_argument("--fingerprint", required=True)
+    parser.add_argument("--channel", choices=sorted(CHANNELS), default="stable")
     args = parser.parse_args()
-    build(args.packages.resolve(), args.output.resolve(), args.version, args.revision, args.commit, args.fingerprint)
+    build(args.packages.resolve(), args.output.resolve(), args.version, args.revision, args.commit, args.fingerprint, args.channel)

@@ -35,3 +35,9 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+# Use Sharp's WASM fallback on Linux, including source builds of Desktop.
+# Native libvips conflicts with Electron's GLib.
+ignoredOptionalDependencies:
+  - "@img/sharp-linux*"
+  - "@img/sharp-libvips-linux*"

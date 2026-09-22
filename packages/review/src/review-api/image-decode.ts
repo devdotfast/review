@@ -3,12 +3,6 @@ import { ReviewInputError } from "./document.js";
 /** The one decoder for images entering the store, whether uploaded by a client
  * or read from a legacy review: bounded, single frame, re-encoded as PNG. */
 export async function decodeImage(bytes: Uint8Array): Promise<Buffer> {
-  // Electron's Linux GLib conflicts with Sharp's bundled native library.
-  if (process.platform === "linux" && process.versions.electron)
-    throw new ReviewInputError(
-      "Image uploads and imports are unavailable in Review Desktop on Linux.",
-    );
-
   // Load the native decoder only here, so a missing platform binary fails one upload, not host startup.
   const { default: sharp } = await import("sharp");
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1276,6 +1276,12 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
   const relay = new GlobalReviewDesktopVerbRelay();
 
+  // The scratchpad preference is off by default; this host has it on.
+  writeFileSync(
+    path.join(directory, "preferences.json"),
+    JSON.stringify({ scratchpadEnabled: true }),
+  );
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -1372,7 +1378,8 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     relay.close();
 
-    // Listing through the interactive host also makes the one scratchpad.
+    // Listing through the interactive host, with the preference on, also
+    // makes the one scratchpad.
     // SAFETY: review_list returns the catalog summaries the store lists.
     const listed = (await callAuthoringTool(
       client,

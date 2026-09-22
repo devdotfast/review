@@ -23,19 +23,21 @@ import { valid as validVersion } from "semver";
 import { installFffForTargets, isFffTarget } from "./agent-fff";
 import { isDirectory, isFile } from "./fs-utils";
 import { installDirectory } from "./install-directory";
+import { devReviewHome } from "./review-home-paths";
+import { readScratchpadEnabled } from "./review-preferences";
 import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
-const REQUIRED_SKILL_NAMES = [
-  "dev-review",
-  "dev-review-batch",
-  "scratchpad",
-] as const;
+const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-batch"] as const;
 
 // Installed only on machines that capture traces; removed when capture is
 // disabled so agents are not steered toward an unconfigured feature.
 const TRACE_SKILL_NAMES = ["trace-archaeology"] as const;
+
+// Installed only while the scratchpad preference is on, for the same reason:
+// with the pad off, the server refuses every request that names it.
+const SCRATCHPAD_SKILL_NAMES = ["scratchpad"] as const;
 
 const STALE_SKILL_NAMES = [
   "dev-review-map",
@@ -102,9 +104,11 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const skillDirs = await listSkillDirs(skillsDir);
   const skillNames = new Set(skillDirs.map((skill) => skill.name));
 
-  const missingSkills = [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES].filter(
-    (name) => !skillNames.has(name),
-  );
+  const missingSkills = [
+    ...REQUIRED_SKILL_NAMES,
+    ...TRACE_SKILL_NAMES,
+    ...SCRATCHPAD_SKILL_NAMES,
+  ].filter((name) => !skillNames.has(name));
 
   if (missingSkills.length > 0) {
     return failWithJsonError(
@@ -175,6 +179,8 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installTraceHooks =
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
+  const scratchpadEnabled = await readScratchpadEnabled(devReviewHome(env));
+
   const installed: InstalledItem[] = [];
   const visitedRoots = new Set<string>();
 
@@ -188,7 +194,10 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
       for (const skillDir of skillDirs) {
         const skillDest = path.join(destRoot, skillDir.name);
 
-        if (isTraceSkill(skillDir.name) && !installTraceHooks) {
+        if (
+          (isTraceSkill(skillDir.name) && !installTraceHooks) ||
+          (isScratchpadSkill(skillDir.name) && !scratchpadEnabled)
+        ) {
           await rm(skillDest, { recursive: true, force: true });
           continue;
         }
@@ -330,6 +339,7 @@ async function removeInstalledSkillsUnlocked(
   for (const name of [
     ...REQUIRED_SKILL_NAMES,
     ...TRACE_SKILL_NAMES,
+    ...SCRATCHPAD_SKILL_NAMES,
     ...STALE_SKILL_NAMES,
   ]) {
     await rm(path.join(destRoot, name), { recursive: true, force: true });
@@ -367,12 +377,55 @@ function isTraceSkill(name: string): boolean {
   return TRACE_SKILL_NAMES.some((skill) => skill === name);
 }
 
+function isScratchpadSkill(name: string): boolean {
+  return SCRATCHPAD_SKILL_NAMES.some((skill) => skill === name);
+}
+
+/**
+ * Installs or removes the scratchpad skill for every agent already set up,
+ * to match the preference. Callers write the preference first, so a
+ * `review install` racing this call lands on the same answer.
+ */
+export async function syncScratchpadSkills(input: {
+  enabled: boolean;
+  homeDir?: string;
+  packageRoot?: string;
+}): Promise<void> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const packageRoot = input.packageRoot ?? defaultPackageRoot();
+
+  return withSkillInstallLock(homeDir, async () => {
+    const visitedRoots = new Set<string>();
+
+    for (const target of await detectInstalledTargets(homeDir)) {
+      const destRoot = skillsDestRoot(homeDir, target);
+
+      if (visitedRoots.has(destRoot)) continue;
+      visitedRoots.add(destRoot);
+
+      for (const name of SCRATCHPAD_SKILL_NAMES) {
+        const skillDest = path.join(destRoot, name);
+
+        if (input.enabled) {
+          await installDirectory(
+            path.join(packageRoot, "skills", name),
+            skillDest,
+          );
+        } else {
+          await rm(skillDest, { recursive: true, force: true });
+        }
+      }
+    }
+  });
+}
+
 export async function detectInstalledTargets(
   homeDir = os.homedir(),
 ): Promise<InstallTarget[]> {
   const knownSkillNames = [
     ...REQUIRED_SKILL_NAMES,
     ...TRACE_SKILL_NAMES,
+    ...SCRATCHPAD_SKILL_NAMES,
     ...STALE_SKILL_NAMES,
   ];
 
@@ -457,10 +510,13 @@ export async function resolveInstalledSkills(input: {
   homeDir: string;
   targets: InstallTarget[];
   traceEnabled: boolean;
+  scratchpadEnabled: boolean;
 }): Promise<InstalledSkillStatus[]> {
-  const names: readonly string[] = input.traceEnabled
-    ? [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES]
-    : REQUIRED_SKILL_NAMES;
+  const names: readonly string[] = [
+    ...REQUIRED_SKILL_NAMES,
+    ...(input.traceEnabled ? TRACE_SKILL_NAMES : []),
+    ...(input.scratchpadEnabled ? SCRATCHPAD_SKILL_NAMES : []),
+  ];
 
   return Promise.all(
     input.targets.flatMap((target) =>

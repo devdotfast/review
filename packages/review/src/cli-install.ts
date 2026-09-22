@@ -65,6 +65,7 @@ import {
 } from "./install";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
+import { readScratchpadEnabled } from "./review-preferences";
 
 const installErrors = new Map<string, string>();
 
@@ -136,11 +137,13 @@ export async function resolveCliInstallStatus(input: {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
 
-  const [agentStatus, fingerprint, trace] = await Promise.all([
-    resolveInstalledReviewAgentStatus({ homeDir, env }),
-    installFingerprint(input.packageRoot),
-    traceMachineStatus({ homeDir, env }),
-  ]);
+  const [agentStatus, fingerprint, trace, scratchpadEnabled] =
+    await Promise.all([
+      resolveInstalledReviewAgentStatus({ homeDir, env }),
+      installFingerprint(input.packageRoot),
+      traceMachineStatus({ homeDir, env }),
+      readScratchpadEnabled(devReviewHome(env)),
+    ]);
 
   const { agents, stamp } = agentStatus;
 
@@ -155,6 +158,7 @@ export async function resolveCliInstallStatus(input: {
     homeDir,
     targets: managedTargets,
     traceEnabled: trace.enabled,
+    scratchpadEnabled,
   });
 
   const mcp = await Promise.all(

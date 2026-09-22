@@ -125,6 +125,7 @@ export const SETTING_NAME = [
   "keymap",
   "dismissed_retention_days",
   "software_map_enabled",
+  "scratchpad_enabled",
   "diffr_config",
 ] as const;
 

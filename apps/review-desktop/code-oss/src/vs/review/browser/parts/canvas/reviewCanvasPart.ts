@@ -679,6 +679,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * server owns. Extensions reuse the existing quick pick.
 	 */
 	private async resolveSettingsContent(): Promise<ReviewCanvasSettingsContent> {
+		// Settings must render even when the server preference cannot be read;
+		// the row then shows the default, off.
+		const scratchpadEnabled = await this.desktopConnection.readScratchpadEnabled().catch(() => false);
 		return {
 			telemetryEnabled: this.currentTelemetryEnabled(),
 			setTelemetryEnabled: async (enabled) => {
@@ -714,6 +717,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				});
 				await this.configurationService.updateValue(REVIEW_SOFTWARE_MAP_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentSoftwareMapEnabled();
+			},
+			scratchpadEnabled,
+			setScratchpadEnabled: async (enabled) => {
+				this.reviewTelemetryService.capture("setting_changed", {
+					setting: "scratchpad_enabled",
+					enabled,
+				});
+				return this.desktopConnection.setScratchpadEnabled(enabled);
 			},
 			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 			setStructuralDiffEnabled: async (enabled) => {

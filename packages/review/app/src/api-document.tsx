@@ -15,13 +15,13 @@ import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
 import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
-import { AuthoringActivityBadge } from "./authoring-activity";
 import {
   BlockErrorBoundary,
   type StoredBlock,
   renderBlock,
   stored,
 } from "./blocks";
+import { Courier } from "./courier";
 import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
@@ -232,6 +232,7 @@ export function ApiDocument({
         data={data}
         softwareMapEnabled={softwareMapEnabled}
       />
+      <Courier />
     </>
   );
 }
@@ -333,7 +334,6 @@ export const DocumentNode = memo(function DocumentNode({
         node.type === "markdown" || node.type === "trace_quote" || undefined
       }
     >
-      {node.type !== "section" && <AuthoringActivityBadge targetId={node.id} />}
       <BlockErrorBoundary
         type={block.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}

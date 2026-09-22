@@ -128,7 +128,11 @@ export function FlowGraph({
           </marker>
         </defs>
         {layout.edges.map((edge, index) => (
-          <g key={`${edge.id}-${index}`}>
+          <g
+            key={`${edge.id}-${index}`}
+            className="lens-flow-edge-group"
+            data-review-unit-id={block.edges[Number(edge.id)]?.id}
+          >
             <path
               className="lens-flow-edge"
               strokeDasharray={edge.dashed ? "6 4" : undefined}
@@ -182,6 +186,7 @@ export function FlowGraph({
           return (
             <g
               key={node.key}
+              data-review-unit-id={node.id}
               transform={`translate(${position.x},${position.y})`}
               className={`flow-node lens-flow-node ${selectedKey === node.key ? "is-selected" : ""} lens-flow-node--${change} ${progress.state === "viewed" ? "is-viewed" : ""}`}
               role="button"

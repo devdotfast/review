@@ -65,6 +65,10 @@ For example, a Review of session persistence should show where sessions are stor
 
 Read the component schema when constructing the view. A database view requires use cases with source-backed operations; if the available code does not establish those operations, explain the evidence gap rather than inventing them.
 
+### Flow diagrams
+
+Draw a flow diagram the way you would on a whiteboard: insert the block with its first node, then grow it one connected step at a time, each as its own edit with `parentId` set to the diagram's returned ID. Insert the next `flow_node`, then immediately the `flow_edge` that joins it to a node already drawn, then the next node. A node is never left unconnected while you add others; a reader cannot place an orphan. Extra edges between existing nodes come after both ends exist. Patch a node or edge by its returned ID; removing a node removes its edges. Read the diagram with `targetId` to get its unit IDs.
+
 ## Check against the code
 
 Check that prose, examples and diagrams agree with the relevant source. Verify the order of calls, branch conditions, storage operations and relationships. Source links and diagram attachments should point to the code that supports the claim at the intended revision.

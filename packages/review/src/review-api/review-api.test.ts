@@ -14,7 +14,12 @@ import { ReviewApiClient } from "./client.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError } from "./document.js";
 import { LocalReviewData } from "./local-data";
-import { type ReviewProviders, ReviewStore, SCRATCHPAD_ID } from "./store.js";
+import {
+  type ReviewProviders,
+  ReviewStore,
+  SCRATCHPAD_ID,
+  inspectSnapshot,
+} from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
 
@@ -574,6 +579,158 @@ describe("snapshot authoring", () => {
     await expect(
       edit(reviewId, { type: "remove", targetId: step }),
     ).rejects.toThrow(/does not exist/);
+  });
+
+  it("draws a flow diagram one node and edge at a time, and a removed node takes its edges", async () => {
+    const { reviewId } = await create();
+
+    const { targetId: diagramId } = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "flow_diagram",
+        title: "Lease",
+        nodes: [{ key: "session", label: "Session svc", attachments: [] }],
+        edges: [],
+      },
+    });
+
+    const value = () => {
+      const block = store.read(reviewId).document[0]!;
+
+      if (block.type !== "flow_diagram") throw new Error("Expected flow");
+
+      return block;
+    };
+
+    const session = value().nodes[0]!.id!;
+    expect(session).toMatch(/^node-/);
+
+    const broker = await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      content: {
+        type: "flow_node",
+        key: "broker",
+        label: "Lease broker",
+        attachments: [],
+      },
+    });
+
+    const supervisor = await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      afterId: session,
+      content: {
+        type: "flow_node",
+        key: "sup",
+        label: "Runtime sup",
+        attachments: [],
+      },
+    });
+
+    expect(value().nodes.map((node) => node.key)).toEqual([
+      "session",
+      "sup",
+      "broker",
+    ]);
+
+    const acquires = await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      content: {
+        type: "flow_edge",
+        from: "session",
+        to: "broker",
+        label: "acquires",
+      },
+    });
+
+    expect(acquires.targetId).toMatch(/^edge-/);
+
+    await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      content: { type: "flow_edge", from: "broker", to: "sup" },
+    });
+
+    await edit(reviewId, {
+      type: "update",
+      targetId: broker.targetId,
+      changes: { label: "Broker", kind: "decision" },
+    });
+    expect(value().nodes[2]).toMatchObject({
+      id: broker.targetId,
+      type: "flow_node",
+      key: "broker",
+      label: "Broker",
+      kind: "decision",
+    });
+
+    await edit(reviewId, {
+      type: "update",
+      targetId: acquires.targetId,
+      changes: { label: "acquires a lease" },
+    });
+    expect(value().edges[0]).toMatchObject({ label: "acquires a lease" });
+
+    // The outline and a targeted read see the units.
+    expect(
+      inspectSnapshot(store.read(reviewId), broker.targetId),
+    ).toMatchObject({ type: "flow_node", key: "broker" });
+    const outline = inspectSnapshot(store.read(reviewId));
+    expect(
+      Array.isArray(outline) ? outline.map((entry) => entry.type) : outline,
+    ).toEqual([
+      "flow_diagram",
+      "flow_node",
+      "flow_node",
+      "flow_node",
+      "flow_edge",
+      "flow_edge",
+    ]);
+
+    await edit(reviewId, {
+      type: "move",
+      targetId: broker.targetId,
+      parentId: diagramId,
+      afterId: session,
+    });
+    expect(value().nodes.map((node) => node.key)).toEqual([
+      "session",
+      "broker",
+      "sup",
+    ]);
+
+    await expect(
+      edit(reviewId, {
+        type: "replace",
+        targetId: broker.targetId,
+        content: { type: "divider" },
+      }),
+    ).rejects.toThrow(/Patch the flow_node/);
+    await expect(
+      edit(reviewId, {
+        type: "insert",
+        content: {
+          type: "flow_node",
+          key: "loose",
+          label: "Loose",
+          attachments: [],
+        },
+      }),
+    ).rejects.toThrow(/belongs inside a flow_diagram/);
+    await expect(
+      edit(reviewId, {
+        type: "insert",
+        parentId: diagramId,
+        content: { type: "flow_edge", from: "session", to: "missing" },
+      }),
+    ).rejects.toThrow(/Unknown flow endpoint/);
+
+    await edit(reviewId, { type: "remove", targetId: broker.targetId });
+    expect(value().nodes.map((node) => node.key)).toEqual(["session", "sup"]);
+    expect(value().edges).toEqual([]);
+    expect(supervisor.targetId).toMatch(/^node-/);
   });
 
   it("moves blocks in both directions and between containers without duplicating them", async () => {

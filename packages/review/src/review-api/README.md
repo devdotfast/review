@@ -52,7 +52,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
 | `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
 | `GET /:id`                                | Compact outline                                                        |
-| `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
+| `GET /:id?targetId=step-3`                | Full block, sequence step, flow node or flow edge                      |
 | `GET /:id?full=true`                      | Full snapshot                                                          |
 | `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
 | `GET /:id/history`                        | Saved versions with titles and timestamps                              |
@@ -114,10 +114,17 @@ the same version and side through the API, without a client-side checkout path.
 
 Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `move {targetId,parentId?,afterId?}`, `remove {targetId}`,
-`replace {targetId,content}`. Omitted placement appends to the root. Steps require
-a sequence parent and can move within that diagram. Field patches preserve
-omitted values; null removes optional fields. Child collections use structural
-edits or replacement. Use fresh content without IDs for insert/replace.
+`replace {targetId,content}`. Omitted placement appends to the root. Diagram
+units (a `step` in a sequence, a `flow_node` or `flow_edge` in a flow diagram)
+require their diagram as the parent and can move within it, but not between
+diagrams; removing a flow node removes the edges that touched it. Field patches
+preserve omitted values; null removes optional fields. Child collections use
+structural edits or replacement. Use fresh content without IDs for insert/replace.
+
+Each accepted edit is one saved version. While a reader is watching, the canvas
+draws each version's edit as it lands, so an agent that inserts one paragraph,
+one step, one node or one edge per edit sees the document draw itself; a whole
+diagram inserted at once lands at once.
 
 There is no expected-version parameter. Later same-field edits win. Reuse the
 same command ID and input when retrying a lost response; it will not edit twice.

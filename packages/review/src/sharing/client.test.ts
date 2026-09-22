@@ -4,7 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 
 import { createShareFixture } from "../../test/fixtures/share/create.js";
-import { ShareClient, readBoundedBytes } from "./client.js";
+import {
+  ShareClient,
+  SharePreflightError,
+  readBoundedBytes,
+} from "./client.js";
 import { exportShare } from "./export.js";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -195,3 +199,58 @@ it("stops a streamed response as soon as it exceeds the declared size", async ()
   );
   expect(cancelled).toBe(true);
 });
+
+it.each([409, 503])(
+  "rejects missing upload URLs before waiting for Git and only revokes confirmed unpublished shares (%s)",
+  async (lookupStatus) => {
+    const root = await mkdtemp("/tmp/share-client-");
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const fixture = await createShareFixture(root);
+    cleanup.push(async () => {
+      await fixture.data.close();
+      fixture.store.close();
+    });
+    const bundle = await exportShare(fixture);
+    const shareId = randomUUID();
+    let revoked = false;
+    let checked = false;
+
+    const sender = new ShareClient(
+      "https://app.dev.fast",
+      "account",
+      async (input, init) => {
+        const url = new URL(String(input));
+
+        if (url.hostname === "objects.test") return new Response(null);
+
+        if (url.pathname === "/api/shares")
+          return Response.json({
+            shareId,
+            upload: {
+              url: "https://objects.test/manifest",
+              headers: {},
+              expiresAt: "2099",
+            },
+          });
+
+        if (url.pathname.endsWith("/manifest"))
+          return Response.json({ registered: true, uploads: {} });
+
+        if (url.pathname.endsWith("/link"))
+          return new Response(null, { status: lookupStatus });
+
+        if (init?.method === "DELETE") revoked = true;
+
+        return Response.json({ revoked: true });
+      },
+    );
+
+    const result = sender.create(bundle, randomUUID(), async () => {
+      checked = true;
+    });
+
+    await expect(result).rejects.toBeInstanceOf(SharePreflightError);
+    expect(checked).toBe(false);
+    expect(revoked).toBe(lookupStatus === 409);
+  },
+);

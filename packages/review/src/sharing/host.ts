@@ -212,11 +212,6 @@ export function mountSharingPublisher(
       root,
     );
 
-    const verification = verifyRepository(root, snapshot.pins, repository).then(
-      () => ({ ok: true as const }),
-      (error: Error) => ({ ok: false as const, error }),
-    );
-
     const bundle = await exportShare({
       store,
       data,
@@ -224,6 +219,11 @@ export function mountSharingPublisher(
       version: snapshot.version,
       repository,
     });
+
+    const verification = verifyRepository(root, snapshot.pins, repository).then(
+      () => ({ ok: true as const }),
+      (error: Error) => ({ ok: false as const, error }),
+    );
 
     try {
       const result = await new ShareClient(

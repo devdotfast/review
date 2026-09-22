@@ -210,6 +210,9 @@ export class ShareClient {
     );
 
     try {
+      if (bundle.manifest.objects.some(({ id }) => !uploads[id]))
+        throw new Error("The share service omitted an object upload URL.");
+
       await beforeUpload?.();
     } catch (error) {
       // A retry may recover an already published share after a lost response.
@@ -221,9 +224,6 @@ export class ShareClient {
         .catch(() => {});
       throw new SharePreflightError(error);
     }
-
-    if (bundle.manifest.objects.some(({ id }) => !uploads[id]))
-      throw new Error("The share service omitted an object upload URL.");
 
     for (
       let offset = 0;

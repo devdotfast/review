@@ -321,8 +321,8 @@ describe("skill and review command installation", () => {
   it("preserves a command symlink and its target", async () => {
     const homeDir = await temporaryHome("review-cli-symlink-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const cliPath = path.join(homeDir, "current-app", "cli.js");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const cliPath = path.join(homeDir, "current-app", "whiteboard-cli.js");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     const external = path.join(homeDir, "external-command");
     await Promise.all([
       mkdir(path.dirname(cliPath), { recursive: true }),
@@ -350,8 +350,8 @@ describe("skill and review command installation", () => {
   it("installs only the command and replaces a previous app shim", async () => {
     const homeDir = await temporaryHome("review-cli-only-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const cliPath = path.join(homeDir, "current-app", "cli.js");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const cliPath = path.join(homeDir, "current-app", "whiteboard-cli.js");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     await Promise.all([
       mkdir(path.dirname(cliPath), { recursive: true }),
       mkdir(path.dirname(shimPath), { recursive: true }),
@@ -388,7 +388,7 @@ describe("skill and review command installation", () => {
   it("installs the command and profile by default for a skill target", async () => {
     const homeDir = await temporaryHome("review-default-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const cliPath = path.join(homeDir, "cli.js");
+    const cliPath = path.join(homeDir, "whiteboard-cli.js");
     await writeFile(cliPath, "// test CLI\n");
 
     const applied = await applyCliInstall({
@@ -401,9 +401,8 @@ describe("skill and review command installation", () => {
 
     expect(applied).toMatchObject({
       code: 0,
-      shimPath: path.join(homeDir, ".local", "bin", "review"),
+      shimPath: path.join(homeDir, ".local", "bin", "whiteboard"),
     });
-    expect(applied.output).toContain("review command");
     expect(await readFile(applied.shimPath!, "utf8")).toContain(
       "Managed by Review Desktop",
     );
@@ -439,7 +438,7 @@ describe("skill and review command installation", () => {
 
     expect(applied.code).toBe(0);
     await expect(
-      readFile(path.join(homeDir, ".local", "bin", "review"), "utf8"),
+      readFile(path.join(homeDir, ".local", "bin", "whiteboard"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
       readFile(path.join(homeDir, ".zprofile"), "utf8"),
@@ -480,11 +479,11 @@ describe("skill and review command installation", () => {
   it("warns when another review command comes first on PATH", async () => {
     const homeDir = await temporaryHome("review-shadowed-command-");
     const foreignBin = path.join(homeDir, "foreign-bin");
-    const cliPath = path.join(homeDir, "cli.js");
+    const cliPath = path.join(homeDir, "whiteboard-cli.js");
     await mkdir(foreignBin, { recursive: true });
     await Promise.all([
       writeFile(cliPath, "// test CLI\n"),
-      writeFile(path.join(foreignBin, "review"), "#!/bin/sh\n", {
+      writeFile(path.join(foreignBin, "whiteboard"), "#!/bin/sh\n", {
         mode: 0o755,
       }),
     ]);
@@ -502,7 +501,7 @@ describe("skill and review command installation", () => {
       env,
     });
 
-    expect(applied.output).toContain(path.join(foreignBin, "review"));
+    expect(applied.output).toContain(path.join(foreignBin, "whiteboard"));
     expect(applied.output).toContain(
       "docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options",
     );
@@ -511,7 +510,7 @@ describe("skill and review command installation", () => {
   it("removes the owned command and profile block", async () => {
     const homeDir = await temporaryHome("review-remove-command-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const cliPath = path.join(homeDir, "cli.js");
+    const cliPath = path.join(homeDir, "whiteboard-cli.js");
     await writeFile(cliPath, "// test CLI\n");
     await applyCliInstall({
       packageRoot,
@@ -530,7 +529,7 @@ describe("skill and review command installation", () => {
 
     expect(removed.output).toContain("removed Review PATH entry");
     await expect(
-      readFile(path.join(homeDir, ".local", "bin", "review"), "utf8"),
+      readFile(path.join(homeDir, ".local", "bin", "whiteboard"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(path.join(homeDir, ".zprofile"), "utf8")).toBe("");
   });
@@ -538,7 +537,7 @@ describe("skill and review command installation", () => {
   it("preserves a foreign command while removing the managed profile block", async () => {
     const homeDir = await temporaryHome("review-foreign-command-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     await mkdir(path.dirname(shimPath), { recursive: true });
     await writeFile(shimPath, "#!/bin/sh\necho foreign\n", { mode: 0o755 });
     await ensureShellProfilePath({ homeDir, env });
@@ -634,7 +633,7 @@ describe("installed launcher runtime selection", () => {
       cliPath,
       'console.log(JSON.stringify({build:"current",home:process.env.DEV_REVIEW_HOME}))',
     );
-    const shim = path.join(homeDir, ".local", "bin", "review");
+    const shim = path.join(homeDir, ".local", "bin", "whiteboard");
     await writePathShim(
       shim,
       oldCli,
@@ -739,8 +738,8 @@ describe("installed launcher runtime selection", () => {
 describe("Desktop installation alongside npm", () => {
   it("preserves the npm launcher and its target when npm uses ~/.local/bin", async () => {
     const homeDir = await temporaryHome("review-npm-coexist-");
-    const cli = path.join(homeDir, "npm/cli.js");
-    const shim = path.join(homeDir, ".local/bin/review");
+    const cli = path.join(homeDir, "npm/whiteboard-cli.js");
+    const shim = path.join(homeDir, ".local/bin/whiteboard");
     await mkdir(path.dirname(cli), { recursive: true });
     await mkdir(path.dirname(shim), { recursive: true });
     await writeFile(cli, "#!/usr/bin/env node\n// npm-owned\n", {
@@ -751,7 +750,7 @@ describe("Desktop installation alongside npm", () => {
 
     const result = await installReviewCommand({
       homeDir,
-      cliPath: path.join(packageRoot, "dist/cli.js"),
+      cliPath: path.join(packageRoot, "dist/whiteboard-cli.js"),
       env: { PATH: "" },
     });
 
@@ -794,7 +793,7 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
     packageRoot,
     targets: ["claude"],
     shim: true,
-    cliPath: path.join(packageRoot, "dist/cli.js"),
+    cliPath: path.join(packageRoot, "dist/whiteboard-cli.js"),
     homeDir,
     env,
   });

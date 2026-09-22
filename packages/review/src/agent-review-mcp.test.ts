@@ -7,7 +7,11 @@ import { promisify } from "node:util";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import { reviewMcpLauncher, reviewMcpRegistration } from "./agent-review-mcp";
+import {
+  reviewMcpLauncher,
+  reviewMcpRegistration,
+  writeReviewMcpRegistration,
+} from "./agent-review-mcp";
 import {
   applyCliInstall,
   cliInstallStampPath,
@@ -86,7 +90,7 @@ it("installs both agents without their CLIs, preserves other settings, and launc
     command: "other",
   });
   expect((await config("codex")).model).toBe("chosen-model");
-  const registration = (await config("claude")).mcpServers.review;
+  const registration = (await config("claude")).mcpServers.whiteboard;
 
   const { stdout } = await promisify(execFile)(
     registration.command,
@@ -125,7 +129,7 @@ it("repairs missing registrations and launcher automatically for a previously en
     (await resolveCliInstallStatus({ packageRoot, homeDir, env })).stale,
   ).toBe(true);
   expect((await install(true)).code).toBe(0);
-  expect((await config("codex")).mcp_servers).toHaveProperty("review");
+  expect((await config("codex")).mcp_servers).toHaveProperty("whiteboard");
   expect(
     (await resolveCliInstallStatus({ packageRoot, homeDir, env })).stale,
   ).toBe(false);
@@ -142,7 +146,7 @@ it("upgrades an older skills-only install and refreshes the launcher when the ap
   await writeFile(newCli, 'console.log("new-build");');
   cliPath = newCli;
   expect((await install(true)).code).toBe(0);
-  const registration = (await config("claude")).mcpServers.review;
+  const registration = (await config("claude")).mcpServers.whiteboard;
 
   const { stdout } = await promisify(execFile)(
     registration.command,
@@ -165,7 +169,7 @@ it("removes only the selected agent's entry and retains unrelated configuration"
   expect((await config("claude")).mcpServers).toEqual({
     other: { command: "other" },
   });
-  expect((await config("codex")).mcp_servers).toHaveProperty("review");
+  expect((await config("codex")).mcp_servers).toHaveProperty("whiteboard");
   expect(
     (
       await readCliInstallStamp(cliInstallStampPath(env))
@@ -186,8 +190,8 @@ it("leaves a user's customized entry alone on update, reinstall, and uninstall",
 
   // Disable is a user choice even when the generated launch command is unchanged.
   const changed = customized.replace(
-    "[mcp_servers.review]",
-    "[mcp_servers.review]\nenabled = false",
+    "[mcp_servers.whiteboard]",
+    "[mcp_servers.whiteboard]\nenabled = false",
   );
 
   await writeFile(file, changed);
@@ -205,7 +209,7 @@ it("leaves a user's customized entry alone on update, reinstall, and uninstall",
 
 it("does not replace an existing foreign Review server or malformed settings", async () => {
   await mkdir(path.join(homeDir, ".codex"));
-  const foreign = 'mcp_servers = { review = { command = "my-server" } }\n';
+  const foreign = 'mcp_servers = { whiteboard = { command = "my-server" } }\n';
   await writeFile(path.join(homeDir, ".codex/config.toml"), foreign);
   await writeFile(path.join(homeDir, ".claude.json"), "{broken");
   expect((await install()).code).toBe(1);
@@ -223,5 +227,54 @@ it("does not reinstall a removed integration during a later automatic update", a
   await rm(path.join(homeDir, ".claude.json"));
   expect((await install(true)).code).toBe(0);
   expect((await config("codex")).mcp_servers).toBeUndefined();
-  expect((await config("claude")).mcpServers).toHaveProperty("review");
+  expect((await config("claude")).mcpServers).toHaveProperty("whiteboard");
 });
+
+for (const target of targets) {
+  it(`migrates an unchanged legacy ${target} registration without touching other servers`, async () => {
+    await install();
+    const stamp = (await readCliInstallStamp(cliInstallStampPath(env)))!;
+    const desired = reviewMcpRegistration(target, homeDir, env);
+    await writeReviewMcpRegistration(desired, desired, true);
+
+    const legacy = {
+      ...desired,
+      name: undefined,
+      command: path.join(homeDir, "review-mcp"),
+      env: { DEV_REVIEW_HOME: env.DEV_REVIEW_HOME! },
+    };
+
+    await writeReviewMcpRegistration(legacy);
+    stamp.mcpRegistrations = stamp.mcpRegistrations!.map((item) =>
+      item.target === target ? legacy : item,
+    );
+    await writeFile(cliInstallStampPath(env), JSON.stringify(stamp));
+    expect((await install(true)).code).toBe(0);
+
+    const servers = (await config(target))[
+      target === "codex" ? "mcp_servers" : "mcpServers"
+    ];
+
+    expect(servers.review).toBeUndefined();
+    expect(servers.whiteboard.command).toBe(desired.command);
+
+    const { stdout } = await promisify(execFile)(
+      servers.whiteboard.command,
+      servers.whiteboard.args,
+      { env: { ...env, ...servers.whiteboard.env } },
+    );
+
+    expect(JSON.parse(stdout).home).toBe(env.DEV_REVIEW_HOME);
+  });
+
+  it(`preserves a conflicting ${target} Whiteboard server during legacy migration`, async () => {
+    const desired = reviewMcpRegistration(target, homeDir, env);
+    const legacy = { ...desired, name: undefined };
+    await writeReviewMcpRegistration(legacy);
+    const foreign = { ...desired, command: "/custom/server" };
+    await writeReviewMcpRegistration(foreign);
+    const before = await readFile(desired.configPath, "utf8");
+    expect(await writeReviewMcpRegistration(desired, legacy)).toBe(false);
+    expect(await readFile(desired.configPath, "utf8")).toBe(before);
+  });
+}

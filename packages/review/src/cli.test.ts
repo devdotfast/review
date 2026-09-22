@@ -47,7 +47,7 @@ describe("Review CLI", () => {
         path.join(os.tmpdir(), "review-no-agents-"),
       );
 
-      const cliPath = path.join(homeDir, "cli.js");
+      const cliPath = path.join(homeDir, "whiteboard-cli.js");
       const discoveryDir = path.join(homeDir, ".dev", "review-desktop");
 
       const env = {
@@ -144,7 +144,7 @@ describe("Review CLI", () => {
     );
 
     const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
-    const cliPath = path.join(rootPath, "cli.js");
+    const cliPath = path.join(rootPath, "whiteboard-cli.js");
     const cliRuntimePath = path.join(rootPath, "runtime");
 
     const env: NodeJS.ProcessEnv = {

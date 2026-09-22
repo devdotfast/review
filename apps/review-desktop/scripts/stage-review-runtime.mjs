@@ -48,6 +48,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
   "bin/diffr",
+  "dist/whiteboard-cli.js",
   "skills/whiteboard/SKILL.md",
   "skills/whiteboard/docs/README.md",
   "skills/trace-archaeology/SKILL.md",

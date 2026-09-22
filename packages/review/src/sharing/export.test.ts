@@ -441,3 +441,19 @@ it("requires a pinned review before sharing saved worktree changes", async () =>
     snapshot.pins!.head,
   );
 });
+
+it("counts a shared review's changed lines without a local review row", async () => {
+  const { id, app } = await importFixture();
+  // Textual mode exercises this without shelling out to diffr, which other
+  // progress tests in this suite avoid the same way (see local-data.test.ts).
+  const response = await app.request(`/${id}/progress?mode=textual`);
+  expect(response.status).toBe(200);
+  const progress = await response.json();
+  expect(progress.complete).not.toBe(false);
+  expect(progress.files).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "new.ts" }),
+      expect.objectContaining({ path: "deleted.ts" }),
+    ]),
+  );
+});

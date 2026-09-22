@@ -59,7 +59,11 @@ export async function reviewProgress(
   mode: "structural" | "textual" = "structural",
   partial?: ComparisonCoverage,
 ): Promise<ReviewProgress> {
-  const marks = store.viewedCoverage(snapshot.reviewId);
+  // A shared review is read-only and never enters the store, so it has no
+  // persisted marks to look up.
+  const marks: ReturnType<ReviewStore["viewedCoverage"]> = snapshot.shared
+    ? new Map()
+    : store.viewedCoverage(snapshot.reviewId);
 
   const pins = snapshot.pins
     ? (await data.resolveSource(snapshot)).pins

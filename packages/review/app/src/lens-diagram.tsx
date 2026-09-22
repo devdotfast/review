@@ -62,6 +62,7 @@ export function LensDiagram({
         requireReady
         block={block}
         direction="down"
+        height={260}
         selectedKey={
           currentStepId?.startsWith(`${block.id}:`)
             ? currentStepId.slice(`${block.id}:`.length)

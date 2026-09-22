@@ -1,99 +1,69 @@
-import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import {
-  type ReactNode,
-  type SVGProps,
-  useEffect,
-  useId,
-  useState,
-} from "react";
+  BaseEdge,
+  type Edge,
+  type EdgeProps,
+  Handle,
+  MarkerType,
+  type Node,
+  type NodeProps,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
+} from "@xyflow/react";
+import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   FlowDiagramBlock,
   FlowDiagramNode,
 } from "../../src/review-api/blocks/flow_diagram";
-import { coverageProgress } from "../../src/viewed-coverage";
+import {
+  type CoverageProgress,
+  coverageProgress,
+} from "../../src/viewed-coverage";
+import { useReviewDebugSettings } from "./debug-settings";
 import { useMotionPhase } from "./draw-queue-provider";
-import { ElementCounts } from "./lens-counts";
+import { ElementCountsText } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
 
-/** Shared SVG layout, node styling and unread counts for every flow surface. */
+/**
+ * Every flow surface: the document block, the Diff sidebar lens and the
+ * fullscreen tour. ELK lays the graph out; React Flow draws it in a box that
+ * fits the whole drawing to itself, so a node landing at the bottom of a
+ * tall layout is still inside the box the reader is looking at. Nodes are
+ * DOM, edges are paths, so the draw queue's phases apply as they do to a
+ * sequence diagram. A decision is a diamond, a terminal a pill.
+ */
 export function FlowGraph({
   block,
   direction = block.direction,
   selectedKey,
   onSelect,
   requireReady = false,
+  interactive = false,
+  height = 340,
 }: {
   block: FlowDiagramBlock;
   direction?: "down" | "right";
   selectedKey?: string | null;
   requireReady?: boolean;
+  /** Pan and zoom by hand, for the fullscreen tour. */
+  interactive?: boolean;
+  height?: number | string;
   onSelect(node: FlowDiagramNode): void;
 }) {
-  const lenses = useReviewLenses();
+  const { theme } = useReviewDebugSettings();
   const [error, setError] = useState<string>();
-  const marker = useId().replaceAll(":", "");
-
-  const [layout, setLayout] = useState<{
-    width: number;
-    height: number;
-    nodes: Map<string, { x: number; y: number }>;
-    edges: {
-      id: string;
-      label?: string;
-      dashed?: boolean;
-      points: { x: number; y: number }[];
-    }[];
-  }>();
+  const [layout, setLayout] = useState<Layout>();
+  const frame = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLayout(undefined);
     setError(undefined);
-    void new ELK()
-      .layout<ElkNode>({
-        id: "flow",
-        layoutOptions: {
-          "elk.algorithm": "layered",
-          "elk.direction": direction === "right" ? "RIGHT" : "DOWN",
-          "elk.spacing.nodeNode": "28",
-          "elk.layered.spacing.nodeNodeBetweenLayers": "44",
-        },
-        children: block.nodes.map((node) => ({
-          id: node.key,
-          width: 210,
-          height: 62,
-        })),
-        edges: block.edges.map((edge, index) => ({
-          id: String(index),
-          sources: [edge.from],
-          targets: [edge.to],
-        })),
-      })
+    void layoutFlow(block, direction)
       .then((result) => {
-        if (!cancelled)
-          setLayout({
-            width: result.width ?? 240,
-            height: result.height ?? 100,
-            nodes: new Map(
-              result.children?.map((node) => [
-                node.id,
-                { x: node.x ?? 0, y: node.y ?? 0 },
-              ]),
-            ),
-            edges: (result.edges ?? []).flatMap((edge) =>
-              (edge.sections ?? []).map((section) => ({
-                id: edge.id,
-                label: block.edges[Number(edge.id)].label,
-                dashed: block.edges[Number(edge.id)].style === "dashed",
-                points: [
-                  section.startPoint,
-                  ...(section.bendPoints ?? []),
-                  section.endPoint,
-                ],
-              })),
-            ),
-          });
+        if (!cancelled) setLayout(result);
       })
       .catch((error) => {
         if (!cancelled) setError(String(error));
@@ -104,187 +74,397 @@ export function FlowGraph({
     };
   }, [block, direction]);
 
+  const nodes = useMemo<FlowNodeType[]>(
+    () =>
+      layout
+        ? block.nodes.flatMap((node) => {
+            const position = layout.nodes.get(node.key);
+
+            if (!position) return [];
+            const size = nodeSize(node);
+
+            return [
+              {
+                id: node.key,
+                type: "flowNode",
+                position,
+                ...size,
+                draggable: false,
+                selectable: false,
+                data: {
+                  node,
+                  requireReady,
+                  selected: selectedKey === node.key,
+                  select: () => onSelect(node),
+                },
+              },
+            ];
+          })
+        : [],
+    [block, layout, requireReady, selectedKey, onSelect],
+  );
+
+  const edges = useMemo<FlowEdgeType[]>(
+    () =>
+      layout
+        ? layout.edges.map((edge) => ({
+            id: `${edge.index}:${edge.section}`,
+            source: block.edges[edge.index]!.from,
+            target: block.edges[edge.index]!.to,
+            type: "flowEdge",
+            selectable: false,
+            markerEnd: ARROW,
+            data: {
+              unitId: block.edges[edge.index]!.id,
+              label: block.edges[edge.index]!.label,
+              dashed: block.edges[edge.index]!.style === "dashed",
+              points: edge.points,
+            },
+          }))
+        : [],
+    [block, layout],
+  );
+
   if (error) return <p role="alert">Could not lay out diagram: {error}</p>;
 
   if (!layout) return <p className="lens-diagram-note">Laying out flow…</p>;
 
   return (
-    <div className="lens-flow-scroll">
-      <svg
-        className="lens-flow"
-        viewBox={`0 0 ${layout.width} ${layout.height}`}
-        style={{
-          minWidth: Math.min(layout.width, 520),
-          width: layout.width,
-          maxWidth: "100%",
-          marginInline: "auto",
-        }}
-        aria-label={block.title}
-      >
-        <defs>
-          <marker
-            id={marker}
-            viewBox="0 0 10 10"
-            refX={9}
-            refY={5}
-            markerWidth={5}
-            markerHeight={5}
-            orient="auto-start-reverse"
-          >
-            <path d="M0,0 L10,5 L0,10 z" />
-          </marker>
-        </defs>
-        {layout.edges.map((edge, index) => (
-          <FlowEdge
-            key={`${edge.id}-${index}`}
-            id={block.edges[Number(edge.id)]?.id}
-          >
-            <path
-              className="lens-flow-edge"
-              pathLength={1}
-              strokeDasharray={edge.dashed ? "6 4" : undefined}
-              markerEnd={`url(#${marker})`}
-              d={edge.points
-                .map(
-                  (point, index) => `${index ? "L" : "M"}${point.x},${point.y}`,
-                )
-                .join(" ")}
-            />
-            {edge.label && (
-              <text
-                className="lens-flow-edge-label"
-                x={edge.points[0].x + 7}
-                y={edge.points[0].y + 20}
-              >
-                {edge.label.length > 28
-                  ? `${edge.label.slice(0, 27)}…`
-                  : edge.label}
-              </text>
-            )}
-          </FlowEdge>
-        ))}
-        {block.nodes.map((node) => {
-          const position = layout.nodes.get(node.key);
-
-          if (!position) return null;
-
-          const sources = node.attachments.flatMap(
-            (attachment) => attachment.sources,
-          );
-
-          const availability = requireReady
-            ? lenses?.availability(sources)
-            : "ready";
-
-          const unavailable = availability !== "ready";
-
-          const progress =
-            lenses?.stats(lenses.resolve(sources)) ?? coverageProgress([]);
-
-          const change =
-            progress.total.additions && progress.total.deletions
-              ? "modified"
-              : progress.total.additions
-                ? "added"
-                : progress.total.deletions
-                  ? "removed"
-                  : "unchanged";
-
-          return (
-            <FlowNode
-              key={node.key}
-              id={node.id}
-              transform={`translate(${position.x},${position.y})`}
-              className={`flow-node lens-flow-node ${selectedKey === node.key ? "is-selected" : ""} lens-flow-node--${change} ${progress.state === "viewed" ? "is-viewed" : ""}`}
-              role="button"
-              tabIndex={unavailable ? -1 : 0}
-              aria-disabled={unavailable}
-              style={{ opacity: unavailable ? 0.45 : undefined }}
-              aria-pressed={selectedKey === node.key}
-              aria-label={node.label}
-              onClick={() => {
-                if (!unavailable) onSelect(node);
-              }}
-              onKeyDown={(event) => {
-                if (
-                  !unavailable &&
-                  (event.key === "Enter" || event.key === " ")
-                ) {
-                  event.preventDefault();
-                  onSelect(node);
-                }
-              }}
-            >
-              <title>
-                {unavailable
-                  ? availability === "pending"
-                    ? "Waiting for diff…"
-                    : "Source unavailable at these pins"
-                  : `${node.label} · Total +${progress.total.additions} −${progress.total.deletions}`}
-              </title>
-              <rect
-                width={210}
-                height={62}
-                rx={node.kind === "terminal" ? 28 : 6}
-                pathLength={1}
-              />
-              <text x={12} y={26}>
-                {node.label.length > 26
-                  ? `${node.label.slice(0, 25)}…`
-                  : node.label}
-              </text>
-              <text className="lens-flow-caption" x={12} y={45}>
-                {unavailable ? (
-                  availability === "pending" ? (
-                    "…"
-                  ) : (
-                    "Unavailable"
-                  )
-                ) : sources.length ? (
-                  <ElementCounts progress={progress} />
-                ) : (
-                  "Concept"
-                )}
-              </text>
-            </FlowNode>
-          );
-        })}
-      </svg>
+    <div
+      ref={frame}
+      className="lens-flow"
+      style={{ height }}
+      aria-label={block.title}
+    >
+      <ReactFlowProvider>
+        <ReactFlow
+          colorMode={theme}
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          minZoom={0.1}
+          maxZoom={1}
+          onNodeClick={(_, node) => {
+            if (node.type === "flowNode") node.data.select();
+          }}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          elementsSelectable={false}
+          panActivationKeyCode={null}
+          panOnDrag={interactive}
+          preventScrolling={interactive}
+          zoomOnScroll={interactive}
+          zoomOnPinch={interactive}
+          zoomOnDoubleClick={false}
+          proOptions={{ hideAttribution: true }}
+        >
+          <FitToLayout layout={layout} frame={frame} />
+        </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 }
 
-/** A node group that carries its unit id and the phase it is drawn in. */
-function FlowNode({
-  id,
-  children,
-  ...props
-}: SVGProps<SVGGElement> & { id: string | undefined }) {
-  const motion = useMotionPhase(id);
+const PADDING = 24;
 
-  return (
-    <g {...props} data-review-unit-id={id} data-motion={motion}>
-      {children}
-    </g>
-  );
-}
+const ARROW = {
+  type: MarkerType.ArrowClosed,
+  width: 14,
+  height: 14,
+  color: "var(--ink-muted)",
+};
 
-function FlowEdge({
-  id,
-  children,
+/**
+ * Fits the box to the layout: ELK reports the drawing's size, the frame
+ * reports its own, so the viewport is set outright instead of asking React
+ * Flow to measure nodes first. Refits on every layout and every resize,
+ * animated once the first fit has landed. Never enlarges past 1:1.
+ */
+function FitToLayout({
+  layout,
+  frame,
 }: {
-  id: string | undefined;
-  children: ReactNode;
+  layout: Layout;
+  frame: RefObject<HTMLDivElement | null>;
 }) {
-  const motion = useMotionPhase(id);
+  const flow = useReactFlow();
+  const fitted = useRef(false);
+
+  useEffect(() => {
+    const element = frame.current;
+
+    if (!element) return;
+
+    const fit = () => {
+      const { width, height } = element.getBoundingClientRect();
+
+      if (!width || !height) return;
+
+      const zoom = Math.min(
+        1,
+        (width - PADDING * 2) / Math.max(1, layout.width),
+        (height - PADDING * 2) / Math.max(1, layout.height),
+      );
+
+      void flow.setViewport(
+        {
+          x: (width - layout.width * zoom) / 2,
+          y: (height - layout.height * zoom) / 2,
+          zoom,
+        },
+        { duration: fitted.current ? 300 : 0 },
+      );
+      fitted.current = true;
+    };
+
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [flow, frame, layout]);
+
+  return null;
+}
+
+interface Layout {
+  width: number;
+  height: number;
+  nodes: Map<string, { x: number; y: number }>;
+  edges: {
+    index: number;
+    section: number;
+    points: { x: number; y: number }[];
+  }[];
+}
+
+const SIZE = { width: 210, height: 62 };
+
+const DIAMOND = { width: 236, height: 98 };
+
+const nodeSize = (node: FlowDiagramNode) =>
+  node.kind === "decision" ? DIAMOND : SIZE;
+
+async function layoutFlow(
+  block: FlowDiagramBlock,
+  direction: "down" | "right" | undefined,
+): Promise<Layout> {
+  const result = await new ELK().layout<ElkNode>({
+    id: "flow",
+    layoutOptions: {
+      "elk.algorithm": "layered",
+      "elk.direction": direction === "right" ? "RIGHT" : "DOWN",
+      "elk.spacing.nodeNode": "28",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "44",
+    },
+    children: block.nodes.map((node) => ({ id: node.key, ...nodeSize(node) })),
+    edges: block.edges.map((edge, index) => ({
+      id: String(index),
+      sources: [edge.from],
+      targets: [edge.to],
+    })),
+  });
+
+  return {
+    width: result.width ?? 240,
+    height: result.height ?? 100,
+    nodes: new Map(
+      result.children?.map((node) => [
+        node.id,
+        { x: node.x ?? 0, y: node.y ?? 0 },
+      ]),
+    ),
+    edges: (result.edges ?? []).flatMap((edge) =>
+      (edge.sections ?? []).map((section, index) => ({
+        index: Number(edge.id),
+        section: index,
+        points: [
+          section.startPoint,
+          ...(section.bendPoints ?? []),
+          section.endPoint,
+        ],
+      })),
+    ),
+  };
+}
+
+interface FlowNodeData extends Record<string, unknown> {
+  node: FlowDiagramNode;
+  requireReady: boolean;
+  selected: boolean;
+  select(): void;
+}
+
+type FlowNodeType = Node<FlowNodeData, "flowNode">;
+
+interface FlowEdgeData extends Record<string, unknown> {
+  unitId: string | undefined;
+  label: string | undefined;
+  dashed: boolean;
+  points: { x: number; y: number }[];
+}
+
+type FlowEdgeType = Edge<FlowEdgeData, "flowEdge">;
+
+const change = (progress: CoverageProgress) =>
+  progress.total.additions && progress.total.deletions
+    ? "modified"
+    : progress.total.additions
+      ? "added"
+      : progress.total.deletions
+        ? "removed"
+        : "unchanged";
+
+function FlowNode({ data }: NodeProps<FlowNodeType>) {
+  const { node, requireReady, selected } = data;
+  const lenses = useReviewLenses();
+  const motion = useMotionPhase(node.id);
+
+  const sources = node.attachments.flatMap((attachment) => attachment.sources);
+
+  const availability = requireReady ? lenses?.availability(sources) : "ready";
+  const unavailable = availability !== "ready";
+
+  const progress =
+    lenses?.stats(lenses.resolve(sources)) ?? coverageProgress([]);
+
+  const size = nodeSize(node);
+
+  // The flow's onNodeClick handles the mouse; the keyboard lands here.
+  const select = () => {
+    if (!unavailable) data.select();
+  };
 
   return (
-    <g
-      className="lens-flow-edge-group"
-      data-review-unit-id={id}
+    <div
+      className={[
+        "flow-node",
+        "lens-flow-node",
+        `lens-flow-node--${change(progress)}`,
+        `lens-flow-node--${node.kind ?? "process"}`,
+        selected ? "is-selected" : "",
+        progress.state === "viewed" ? "is-viewed" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={{ width: size.width, height: size.height }}
+      role="button"
+      tabIndex={unavailable ? -1 : 0}
+      aria-disabled={unavailable}
+      aria-pressed={selected}
+      aria-label={node.label}
+      data-review-unit-id={node.id}
       data-motion={motion}
+      title={
+        unavailable
+          ? availability === "pending"
+            ? "Waiting for diff…"
+            : "Source unavailable at these pins"
+          : `${node.label} · Total +${progress.total.additions} −${progress.total.deletions}`
+      }
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      }}
     >
-      {children}
-    </g>
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="flow-node-handle"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="flow-node-handle"
+      />
+      <svg
+        className="flow-node-shape"
+        viewBox={`0 0 ${size.width} ${size.height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {node.kind === "decision" ? (
+          <polygon
+            pathLength={1}
+            points={`${size.width / 2},1 ${size.width - 1},${size.height / 2} ${size.width / 2},${size.height - 1} 1,${size.height / 2}`}
+          />
+        ) : (
+          <rect
+            pathLength={1}
+            x={0.5}
+            y={0.5}
+            width={size.width - 1}
+            height={size.height - 1}
+            rx={node.kind === "terminal" ? size.height / 2 : 6}
+          />
+        )}
+      </svg>
+      <div className="flow-node-text">
+        <span className="flow-node-label">
+          {node.label.length > 26 ? `${node.label.slice(0, 25)}…` : node.label}
+        </span>
+        <span className="flow-node-caption lens-flow-caption">
+          {unavailable ? (
+            availability === "pending" ? (
+              "…"
+            ) : (
+              "Unavailable"
+            )
+          ) : sources.length ? (
+            <ElementCountsText progress={progress} />
+          ) : (
+            "Concept"
+          )}
+        </span>
+      </div>
+    </div>
   );
 }
+
+function FlowEdge({ id, data, markerEnd }: EdgeProps<FlowEdgeType>) {
+  const motion = useMotionPhase(data?.unitId);
+
+  if (!data) return null;
+
+  const path = data.points
+    .map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`)
+    .join(" ");
+
+  const start = data.points[0]!;
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        className="lens-flow-edge"
+        // The arrowhead is the last stroke.
+        markerEnd={motion === "outline" ? undefined : markerEnd}
+        strokeDasharray={data.dashed ? "6 4" : undefined}
+        pathLength={1}
+        interactionWidth={0}
+        data-review-unit-id={data.unitId}
+        data-motion={motion}
+      />
+      {data.label && (
+        <text
+          className="lens-flow-edge-label"
+          x={start.x + 7}
+          y={start.y + 20}
+          data-motion={motion}
+        >
+          {data.label.length > 28 ? `${data.label.slice(0, 27)}…` : data.label}
+        </text>
+      )}
+    </>
+  );
+}
+
+const nodeTypes = { flowNode: FlowNode };
+
+const edgeTypes = { flowEdge: FlowEdge };

@@ -8075,31 +8075,6 @@ button.review-stack-row:disabled .review-stack-relation {
   display: block;
   font: 12px var(--font-mono);
 }
-.lens-flow-node rect {
-  fill: var(--surface);
-  stroke: var(--rule-soft);
-  stroke-width: 1.5;
-}
-.lens-flow-node--added rect {
-  stroke: var(--change-added);
-}
-.lens-flow-node--removed rect {
-  stroke: var(--change-removed);
-}
-.lens-flow-node--modified rect {
-  stroke: var(--change-modified);
-}
-.lens-flow .lens-flow-caption {
-  fill: var(--ink-faint);
-  font-size: 10px;
-}
-.lens-flow-edge {
-  stroke: var(--ink-faint);
-  fill: none;
-}
-.lens-flow marker path {
-  fill: var(--ink-faint);
-}
 .lens-flow .lens-flow-edge-label {
   font-size: 9px;
   fill: var(--ink-muted);

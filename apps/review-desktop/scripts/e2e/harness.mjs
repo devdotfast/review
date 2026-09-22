@@ -1,3 +1,4 @@
+import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Shared launch/attach/report harness for scripts/e2e/journeys/*. */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -372,10 +373,12 @@ export async function createHarness({
         "x-review-token": discovery.token,
         "content-type": "application/json",
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(route.startsWith("/sessions-api") ? sessionModelRequest(route.slice("/sessions-api".length), body) : body),
     });
 
-    return { status: response.status, value: await response.json() };
+    const value = await response.json();
+
+    return { status: response.status, value: route.startsWith("/sessions-api") ? sessionModelResponse(route.slice("/sessions-api".length), value) : value };
   };
 
   /** `api` plus a 200 assertion: an error body is JSON too, so an unasserted read can stand in for a document. */
@@ -423,7 +426,7 @@ export async function createHarness({
       return {
         ...(await exec(
           process.execPath,
-          [path.join(runtime, "dist/cli.js"), ...args],
+          [path.join(runtime, "dist/whiteboard-cli.js"), ...args],
           {
             cwd,
             env: commandEnv,
@@ -456,7 +459,7 @@ export async function createHarness({
         return {
           ...(await exec(
             process.execPath,
-            [path.join(runtime, "dist/cli.js"), ...args, "--json"],
+            [path.join(runtime, "dist/whiteboard-cli.js"), ...args, "--json"],
             { cwd, env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 },
           )),
           code: 0,
@@ -588,14 +591,14 @@ export async function createHarness({
 
 /** Creates a review on spec's commits, inserts its blocks and opens it; returns { reviewId, repositoryId, title, canvas }. */
 export async function createReview(ctx, spec) {
-  const repository = await ctx.api("/reviews-api/repositories", "POST", {
+  const repository = await ctx.api("/sessions-api/repositories", "POST", {
     path: spec.repoPath ?? ctx.repo,
   });
 
   assert.equal(repository.status, 200, JSON.stringify(repository.value));
 
   const command = async (operation) => {
-    const result = await ctx.api("/reviews-api/commands", "POST", {
+    const result = await ctx.api("/sessions-api/commands", "POST", {
       commandId: randomUUID(),
       operation,
     });
@@ -623,7 +626,7 @@ export async function createReview(ctx, spec) {
       edit: { type: "insert", content },
     });
 
-  const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
+  const opened = await ctx.api(`/sessions-api/${reviewId}/open`, "POST", {});
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 
@@ -686,10 +689,10 @@ export async function dismissModalEditor(
   return true;
 }
 
-/** Opens a review the way a reader does, with `review app pick --review`. */
+/** Opens a review the way a reader does, with `review app pick --session`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", reviewId, "--json"],
+    ["app", "pick", "--session", reviewId, "--json"],
     cwd,
   );
 

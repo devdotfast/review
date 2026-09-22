@@ -214,7 +214,7 @@ async function serverNeverStarted(
 
 /** The same review, in the window a restart left behind. */
 async function reopenReview(ctx, review) {
-  const opened = await ctx.api(`/reviews-api/${review.reviewId}/open`, "POST", {});
+  const opened = await ctx.api(`/sessions-api/${review.reviewId}/open`, "POST", {});
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 

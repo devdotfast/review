@@ -131,7 +131,7 @@ export async function run(ctx) {
   );
 
   const info = await ctx.cliRaw(
-    ["info", "--review", review.reviewId, "--json"],
+    ["info", "--session", review.reviewId, "--json"],
     moved,
   );
 

@@ -61,7 +61,7 @@ async function loadReviewPackage(appRoot: string) {
 	if (product.reviewVersion !== metadata.version || !/^[a-f0-9]{40}$/.test(product.commit ?? '')) {
 		throw new Error('Linux payload must carry the stamped Review version and source commit');
 	}
-	return { pkg: reviewPackage(product, metadata.version), source };
+	return { pkg: reviewPackage(product, metadata.version), source, urlProtocol: product.urlProtocol };
 }
 
 /** Stage the Review runtime for the existing Code OSS RPM build task. */
@@ -69,7 +69,7 @@ export async function prepareReviewRpmPackage(codeRoot: string, arch: string): P
 	if (arch !== 'x86_64') { throw new Error('Review Linux packages currently support x86_64 only'); }
 	const appRoot = resolve(codeRoot, '..');
 	const monorepoRoot = resolve(appRoot, '../..');
-	const { pkg, source } = await loadReviewPackage(appRoot);
+	const { pkg, source, urlProtocol } = await loadReviewPackage(appRoot);
 	const { name, app, appName, appId } = pkg;
 	const share = `/usr/share/${app}`;
 	const rpmRoot = join(codeRoot, '.build/linux/rpm/x86_64/rpmbuild');
@@ -106,6 +106,15 @@ StartupNotify=true
 StartupWMClass=${appName}
 Categories=Development;
 Keywords=review;code;agents;
+`);
+	await write(`usr/share/applications/${name}-url-handler.desktop`, `[Desktop Entry]
+Name=${appName} - URL Handler
+Exec=/usr/bin/${app}-desktop --open-url -- %U
+Icon=${app}
+Type=Application
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/${urlProtocol};
 `);
 	await write(`usr/share/metainfo/${name}.metainfo.xml`, `<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
@@ -170,6 +179,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache 
 ${share}/
 %attr(4755,root,root) ${share}/chrome-sandbox
 /usr/share/applications/${name}.desktop
+/usr/share/applications/${name}-url-handler.desktop
 /usr/share/metainfo/${name}.metainfo.xml
 /usr/share/icons/hicolor/512x512/apps/${app}.png
 `);

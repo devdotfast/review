@@ -2,6 +2,8 @@
 
 Status: agreed design, implemented in this change.
 
+For server setup and local or CI examples, see [Headless authoring setup](headless-authoring-setup.md).
+
 ## Agreed boundaries
 
 - [CI, authoring, and sharing responsibilities](adr/0001-headless-authoring-boundary.md)

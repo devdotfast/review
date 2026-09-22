@@ -1,4 +1,4 @@
-# Headless authoring
+# Headless authoring setup
 
 Install a version of `@dev.fast/review` that includes `review server`, using Node.js 24 and Git. No Review Desktop installation or display session is required. CI owns the agent harness, its model credentials, and checkout preparation.
 
@@ -21,7 +21,7 @@ The server binds to loopback on an available port. `--port <port>` selects a fix
 
 Install the Review skills for your harness, for example `review install codex --no-shim` or `review install claude --no-shim`. The npm installation already supplies the CLI. Agents can use `review api` directly, or a stdio MCP configuration with command `review`, arguments `["mcp"]`, and the same profile environment variables.
 
-Supply the local repository path and explicit base/head revisions, or already resolved pins as the author-and-share action does. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; both Review authoring modes read the shared [authoring guidance](document-authoring.md) for component selection, source evidence and self-review. The scratchpad requires Desktop and interactive mode.
+Supply the local repository path and explicit base/head revisions, or already resolved pins as the author-and-share action does. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; both Review authoring modes read the shared [authoring guidance](../packages/review/skills/dev-review/references/document-authoring.md) for component selection, source evidence and self-review. The scratchpad requires Desktop and interactive mode.
 
 Batch authors begin a scratch draft, investigate source using its `draftId`, write substantial content, validate and commit. Only commit creates a saved version and marks all sections complete. Existing readers see the previous committed version until then; new drafts are absent from Home. On intentional failure, abort the draft. The server retains exclusive ownership without heartbeats until commit, abort or shutdown. CI must stop it during teardown. After a killed server, abandoned scratch content is discarded safely; there is no resume or merge.
 

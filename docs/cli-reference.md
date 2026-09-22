@@ -93,7 +93,7 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
+See [headless setup and a GitHub Actions example](headless-authoring-setup.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Interactive mode (the default) saves each accepted edit as a version. Start with
 `--authoring-mode batch` to select scratch drafts and one atomic commit instead.

@@ -1325,6 +1325,10 @@ button:focus-visible > .review-chevron {
   white-space: pre;
 }
 
+.review-doc-meta > [data-row-start]::before {
+  visibility: hidden;
+}
+
 .review-home-workspace-view {
   color: var(--accent);
 }

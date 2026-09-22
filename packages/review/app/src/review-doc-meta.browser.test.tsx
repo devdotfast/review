@@ -9,6 +9,9 @@ import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
 import { testReviewSession } from "./review-session-test-utils";
 
+import styles from "./styles.css?inline";
+import whiteboardStyles from "./whiteboard.css?inline";
+
 let root: Root | null = null;
 
 describe("ReviewDocumentMetaLine", () => {
@@ -22,6 +25,41 @@ describe("ReviewDocumentMetaLine", () => {
 
     document.body.replaceChildren();
     vi.restoreAllMocks();
+  });
+
+  it("hides a wrapped commit range's separator and restores it when widened", async () => {
+    const style = document.createElement("style");
+    style.textContent = styles + whiteboardStyles;
+    const container = document.createElement("div");
+    container.style.width = "700px";
+    document.body.append(style, container);
+    const session = testReviewSession();
+    session.review!.pullRequestNumber = 394;
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewDocumentMetaLine />
+        </ReviewSessionProvider>,
+      );
+    });
+    const range = container.querySelector(".review-branch-range")!;
+    const pr = container.querySelector(".review-doc-meta-pr")!;
+    const separator = () => getComputedStyle(range, "::before");
+    expect(separator().content).toContain("·");
+    expect(separator().visibility).toBe("visible");
+
+    for (const width of [300, 700, 300, 700]) {
+      container.style.width = `${width}px`;
+      await vi.waitFor(() => {
+        expect(separator().visibility).toBe(
+          width === 300 ? "hidden" : "visible",
+        );
+        expect(
+          range.getBoundingClientRect().top > pr.getBoundingClientRect().bottom,
+        ).toBe(width === 300);
+      });
+    }
   });
 
   it("hydrates when the relative update time changes after SSR", async () => {

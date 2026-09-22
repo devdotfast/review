@@ -8,6 +8,7 @@ import {
   type ReactElement,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -30,6 +31,34 @@ interface ReviewDocumentMetaState {
  * under the document title.
  */
 export function ReviewDocumentMetaLine(): ReactElement | null {
+  const metaRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const line = metaRef.current;
+
+    if (!line) return;
+    const items = Array.from(line.children);
+
+    const updateSeparators = () => {
+      const start = line.getBoundingClientRect().left;
+
+      const starts = items.map(
+        (item) => Math.abs(item.getBoundingClientRect().left - start) < 1,
+      );
+
+      items.forEach((item, index) => {
+        item.toggleAttribute("data-row-start", starts[index]);
+      });
+    };
+
+    updateSeparators();
+    const observer = new ResizeObserver(updateSeparators);
+    observer.observe(line);
+    items.forEach((item) => observer.observe(item));
+
+    return () => observer.disconnect();
+  });
+
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const displayedVersion = useContext(DisplayedReviewVersionContext);
@@ -83,7 +112,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       : null;
 
   return (
-    <div className="review-doc-meta" data-review-copy-ignore>
+    <div ref={metaRef} className="review-doc-meta" data-review-copy-ignore>
       {meta?.pullRequestNumber != null &&
         (meta.pullRequestUrl ? (
           <a

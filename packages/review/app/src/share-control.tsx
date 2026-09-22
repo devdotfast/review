@@ -139,6 +139,9 @@ export function ShareControl() {
         links.current.set(linkKey(context.reviewId, version), result.url);
         setLink(result.url);
       } catch (error) {
+        if (error instanceof ReviewApiError && error.status === 422)
+          frozen.current.requestId = crypto.randomUUID();
+
         // The host forgot a stale login; show sign-in and upload again after it.
         if (error instanceof ReviewApiError && error.status === 401) {
           frozen.current.started = false;

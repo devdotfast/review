@@ -21,6 +21,7 @@ function mount(options: {
   signedIn: boolean;
   publishFails?: boolean;
   publishExpired?: boolean;
+  preflightFails?: boolean;
   holdPublish?: Promise<void>;
 }) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -67,6 +68,12 @@ function mount(options: {
           { status: 401 },
         );
       }
+
+      if (path.endsWith("/publish") && state.preflightFails)
+        return Response.json(
+          { error: "Push the reviewed commits to GitHub before sharing." },
+          { status: 422 },
+        );
 
       if (path.endsWith("/publish") && state.publishFails)
         return Response.json(
@@ -285,4 +292,23 @@ it("reuses the link for a version that was already shared and uploads again for 
     expect.objectContaining({ version: 4 }),
     expect.objectContaining({ version: 5 }),
   ]);
+});
+
+it("uses a fresh request after failed verification revokes the staged share", async () => {
+  const harness = mount({ signedIn: true, preflightFails: true });
+  await harness.render(1);
+  await harness.click("Share review");
+  await harness.settle();
+  harness.state.preflightFails = false;
+  await harness.click("Retry");
+  await harness.settle();
+
+  const requests = harness.posts.filter(({ path }) =>
+    path.endsWith("/publish"),
+  );
+
+  expect(requests).toHaveLength(2);
+  expect((requests[0]!.body as { requestId: string }).requestId).not.toBe(
+    (requests[1]!.body as { requestId: string }).requestId,
+  );
 });

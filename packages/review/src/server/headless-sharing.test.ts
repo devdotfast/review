@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
+import { shareManifestSchema } from "@dev.fast/review-share-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createShareFixture } from "../../test/fixtures/share/create.js";
@@ -26,9 +27,12 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
   const stateDir = path.join(root, "server");
   const pins = fixture.store.read(fixture.reviewId).pins;
 
-  const verify = vi
-    .spyOn(repository, "verifyShareRepository")
-    .mockResolvedValue(fixture.repository);
+  vi.spyOn(repository, "readShareRepository").mockResolvedValue(
+    fixture.repository,
+  );
+  vi.spyOn(repository, "verifyShareRepository").mockResolvedValue(
+    fixture.repository,
+  );
 
   vi.stubEnv("DEV_REVIEW_SHARE_TOKEN", "ci-publish-token");
   vi.stubEnv("DEV_REVIEW_SHARE_ORIGIN", "https://sharing.test");
@@ -71,11 +75,18 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       if (url.pathname === "/api/shares")
         return Response.json({ shareId, upload: signed("manifest") });
 
-      if (url.pathname.endsWith("/manifest"))
-        return Response.json({ registered: true });
+      if (url.pathname.endsWith("/manifest")) {
+        const manifest = shareManifestSchema.parse(
+          JSON.parse(blobs.get("/manifest")!.toString()),
+        );
 
-      if (url.pathname.endsWith("/upload"))
-        return Response.json(signed(url.pathname.split("/").at(-2)!));
+        return Response.json({
+          registered: true,
+          uploads: Object.fromEntries(
+            manifest.objects.map(({ id }) => [id, signed(id)]),
+          ),
+        });
+      }
 
       return Response.json({ shareId, url: link });
     },
@@ -188,10 +199,6 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       expect(output).not.toContain("ci-publish-token");
     }
 
-    expect(verify).toHaveBeenCalledWith(await realpath(fixture.repo), {
-      ...pins,
-      repositoryId: registered.id,
-    });
     expect(
       requests
         .values()

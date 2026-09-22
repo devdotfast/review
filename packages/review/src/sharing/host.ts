@@ -17,10 +17,10 @@ import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { readSharingAuth } from "./auth.js";
-import { ShareAuthError, ShareClient } from "./client.js";
+import { ShareAuthError, ShareClient, SharePreflightError } from "./client.js";
 import { exportShare } from "./export.js";
 import { SharedReviewStore, sharedReviewId } from "./import.js";
-import { verifyShareRepository } from "./repository.js";
+import { readShareRepository, verifyShareRepository } from "./repository.js";
 
 interface LoginState {
   pending: boolean;
@@ -36,6 +36,7 @@ const publishSchema = z.strictObject({
 
 interface SharingHostOptions {
   verifyRepository?: typeof verifyShareRepository;
+  readRepository?: typeof readShareRepository;
   login?: typeof runStoreLogin;
   openUrl?: typeof openUrlInBrowser;
   fetch?: typeof fetch;
@@ -175,7 +176,10 @@ export function mountSharingPublisher(
   app: Hono,
   store: ReviewStore,
   data: LocalReviewData,
-  options: Pick<SharingHostOptions, "verifyRepository" | "fetch"> = {},
+  options: Pick<
+    SharingHostOptions,
+    "verifyRepository" | "readRepository" | "fetch"
+  > = {},
 ) {
   const verifyRepository = options.verifyRepository ?? verifyShareRepository;
   app.post("/sharing/publish", async (context) => {
@@ -202,9 +206,10 @@ export function mountSharingPublisher(
         409,
       );
 
-    const repository = await verifyRepository(
-      store.repositoryPath(snapshot.pins.repositoryId),
-      snapshot.pins,
+    const root = store.repositoryPath(snapshot.pins.repositoryId);
+
+    const repository = await (options.readRepository ?? readShareRepository)(
+      root,
     );
 
     const bundle = await exportShare({
@@ -215,15 +220,27 @@ export function mountSharingPublisher(
       repository,
     });
 
+    const verification = verifyRepository(root, snapshot.pins, repository).then(
+      () => ({ ok: true as const }),
+      (error: Error) => ({ ok: false as const, error }),
+    );
+
     try {
       const result = await new ShareClient(
         account.origin,
         account.token,
         options.fetch,
-      ).create(bundle, input.requestId ?? randomUUID());
+      ).create(bundle, input.requestId ?? randomUUID(), async () => {
+        const result = await verification;
+
+        if (!result.ok) throw result.error;
+      });
 
       return context.json({ ...result, version: snapshot.version });
     } catch (error) {
+      if (error instanceof SharePreflightError)
+        return context.json({ error: error.message }, 422);
+
       if (error instanceof ShareAuthError) {
         // A CI token lives in the environment; only the saved login can go stale.
         if (process.env.DEV_REVIEW_SHARE_TOKEN === undefined)

@@ -461,12 +461,9 @@ export function createReviewApi(
       },
     );
   });
-  app.post("/:id/open", async (context) => {
-    const id = context.req.param("id");
 
-    if (isShared(id)) await shared?.assertReady(id);
-    const review = readReview(id);
-
+  /** Show a review in Desktop and start preparing its pinned checkouts. */
+  const openReview = async (review: Snapshot) => {
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
     const settings = await open({
@@ -490,13 +487,38 @@ export function createReviewApi(
       ];
     }
 
-    return context.json({
-      ok: true,
+    return {
       ...settings,
       environmentIssues: environmentIssues?.length
         ? environmentIssues
         : undefined,
-    });
+    };
+  };
+
+  /**
+   * A new review is shown where Desktop can show it, unless the author asked
+   * not to. The review is already saved, so a failed open is reported, not thrown.
+   */
+  const openCreated = async (reviewId: string) => {
+    try {
+      if (!open || !(await capabilities()).desktopAvailable)
+        return { opened: false };
+
+      return { opened: true, ...(await openReview(store.read(reviewId))) };
+    } catch (error) {
+      return {
+        opened: false,
+        openError: `${errorMessage(error)} Retry with review_open.`,
+      };
+    }
+  };
+
+  app.post("/:id/open", async (context) => {
+    const id = context.req.param("id");
+
+    if (isShared(id)) await shared?.assertReady(id);
+
+    return context.json({ ok: true, ...(await openReview(readReview(id))) });
   });
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
@@ -1050,9 +1072,11 @@ export function createReviewApi(
     );
   });
   app.post("/commands", async (context) => {
-    const input = commandSchema.parse(
+    const { command: request, open: requestedOpen } = takeCreateOpen(
       await readBoundedRequestJson(context.req.raw),
     );
+
+    const input = commandSchema.parse(request);
 
     if (authoringMode === "batch" && input.operation.type !== "attention")
       throw new ReviewInputError(
@@ -1104,10 +1128,41 @@ export function createReviewApi(
       throw new ReviewInputError("Shared reviews are read-only.", 409);
     }
 
-    return context.json(await store.execute(input));
+    const result = await store.execute(input);
+
+    if (input.operation.type !== "create") return context.json(result);
+
+    return context.json({
+      ...result,
+      ...(requestedOpen === false
+        ? { opened: false }
+        : await openCreated(result.reviewId)),
+    });
   });
 
   return app;
+}
+
+/**
+ * `open` steers presentation, not the saved review, so it stays out of the
+ * command and its receipt: a retry may choose differently. Anything else,
+ * including `open` off create, is left for commandSchema to reject.
+ */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Request body boundary: commandSchema parses the result.
+function takeCreateOpen(body: unknown) {
+  const create = z
+    .looseObject({
+      operation: z.looseObject({
+        type: z.literal("create"),
+        open: z.boolean().optional(),
+      }),
+    })
+    .safeParse(body);
+
+  if (!create.success) return { command: body };
+  const { open, ...operation } = create.data.operation;
+
+  return { command: { ...create.data, operation }, open };
 }
 
 /** Send committed state, coalescing updates when the reader falls behind. */

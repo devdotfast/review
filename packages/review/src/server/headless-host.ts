@@ -82,20 +82,23 @@ async function serve(input: HeadlessServerInput) {
   // terms; a preference changed after start applies at the next start.
   const scratchpadEnabled = await readScratchpadEnabled();
 
-  const api = createReviewApi(
-    local.store,
-    local.data,
-    undefined,
-    undefined,
-    () => ({
-      desktopAvailable: false,
-      softwareMapEnabled: input.softwareMapEnabled ?? false,
-    }),
-    () => scratchpadEnabled,
-  );
+  for (const vocabulary of ["review", "session"] as const) {
+    const api = createReviewApi(
+      local.store,
+      local.data,
+      undefined,
+      undefined,
+      () => ({
+        desktopAvailable: false,
+        softwareMapEnabled: input.softwareMapEnabled ?? false,
+      }),
+      () => scratchpadEnabled,
+      vocabulary,
+    );
 
-  mountSharingPublisher(api, local.store, local.data);
-  app.route("/reviews-api", api);
+    mountSharingPublisher(api, local.store, local.data, { vocabulary });
+    app.route(vocabulary === "session" ? "/sessions-api" : "/reviews-api", api);
+  }
 
   const server = createServer(createNodeRequestListener(app));
   let published = false;

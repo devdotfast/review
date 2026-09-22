@@ -182,3 +182,34 @@ export function authoringTools() {
     ),
   ];
 }
+
+/** The session interface shares validation and workflow semantics with the existing API. */
+export function sessionAuthoringTools() {
+  return authoringTools().map((tool) => {
+    const { properties, required, ...schema } = tool.inputSchema;
+    const { reviewId, ...fields } = properties ?? {};
+
+    return {
+      ...tool,
+      name: tool.name.replace(/^review_/, "session_"),
+      description: tool.description
+        .replace(
+          "to review introduced changes",
+          "to inspect introduced changes",
+        )
+        .replace(/review_/g, "session_")
+        .replace(/reviewId/g, "sessionId")
+        .replace(/Review-owned/g, "Whiteboard-owned")
+        .replace(/\breviews\b/g, "sessions")
+        .replace(/\breview\b/g, "session"),
+      path: tool.path.replace(/:reviewId\b/g, ":sessionId"),
+      inputSchema: {
+        ...schema,
+        properties: reviewId ? { ...fields, sessionId: reviewId } : fields,
+        required: required?.map((key) =>
+          key === "reviewId" ? "sessionId" : key,
+        ),
+      },
+    };
+  });
+}

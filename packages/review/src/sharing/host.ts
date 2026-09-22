@@ -15,6 +15,11 @@ import { z } from "zod";
 import { ReviewInputError } from "../review-api/document.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
+import {
+  type ApiVocabulary,
+  acceptId,
+  presentId,
+} from "../review-api/vocabulary.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { readSharingAuth } from "./auth.js";
 import { ShareAuthError, ShareClient, SharePreflightError } from "./client.js";
@@ -35,6 +40,7 @@ const publishSchema = z.strictObject({
 });
 
 interface SharingHostOptions {
+  vocabulary?: ApiVocabulary;
   verifyRepository?: typeof verifyShareRepository;
   readRepository?: typeof readShareRepository;
   login?: typeof runStoreLogin;
@@ -109,7 +115,10 @@ export function mountSharingHost(
     const id = context.req.param("id");
     const status = shared.status(id);
 
-    const result = { reviewId: id, ...status };
+    const result = presentId(
+      { reviewId: id, ...status },
+      options.vocabulary ?? "review",
+    );
 
     if (status.stage === "ready")
       return context.json({ ...result, title: shared.get(id).snapshot.title });
@@ -167,7 +176,13 @@ export function mountSharingHost(
       shared.trackImport(job);
     }
 
-    return context.json({ reviewId: id, ...shared.status(id) }, 202);
+    return context.json(
+      presentId(
+        { reviewId: id, ...shared.status(id) },
+        options.vocabulary ?? "review",
+      ),
+      202,
+    );
   });
 }
 
@@ -178,13 +193,16 @@ export function mountSharingPublisher(
   data: LocalReviewData,
   options: Pick<
     SharingHostOptions,
-    "verifyRepository" | "readRepository" | "fetch"
+    "verifyRepository" | "readRepository" | "fetch" | "vocabulary"
   > = {},
 ) {
   const verifyRepository = options.verifyRepository ?? verifyShareRepository;
   app.post("/sharing/publish", async (context) => {
     const input = publishSchema.parse(
-      await readBoundedRequestJson(context.req.raw),
+      acceptId(
+        await readBoundedRequestJson(context.req.raw),
+        options.vocabulary ?? "review",
+      ),
     );
 
     if (input.reviewId.startsWith("shared-"))

@@ -13,6 +13,7 @@ export function documentText(
   snapshot: Snapshot,
   targetId?: string,
   full = false,
+  noun: "review" | "session" = "review",
 ): string {
   const target =
     targetId === undefined
@@ -25,7 +26,7 @@ export function documentText(
 
   const lines = [
     `# ${snapshot.title}`,
-    `Review ${snapshot.reviewId} · version ${snapshot.version}`,
+    `${noun === "session" ? "Session" : "Review"} ${snapshot.reviewId} · version ${snapshot.version}`,
     "",
   ];
 
@@ -191,12 +192,12 @@ export function documentText(
     render(element, 0),
   );
 
-  if (!snapshot.document.length) lines.push("(Empty review)");
+  if (!snapshot.document.length) lines.push(`(Empty ${noun})`);
 
   if (!detailed && snapshot.document.length)
     lines.push(
       "",
-      "Use targetId for one component's complete content, or full:true for the whole review.",
+      `Use targetId for one component's complete content, or full:true for the whole ${noun}.`,
     );
 
   return lines.join("\n");

@@ -15,6 +15,7 @@ export async function runShareCli(input: {
   review?: string;
   version?: string;
   requestId?: string;
+  preview?: boolean;
   revoke?: string;
   json?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -56,6 +57,12 @@ export async function runShareCli(input: {
               : z.uuid().parse(input.requestId),
         }),
       );
+
+      if (input.preview) {
+        const url = new URL(result.url);
+        url.searchParams.set("app", "preview");
+        result.url = url.href;
+      }
 
       input.stdout.write(
         input.json ? JSON.stringify(result) + "\n" : result.url + "\n",

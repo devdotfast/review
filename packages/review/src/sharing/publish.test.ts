@@ -12,12 +12,17 @@ import { ReviewInputError } from "../review-api/document.js";
 import { mountSharingHost } from "./host.js";
 import { SharedReviewStore } from "./import.js";
 
-it.each([true, false])(
-  "overlaps share setup with verification and gates objects (verified=%s)",
-  async (verified) => {
+it.each([
+  { verified: true, protocol: "dev-fast-review" },
+  { verified: true, protocol: "dev-fast-review-preview" },
+  { verified: false, protocol: "dev-fast-review" },
+])(
+  "overlaps share setup with verification and gates objects ($verified, $protocol)",
+  async ({ verified, protocol }) => {
     const root = await mkdtemp(path.join(tmpdir(), "sharing-publish-"));
     const fixture = await createShareFixture(root);
     vi.stubEnv("DEV_REVIEW_HOME", root);
+    vi.stubEnv("DEV_FAST_REVIEW_APP_URL_PROTOCOL", protocol);
     const check = Promise.withResolvers<typeof fixture.repository>();
     const registered = Promise.withResolvers<void>();
     const shareId = randomUUID();
@@ -126,7 +131,10 @@ it.each([true, false])(
       );
       expect(await result.json()).toMatchObject(
         verified
-          ? { shareId }
+          ? {
+              shareId,
+              url: `https://app.dev.fast/s/${shareId}${protocol === "dev-fast-review-preview" ? "?app=preview" : ""}#${"x".repeat(43)}`,
+            }
           : { error: "Push the reviewed commits to GitHub before sharing." },
       );
     } finally {

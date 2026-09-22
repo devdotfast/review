@@ -46,6 +46,7 @@ export interface IReviewServerProcess extends IDisposable {
 export interface ReviewServerSupervisorOptions {
   readonly appRoot: string;
   readonly appVersion: string;
+  readonly appUrlProtocol?: string;
   readonly isBuilt: boolean;
   readonly serverEntryOverride?: string | undefined;
   readonly readyTimeout?: number;
@@ -62,6 +63,7 @@ export function createReviewServerEnvironment(options: {
   readonly applicationEnvironment: NodeJS.ProcessEnv;
   readonly resolvedEnvironment: NodeJS.ProcessEnv;
   readonly appVersion: string;
+  readonly appUrlProtocol?: string;
   readonly serverEntry: string;
   readonly port: number;
   readonly token: string;
@@ -79,6 +81,7 @@ export function createReviewServerEnvironment(options: {
     DEV_FAST_REVIEW_INSTANCE_ID: options.instanceId,
     DEV_FAST_REVIEW_APP_PID: String(options.appPid),
     DEV_FAST_REVIEW_APP_VERSION: options.appVersion,
+    DEV_FAST_REVIEW_APP_URL_PROTOCOL: options.appUrlProtocol,
     DEV_FAST_REVIEW_DESKTOP_HOST_AUTOSTART: "1",
     DEV_FAST_REVIEW_TELEMETRY_DISABLED: options.telemetryEnabled
       ? undefined
@@ -331,6 +334,7 @@ export class ReviewServerSupervisor extends Disposable {
       applicationEnvironment: process.env,
       resolvedEnvironment,
       appVersion: this.options.appVersion,
+      appUrlProtocol: this.options.appUrlProtocol,
       serverEntry,
       port: this.port,
       token: this.token,

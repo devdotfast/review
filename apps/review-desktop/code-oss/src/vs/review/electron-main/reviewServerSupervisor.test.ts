@@ -33,3 +33,21 @@ test('the trusted product version overrides inherited environment values', () =>
 	assert.equal(environment.DEV_FAST_REVIEW_SERVER_PORT, '4321');
 	assert.equal(environment.DEV_FAST_REVIEW_TELEMETRY_DISABLED, undefined);
 });
+
+for (const protocol of ['dev-fast-review', 'dev-fast-review-preview']) {
+	test(`the app protocol overrides the shell protocol (${protocol})`, () => {
+		const environment = createReviewServerEnvironment({
+			applicationEnvironment: { DEV_FAST_REVIEW_APP_URL_PROTOCOL: 'inherited' },
+			resolvedEnvironment: { DEV_FAST_REVIEW_APP_URL_PROTOCOL: 'shell' },
+			appVersion: '0.0.16',
+			appUrlProtocol: protocol,
+			serverEntry: '/review/server.js',
+			port: 4321,
+			token: 'token',
+			instanceId: 'instance',
+			appPid: 1234,
+			telemetryEnabled: true,
+		});
+		assert.equal(environment.DEV_FAST_REVIEW_APP_URL_PROTOCOL, protocol);
+	});
+}

@@ -421,6 +421,20 @@ describe("source rules in every peek position", () => {
     );
   });
 
+  it("rejects relative file links without saving and accepts the corrected source link", async () => {
+    await expectRejected(
+      () => insert({ type: "markdown", markdown: "[store](src/store.ts#L1)" }),
+      /Unsupported Markdown link "src\/store.ts#L1".*Use \[label\]\(review-source:head\/path#L10-L24\)/,
+    );
+
+    const result = await insert({
+      type: "markdown",
+      markdown: "[store](review-source:head/src/store.ts#L1)",
+    });
+
+    expect(result.status).toBe(200);
+  });
+
   it("rejects malformed and badly encoded prose source links", async () => {
     await expectRejected(
       () =>

@@ -421,3 +421,20 @@ it("requires explicit commits before batch authoring a live worktree review", as
     target: { kind: "commits", ...pins },
   });
 });
+
+it("blocks publishing relative file links and lets the author correct the same draft", async () => {
+  const d = await draft(a);
+  await write(d, "[source](src/save.ts#L2)");
+  await expect(
+    a.executeDraft({ type: "validate", draftId: d.draftId }),
+  ).rejects.toThrow("Use [label](review-source:head/path#L10-L24)");
+  await expect(a.executeDraft(commit(d))).rejects.toThrow(
+    "Use [label](review-source:head/path#L10-L24)",
+  );
+  expect(a.list()).toEqual([]);
+  await write(d, "[source](review-source:head/src/save.ts#L2)");
+  await a.executeDraft(commit(d));
+  expect(a.read(d.reviewId).document[0]).toMatchObject({
+    markdown: "[source](review-source:head/src/save.ts#L2)",
+  });
+});

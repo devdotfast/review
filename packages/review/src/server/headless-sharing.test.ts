@@ -226,3 +226,46 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+for (const json of [false, true]) {
+  it(`reports share failures on stderr while preserving JSON output (json=${json})`, async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), "review-share-error-"));
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let output = "";
+    let diagnostic = "";
+    stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    stderr.on("data", (chunk) => {
+      diagnostic += chunk;
+    });
+
+    try {
+      const code = await runReviewCli({
+        argv: [
+          "--state-dir",
+          stateDir,
+          "share",
+          "--review",
+          randomUUID(),
+          ...(json ? ["--json"] : []),
+        ],
+        env: process.env,
+        stdout,
+        stderr,
+      });
+
+      expect(code).toBe(1);
+      expect(diagnostic).toContain("Review server is not ready");
+      expect(diagnostic).toContain("review server start");
+      expect(json ? JSON.parse(output) : output).toEqual(
+        json
+          ? { error: { code: "share_failed", message: diagnostic.trim() } }
+          : "",
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+}

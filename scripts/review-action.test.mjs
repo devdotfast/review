@@ -35,7 +35,7 @@ if(args[0]==='server' && args[1]==='start') {
 else if(args[1]==='review_register_repository') out({id:'repo'});
 else if(args[1]==='review_resolve_pins') out(pins);
 else if(args[1]==='review_list') out(existsSync(home+'/committed')?[{reviewId:'review-id',version:0,pins,target:{kind:'commits',...pins}}]:[]);
-else if(args[0]==='share') { if(!process.env.DEV_REVIEW_SHARE_TOKEN) process.exit(3); out({shareId:'11111111-1111-4111-8111-111111111111',version:0,url:'${url}'}); }
+else if(args[0]==='share') { if(process.env.TEST_SHARE_ERROR) { out({error:{code:'share_failed',message:process.env.TEST_SHARE_ERROR}}); console.error(process.env.TEST_SHARE_ERROR); process.exit(1); } if(!process.env.DEV_REVIEW_SHARE_TOKEN) process.exit(3); out({shareId:'11111111-1111-4111-8111-111111111111',version:0,url:args.includes('--preview')?'${url.replace("#", "?app=preview#")}':'${url}'}); }
 else process.exit(2);
 `,
     { mode: 0o700 },
@@ -91,22 +91,35 @@ writeFileSync(process.env.DEV_REVIEW_HOME+'/committed','');
   };
 }
 
-test("authors before uploading the exact version, exports the link and stops its isolated server", async (t) => {
-  const f = await fixture(t);
-  const result = await runWorkflow(f.env);
-  assert.equal(result.url, url);
-  assert.match(await readFile(f.env.GITHUB_OUTPUT, "utf8"), /version=0/);
-  assert.ok((await readFile(f.env.GITHUB_STEP_SUMMARY, "utf8")).includes(url));
-  const calls = await f.calls();
-  assert.ok(
-    calls.find((c) => c.args?.[0] === "share").args.includes("--request-id"),
-  );
-  assert.equal(calls.at(-1).stopped, true);
-  assert.equal(
-    (await readdir(f.root)).some((name) => name.startsWith("review-action-")),
-    false,
-  );
-});
+for (const preview of [undefined, "false", "true"]) {
+  test(`authors and exports the share link with preview=${preview}`, async (t) => {
+    const f = await fixture(t);
+    const result = await runWorkflow({ ...f.env, REVIEW_PREVIEW: preview });
+
+    const expectedUrl =
+      preview === "true" ? url.replace("#", "?app=preview#") : url;
+
+    assert.equal(result.url, expectedUrl);
+    assert.ok(
+      (await readFile(f.env.GITHUB_OUTPUT, "utf8")).includes(
+        `url=${expectedUrl}`,
+      ),
+    );
+    assert.match(await readFile(f.env.GITHUB_OUTPUT, "utf8"), /version=0/);
+    assert.ok(
+      (await readFile(f.env.GITHUB_STEP_SUMMARY, "utf8")).includes(expectedUrl),
+    );
+    const calls = await f.calls();
+    assert.ok(
+      calls.find((c) => c.args?.[0] === "share").args.includes("--request-id"),
+    );
+    assert.equal(calls.at(-1).stopped, true);
+    assert.equal(
+      (await readdir(f.root)).some((name) => name.startsWith("review-action-")),
+      false,
+    );
+  });
+}
 
 for (const [name, author, error] of [
   ["agent failure", "exit 7", /Author command failed/],
@@ -127,6 +140,22 @@ for (const [name, author, error] of [
     );
   });
 }
+
+test("reports the CLI stderr when sharing fails and still cleans up", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(
+    runWorkflow({
+      ...f.env,
+      TEST_SHARE_ERROR: "Your sign-in has expired. Sign in again to share.",
+    }),
+    /Your sign-in has expired\. Sign in again to share\./,
+  );
+  assert.equal((await f.calls()).at(-1).stopped, true);
+  assert.equal(
+    (await readdir(f.root)).some((name) => name.startsWith("review-action-")),
+    false,
+  );
+});
 
 test("retains link outputs when commenting fails", async (t) => {
   const f = await fixture(t);

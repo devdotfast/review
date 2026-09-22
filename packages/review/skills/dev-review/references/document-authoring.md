@@ -27,7 +27,7 @@ The overview is a starting point. Follow it with enough detail to explain how th
 - Use concrete examples. For a retry mechanism, show what happens to a particular failed request, including what causes it to stop retrying.
 - Explain design decisions and tradeoffs when there is evidence for them. Distinguish documented reasons from your interpretation.
 - Explain boundaries, failure paths and constraints that materially affect the behavior.
-- Link to the code that supports the explanation. Include relevant existing test evidence and distinguish it from checks actually run.
+- Link to the code that supports the explanation using `[label](review-source:head/src/file.ts#L10-L24)` (or `base` for the previous revision). Use repository-relative paths and line numbers verified with the source tools; a single line uses `#L10`. Encode spaces in paths as `%20`. Relative Markdown file links, absolute filesystem paths, and file/editor URLs are rejected during validation and commit. External links use `https://`, `http://`, or `mailto:`; document anchors use `#heading`. Include relevant existing test evidence and distinguish it from checks actually run.
 
 Choose depth according to the subject's complexity. A small function can encode an important invariant that needs a full explanation. Cover each major question in the outline in the initial completed Review; expand sections that only list symbols, files or one-line descriptions.
 

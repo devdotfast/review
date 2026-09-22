@@ -1,3 +1,4 @@
+import { type JsonValue, isNumberValue, isObjectValue } from "@dev.fast/json";
 import type { ReviewStructuralDiffEvent } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -12,7 +13,7 @@ import { mountSharingHost } from "../sharing/host.js";
 import type { SharedReviewStore } from "../sharing/import.js";
 import { SharedReviewData } from "../sharing/routes.js";
 import { scopedCoverage } from "../viewed-coverage.js";
-import { authoringTools } from "./authoring-tools.js";
+import { authoringTools, sessionAuthoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
@@ -34,6 +35,12 @@ import {
   inspectSnapshot,
 } from "./store.js";
 import { listPinnedTraces, readStoredTrace } from "./traces.js";
+import {
+  type ApiVocabulary,
+  acceptCommand,
+  acceptId,
+  presentId,
+} from "./vocabulary.js";
 
 export interface AuthoringCapabilities {
   desktopAvailable: boolean;
@@ -63,8 +70,10 @@ export function createReviewApi(
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
+  vocabulary: ApiVocabulary = "review",
 ) {
   const app = new Hono();
+  const present = <T extends object>(value: T) => presentId(value, vocabulary);
   app.onError((error, context) => {
     if (error instanceof HttpJsonError)
       return context.json({ error: error.message }, error.statusCode);
@@ -73,14 +82,39 @@ export function createReviewApi(
       return context.json({ error: error.message }, error.status);
 
     // A readable message for agents and the canvas; issues stay for programs.
-    if (error instanceof z.ZodError)
+    if (error instanceof z.ZodError) {
+      const publicError =
+        vocabulary === "review"
+          ? error
+          : new z.ZodError(
+              error.issues.map((issue) => ({
+                ...issue,
+                path: issue.path.map((part, index, path) =>
+                  part === "reviewId" &&
+                  (index === 0 ||
+                    (index === 1 &&
+                      (path[0] === "operation" ||
+                        path[0] === "apiSource" ||
+                        isNumberValue(path[0]))))
+                    ? "sessionId"
+                    : part,
+                ),
+              })),
+            );
+
       return context.json(
-        { error: z.prettifyError(error), issues: error.issues },
+        { error: z.prettifyError(publicError), issues: publicError.issues },
         400,
       );
+    }
 
     // Provider failures may contain local paths/subprocess output; do not return them.
-    return context.json({ error: "Review operation failed." }, 500);
+    return context.json(
+      {
+        error: `${vocabulary === "session" ? "Session" : "Review"} operation failed.`,
+      },
+      500,
+    );
   });
 
   if (data)
@@ -139,7 +173,7 @@ export function createReviewApi(
 
   if (shared && data) {
     shared.connect(store, data);
-    mountSharingHost(app, store, data, shared);
+    mountSharingHost(app, store, data, shared, { vocabulary });
   }
 
   const readReview = (id: string, version?: number): Snapshot => {
@@ -167,10 +201,14 @@ export function createReviewApi(
     await ensureScratchpad();
 
     return context.json(
-      catalog(coverageModeSchema.parse(context.req.query("mode"))),
+      catalog(coverageModeSchema.parse(context.req.query("mode"))).map(present),
     );
   });
-  app.get("/authoring", (context) => context.json(authoringTools()));
+  app.get("/authoring", (context) =>
+    context.json(
+      vocabulary === "session" ? sessionAuthoringTools() : authoringTools(),
+    ),
+  );
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
@@ -300,7 +338,7 @@ export function createReviewApi(
     const query = context.req.query("subscriptions");
 
     if (query !== undefined) {
-      let input: unknown;
+      let input: JsonValue;
 
       try {
         input = JSON.parse(query);
@@ -315,7 +353,11 @@ export function createReviewApi(
             mode: coverageModeSchema,
           }),
         )
-        .parse(input);
+        .parse(
+          Array.isArray(input)
+            ? input.map((item) => acceptId(item, vocabulary))
+            : input,
+        );
 
       // Only entries whose review (or the catalog) changed are re-read and re-sent.
       const dirty = new Set(subscriptions.keys());
@@ -342,12 +384,12 @@ export function createReviewApi(
               return {
                 value:
                   reviewId === null
-                    ? catalog(mode)
-                    : {
+                    ? catalog(mode).map(present)
+                    : present({
                         ...readReview(reviewId),
                         activity: store.activity.read(reviewId),
                         coverageRevision: data?.coverageRevision ?? 0,
-                      },
+                      }),
               };
             } catch (error) {
               return {
@@ -393,7 +435,10 @@ export function createReviewApi(
     await ensureScratchpad();
 
     return watch(
-      () => catalog(coverageModeSchema.parse(context.req.query("mode"))),
+      () =>
+        catalog(coverageModeSchema.parse(context.req.query("mode"))).map(
+          present,
+        ),
       (notify) => {
         const local = store.subscribeCatalog(notify);
         const imported = shared?.subscribe(notify);
@@ -471,12 +516,13 @@ export function createReviewApi(
     let document: Snapshot | undefined;
 
     return watch(
-      () => ({
-        ...(document ??= readReview(id)),
-        activity: isShared(id)
-          ? { workingCount: 0, expiresAt: null }
-          : store.activity.read(id),
-      }),
+      () =>
+        present({
+          ...(document ??= readReview(id)),
+          activity: isShared(id)
+            ? { workingCount: 0, expiresAt: null }
+            : store.activity.read(id),
+        }),
       (notify) => {
         const stopRefresh = store.watchWorktrees();
 
@@ -695,13 +741,17 @@ export function createReviewApi(
     app.get("/:id/workspaces", (context) => {
       readReview(context.req.param("id"));
 
-      return context.json(data.workspaces.list(context.req.param("id")));
+      return context.json(
+        data.workspaces.list(context.req.param("id")).map(present),
+      );
     });
     app.post("/:id/workspaces/:workspaceId/retry", async (context) => {
       return context.json(
-        await data.workspaces.retry(
-          context.req.param("id"),
-          context.req.param("workspaceId"),
+        present(
+          await data.workspaces.retry(
+            context.req.param("id"),
+            context.req.param("workspaceId"),
+          ),
         ),
       );
     });
@@ -826,8 +876,15 @@ export function createReviewApi(
       .extend({ mode: coverageModeSchema })
       .parse(context.req.query());
 
+    const selectionInput = await readBoundedRequestJson(context.req.raw);
+
     const selection = AgentSelectionSchema.parse(
-      await readBoundedRequestJson(context.req.raw),
+      isObjectValue(selectionInput) && "apiSource" in selectionInput
+        ? {
+            ...selectionInput,
+            apiSource: acceptId(selectionInput.apiSource, vocabulary),
+          }
+        : selectionInput,
     );
 
     const reviewId = context.req.param("id");
@@ -882,8 +939,8 @@ export function createReviewApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
-        `Review ID: ${snapshot.reviewId}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from ${vocabulary === "session" ? "Whiteboard" : "Review"}: ${snapshot.title}`,
+        `${vocabulary === "session" ? "Session" : "Review"} ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
@@ -900,11 +957,11 @@ export function createReviewApi(
         ...(snapshot.pins
           ? [
               `Repository ID: ${snapshot.pins.repositoryId}`,
-              `Review base: ${snapshot.pins.base}`,
-              `Review head: ${snapshot.pins.head}`,
+              `${vocabulary === "session" ? "Session" : "Review"} base: ${snapshot.pins.base}`,
+              `${vocabulary === "session" ? "Session" : "Review"} head: ${snapshot.pins.head}`,
             ]
           : []),
-        `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+        `Read this version with ${vocabulary}_get({"${vocabulary}Id":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
         "",
@@ -1000,11 +1057,16 @@ export function createReviewApi(
 
     return context.json(
       query.format === "text"
-        ? documentText(snapshot, query.targetId, Boolean(query.full))
+        ? documentText(
+            snapshot,
+            query.targetId,
+            Boolean(query.full),
+            vocabulary,
+          )
         : query.targetId !== undefined
           ? inspectSnapshot(snapshot, query.targetId)
           : query.full
-            ? snapshot
+            ? present(snapshot)
             : inspectSnapshot(snapshot),
     );
   });
@@ -1026,12 +1088,14 @@ export function createReviewApi(
     }
 
     return context.json(
-      query.full ? snapshot : inspectSnapshot(snapshot, query.targetId),
+      query.full
+        ? present(snapshot)
+        : inspectSnapshot(snapshot, query.targetId),
     );
   });
   app.post("/commands", async (context) => {
     const { command: request, open: requestedOpen } = takeCreateOpen(
-      await readBoundedRequestJson(context.req.raw),
+      acceptCommand(await readBoundedRequestJson(context.req.raw), vocabulary),
     );
 
     const input = commandSchema.parse(request);
@@ -1058,11 +1122,13 @@ export function createReviewApi(
       if (shared && parsed.operation.type === "delete") {
         await shared.removeLocal(parsed.operation.reviewId);
 
-        return context.json({
-          reviewId: parsed.operation.reviewId,
-          version: 0,
-          deleted: true,
-        });
+        return context.json(
+          present({
+            reviewId: parsed.operation.reviewId,
+            version: 0,
+            deleted: true,
+          }),
+        );
       }
 
       if (shared && parsed.operation.type === "attention") {
@@ -1071,11 +1137,13 @@ export function createReviewApi(
           parsed.operation.action,
         );
 
-        return context.json({
-          reviewId: parsed.operation.reviewId,
-          version: shared.get(parsed.operation.reviewId).snapshot.version,
-          attention: true,
-        });
+        return context.json(
+          present({
+            reviewId: parsed.operation.reviewId,
+            version: shared.get(parsed.operation.reviewId).snapshot.version,
+            attention: true,
+          }),
+        );
       }
 
       throw new ReviewInputError("Shared reviews are read-only.", 409);
@@ -1083,10 +1151,10 @@ export function createReviewApi(
 
     const result = await store.execute(input);
 
-    if (input.operation.type !== "create") return context.json(result);
+    if (input.operation.type !== "create") return context.json(present(result));
 
     return context.json({
-      ...result,
+      ...present(result),
       ...(requestedOpen === false
         ? { opened: false }
         : await openCreated(result.reviewId)),

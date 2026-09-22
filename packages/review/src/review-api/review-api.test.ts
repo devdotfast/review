@@ -1695,6 +1695,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     await server.listen();
     const url = server.url + "/reviews-api";
     expect((await fetch(url)).status).toBe(401);
+    expect((await fetch(server.url + "/sessions-api")).status).toBe(401);
 
     const headers = {
       "content-type": "application/json",
@@ -1711,6 +1712,17 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const response = await post({ type: "create", title: "HTTP review", pins });
     expect(response.status).toBe(200);
     const { reviewId } = await response.json();
+
+    const session = await fetch(
+      `${server.url}/sessions-api/${reviewId}?full=true`,
+      { headers },
+    );
+
+    expect(session.status).toBe(200);
+    expect(await session.json()).toMatchObject({
+      sessionId: reviewId,
+      title: "HTTP review",
+    });
     expect(
       (await fetch(`${url}/${reviewId}/open`, { method: "POST" })).status,
     ).toBe(401);

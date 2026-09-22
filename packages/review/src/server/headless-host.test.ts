@@ -529,6 +529,22 @@ it("authenticates clients, reports capabilities and readiness without exposing t
   const server = await start(undefined, true);
   expect(await reviewServerIsHealthy(server.discovery)).toBe(true);
   expect((await fetch(`${server.discovery.url}/reviews-api`)).status).toBe(401);
+  expect((await fetch(`${server.discovery.url}/sessions-api`)).status).toBe(
+    401,
+  );
+
+  const sessionCapabilities = await fetch(
+    `${server.discovery.url}/sessions-api/capabilities`,
+    {
+      headers: { "x-review-token": server.discovery.token },
+    },
+  );
+
+  expect(sessionCapabilities.status).toBe(200);
+  expect(await sessionCapabilities.json()).toMatchObject({
+    desktopAvailable: false,
+    softwareMapEnabled: true,
+  });
   expect(await server.client.read("/capabilities")).toMatchObject({
     desktopAvailable: false,
     softwareMapEnabled: true,

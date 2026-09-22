@@ -180,43 +180,49 @@ export function createGlobalReviewServer(
     }),
   );
 
-  app.route(
-    "/reviews-api",
-    createReviewApi(
-      input.reviewStore,
-      input.reviewData,
-      async (review) => {
-        const result = await relay.dispatch({
-          name: "openApiReview",
-          args: review,
-        });
+  for (const vocabulary of ["review", "session"] as const) {
+    app.route(
+      vocabulary === "session" ? "/sessions-api" : "/reviews-api",
+      createReviewApi(
+        input.reviewStore,
+        input.reviewData,
+        async (review) => {
+          const result = await relay.dispatch({
+            name: "openApiReview",
+            args: review,
+          });
 
-        if (!result.ok) throw new ReviewInputError(result.error, 409);
+          if (!result.ok) throw new ReviewInputError(result.error, 409);
 
-        return z
-          .object({ softwareMapEnabled: z.boolean() })
-          .parse(result.result);
-      },
-      input.sharedReviews,
-      async () => {
-        if (!relay.attached)
-          return { desktopAvailable: false, softwareMapEnabled: false };
+          return z
+            .object({ softwareMapEnabled: z.boolean() })
+            .parse(result.result);
+        },
+        input.sharedReviews,
+        async () => {
+          if (!relay.attached)
+            return { desktopAvailable: false, softwareMapEnabled: false };
 
-        const result = await relay.dispatch({
-          name: "authoringCapabilities",
-          args: {},
-        });
+          const result = await relay.dispatch({
+            name: "authoringCapabilities",
+            args: {},
+          });
 
-        if (!result.ok) throw new ReviewInputError(result.error, 409);
+          if (!result.ok) throw new ReviewInputError(result.error, 409);
 
-        return {
-          desktopAvailable: true,
-          ...z.object({ softwareMapEnabled: z.boolean() }).parse(result.result),
-        };
-      },
-      () => scratchpadEnabled,
-    ),
-  );
+          return {
+            desktopAvailable: true,
+            ...z
+              .object({ softwareMapEnabled: z.boolean() })
+              .parse(result.result),
+          };
+        },
+        () => scratchpadEnabled,
+        vocabulary,
+      ),
+    );
+  }
+
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );

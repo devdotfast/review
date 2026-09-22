@@ -30,6 +30,8 @@ When `review_capabilities` reports `authoringMode:"batch"`, follow [Batch Review
 
 The user sees the document as you write it. Add explanations, examples and diagrams as they become ready, aiming for visible additions every few seconds while writing. Write complete, useful pieces rather than holding the whole document until it is finished or making empty edits to meet a timer.
 
-Keep the activity indicator focused on the section you are working on, including while investigating its code. Update the focus when moving to another section. Activity updates show ongoing work; document edits show actual progress.
+Write small and often while a reader may be watching: one paragraph, one sequence step, one flow node or one flow edge per edit, so the document draws itself as you go. Wire as you go: right after inserting a flow node, insert the edge that joins it to a node already on the board, then the next node. Never draw a pile of unconnected nodes and add the edges afterwards; that is not how anyone draws on a whiteboard.
+
+Keep the activity indicator focused on the section you are working on, including while investigating its code. Update the focus when moving to another section, and set it on a block before rewriting that block, so the reader sees where you are before the change lands. Activity updates show ongoing work; document edits show actual progress.
 
 Revise existing sections and components in place, preserving their IDs. Use targeted edits to fix problems instead of deleting and rebuilding the document.

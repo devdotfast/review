@@ -13,6 +13,12 @@ import {
   sourcePinsSchema,
 } from "../source.js";
 import { fileLensTargets } from "./blocks/file_lens.js";
+import {
+  type FlowDiagramEdge,
+  type FlowDiagramNode,
+  flowEdgeSchema,
+  flowNodeSchema,
+} from "./blocks/flow_diagram.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { ReviewInputError } from "./input-error.js";
@@ -118,7 +124,16 @@ export const reviewTargetSchema = z.discriminatedUnion("kind", [
 
 export type ReviewTarget = z.infer<typeof reviewTargetSchema>;
 
-export type Element = Block | Step;
+/** Everything with an id: blocks, and the units diagrams are drawn from. */
+export type Element = Block | Step | FlowDiagramNode | FlowDiagramEdge;
+
+/** A diagram unit: addressed on its own, but only ever inside its diagram. */
+export type Unit = Step | FlowDiagramNode | FlowDiagramEdge;
+
+const unitTypes = new Set(["step", "flow_node", "flow_edge"]);
+
+export const isUnit = (element: Element): element is Unit =>
+  unitTypes.has(element.type);
 
 /** Inline trace quotes keep paragraph/list layout while using retained resources. */
 export function traceQuoteLink(
@@ -332,7 +347,12 @@ export function sourceReferences(
 
 export const documentSchema = z.array(blockSchema);
 
-export const contentSchema = z.union([blockSchema, stepSchema]);
+export const contentSchema = z.union([
+  blockSchema,
+  stepSchema,
+  flowNodeSchema,
+  flowEdgeSchema,
+]);
 
 const placement = { parentId: label.optional(), afterId: label.optional() };
 
@@ -358,12 +378,20 @@ export const editSchema = z.discriminatedUnion("type", [
 
 export type Edit = z.infer<typeof editSchema>;
 
+/** The arrays an element's children live in, so an edit can splice the
+ * real list. A flow diagram keeps its nodes and edges apart. */
+export function childLists(element: Element): Element[][] {
+  if ("children" in element) return [element.children];
+
+  if (element.type === "sequence") return [element.steps];
+
+  if (element.type === "flow_diagram") return [element.nodes, element.edges];
+
+  return [];
+}
+
 export function children(element: Element): Element[] {
-  return "children" in element
-    ? element.children
-    : element.type === "sequence"
-      ? element.steps
-      : [];
+  return childLists(element).flat();
 }
 
 export function elements(document: Element[]): Element[] {
@@ -372,6 +400,12 @@ export function elements(document: Element[]): Element[] {
     ...elements(children(element)),
   ]);
 }
+
+const unitParent = {
+  step: "sequence",
+  flow_node: "flow_diagram",
+  flow_edge: "flow_diagram",
+} as const;
 
 const structural = new Set([
   "nodes",
@@ -387,6 +421,35 @@ const structural = new Set([
   "head",
 ]);
 
+const idPrefix = (element: Element) =>
+  element.type === "sequence" || element.type === "flow_diagram"
+    ? "diagram"
+    : element.type === "step"
+      ? "step"
+      : element.type === "flow_node"
+        ? "node"
+        : element.type === "flow_edge"
+          ? "edge"
+          : "block";
+
+/** Flow units saved before they had ids or types get both on the next
+ * write, so a stored diagram can be drawn on unit by unit. */
+export function adoptFlowUnits(
+  document: Element[],
+  allocate: (prefix: string) => string,
+): void {
+  for (const element of elements(document)) {
+    if (element.type === "flow_diagram") {
+      for (const node of element.nodes) node.type ??= "flow_node";
+
+      for (const edge of element.edges) edge.type ??= "flow_edge";
+    }
+
+    if (isUnit(element) && element.id === undefined)
+      element.id = allocate(idPrefix(element));
+  }
+}
+
 /** Mutate a private candidate. Only the store owns allocation and commits. */
 /** Assign server ids to an element tree that arrives without any. */
 export function assignFreshIds(
@@ -395,13 +458,7 @@ export function assignFreshIds(
 ): void {
   if (element.id !== undefined)
     throw new ReviewInputError("IDs are assigned by the server.");
-  element.id = allocate(
-    element.type === "sequence"
-      ? "diagram"
-      : element.type === "step"
-        ? "step"
-        : "block",
-  );
+  element.id = allocate(idPrefix(element));
 
   for (const child of children(element)) assignFreshIds(child, allocate);
 
@@ -428,15 +485,20 @@ export function applyEdit(
   edit: Edit,
   allocate: (prefix: string) => string,
 ): string {
+  adoptFlowUnits(document, allocate);
+
   const locate = (id: string): { element: Element; siblings: Element[] } => {
     const find = (
       siblings: Element[],
     ): ReturnType<typeof locate> | undefined => {
       for (const element of siblings) {
         if (element.id === id) return { element, siblings };
-        const found = find(children(element));
 
-        if (found) return found;
+        for (const list of childLists(element)) {
+          const found = find(list);
+
+          if (found) return found;
+        }
       }
     };
 
@@ -459,13 +521,20 @@ export function applyEdit(
 
     if (parent && elements([element]).includes(parent))
       throw new ReviewInputError("Cannot move a block inside itself.");
-    const isStep = element.type === "step";
 
-    if (
-      isStep ? parent?.type !== "sequence" : parent && !("children" in parent)
-    )
+    if (!isUnit(element) && parent && !("children" in parent))
       throw new ReviewInputError("Invalid parent for this element.");
-    const siblings: Element[] = parent ? children(parent) : document;
+
+    if (isUnit(element) && parent?.type !== unitParent[element.type])
+      throw new ReviewInputError(
+        `A ${element.type} belongs inside a ${unitParent[element.type]}.`,
+      );
+
+    // A unit's parent type was checked just above: a flow diagram's lists
+    // are [nodes, edges]; every other container has one list.
+    const siblings: Element[] = parent
+      ? (childLists(parent)[element.type === "flow_edge" ? 1 : 0] ?? document)
+      : document;
 
     if (afterId === element.id)
       throw new ReviewInputError("An element cannot follow itself.");
@@ -520,21 +589,40 @@ export function applyEdit(
 
     case "remove":
       siblings.splice(index, 1);
+
+      // A node takes its edges with it: an edge with a missing end is not a
+      // state the diagram can be in, and the agent asked for the node to go.
+      if (element.type === "flow_node") {
+        const diagram = elements(document).find(
+          (candidate) =>
+            candidate.type === "flow_diagram" && candidate.nodes === siblings,
+        );
+
+        if (diagram?.type === "flow_diagram")
+          diagram.edges = diagram.edges.filter(
+            (edge) => edge.from !== element.key && edge.to !== element.key,
+          );
+      }
+
       break;
     case "replace":
-      if (element.type === "step")
-        throw new ReviewInputError("Patch the step or replace its diagram.");
+      if (isUnit(element))
+        throw new ReviewInputError(
+          `Patch the ${element.type} or replace its diagram.`,
+        );
       fresh(edit.content);
       edit.content.id = element.id;
       siblings[index] = edit.content;
       break;
     case "move":
-      // Actor names are local: moving steps between diagrams is an explicit replacement, not a move.
+      // Names are diagram-local: moving a unit between diagrams is an explicit replacement, not a move.
       if (
-        element.type === "step" &&
-        children(locate(edit.parentId ?? "").element) !== siblings
+        isUnit(element) &&
+        !childLists(locate(edit.parentId ?? "").element).includes(siblings)
       )
-        throw new ReviewInputError("Move steps within their own diagram.");
+        throw new ReviewInputError(
+          `Move a ${element.type} within its own diagram.`,
+        );
       place(element, edit.parentId, edit.afterId, siblings);
       break;
   }

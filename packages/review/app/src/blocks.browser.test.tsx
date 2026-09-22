@@ -18,6 +18,7 @@ import {
   assignFreshIds,
   documentSchema,
   elements,
+  isUnit,
 } from "../../src/review-api/document";
 import { mapInputSchema } from "../../src/review-api/map-input";
 import type { ReviewProgress } from "../../src/review-api/review-progress";
@@ -367,9 +368,7 @@ describe("block components", () => {
 
       // Every visible block, nested ones included, mounts a node with content.
       const empty = elements(snapshot.document)
-        .filter(
-          (element) => element.type !== "step" && element.type !== "file_lens",
-        )
+        .filter((element) => !isUnit(element) && element.type !== "file_lens")
         .map((element) => element.id)
         .filter((id) => {
           const node = container.querySelector(`[data-review-node-id="${id}"]`);

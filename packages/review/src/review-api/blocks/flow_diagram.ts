@@ -2,9 +2,19 @@ import { z } from "zod";
 
 import { lensSourceSchema } from "../../lens-selection.js";
 import { ReviewInputError } from "../input-error.js";
-import { type BlockDefinition, defineBlock, label } from "./definition.js";
+import {
+  type BlockDefinition,
+  defineBlock,
+  identity,
+  label,
+} from "./definition.js";
 
+/** Nodes and edges are the diagram's children: each is its own edit target,
+ * so an agent can draw a diagram one unit at a time. Edges still name nodes
+ * by their diagram-local key. */
 export const flowNodeSchema = z.strictObject({
+  ...identity,
+  type: z.literal("flow_node").default("flow_node"),
   key: label,
   label,
   description: z.string().optional(),
@@ -14,26 +24,28 @@ export const flowNodeSchema = z.strictObject({
   ),
 });
 
+export const flowEdgeSchema = z.strictObject({
+  ...identity,
+  type: z.literal("flow_edge").default("flow_edge"),
+  from: label,
+  to: label,
+  label: z.string().optional(),
+  style: z.enum(["solid", "dashed"]).optional(),
+});
+
 export const flowDiagramSchema = defineBlock("flow_diagram", {
   title: label,
   description: z.string().optional(),
   direction: z.enum(["right", "down"]).optional(),
   nodes: z.array(flowNodeSchema).min(1).max(100),
-  edges: z
-    .array(
-      z.strictObject({
-        from: label,
-        to: label,
-        label: z.string().optional(),
-        style: z.enum(["solid", "dashed"]).optional(),
-      }),
-    )
-    .max(300),
+  edges: z.array(flowEdgeSchema).max(300),
 });
 
 export type FlowDiagramBlock = z.infer<typeof flowDiagramSchema>;
 
 export type FlowDiagramNode = z.infer<typeof flowNodeSchema>;
+
+export type FlowDiagramEdge = z.infer<typeof flowEdgeSchema>;
 
 export const flow_diagram = {
   type: "flow_diagram",

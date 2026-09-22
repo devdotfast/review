@@ -23,7 +23,7 @@ jobs:
   linux:
     name: Build and validate Fedora packages
     environment: ${{ inputs.release_signing && 'review-release' || 'review-linux-ci' }}
-    runs-on: ubuntu-22.04
+    runs-on: review_big_boy
     timeout-minutes: 90
     env:
       BUILD_SOURCEVERSION: ${{ inputs.commit }}
@@ -55,7 +55,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev \
-            libgtk-3-0 libnss3 libasound2 libgbm1 libnotify4 \
+            libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libnotify4 \
             rpm createrepo-c zstd gnupg xvfb dbus-x11 unzip openbox
           docker pull --platform linux/amd64 fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
           docker pull --platform linux/amd64 fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80

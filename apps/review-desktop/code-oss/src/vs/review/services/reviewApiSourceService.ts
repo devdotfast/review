@@ -257,7 +257,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		const makeSource = (getView: () => ReviewSourceView): ReviewDiffViewSource => ({
 			files: scope => files(reviewSourceComparison(getView(), scope?.commit)),
 			load: async (scope, lens) => {
-				if (lens && (scope || lens.reviewId !== getView().reviewId)) throw new Error("A lens must use its review comparison.");
+				if (lens && (scope || lens.reviewId !== getView().reviewId)) throw new Error("A lens must use its session comparison.");
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(getView(), scope?.commit);
 				const comparisonFiles = await files(current);

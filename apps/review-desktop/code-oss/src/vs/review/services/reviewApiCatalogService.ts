@@ -51,7 +51,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 			this.started = undefined;
 			this.reviews = this.reviews.map(review => ({ ...review, diffStats: null }));
 			this.changed.fire();
-			void this.initialize().catch(error => this.log.warn("[Review] Catalog mode change failed:", error));
+			void this.initialize().catch(error => this.log.warn("[Whiteboard] Catalog mode change failed:", error));
 		}));
 	}
 
@@ -89,7 +89,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		accept(await client.read<ReviewApiSummary[]>(`?mode=${mode}`, abort.signal));
 		this.client = client;
 		void client.follow<ReviewApiSummary[]>(null, abort.signal, accept, (error) =>
-			this.log.warn("[Review] API review list disconnected:", error),
+			this.log.warn("[Whiteboard] API review list disconnected:", error),
 			mode,
 		);
 	}

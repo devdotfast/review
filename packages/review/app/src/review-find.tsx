@@ -356,7 +356,7 @@ export function ReviewFindProvider({
             <div
               className="review-find-widget"
               role="search"
-              aria-label="Find in Review"
+              aria-label="Find in session"
             >
               <div className="review-find-input-shell">
                 <input

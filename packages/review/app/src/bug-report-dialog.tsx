@@ -272,7 +272,7 @@ export function BugReportControl({
                       setIncludeContext(event.target.checked)
                     }
                   />
-                  Review
+                  Session
                 </label>
                 <label>
                   <input

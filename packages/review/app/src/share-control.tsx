@@ -64,8 +64,8 @@ export function ShareControl() {
   const pending = Boolean(account?.pending);
 
   const label = shared
-    ? `Shared${context?.sender ? ` by ${context.sender}` : " review"}`
-    : "Share review";
+    ? `Shared${context?.sender ? ` by ${context.sender}` : " session"}`
+    : "Share session";
 
   const tooltip = useTooltip(label);
 
@@ -208,7 +208,7 @@ export function ShareControl() {
           ref={popoverRef}
           popover="manual"
           role="dialog"
-          aria-label={shared ? "Shared review" : "Share review"}
+          aria-label={shared ? "Shared session" : "Share session"}
           className="review-share-popover"
         >
           {(error || accountError || account?.error) && (

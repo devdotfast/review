@@ -230,7 +230,7 @@ export function ReviewTraceView({
                 <>
                   <p>Agent traces are not configured.</p>
                   <p className="review-trace-note">
-                    Open Agent Setup in Review Desktop to enable trace capture.
+                    Open Agent Setup in Whiteboard to enable trace capture.
                   </p>
                 </>
               )}

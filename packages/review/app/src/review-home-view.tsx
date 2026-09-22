@@ -200,7 +200,7 @@ export function ReviewHome({
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
           <div className="review-home-page-header">
-            <h1>Reviews</h1>
+            <h1>Sessions</h1>
             <div className="review-home-page-header-tools">
               <SearchBox query={query} onChange={setQuery} />
               <ViewToggle view={view} onChange={selectView} />
@@ -212,8 +212,8 @@ export function ReviewHome({
           {needle && active.length === 0 && !scratchpadShown ? (
             <p className="review-home-search-empty">
               {dismissed.length > 0
-                ? `No active reviews match “${needle}”. Look in Dismissed below.`
-                : `No reviews match “${needle}”.`}
+                ? `No active sessions match “${needle}”. Look in Dismissed below.`
+                : `No sessions match “${needle}”.`}
             </p>
           ) : null}
           <SearchQueryContext.Provider value={needle}>
@@ -274,11 +274,11 @@ export function setupBannerMessage(
 
     if (present.length === 0) return null;
 
-    return "Review is not set up for your coding agents yet.";
+    return "Whiteboard is not set up for your coding agents yet.";
   }
 
   if (status.stale) {
-    return "The installed Review skills are older than this app.";
+    return "The installed Whiteboard skills are older than this app.";
   }
 
   const missing = status.agents.filter(
@@ -286,7 +286,7 @@ export function setupBannerMessage(
   );
 
   if (missing.length > 0) {
-    return `The Review skills are not installed for ${missing
+    return `The Whiteboard skills are not installed for ${missing
       .map((agent) => TARGET_LABELS[agent.target])
       .join(", ")}.`;
   }
@@ -316,7 +316,7 @@ function SearchBox({
         type="search"
         value={query}
         placeholder="Search"
-        aria-label="Search reviews"
+        aria-label="Search sessions"
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
@@ -598,7 +598,7 @@ function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
       type="button"
       className="review-home-dismiss"
       aria-label={`Dismiss ${title}`}
-      title="Dismiss review"
+      title="Dismiss session"
       disabled={busy}
       onKeyDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -656,7 +656,7 @@ function DeleteReviewButton({
       type="button"
       className={armed ? "review-home-delete is-armed" : "review-home-delete"}
       aria-label={armed ? `Confirm delete ${title}` : `Delete ${title}`}
-      title={armed ? "Click again to delete" : "Delete review"}
+      title={armed ? "Click again to delete" : "Delete session"}
       disabled={busy}
       onBlur={() => setArmed(false)}
       onKeyDown={(event) => event.stopPropagation()}
@@ -716,7 +716,7 @@ function ListView({
     <div className="review-home-list-scroll">
       <table
         className="review-home-list-table"
-        aria-label="Reviews"
+        aria-label="Sessions"
         style={{ width: table.getTotalSize() }}
       >
         <colgroup>
@@ -867,7 +867,7 @@ const reviewListColumns: ColumnDef<ReviewApiSummary>[] = [
   {
     id: "review",
     accessorFn: reviewTitle,
-    header: "Review",
+    header: "Session",
     size: 400,
     sortDescFirst: false,
     cell: ({ row }) => (
@@ -1123,7 +1123,7 @@ export function formatRelativeTime(
 function statusDisplay(review: ReviewApiSummary): ReviewStatusDisplay {
   if (review.dismissedAt) return { label: "Dismissed", tone: "dismissed" };
 
-  return { label: review.viewedAt ? "Review ready" : "New", tone: "ready" };
+  return { label: review.viewedAt ? "Session ready" : "New", tone: "ready" };
 }
 
 function readStoredHomeView(): ReviewHomeView {
@@ -1138,7 +1138,7 @@ function readStoredHomeView(): ReviewHomeView {
 }
 
 function reviewTitle(review: ReviewApiSummary): string {
-  return review.title.trim() || "Untitled review";
+  return review.title.trim() || "Untitled session";
 }
 
 function matchesQuery(review: ReviewApiSummary, query: string): boolean {

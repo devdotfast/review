@@ -23,7 +23,7 @@ const PROMPT_KINDS: ReadonlyArray<{ kind: PromptKind; label: string }> = [
 ];
 
 /**
- * The architecture prompt names the mode and stops there: the dev-review skill
+ * The architecture prompt names the mode and stops there: the whiteboard skill
  * documents how to author one, so the prompt does not have to carry the mechanics.
  */
 export const PROMPT_VARIANTS: Record<
@@ -32,27 +32,27 @@ export const PROMPT_VARIANTS: Record<
 > = {
   change: {
     claude:
-      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+      "Use the whiteboard skill to review my current branch against up to date main, then open it in Whiteboard.",
     codex:
-      "Use $dev-review to review my current branch against up to date main, then open it in Review.",
+      "Use $whiteboard to review my current branch against up to date main, then open it in Whiteboard.",
     cursor:
-      "/dev-review Review my current branch against up to date main, then open it in Review.",
+      "/whiteboard Review my current branch against up to date main, then open it in Whiteboard.",
     opencode:
-      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+      "Use the whiteboard skill to review my current branch against up to date main, then open it in Whiteboard.",
     generic:
-      "Use the dev-review skill to review my current branch against up to date main: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`.",
+      "Use the whiteboard skill to review my current branch against up to date main: register the repository, resolve pins, create the session, then edit it through the Whiteboard MCP tools or `whiteboard api`.",
   },
   architecture: {
     claude:
-      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+      "Use the whiteboard skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Whiteboard when you're done.",
     codex:
-      "Use $dev-review to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+      "Use $whiteboard to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Whiteboard when you're done.",
     cursor:
-      "/dev-review Sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you’re done.",
+      "/whiteboard Sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Whiteboard when you’re done.",
     opencode:
-      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+      "Use the whiteboard skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Whiteboard when you're done.",
     generic:
-      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`. Open it in Review when you're done.",
+      "Use the whiteboard skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: register the repository, resolve pins, create the session, then edit it through the Whiteboard MCP tools or `whiteboard api`. Open it in Whiteboard when you're done.",
   },
 };
 
@@ -103,7 +103,7 @@ export function PromptCard({ agent }: { agent: PromptAgent }) {
   };
 
   return (
-    <section className="review-home-prompt-card" aria-label="Review prompt">
+    <section className="review-home-prompt-card" aria-label="Session prompt">
       <div
         className="review-home-prompt-tabs"
         role="group"

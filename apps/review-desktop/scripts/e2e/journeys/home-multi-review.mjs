@@ -45,9 +45,7 @@ export async function run(ctx) {
 
   const second = await createReview(ctx, {
     title: "Second review",
-    blocks: [
-      { type: "markdown", markdown: "Second look at the same change." },
-    ],
+    blocks: [{ type: "markdown", markdown: "Second look at the same change." }],
   });
 
   // Home groups by checkout, not by repository, so a second worktree makes two groups out of three reviews.
@@ -87,8 +85,11 @@ export async function run(ctx) {
   }, "three review cards");
   ctx.check("Home groups three reviews under two worktrees");
 
-  await home.locator('[aria-label="Search reviews"]').fill("Worktree B");
-  await until(async () => (await cards.count()) === 1, "search narrows to one card");
+  await home.locator('[aria-label="Search sessions"]').fill("Worktree B");
+  await until(
+    async () => (await cards.count()) === 1,
+    "search narrows to one card",
+  );
 
   // The list view replaces the cards with `.review-home-list-row`, so the same reviews are counted as rows here.
   await home.locator('[aria-label="List view"]').click();
@@ -96,9 +97,15 @@ export async function run(ctx) {
     async () => (await home.getAttribute("data-view")) === "list",
     "the list view",
   );
-  await until(async () => (await rows.count()) === 1, "one row under the search");
+  await until(
+    async () => (await rows.count()) === 1,
+    "one row under the search",
+  );
   await home.locator('[aria-label="Clear search"]').click();
-  await until(async () => (await rows.count()) === 3, "clear restores three rows");
+  await until(
+    async () => (await rows.count()) === 3,
+    "clear restores three rows",
+  );
   await home.locator('[aria-label="Card view"]').click();
   await until(
     async () => (await home.getAttribute("data-view")) === "cards",

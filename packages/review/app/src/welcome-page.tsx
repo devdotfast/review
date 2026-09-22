@@ -100,12 +100,12 @@ export function WelcomePage({
                 {install
                   ? "No coding agents detected."
                   : "Agent setup is unavailable."}{" "}
-                You can install the <code>review</code> command now and connect
-                an agent later.
+                You can install the <code>whiteboard</code> command now and
+                connect an agent later.
               </p>
               {status?.shim.installed ? (
                 <p>
-                  <code>review</code> command installed.
+                  <code>whiteboard</code> command installed.
                 </p>
               ) : null}
               {setupActions ? (
@@ -120,8 +120,8 @@ export function WelcomePage({
                   }
                 >
                   {status?.shim.installed
-                    ? "Reinstall review in PATH"
-                    : "Install review in PATH"}
+                    ? "Reinstall whiteboard in PATH"
+                    : "Install whiteboard in PATH"}
                 </button>
               ) : null}
             </>
@@ -148,12 +148,12 @@ export function WelcomePage({
       done: tourTotal > 0 && tourChecked >= tourTotal,
       note: onboarding
         ? `${tourChecked} of ${tourTotal} checks`
-        : "a three-minute sample review",
+        : "a three-minute sample session",
       body: (
         <>
           <p className="review-home-zero-hint">
-            A real review of a small sample repo, with live code, system views,
-            and interactive examples. About three minutes.
+            A session exploring a small sample repo, with live code, system
+            views, and interactive examples. About three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -164,7 +164,7 @@ export function WelcomePage({
       ),
     },
     {
-      title: "Create your first review",
+      title: "Create your first session",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
       body: <PromptCard agent={promptAgent(status)} />,
@@ -184,21 +184,21 @@ export function WelcomePage({
           <div className="review-onboarding-columns">
             <div className="review-onboarding-intro">
               <span className="review-onboarding-kicker">
-                Welcome to Review
+                Welcome to Whiteboard
               </span>
               <h1 className="review-onboarding-headline">
                 Your codebase, explained by your agent.
               </h1>
               <p className="review-onboarding-sub">
                 Connect a coding agent once, then take a three-minute tour on a
-                bundled sample review. Your agent writes the next one from your
+                bundled sample session. Your agent writes the next one from your
                 own repo.
               </p>
               <div className="review-onboarding-terminal">
                 <span className="review-onboarding-terminal-label">
                   Prefer the terminal?
                 </span>
-                <code>$ review install</code>
+                <code>$ whiteboard install</code>
               </div>
               {onClose ? (
                 <button
@@ -259,7 +259,7 @@ function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
   if (installedAgents.length === 0) return false;
 
   // Optional trace-search registrations are managed in Settings and do not
-  // determine whether Review skills are installed.
+  // determine whether Whiteboard skills are installed.
   return !status.cli || status.shim.installed;
 }
 

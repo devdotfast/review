@@ -327,7 +327,7 @@ export function ApiCanvas({
   if (!data)
     return (
       <>
-        <p role="status">{error ?? "Loading review…"}</p>
+        <p role="status">{error ?? "Loading session…"}</p>
         {version !== undefined && (
           <button onClick={() => setVersion(undefined)}>
             Back to latest version

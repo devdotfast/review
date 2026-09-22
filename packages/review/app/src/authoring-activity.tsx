@@ -1,7 +1,6 @@
 import { createContext, useContext, useState } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
-import type { SectionBlock } from "../../src/review-api/blocks/section";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import { useTooltip } from "./use-tooltip";
 
@@ -104,44 +103,5 @@ export function ReviewSurfaceLabel({
       {label}
       {unread && <span className="review-segment-unread" aria-hidden="true" />}
     </span>
-  );
-}
-
-export function SectionAuthoringProgress({
-  targetId,
-  status,
-}: {
-  targetId: string;
-  status: SectionBlock["status"];
-}) {
-  const activity = useContext(AuthoringActivityContext);
-
-  const descriptions =
-    activity && activity !== "unknown"
-      ? (activity.focuses ?? [])
-          .filter((focus) => focus.targetId === targetId)
-          .map((focus) => focus.description)
-      : [];
-
-  const unfinished = status === "pending" || status === "in_progress";
-
-  if (status === "complete" || (!unfinished && !descriptions.length))
-    return null;
-
-  const progress =
-    descriptions.length || status === "in_progress" ? "in_progress" : "pending";
-
-  const description =
-    [...new Set(descriptions)].join(" · ") ||
-    (progress === "pending" ? "Pending" : "In progress");
-
-  return (
-    <div
-      className="review-section-progress"
-      data-state={progress}
-      role="status"
-      aria-label={description}
-      title={description}
-    />
   );
 }

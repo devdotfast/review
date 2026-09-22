@@ -133,9 +133,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     "button[aria-expanded]",
   )!;
 
-  expect(
-    node.querySelector(".review-section-progress")?.getAttribute("aria-label"),
-  ).toBe("Pending");
   expect(toggle).toBeTruthy();
   await act(async () => toggle.click());
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -161,9 +158,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   });
   await vi.waitFor(async () => {
     await act(async () => {});
-    expect(
-      node.querySelector('[role="status"]')?.getAttribute("aria-label"),
-    ).toContain("Adding details");
+    expect(container.textContent).toContain("Adding details");
   });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(displayedVersion).toHaveBeenLastCalledWith(inserted.version);
@@ -176,9 +171,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   });
   await vi.waitFor(async () => {
     await act(async () => {});
-    expect(
-      node.querySelector('[role="status"]')?.getAttribute("aria-label"),
-    ).toBe("Pending");
     expect(container.textContent).toContain("Checking the outline");
   });
   await act(async () => {
@@ -188,11 +180,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     await act(async () => {});
     expect(container.textContent).not.toContain("Agent working…");
     expect(container.textContent).not.toContain("Checking the outline");
-    expect(
-      node
-        .querySelector(".review-section-progress")
-        ?.getAttribute("aria-label"),
-    ).toBe("Pending");
   });
   await act(async () => {
     await command({
@@ -214,7 +201,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     container.querySelector(`[data-review-node-id="${inserted.targetId}"]`),
   ).toBe(node);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(node.querySelector(".review-section-progress")).toBeNull();
   expect(
     node.querySelector(".review-section-header")?.textContent,
   ).not.toContain("Complete");

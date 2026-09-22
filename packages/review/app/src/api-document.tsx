@@ -1,5 +1,5 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
-import { memo, useContext, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo } from "react";
 
 import { type DiffSelection } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
@@ -15,18 +15,13 @@ import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
 import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
-import {
-  AuthoringActivityBadge,
-  AuthoringActivityContext,
-} from "./authoring-activity";
+import { AuthoringActivityBadge } from "./authoring-activity";
 import {
   BlockErrorBoundary,
   type StoredBlock,
   renderBlock,
   stored,
 } from "./blocks";
-import { type DocumentEntry, diffBlockRevisions } from "./document-motion";
-import { BlockStage } from "./document-motion-stage";
 import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
@@ -275,87 +270,42 @@ function useHeadingFragments(): void {
   }, [roots]);
 }
 
-/**
- * One list of sibling blocks, remembered across versions so each block can
- * be told what the latest version did to it. Only versions arriving from the
- * agent change the list; the first render of a list (a document opening, a
- * section arriving whole) moves nothing. A block the agent removed lingers
- * as a ghost line until the version after.
- */
 function DocumentBlocks({
   nodes,
   data,
   softwareMapEnabled,
-  awaiting = false,
 }: {
   nodes: Block[];
   data: ApiDocumentData;
   softwareMapEnabled: boolean;
-  awaiting?: boolean;
 }) {
-  const activity = useContext(AuthoringActivityContext);
-
-  const live =
-    activity !== undefined &&
-    activity !== "unknown" &&
-    activity.workingCount > 0;
-
-  const { version } = data.snapshot;
-
-  const [memory, setMemory] = useState<{
-    version: number;
-    entries: DocumentEntry[];
-  } | null>(null);
-
-  let entries: DocumentEntry[];
-
-  if (memory?.version === version) entries = memory.entries;
-  else {
-    entries = diffBlockRevisions(memory?.entries, nodes.map(stored), awaiting);
-    setMemory({ version, entries });
-  }
-
-  return entries.map((entry) =>
-    entry.kind === "slot" ? (
-      <BlockStage
-        key={entry.key}
-        version={version}
-        kind="slot"
-        open={entry.open && live}
-      />
-    ) : (
-      <DocumentNode
-        key={entry.key}
-        entry={entry}
-        version={version}
-        data={data}
-        softwareMapEnabled={softwareMapEnabled}
-      />
-    ),
-  );
+  return nodes.map((node) => (
+    <DocumentNode
+      key={node.id}
+      node={node}
+      data={data}
+      softwareMapEnabled={softwareMapEnabled}
+    />
+  ));
 }
 
 // Memoized: unrelated App renders must not rebuild every block's view models.
 export const DocumentNode = memo(function DocumentNode({
-  entry,
-  version,
+  node,
   data,
   softwareMapEnabled,
 }: {
-  entry: Extract<DocumentEntry, { kind: "block" | "ghost" }>;
-  version: number;
+  node: Block;
   data: ApiDocumentData;
   softwareMapEnabled: boolean;
 }) {
-  const node = entry.block;
   const session = useReviewSession();
 
-  const children = (nodes: Block[], awaiting = false) => (
+  const children = (nodes: Block[]) => (
     <DocumentBlocks
       nodes={nodes}
       data={data}
       softwareMapEnabled={softwareMapEnabled}
-      awaiting={awaiting}
     />
   );
 
@@ -367,14 +317,23 @@ export const DocumentNode = memo(function DocumentNode({
   )
     return null;
 
-  const render = (block: StoredBlock) => {
-    const stale =
-      block.type !== "section" &&
-      selectionReferences([block], { tolerant: true }).some((reference) =>
-        data.snapshot.staleSources?.includes(reference.id),
-      );
+  const block = stored(node);
 
-    return (
+  const stale =
+    block.type !== "section" &&
+    selectionReferences([block], { tolerant: true }).some((reference) =>
+      data.snapshot.staleSources?.includes(reference.id),
+    );
+
+  return (
+    <div
+      className="api-document-node"
+      data-review-node-id={node.id}
+      data-review-copy-prose={
+        node.type === "markdown" || node.type === "trace_quote" || undefined
+      }
+    >
+      {node.type !== "section" && <AuthoringActivityBadge targetId={node.id} />}
       <BlockErrorBoundary
         type={block.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}
@@ -387,25 +346,6 @@ export const DocumentNode = memo(function DocumentNode({
           renderBlock(block.type, block, data, children)
         )}
       </BlockErrorBoundary>
-    );
-  };
-
-  if (entry.kind === "ghost")
-    return <BlockStage version={version} kind="ghost" old={render(node)} />;
-
-  return (
-    <BlockStage
-      version={version}
-      kind="block"
-      change={entry.change}
-      id={node.id}
-      copyProse={node.type === "markdown" || node.type === "trace_quote"}
-      before={
-        node.type !== "section" && <AuthoringActivityBadge targetId={node.id} />
-      }
-      old={entry.previous && render(entry.previous)}
-    >
-      {render(node)}
-    </BlockStage>
+    </div>
   );
 });

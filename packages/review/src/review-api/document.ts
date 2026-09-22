@@ -216,8 +216,19 @@ function documentReferences(
     if (element.type === "markdown")
       return [...markdownNodes(parseMarkdown(element.markdown))].flatMap(
         (node) => {
-          if (node.type !== "link" || !/^review-source:/i.test(node.url ?? ""))
-            return [];
+          if (node.type !== "link") return [];
+          const href = node.url ?? "";
+
+          if (!/^review-source:/i.test(href)) {
+            // Trace links are checked by resourceReferences.
+            if (href.startsWith("review-trace:")) return [];
+
+            if (/^(?:https?:\/\/|mailto:|#)/i.test(href)) return [];
+
+            return reject(
+              `Unsupported Markdown link ${JSON.stringify(href)} in block ${element.id}. Use [label](review-source:head/path#L10-L24) or review-source:base/path#L10-L24 for repository files, with a repository-relative path and verified line numbers. External links must use https://, http://, or mailto:; document anchors use #heading.`,
+            );
+          }
 
           const match =
             /^review-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(

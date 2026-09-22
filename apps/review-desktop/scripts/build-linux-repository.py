@@ -82,8 +82,9 @@ def build(packages, output, version, revision, commit, fingerprint, channel="sta
     repos = output / prefix
     snapshot = repos / "snapshots" / generation / "rpm/repodata"
     snapshot.mkdir(parents=True)
-    keys = repos / "keys"
-    keys.mkdir()
+    # Both channels trust the same key, served from repos/keys/.
+    keys = output / "repos/keys"
+    keys.mkdir(parents=True, exist_ok=True)
     public_key = keys / f"{fingerprint}.asc"
     public_key.write_bytes(run("gpg", "--batch", "--armor", "--export", fingerprint))
     if not public_key.stat().st_size:
@@ -110,7 +111,7 @@ def build(packages, output, version, revision, commit, fingerprint, channel="sta
         "commit": commit, "keyFingerprint": fingerprint,
     }
     (repos / "current.json").write_text(json.dumps(pointer) + "\n")
-    files = {str(file.relative_to(output)): digest(file) for file in sorted(repos.rglob("*")) if file.is_file()}
+    files = {str(file.relative_to(output)): digest(file) for file in sorted((output / "repos").rglob("*")) if file.is_file()}
     (output / "sha256.json").write_text(json.dumps(files, indent=2) + "\n")
 
 

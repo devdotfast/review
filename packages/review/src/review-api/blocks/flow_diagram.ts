@@ -19,9 +19,12 @@ export const flowNodeSchema = z.strictObject({
   label,
   description: z.string().optional(),
   kind: z.enum(["process", "decision", "terminal"]).optional(),
-  attachments: z.array(
-    z.strictObject({ label, sources: z.array(lensSourceSchema).min(1) }),
-  ),
+  attachments: z
+    .array(z.strictObject({ label, sources: z.array(lensSourceSchema).min(1) }))
+    .default([])
+    .describe(
+      "Code evidence for this node. Omit for nodes no code backs, such as start or exit states.",
+    ),
 });
 
 export const flowEdgeSchema = z.strictObject({

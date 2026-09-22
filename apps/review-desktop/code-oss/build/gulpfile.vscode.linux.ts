@@ -150,7 +150,7 @@ function prepareRpmPackage(arch: string) {
 	const stripBinary = process.env['STRIP'] ?? '/usr/bin/strip';
 
 	return async function () {
-		if (product.applicationName === 'review') {
+		if (product.reviewVersion) {
 			return prepareReviewRpmPackage(root, rpmArch);
 		}
 		const dependencies = await getDependencies('rpm', binaryDir, product.applicationName, rpmArch);
@@ -225,7 +225,7 @@ function buildRpmPackage(arch: string) {
 	const destination = `.build/linux/rpm/${rpmArch}`;
 
 	return async () => {
-		if (product.applicationName === 'review') {
+		if (product.reviewVersion) {
 			return buildReviewRpmPackage(root, rpmArch);
 		}
 		await exec(`mkdir -p ${destination}`);

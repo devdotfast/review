@@ -79,7 +79,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       content: {
         type: "section",
         title: "Details",
-        status: "pending",
         children: [{ type: "markdown", markdown: "Original explanation" }],
       },
     },
@@ -188,7 +187,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       edit: {
         type: "update",
         targetId: inserted.targetId,
-        changes: { title: "Updated details", status: "complete" },
+        changes: { title: "Updated details" },
       },
     });
   });
@@ -201,9 +200,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     container.querySelector(`[data-review-node-id="${inserted.targetId}"]`),
   ).toBe(node);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(
-    node.querySelector(".review-section-header")?.textContent,
-  ).not.toContain("Complete");
   const section = store.read(review.reviewId).document[0]!;
 
   if (section.type !== "section") throw new Error("Expected section");

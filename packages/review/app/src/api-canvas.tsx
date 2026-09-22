@@ -15,7 +15,6 @@ import {
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
-import { elements } from "../../src/review-api/document";
 import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
@@ -399,13 +398,6 @@ const CanvasDocument = memo(function CanvasDocument({
     render: DocumentBody,
     tocEntries: data.headings.entries,
     empty: snapshot.document.length === 0,
-    authoringComplete:
-      snapshot.document.length > 0 &&
-      elements(snapshot.document).every(
-        (node) =>
-          node.type !== "section" ||
-          (node.status !== "pending" && node.status !== "in_progress"),
-      ),
   };
 
   return (

@@ -12,7 +12,6 @@ import {
   checkReferences,
   documentSchema,
   editSchema,
-  elements,
   pinsSchema,
 } from "./document.js";
 import { pullRequestUrl, setPullRequest } from "./origin.js";
@@ -334,9 +333,6 @@ export class ReviewDrafts {
 
       return { draftId: input.draftId, valid: true };
     }
-
-    for (const block of elements(snapshot.document))
-      if (block.type === "section") block.status = "complete";
 
     const result: Result = {
       reviewId: draft.reviewId,

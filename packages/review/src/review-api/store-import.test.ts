@@ -38,6 +38,25 @@ afterEach(async () => {
 });
 
 describe("importVersion", () => {
+  it("imports a section that carries the retired status field without it", async () => {
+    // Imported JSON is decoded at the store boundary, not by this type.
+    const document = JSON.parse(
+      '[{"type":"section","title":"Intro","status":"complete","children":[]}]',
+    );
+
+    await store.importVersion({
+      reviewId: id,
+      title: "Imported",
+      pins,
+      document,
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+
+    expect(store.read(id).document).toEqual([
+      { id: "block-1", type: "section", title: "Intro", children: [] },
+    ]);
+  });
+
   it("writes version 0 with server ids, createdAt, origin and attention", async () => {
     expect(store.has(id)).toBe(false);
 

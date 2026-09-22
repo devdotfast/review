@@ -8,7 +8,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { migrateDiffSelections } from "../diff-selection-migration.js";
+import { migrateStoredDocument } from "../stored-document-migration.js";
 import {
   type Coverage,
   coverageSchema,
@@ -644,8 +644,9 @@ export class ReviewStore {
     // SAFETY: versions contains only snapshots validated by execute before committing.
     const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
     // SAFETY: stored blocks were validated on write; migration only replaces
-    // retired attachment representations with their canonical equivalent.
-    snapshot.document = migrateDiffSelections(snapshot.document) as Block[];
+    // retired attachment representations with their canonical equivalent and
+    // drops retired fields.
+    snapshot.document = migrateStoredDocument(snapshot.document) as Block[];
 
     if (snapshot.pins)
       snapshot.target ??= {
@@ -1270,7 +1271,7 @@ export class ReviewStore {
 
       for (const input of inputs) {
         const document = structuredClone(
-          documentSchema.parse(migrateDiffSelections(input.document)),
+          documentSchema.parse(migrateStoredDocument(input.document)),
         );
 
         for (const block of document)
@@ -1323,8 +1324,16 @@ export class ReviewStore {
       if (existing && options.preserveCurrent) {
         if (options.preserveCurrent.version !== Number(existing.version))
           throw new ReviewInputError("Review changed during migration.", 409);
-        documentSchema.parse(options.preserveCurrent.document);
-        snapshots.push({ ...options.preserveCurrent, version: ++version });
+
+        const document = documentSchema.parse(
+          migrateStoredDocument(options.preserveCurrent.document),
+        );
+
+        snapshots.push({
+          ...options.preserveCurrent,
+          document,
+          version: ++version,
+        });
       }
 
       const attention = inputs[0]?.attention;

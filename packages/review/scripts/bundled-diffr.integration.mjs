@@ -177,9 +177,13 @@ describe("Relocated runtime diffr integrates with Review streams and settings", 
     assert.deepEqual(events[0].files, []);
   });
 
-  test("settings schema and edits round-trip through the staged binary", async () => {
+  test("settings values and edits round-trip through the staged binary", async () => {
     const config = await readDiffrConfig(repository);
-    assert.ok(config.schema.properties);
+    assert.ok(Number.isInteger(config.values.plugins.bundled.context.lines));
+    assert.equal(config.values.plugins.bundled.summarize.api_key, undefined);
+    assert.ok(
+      ["config", "environment", "missing"].includes(config.credentialSource),
+    );
 
     const updated = await setDiffrConfigValue(
       "plugins.bundled.context.lines",
@@ -188,6 +192,8 @@ describe("Relocated runtime diffr integrates with Review streams and settings", 
     );
 
     assert.equal(updated.values.plugins.bundled.context.lines, 7);
+    assert.equal(updated.changed, true);
+    assert.equal(updated.error, undefined);
     assert.equal(
       (await readDiffrConfig(repository)).values.plugins.bundled.context.lines,
       7,

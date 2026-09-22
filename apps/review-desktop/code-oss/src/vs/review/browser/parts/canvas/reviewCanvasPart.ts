@@ -722,7 +722,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				);
 				return this.currentStructuralDiffEnabled();
 			},
+			reloadWindow: async () => { await this.commandService.executeCommand("workbench.action.reloadWindow"); },
 			diffrConfig: {
+				saveSummarizer: (input) => this.desktopConnection.saveDiffrSummarizer(input),
+				testSummarizer: (input) => this.desktopConnection.testDiffrSummarizer(input),
 				read: () => this.desktopConnection.readDiffrConfig(),
 				set: (key, value) => {
 					this.reviewTelemetryService.capture("setting_changed", {

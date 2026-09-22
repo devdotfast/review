@@ -71,6 +71,8 @@ export interface TraceCommandRuntime {
 }
 
 export interface RegisterTraceCommandsOptions {
+  /** Whiteboard sessions and agent conversations use distinct selectors. */
+  sessionNames?: boolean;
   runtime: TraceCommandRuntime;
   traceCommand: TraceCommand;
   scope: TraceScope;

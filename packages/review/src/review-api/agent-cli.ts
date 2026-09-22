@@ -9,6 +9,7 @@ import {
 
 interface AgentCliInput {
   argv: string[];
+  product?: "review" | "whiteboard";
   env?: NodeJS.ProcessEnv;
   stdin?: Readable;
   stdout: Writable;
@@ -19,6 +20,19 @@ export const reviewAgentCliHelp =
   "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Review Desktop or review server start must be running)\nSelect headless state with DEV_REVIEW_SERVER_DIR or review --state-dir <path> api/mcp.\n";
 
 export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
+  const product = input.product ?? "review";
+  const vocabulary = product === "whiteboard" ? "session" : "review";
+
+  const help =
+    product === "review"
+      ? reviewAgentCliHelp
+      : reviewAgentCliHelp
+          .replace(/review/g, "whiteboard")
+          .replace(/Review/g, "Whiteboard")
+          .replace(/DEV_REVIEW/g, "DEV_WHITEBOARD");
+
+  const connect = () => connectReviewApi(input.env, vocabulary);
+
   try {
     const [mode, ...rest] = input.argv;
 
@@ -32,31 +46,32 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       rest.includes("-h") ||
       (mode === "api" && !name)
     ) {
-      input.stdout.write(reviewAgentCliHelp);
+      input.stdout.write(help);
 
       return 0;
     }
 
     if (extra.length || (mode === "mcp" && name))
-      throw new Error("Unexpected arguments. Use review api --help.");
+      throw new Error(`Unexpected arguments. Use ${product} api --help.`);
 
     if (mode === "mcp") {
       const { serveReviewMcp } = await import("./mcp.js");
       await serveReviewMcp(
-        () => connectReviewApi(input.env),
+        connect,
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
+        product,
       );
 
       return 0;
     }
 
-    const client = await connectReviewApi(input.env);
+    const client = await connect();
     const tools = await client.read<AuthoringTool[]>("/authoring");
 
     if (name === "tools") {
-      if (json) throw new Error("review api tools takes no input.");
+      if (json) throw new Error(`${product} api tools takes no input.`);
       input.stdout.write(JSON.stringify(tools, null, 2) + "\n");
 
       return 0;
@@ -65,7 +80,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     const tool = tools.find((tool) => tool.name === name);
 
     if (!tool)
-      throw new Error(`Unknown Review tool: ${name}. Use review api tools.`);
+      throw new Error(`Unknown tool: ${name}. Use ${product} api tools.`);
     let source = json ?? "{}";
 
     if (source === "-") {
@@ -81,7 +96,8 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (!isJsonObject(args))
       throw new Error("Tool input must be a JSON object.");
 
-    if (name === "review_get" && rest.includes("--json")) args.format = "json";
+    if (name === `${vocabulary}_get` && rest.includes("--json"))
+      args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
     const text = toolResultText(tool, result);
     input.stdout.write(text.endsWith("\n") ? text : text + "\n");

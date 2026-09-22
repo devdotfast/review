@@ -70,7 +70,11 @@ const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
 export class ReviewApiClient {
   constructor(
-    readonly connection: { serverUrl: string; token: string },
+    readonly connection: {
+      serverUrl: string;
+      token: string;
+      apiPath?: "/reviews-api" | "/sessions-api";
+    },
     private readonly request: Request = defaultRequest,
   ) {}
   async response(route: string, init?: RequestInit) {
@@ -80,7 +84,7 @@ export class ReviewApiClient {
     if (init?.body) headers.set("content-type", "application/json");
 
     const response = await this.request(
-      `${this.connection.serverUrl}/reviews-api${route}`,
+      `${this.connection.serverUrl}${this.connection.apiPath ?? "/reviews-api"}${route}`,
       { ...init, headers },
     );
 
@@ -117,7 +121,7 @@ export class ReviewApiClient {
   ): AsyncGenerator<T> {
     const response = await this.response(
       Array.isArray(reviewId)
-        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(reviewId))}`
+        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(this.connection.apiPath === "/sessions-api" ? reviewId.map(({ reviewId, ...rest }) => ({ ...rest, sessionId: reviewId })) : reviewId))}`
         : reviewId === null
           ? "/watch"
           : `/${encodeURIComponent(reviewId)}/watch`,
@@ -173,6 +177,7 @@ export class ReviewApiClient {
     const key = JSON.stringify([
       this.connection.serverUrl,
       this.connection.token,
+      this.connection.apiPath ?? "/reviews-api",
     ]);
 
     let live = connections.get(key);

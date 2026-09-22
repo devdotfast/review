@@ -13,6 +13,7 @@ const resultSchema = z.strictObject({
 
 export async function runShareCli(input: {
   review?: string;
+  product?: "review" | "whiteboard";
   version?: string;
   requestId?: string;
   preview?: boolean;
@@ -22,8 +23,10 @@ export async function runShareCli(input: {
   stdout: Writable;
   stderr: Writable;
 }) {
+  const vocabulary = input.product === "whiteboard" ? "session" : "review";
+
   try {
-    const client = await connectReviewApi(input.env);
+    const client = await connectReviewApi(input.env, vocabulary);
 
     if (input.revoke) {
       const result = z
@@ -36,7 +39,10 @@ export async function runShareCli(input: {
           : "Share revoked. Existing downloads remain available offline.\n",
       );
     } else {
-      if (!input.review) throw new Error("Use review share --review <id>.");
+      if (!input.review)
+        throw new Error(
+          `Use ${input.product ?? "review"} share --${vocabulary} <id>.`,
+        );
 
       const version =
         input.version === undefined
@@ -49,7 +55,7 @@ export async function runShareCli(input: {
 
       const result = resultSchema.parse(
         await client.post("/sharing/publish", {
-          reviewId: input.review,
+          [`${vocabulary}Id`]: input.review,
           version,
           requestId:
             input.requestId === undefined

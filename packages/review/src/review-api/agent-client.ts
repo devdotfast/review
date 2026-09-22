@@ -9,6 +9,7 @@ import {
   reviewServerStateDir,
   serverNotReady,
 } from "../server-discovery.js";
+import { whiteboardEnvironment } from "../whiteboard-environment.js";
 import { ReviewApiClient } from "./client.js";
 
 export interface AuthoringTool {
@@ -20,7 +21,14 @@ export interface AuthoringTool {
   commandType?: string;
 }
 
-export async function connectReviewApi(env = process.env) {
+export async function connectReviewApi(
+  env = process.env,
+  vocabulary: "review" | "session" = "review",
+) {
+  if (vocabulary === "session") env = whiteboardEnvironment(env);
+
+  const apiPath = vocabulary === "session" ? "/sessions-api" : "/reviews-api";
+
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
     const server = await readReviewServerDiscovery(stateDir);
@@ -28,7 +36,11 @@ export async function connectReviewApi(env = process.env) {
     if (!server || !(await reviewServerIsHealthy(server)))
       throw serverNotReady(stateDir);
 
-    return new ReviewApiClient({ serverUrl: server.url, token: server.token });
+    return new ReviewApiClient({
+      serverUrl: server.url,
+      token: server.token,
+      apiPath,
+    });
   }
 
   const discovery = await readHealthyReviewDesktopDiscovery({
@@ -44,6 +56,7 @@ export async function connectReviewApi(env = process.env) {
   return new ReviewApiClient({
     serverUrl: discovery.url,
     token: discovery.token,
+    apiPath,
   });
 }
 
@@ -120,7 +133,8 @@ export function toolResultText(
 ) {
   if (result instanceof ToolText) return result.text;
 
-  return tool.name === "review_get" && isStringValue(result)
+  return (tool.name === "review_get" || tool.name === "session_get") &&
+    isStringValue(result)
     ? result
     : JSON.stringify(result);
 }

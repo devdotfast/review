@@ -215,3 +215,45 @@ it("streams session metadata across edits and supports disconnecting", async () 
     await singleReader.cancel();
   }
 });
+
+it("keeps legacy and session follow streams separate on the same transport", async () => {
+  const { reviewId } = await store.execute({
+    commandId: randomUUID(),
+    operation: { type: "create", title: "Shared", pins },
+  });
+
+  const sessionApi = api();
+  const legacyApi = createReviewApi(store);
+
+  const transport = async (url: string, init?: RequestInit) =>
+    url.includes("/sessions-api")
+      ? sessionApi.request(url.replace("/sessions-api", ""), init)
+      : legacyApi.request(url.replace("/reviews-api", ""), init);
+
+  const connection = { serverUrl: "http://test", token: "test" };
+  const legacy = new ReviewApiClient(connection, transport);
+
+  const session = new ReviewApiClient(
+    { ...connection, apiPath: "/sessions-api" },
+    transport,
+  );
+
+  const abort = new AbortController();
+  const oldValue = Promise.withResolvers<{ reviewId: string }>();
+  const newValue = Promise.withResolvers<{ sessionId: string }>();
+
+  const follows = [
+    legacy.follow(reviewId, abort.signal, oldValue.resolve, oldValue.reject),
+    session.follow(reviewId, abort.signal, newValue.resolve, newValue.reject),
+  ];
+
+  try {
+    expect(await oldValue.promise).toHaveProperty("reviewId", reviewId);
+    const value = await newValue.promise;
+    expect(value).toHaveProperty("sessionId", reviewId);
+    expect(value).not.toHaveProperty("reviewId");
+  } finally {
+    abort.abort();
+    await Promise.all(follows);
+  }
+});

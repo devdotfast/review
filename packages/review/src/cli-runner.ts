@@ -115,7 +115,10 @@ interface ReviewCliRuntime {
   runStoreWhoami: typeof runStoreWhoami;
 }
 
+import { whiteboardEnvironment } from "./whiteboard-environment.js";
+
 export interface ReviewCliInput {
+  product?: "review" | "whiteboard";
   argv: string[];
   cliVersion?: string;
   cliPaths?: { requestedPath: string; effectivePath: string };
@@ -131,6 +134,7 @@ export interface ReviewCliInput {
 interface ReviewInfoOptions {
   all?: boolean;
   review?: string;
+  session?: string;
 }
 
 type OutputSurface = ReviewCliCommand | "plain";
@@ -143,7 +147,15 @@ interface CliRunState {
 }
 
 export async function runReviewCli(input: ReviewCliInput): Promise<number> {
-  const env = input.env ?? process.env;
+  const product = input.product ?? "review";
+  const sessionNames = product === "whiteboard";
+  const displayName = sessionNames ? "Whiteboard" : "Review Desktop";
+  const selector = sessionNames ? "session" : "review";
+
+  const env = sessionNames
+    ? whiteboardEnvironment(input.env ?? process.env)
+    : (input.env ?? process.env);
+
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
   // The command every installed hook re-enters. The Review CLI resolves it
@@ -211,12 +223,28 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
 
+  const helpText = (text: string) =>
+    sessionNames
+      ? text
+          .replace(/\$dev-review\b/g, "$whiteboard")
+          .replace(/immutable review snapshot/g, "immutable session snapshot")
+          .replace(/Select a Review/g, "Select a session")
+          .replace(/Review Desktop/g, "Whiteboard")
+          .replace(/Reviews/g, "sessions")
+          .replace(/Review/g, "Whiteboard")
+          .replace(/\breview\b/g, "whiteboard")
+          .replace(/--whiteboard/g, "--session")
+          .replace(/DEV_REVIEW/g, "DEV_WHITEBOARD")
+      : text;
+
   const program = configureOutput(new Command(), "review")
-    .name("review")
+    .name(product)
     .enablePositionalOptions()
     .version(cliVersion)
-    .description("Create, publish, and open dev.fast Reviews.")
-    .addHelpText("after", reviewTopLevelHelp());
+    .description(
+      `Create, share, and open ${displayName} ${sessionNames ? "sessions" : "reviews"}.`,
+    )
+    .addHelpText("after", helpText(reviewTopLevelHelp()));
 
   // Tolerate the leading form (`review --json scaffold`) as well as the usual
   // trailing one. Never give this a .default(): optsWithGlobals merges globals
@@ -377,18 +405,19 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
-          ? "Review Desktop is already running.\n"
+          ? `${displayName} is already running.\n`
           : options.focus
-            ? "Review Desktop is ready.\n"
-            : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
+            ? `${displayName} is ready.\n`
+            : `${displayName} is ready in the background. Pass --focus to bring it forward.\n`,
       );
     } else {
-      input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
+      input.stdout.write(`${displayName} is showing "${event.title}".\n`);
     }
   };
 
   const pickReview = async (options: {
     review?: string;
+    session?: string;
     focus?: boolean;
     json?: boolean;
   }) => {
@@ -396,7 +425,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
-      reviewUuid: options.review,
+      reviewUuid: options[selector],
       focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
@@ -440,7 +469,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     app
       .command("pick")
       .description("Select a Review (interactive picker without --review)")
-      .option("--review <uuid>", "review UUID")
+      .option(`--${selector} <uuid>`, `${selector} UUID`)
       .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(pickReview);
@@ -451,13 +480,15 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   )
     .option("--all", "list active reviews for every worktree in this repo")
     .addOption(
-      new Option("--review <uuid>", "select a Review").conflicts("all"),
+      new Option(`--${selector} <uuid>`, `select a ${selector}`).conflicts(
+        "all",
+      ),
     )
     .action(async (options: ReviewInfoOptions) => {
       const event = await runtime.runReviewInfo({
         cwd,
         all: options.all,
-        reviewUuid: options.review,
+        reviewUuid: options[selector],
       });
 
       input.stdout.write(`${JSON.stringify(event)}\n`);
@@ -613,7 +644,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       ),
     "plain",
   )
-    .option("--review <id>", "Review ID")
+    .option(`--${selector} <id>`, `${selector} ID`)
     .option("--version <number>", "Saved version to share")
     .option("--preview", "Open the share link in Review Preview by default")
     .option(
@@ -623,6 +654,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     .action(
       async (options: {
         review?: string;
+        session?: string;
         version?: string;
         requestId?: string;
         preview?: boolean;
@@ -632,6 +664,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         state.exitCode = await runShareCli({
           ...input,
           ...options,
+          review: options[selector],
           env: authoringEnv(),
         });
       },
@@ -704,6 +737,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   );
 
   registerTraceCommands(trace, {
+    sessionNames,
     runtime,
     traceCommand,
     scope,
@@ -713,7 +747,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     stderr: input.stderr,
     configureOutput: (command) => configureOutput(command, "plain"),
     configureJsonOutput: (command) => configureJsonOutput(command, "plain"),
-    verifyCommand: "review trace status",
+    verifyCommand: `${product} trace status`,
     setExitCode: (code) => {
       state.exitCode = code;
     },
@@ -831,7 +865,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         .allowExcessArguments()
         .helpOption(false)
         .passThroughOptions()
-        .addHelpText("after", `\n${reviewAgentCliHelp}`),
+        .addHelpText("after", `\n${helpText(reviewAgentCliHelp)}`),
       "plain",
     ).action(async (args: string[]) => {
       const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
@@ -842,6 +876,17 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       });
     });
   }
+
+  const updateHelp = (command: Command) => {
+    command.description(helpText(command.description()));
+
+    for (const option of command.options)
+      option.description = helpText(option.description);
+
+    for (const child of command.commands) updateHelp(child);
+  };
+
+  updateHelp(program);
 
   program.hook("preAction", async (_command, actionCommand) => {
     // The parsed option is authoritative once parsing succeeds. The argv scan
@@ -1094,7 +1139,6 @@ function reviewTopLevelHelp(): string {
     "Reviews are authored through the JSON API: `review api tools` lists the tools, and `review mcp` serves the same catalog to an agent.",
     "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` to open one.",
     "Use `review server start` for headless authoring, and `review server status --json` to check readiness.",
-    "Use `--view <review|commits|diff|map|trace>` with `review app pick` to choose the opened tab.",
     "",
     "Every command accepts --json. Stdout then carries only JSON events, one per line,",
     "human progress moves to stderr, and a failure prints a JSON error event too.",

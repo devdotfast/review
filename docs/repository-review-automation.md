@@ -15,7 +15,10 @@ when this workflow was added.
 
 Add these repository Actions secrets:
 
-- `ANTHROPIC_API_KEY`: the Anthropic API key billed for Claude authoring.
+- `CLAUDE_CODE_OAUTH_TOKEN`: a Claude subscription token generated locally with
+  `claude setup-token`, then saved with
+  `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo devdotfast/review`.
+  Runs use the publishing operator's Claude subscription allowance.
 - `REVIEW_SHARE_TOKEN`: the publishing account's Review sharing bearer token.
   Follow the credential setup in [the action guide](../actions/author-and-share/README.md#sharing-credentials).
 
@@ -35,7 +38,7 @@ The action resolves the PR's base and head commits, starts an isolated batch
 server, and passes its generated prompt to Claude through stdin. Claude receives
 the installed Review skills and non-interactive permission to read source, use
 shell commands, and write draft files. This runs trusted repository content with
-an API key; the tool allowlist is not a sandbox. The prompt asks Claude to leave
+a subscription token; the tool allowlist is not a sandbox. The prompt asks Claude to leave
 repository files unchanged and author through `review api`.
 
 After Claude succeeds, the action verifies that exactly one Review was committed

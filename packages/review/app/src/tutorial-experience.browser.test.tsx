@@ -341,6 +341,8 @@ describe("TutorialExperience", () => {
     vi.stubGlobal("requestAnimationFrame", requestFrame);
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("MutationObserver", TestMutationObserver);
+    // Ring resizing schedules unrelated frames during browser layout.
+    vi.stubGlobal("ResizeObserver", undefined);
 
     render(tutorialBridge([]));
     await act(async () => Promise.resolve());

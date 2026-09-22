@@ -18,6 +18,7 @@ import {
 import { ReviewActivity } from "./activity.js";
 import {
   type Block,
+  type EditSummary,
   type FileLineRange,
   type Pins,
   ReviewInputError,
@@ -34,6 +35,7 @@ import {
   resourceReferences,
   reviewTargetSchema,
   sourceReferences,
+  summarizeEdit,
 } from "./document.js";
 import { ReviewDrafts, draftCommandSchema } from "./drafts.js";
 import { pullRequestUrl, setPullRequest } from "./origin.js";
@@ -127,6 +129,9 @@ export interface Snapshot {
   document: Block[];
   createdAt: string;
   origin?: SnapshotOrigin;
+  /** The edit that produced this version, when one did; absent for a
+   * rename, repin, restore or import, which the canvas does not draw. */
+  lastEdit?: EditSummary;
 }
 
 /** A whole version written by legacy import: ids are assigned here, sources
@@ -954,6 +959,8 @@ export class ReviewStore {
 
       // Overlay state: a degraded read must not persist unavailability.
       delete snapshot.sourceUnavailable;
+      // Each version describes only its own edit.
+      delete snapshot.lastEdit;
 
       let nextId = previous
         ? Number(
@@ -1002,12 +1009,20 @@ export class ReviewStore {
           break;
         case "restore":
           snapshot = this.read(id, op.version);
+          delete snapshot.lastEdit;
           break;
         case "edit":
           targetId = applyEdit(
             snapshot.document,
             op.edit,
             (prefix) => `${prefix}-${++nextId}`,
+          );
+
+          snapshot.lastEdit = summarizeEdit(
+            op.edit,
+            targetId,
+            previous!.document,
+            snapshot.document,
           );
 
           if (snapshot.staleSources?.length) {

@@ -378,6 +378,60 @@ export const editSchema = z.discriminatedUnion("type", [
 
 export type Edit = z.infer<typeof editSchema>;
 
+/**
+ * What one saved version did, for a canvas drawing the document as the
+ * agent writes it: the edit's kind, the element it landed on, and the block
+ * that element belongs to (itself, for a block; its diagram, for a unit).
+ */
+export interface EditSummary {
+  type: Edit["type"];
+  targetId: string;
+  blockId: string;
+  unit?: Unit["type"];
+}
+
+/** The block an element belongs to: itself, or the diagram around a unit. */
+export function enclosingBlock(
+  document: Element[],
+  id: string,
+): { block: Element; element: Element } | undefined {
+  for (const block of elements(document)) {
+    if (block.id === id) return { block, element: block };
+
+    for (const list of childLists(block))
+      for (const element of list)
+        if (element.id === id && isUnit(element)) return { block, element };
+  }
+
+  return undefined;
+}
+
+/** Summarize an edit against the document it was applied to. A removed
+ * element is found in the document before the edit; everything else after. */
+export function summarizeEdit(
+  edit: Edit,
+  targetId: string,
+  before: Element[],
+  after: Element[],
+): EditSummary | undefined {
+  const found = enclosingBlock(
+    edit.type === "remove" ? before : after,
+    targetId,
+  );
+
+  if (!found?.block.id) return undefined;
+
+  const summary: EditSummary = {
+    type: edit.type,
+    targetId,
+    blockId: found.block.id,
+  };
+
+  if (isUnit(found.element)) summary.unit = found.element.type;
+
+  return summary;
+}
+
 /** The arrays an element's children live in, so an edit can splice the
  * real list. A flow diagram keeps its nodes and edges apart. */
 export function childLists(element: Element): Element[][] {

@@ -3,22 +3,22 @@ name: trace-archaeology
 description: Find the agent sessions behind existing code and search past traces. Use when asked "why does this code exist", "what was the agent thinking here", "who/what wrote this", "has an agent solved X before", or when debugging agent-produced code where the original reasoning would help.
 metadata:
   review-managed-by: "Review Desktop"
-  review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
+  review-generated: "Do not edit. Whiteboard automatically replaces this skill directory on updates."
   review-version: "development"
 ---
 
 # Trace archaeology
 
-Agent-written commits record `Agent-Session: <id>` trailers. Use the `review trace` CLI to resolve and pull those sessions. Use FFF to find candidate events. Use `review trace show` for exact evidence.
+Agent-written commits record `Agent-Session: <id>` trailers. Use the `whiteboard trace` CLI to resolve and pull those sessions. Use FFF to find candidate events. Use `whiteboard trace show` for exact evidence.
 
-The `review trace` commands also work without Review Desktop installed or running.
+The `whiteboard trace` commands also work without Whiteboard installed or running.
 
 ## Configuration
 
 Before hosted setup, explain: full transcripts go to the chosen origin. Writers can upload and check their own status; only admins can read transcripts.
 
-- Enable only user-authorized repositories and origins. Existing authorization is sufficient unless later revoked, including by `review trace deny`.
-- Check `review trace status`; `--session <id>` narrows uploads. If authorized, run `review trace store create` when needed, then `review trace allow .`. Check status again.
+- Enable only user-authorized repositories and origins. Existing authorization is sufficient unless later revoked, including by `whiteboard trace deny`.
+- Check `whiteboard trace status`; `--agent-session <id>` narrows uploads. If authorized, run `whiteboard trace store create` when needed, then `whiteboard trace allow .`. Check status again.
 - Without authorization, leave capture off and continue read-only investigation. Trace lookup does not require publication.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
@@ -35,19 +35,19 @@ When asked why code exists, who wrote it, or what decisions produced it:
 1. Identify the commits behind the target lines:
 
    ```sh
-   review trace blame <file> -L <start,end> --json
+   whiteboard trace blame <file> -L <start,end> --json
    ```
 
    This command identifies the last commit that touched each line. Add `--history` only when the current provenance does not explain the decision:
 
    ```sh
-   review trace blame <file> -L <start,end> --history --json
+   whiteboard trace blame <file> -L <start,end> --history --json
    ```
 
 2. Pull each relevant session into the local corpus:
 
    ```sh
-   review trace pull --session <session-id> --json
+   whiteboard trace pull --agent-session <session-id> --json
    ```
 
    Read the absolute normalized file paths from the response's `paths` array. Do not derive them from the corpus layout.
@@ -66,7 +66,7 @@ When asked why code exists, who wrote it, or what decisions produced it:
 4. Inspect each relevant event:
 
    ```sh
-   review trace show <session-id> --trace <trace> --event <event> --json
+   whiteboard trace show <session-id> --trace <trace> --event <event> --json
    ```
 
    Pass the trace name from the result, including `main`. Search results are not final evidence.
@@ -82,7 +82,7 @@ When asked if an agent has previously solved a problem or handled a topic:
 1. Pull the current repository traces:
 
    ```sh
-   review trace pull --json
+   whiteboard trace pull --json
    ```
 
    Add `--main-only` only when subagent work is not relevant.
@@ -93,23 +93,23 @@ When asked if an agent has previously solved a problem or handled a topic:
 3. Inspect the relevant events:
 
    ```sh
-   review trace show <session-id> --trace <trace> --event <event> --json
+   whiteboard trace show <session-id> --trace <trace> --event <event> --json
    ```
 
 When the investigation starts from one commit, list its sessions first:
 
 ```sh
-review trace list --commit <rev> --json
-review trace pull --commit <rev> --json
+whiteboard trace list --commit <rev> --json
+whiteboard trace pull --commit <rev> --json
 ```
 
 When no commit anchors the investigation, page through every published session of the hosted store with `--cursor`. This command needs the hosted store; on a machine that selects s3, pass `--storage hosted`.
 
 ```sh
-review trace sessions --json
+whiteboard trace sessions --json
 ```
 
-Use `review trace show <session-id>` when the full session timeline helps explain the result.
+Use `whiteboard trace show <session-id>` when the full session timeline helps explain the result.
 
 This flow is complete when you inspected the source events and checked the result against current code.
 

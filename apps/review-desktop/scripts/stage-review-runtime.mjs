@@ -48,8 +48,8 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
   "bin/diffr",
-  "skills/dev-review/SKILL.md",
-  "skills/dev-review/docs/README.md",
+  "skills/whiteboard/SKILL.md",
+  "skills/whiteboard/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
@@ -185,11 +185,11 @@ export async function stageReviewDocs(
   runtimeRoot,
   sourceDocsRoot = path.join(monorepoRoot, "docs"),
 ) {
-  const skillRoot = path.join(runtimeRoot, "skills", "dev-review");
+  const skillRoot = path.join(runtimeRoot, "skills", "whiteboard");
 
   if (!(await isDirectory(skillRoot))) {
     throw new Error(
-      `Cannot stage Review documentation without the dev-review skill: ${skillRoot}`,
+      `Cannot stage Review documentation without the whiteboard skill: ${skillRoot}`,
     );
   }
 

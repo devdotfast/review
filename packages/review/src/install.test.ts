@@ -14,9 +14,9 @@ import path from "node:path";
 import { collectingWritable } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { installFile, runInstall } from "./install";
+import { installFile, removeInstalledSkills, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review"] as const;
+const REQUIRED_SKILLS = ["whiteboard", "dev-review"] as const;
 
 const ALL_SKILLS = [
   ...REQUIRED_SKILLS,
@@ -44,7 +44,7 @@ async function makeTempDir(): Promise<string> {
 async function writeSkill(
   packageRoot: string,
   name: string,
-  contents = `---\nname: ${name}\ndescription: ${name}\n---\n\n# ${name}\n`,
+  contents = `---\nname: ${name}\ndescription: ${name}\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "Managed test fixture"\n  review-version: "development"\n---\n\n# ${name}\n`,
 ): Promise<void> {
   const skillDir = path.join(packageRoot, "skills", name);
   await mkdir(skillDir, { recursive: true });
@@ -615,4 +615,34 @@ describe("runInstall", () => {
       "# existing",
     );
   });
+});
+
+it("refuses a canonical skill-name collision before replacing an existing legacy skill", async () => {
+  const packageRoot = await makePackageRoot();
+  const homeDir = await makeTempDir();
+  const skills = path.join(homeDir, ".agents", "skills");
+  const custom = path.join(skills, "whiteboard", "SKILL.md");
+  const legacy = path.join(skills, "dev-review", "SKILL.md");
+  await mkdir(path.dirname(custom), { recursive: true });
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await writeFile(
+    custom,
+    "---\nname: whiteboard\ndescription: My drawing tool\n---\nKeep my instructions.",
+  );
+  await writeFile(legacy, "Existing installed skill");
+  const streams = silentStreams();
+  expect(
+    await runInstall({
+      packageRoot,
+      homeDir,
+      cwd: homeDir,
+      targets: ["codex"],
+      ...streams,
+    }),
+  ).toBe(1);
+  expect(await readFile(custom, "utf8")).toContain("Keep my instructions.");
+  expect(await readFile(legacy, "utf8")).toBe("Existing installed skill");
+  expect(streams.err.join("")).toContain("not managed by Whiteboard");
+  await removeInstalledSkills("codex", homeDir);
+  expect(await readFile(custom, "utf8")).toContain("Keep my instructions.");
 });

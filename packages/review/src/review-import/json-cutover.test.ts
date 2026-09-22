@@ -180,3 +180,66 @@ it("skips an unreadable directory, installs the readable reviews and records the
     JSON.parse(await readFile(path.join(good.dir, "review.json"), "utf8")),
   ).toEqual(goodRecord);
 });
+
+it("starts with healthy reviews when a published review's repository is unavailable", async () => {
+  const repo = await scratchGitRepo();
+  const good = await syntheticLegacyReview("schema4-bug-report-dialog", repo);
+  homes.push(good.home, repo.root);
+  const goodRecord = await sealPresentedRevision(good);
+  const existing = await seed(good.home);
+
+  const missingPath = path.join(good.home, "removed-repository");
+
+  const unavailable = await syntheticLegacyReview(
+    "schema4-bug-report-dialog",
+    { ...repo, root: missingPath },
+    { overrides: { uuid: randomUUID(), repoKey: "unavailable-repository" } },
+  );
+
+  homes.push(unavailable.home);
+  const unavailableRecord = await sealPresentedRevision(unavailable);
+
+  const unavailableDir = path.join(
+    good.home,
+    "reviews",
+    unavailableRecord.uuid,
+  );
+
+  await cp(unavailable.dir, unavailableDir, { recursive: true });
+  const original = await readFile(path.join(unavailableDir, "review.json"));
+  const revision = await reviewVcs.log(unavailableDir);
+
+  const messages: string[] = [];
+  await ensureJsonCutover(good.home, (message) => messages.push(message));
+
+  const marker = JSON.parse(
+    await readFile(path.join(good.home, "json-cutover.json"), "utf8"),
+  );
+
+  expect(marker.errors).toEqual([]);
+  expect(marker.skipped).toEqual([
+    {
+      reviewId: unavailableRecord.uuid,
+      dir: unavailableDir,
+      reason: `repository unavailable at ${missingPath}`,
+    },
+  ]);
+  expect(messages.join("\n")).toContain(missingPath);
+  expect(await readFile(path.join(unavailableDir, "review.json"))).toEqual(
+    original,
+  );
+  expect(await reviewVcs.log(unavailableDir)).toEqual(revision);
+
+  // A completed cutover must also let subsequent launches open the profile.
+  await ensureJsonCutover(good.home, () => {});
+  const installed = openLocalReviewStore(path.join(good.home, "review-api.db"));
+
+  try {
+    expect(installed.store.has(goodRecord.uuid)).toBe(true);
+    expect(installed.store.has(unavailableRecord.uuid)).toBe(false);
+    expect(installed.store.read(existing.reviewId)).toEqual(existing.snapshot);
+  } finally {
+    await installed.data.close();
+    await installed.store.close();
+  }
+});

@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/devdotfast/review.git",
+    "url": "https://github.com/devdotfast/whiteboard.git",
     "directory": "packages/review"
   },
   "bin": {
@@ -103,7 +103,7 @@
   },
   "intent": {
     "version": 1,
-    "repo": "devdotfast/review",
+    "repo": "devdotfast/whiteboard",
     "docs": "packages/review/skills/whiteboard/SKILL.md"
   }
 }

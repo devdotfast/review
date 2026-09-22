@@ -11,7 +11,7 @@ export const phase = 1;
 
 export const options = { seedRepo: false };
 
-const TITLE = "Review Desktop: three-minute tour";
+const TITLE = "Whiteboard: three-minute tour";
 
 const PROGRESS_KEY = "review.tutorial.progress.v1";
 

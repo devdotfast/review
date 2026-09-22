@@ -89,7 +89,7 @@ const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
 const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
 
 const SHADOWING_HELP_URL =
-  "https://github.com/devdotfast/review/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
+  "https://github.com/devdotfast/whiteboard/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
 
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,

@@ -169,7 +169,7 @@ export function createReviewApi(
       })
       .parse(context.req.query());
 
-    const snapshot = store.read(context.req.param("id"), query.version);
+    const snapshot = readReview(context.req.param("id"), query.version);
 
     const documentPins =
       query.wait === "false" && snapshot.pins

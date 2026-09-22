@@ -17,7 +17,11 @@ import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
 import type { AuthoringMode } from "./drafts.js";
 import type { LocalReviewData } from "./local-data.js";
-import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
+import {
+  inspectQuerySchema,
+  queryAnchor,
+  readQuerySchemas,
+} from "./read-schemas.js";
 import {
   coverageModeSchema,
   progressUpdateSchema,
@@ -149,9 +153,17 @@ export function createReviewApi(
 
     const snapshot = store.read(context.req.param("id"), query.version);
 
-    if (query.wait === "false") {
-      const { pins } = await data.resolveSource(snapshot);
-      const state = data.coverageSnapshot(snapshot.reviewId, pins, query.mode);
+    const documentPins =
+      query.wait === "false" && snapshot.pins
+        ? (await data.resolveSource(snapshot)).pins
+        : undefined;
+
+    if (documentPins) {
+      const state = data.coverageSnapshot(
+        snapshot.reviewId,
+        documentPins,
+        query.mode,
+      );
 
       if (state.pending)
         return context.json(
@@ -416,7 +428,7 @@ export function createReviewApi(
     let environmentIssues: { side?: string; message: string }[] | undefined;
 
     try {
-      if (review.target.kind === "commits")
+      if (review.target?.kind === "commits" && review.pins)
         void data?.workspaces
           .open(review.reviewId, review.pins)
           .catch(() => {});
@@ -479,9 +491,22 @@ export function createReviewApi(
       trace: z.string().min(1).optional(),
     });
 
+    // Traces are stored beside the review's own repository.
+    const tracePins = (id: string, version?: number) => {
+      const { pins } = readReview(id, version);
+
+      if (!pins)
+        throw new ReviewInputError(
+          "This document has no source pins of its own.",
+          409,
+        );
+
+      return pins;
+    };
+
     app.get("/:id/agent-traces", async (context) => {
       const query = traceQuery.parse(context.req.query());
-      const { pins } = readReview(context.req.param("id"), query.version);
+      const pins = tracePins(context.req.param("id"), query.version);
 
       return context.json(
         await listPinnedTraces(
@@ -493,7 +518,7 @@ export function createReviewApi(
     });
     app.get("/:id/agent-traces/:sessionId", async (context) => {
       const query = traceQuery.parse(context.req.query());
-      const { pins } = readReview(context.req.param("id"), query.version);
+      const pins = tracePins(context.req.param("id"), query.version);
 
       const result = await readStoredTrace(
         store.repositoryPath(pins.repositoryId),
@@ -513,6 +538,7 @@ export function createReviewApi(
       const { pins } = await data.resolveSource(
         sourceSnapshot(context, input.version),
         input.commit,
+        queryAnchor(input),
       );
 
       return context.json(await data!.tree(pins, input.side, input.path));
@@ -531,8 +557,7 @@ export function createReviewApi(
 
       return context.json(
         await data.map(
-          (await data.resolveSource(sourceSnapshot(context, query.version)))
-            .pins,
+          await data.sourcePins(sourceSnapshot(context, query.version)),
           z.string().parse(context.req.param("resourceId")),
         ),
       );
@@ -575,11 +600,12 @@ export function createReviewApi(
                 id,
                 z.string().parse(context.req.param("resourceId")),
               )),
-              repositoryId: snapshot.pins.repositoryId,
+              repositoryId: snapshot.pins?.repositoryId ?? "",
             }
           : store.resource(z.string().parse(context.req.param("resourceId")));
 
-      if (resource.repositoryId !== snapshot.pins.repositoryId)
+      // A document with pins serves only its repository's resources.
+      if (snapshot.pins && resource.repositoryId !== snapshot.pins.repositoryId)
         throw new ReviewInputError("Resource is outside this repository.", 404);
 
       return new Response(Buffer.from(resource.data), {
@@ -598,30 +624,35 @@ export function createReviewApi(
         })
         .parse(await readBoundedRequestJson(context.req.raw));
 
-      return context.json(
-        await data.quote(
-          await data.comparison(
-            (await data.resolveSource(sourceSnapshot(context, input.version)))
-              .pins,
-            input.commit,
-          ),
-
-          input.source,
-        ),
+      const { pins } = await data.resolveSource(
+        sourceSnapshot(context, input.version),
+        input.commit,
+        input.source.pins,
       );
+
+      return context.json(await data.quote(pins, input.source));
     });
     app.get("/:id/language-context", async (context) => {
       const input = readQuerySchemas.maps
         .extend({
           side: z.enum(["base", "head"]).default("head"),
           commit: z.string().optional(),
+          repositoryId: z.string().optional(),
+          head: z.string().optional(),
+          base: z.string().optional(),
         })
         .parse(context.req.query());
 
       const snapshot = readReview(context.req.param("id"), input.version);
 
       return context.json(
-        await data.languageEnvironment(snapshot, input.side, input.commit),
+        await data.languageEnvironment(
+          snapshot,
+          input.side,
+          input.commit,
+          false,
+          queryAnchor(input),
+        ),
       );
     });
     app.post("/:id/environment", async (context) => {
@@ -663,22 +694,22 @@ export function createReviewApi(
       const input = readQuerySchemas.file.parse(context.req.query());
       const id = context.req.param("id");
 
+      const anchor = queryAnchor(input);
+
       const { snapshot, pins } = await data.resolveSource(
         sourceSnapshot(context, input.version),
         input.commit,
+        anchor,
       );
 
       const file = await data.file(pins, input.side, input.file);
 
       const local =
         !input.commit &&
+        !anchor &&
         input.side === "head" &&
-        snapshot.target.kind === "worktree"
-          ? await data.liveFile(
-              snapshot.pins.repositoryId,
-              input.file,
-              file.text,
-            )
+        snapshot.target?.kind === "worktree"
+          ? await data.liveFile(pins.repositoryId, input.file, file.text)
           : undefined;
 
       return context.json({ ...file, ...local });
@@ -690,6 +721,7 @@ export function createReviewApi(
       const { pins } = await data.resolveSource(
         readReview(id, input.version),
         input.commit,
+        queryAnchor(input),
       );
 
       const abort = new AbortController();
@@ -740,6 +772,7 @@ export function createReviewApi(
             await data.resolveSource(
               sourceSnapshot(context, input.version),
               input.commit,
+              queryAnchor(input),
             )
           ).pins,
           input.file,
@@ -785,10 +818,13 @@ export function createReviewApi(
       if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
       const source = await data.quote(
-        await data.comparison(
-          (await data.resolveSource(snapshot)).pins,
-          selection.apiSource?.commit,
-        ),
+        (
+          await data.resolveSource(
+            snapshot,
+            selection.apiSource?.commit,
+            selection.apiSource?.pins,
+          )
+        ).pins,
         {
           side: target.side,
           file: target.path,
@@ -823,9 +859,22 @@ export function createReviewApi(
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
           : []),
-        `Repository ID: ${snapshot.pins.repositoryId}`,
-        `Review base: ${snapshot.pins.base}`,
-        `Review head: ${snapshot.pins.head}`,
+        ...(selection.apiSource?.pins
+          ? [
+              `Selected repository ID: ${selection.apiSource.pins.repositoryId}`,
+              ...(selection.apiSource.pins.base
+                ? [`Selected base: ${selection.apiSource.pins.base}`]
+                : []),
+              `Selected head: ${selection.apiSource.pins.head}`,
+            ]
+          : []),
+        ...(snapshot.pins
+          ? [
+              `Repository ID: ${snapshot.pins.repositoryId}`,
+              `Review base: ${snapshot.pins.base}`,
+              `Review head: ${snapshot.pins.head}`,
+            ]
+          : []),
         `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
@@ -840,12 +889,18 @@ export function createReviewApi(
     const id = context.req.param("id");
     const snapshot = readReview(id, query.version);
 
+    if (!snapshot.pins)
+      throw new ReviewInputError(
+        "This document has no source pins of its own.",
+        409,
+      );
+
     const baseRef =
-      snapshot.origin?.baseRef ?? snapshot.target.base ?? snapshot.pins.base;
+      snapshot.origin?.baseRef ?? snapshot.target?.base ?? snapshot.pins.base;
 
     const headRef =
       snapshot.origin?.branch ??
-      (snapshot.target.kind === "commits" ? snapshot.target.head : "HEAD");
+      (snapshot.target?.kind === "commits" ? snapshot.target.head : "HEAD");
 
     if (isShared(id))
       return context.json({
@@ -871,12 +926,13 @@ export function createReviewApi(
     const id = context.req.param("id");
     const snapshot = readReview(id, query.version);
 
-    if (isShared(id)) return context.json({ layers: [] });
+    if (isShared(id) || !snapshot.pins) return context.json({ layers: [] });
     const repositoryId = snapshot.pins.repositoryId;
 
     const repoKey = (review: Pick<Snapshot, "origin" | "pins">) =>
       review.origin?.pullRequestUrl?.replace(/\/pull\/\d+.*$/, "") ??
-      review.pins.repositoryId;
+      review.pins?.repositoryId ??
+      "";
 
     const layers = await resolveReviewStackLayers(
       {
@@ -930,7 +986,9 @@ export function createReviewApi(
 
     if (data && query.full) {
       try {
-        snapshot.pins = await data.sourcePins(snapshot);
+        const pins = await data.sourcePins(snapshot);
+
+        if (pins) snapshot.pins = pins;
       } catch (error) {
         if (!(error instanceof ReviewInputError) || error.status !== 404)
           throw error;

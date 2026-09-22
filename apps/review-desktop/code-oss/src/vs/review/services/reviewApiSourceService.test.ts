@@ -1,4 +1,4 @@
-import { sourceTreeUri, sourceTreeRoot } from "../common/reviewSourceView.js";
+import { sourceLocation, sourceTreeUri, sourceTreeRoot } from "../common/reviewSourceView.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,7 +6,7 @@ import { URI } from "../../base/common/uri.js";
 import type { ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
 import { apiSourceUri, ReviewApiSourceService } from "./reviewApiSourceService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
-import { resolveReviewSourceView, reviewSourceComparison } from "../common/reviewProtocol.js";
+import { resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison } from "../common/reviewProtocol.js";
 import type { ReviewDiffLens } from "../common/reviewProtocol.js";
 
 const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} });
@@ -217,4 +217,25 @@ test("a refreshed current tree keeps its root when a file from the newer version
   assert.equal(sourceTreeRoot(refreshed[1]!.resource, root).toString(), root.toString());
   const fixed = sourceTreeUri({ reviewId: "review-a", kind: "version", version: 3 });
   assert.notEqual(sourceTreeRoot(refreshed[1]!.resource, fixed).toString(), fixed.toString());
+});
+
+test("a source at its own pins keeps them through its URI and reads them back from the server", async t => {
+	const { service, readModel } = setup();
+	t.after(() => service.dispose());
+	const pins = { repositoryId: "repo-b", head: "b".repeat(40) };
+	const anchored = reviewSourceAnchor(reviewSourceComparison(view(3), "c".repeat(40)), pins);
+	assert.equal(anchored.commit, undefined);
+	const uri = apiSourceUri({ view: anchored, side: "head", file: "src/a.ts" });
+	assert.deepEqual(sourceLocation(uri), { view: { reviewId: "review-a", version: 3, generation: undefined, commit: undefined, pins }, side: "head", file: "src/a.ts" });
+	const inherited = sourceLocation(apiSourceUri({ view: view(3), side: "head", file: "src/a.ts" }));
+	assert.equal(inherited.view.pins, undefined);
+	t.mock.method(globalThis, "fetch", async (value: string) => {
+		const url = new URL(value);
+		assert.equal(url.searchParams.get("repositoryId"), "repo-b");
+		assert.equal(url.searchParams.get("head"), pins.head);
+		assert.equal(url.searchParams.has("base"), false);
+		return Response.json({ text: "at own pins" });
+	});
+	const model = await readModel(uri);
+	assert.equal((model as unknown as { text: string }).text, "at own pins");
 });

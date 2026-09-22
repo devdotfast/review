@@ -422,6 +422,9 @@ async function importPresentedMap(
   const head = store.read(reviewId);
   const warnings: string[] = [];
 
+  // Legacy imports always land with document pins.
+  if (!head.pins) throw new Error("Imported review has no source pins.");
+
   const section = await importMapSection(
     review,
     revision,

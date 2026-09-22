@@ -199,7 +199,12 @@ it("holds ownership without heartbeats and blocks every content mutation while o
     await expect(b.execute(command(operation))).rejects.toMatchObject({
       status: 409,
     });
-  await expect(b.importVersion(b.read(d.reviewId))).rejects.toMatchObject({
+  await expect(
+    b.importVersion({
+      ...b.read(d.reviewId),
+      pins: b.read(d.reviewId).pins!,
+    }),
+  ).rejects.toMatchObject({
     status: 409,
   });
   expect(() =>
@@ -405,7 +410,7 @@ it("requires explicit commits before batch authoring a live worktree review", as
   );
   const d = await draft(a, reviewId);
   await write(d, "Fixed comparison");
-  expect(b.read(reviewId).target.kind).toBe("worktree");
+  expect(b.read(reviewId).target?.kind).toBe("worktree");
   expect(a.drafts.source(d.draftId).target).toEqual({
     kind: "commits",
     ...pins,

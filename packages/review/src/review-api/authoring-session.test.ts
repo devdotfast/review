@@ -98,7 +98,11 @@ it("enforces session ownership through the tool adapter while allowing reads and
       status: 409,
     });
   await expect(
-    b.importVersion({ ...b.read(reviewId), title: "Blocked import" }),
+    b.importVersion({
+      ...b.read(reviewId),
+      pins: b.read(reviewId).pins!,
+      title: "Blocked import",
+    }),
   ).rejects.toMatchObject({ status: 409 });
   await b.execute(command({ type: "attention", reviewId, action: "view" }));
   expect(b.read(reviewId).title).toBe("Initial");

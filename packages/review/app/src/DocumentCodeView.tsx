@@ -5,6 +5,7 @@ import type {
   ReviewInlineEditorHandle,
   ReviewInlineEditorHeightMode,
   ReviewInlineEditorRange,
+  ReviewSourcePins,
 } from "@dev.fast/review-protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
@@ -25,6 +26,7 @@ export function DocumentCodeView({
   title,
   description,
   side,
+  pins,
   ranges,
   heightMode,
   countRanges,
@@ -38,6 +40,9 @@ export function DocumentCodeView({
   title: string;
   description?: string;
   side: ReviewDiffSide;
+  /** Read at these pins instead of the review's. Such a view is outside
+   * the review's comparison, so it carries no viewed-coverage marks. */
+  pins?: ReviewSourcePins;
   ranges: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
   countRanges?: readonly ReviewInlineEditorRange[];
@@ -59,7 +64,7 @@ export function DocumentCodeView({
   }));
 
   const progress: ReviewDiffProgress = {
-    files: (lenses?.progress?.files ?? [])
+    files: (pins ? [] : (lenses?.progress?.files ?? []))
       .filter((file) => file.path === path || file.previousPath === path)
       .map((file) => ({
         path: file.path,
@@ -98,6 +103,7 @@ export function DocumentCodeView({
     .join(",");
 
   const countRangesKey = JSON.stringify(countRanges);
+  const pinsKey = JSON.stringify(pins);
 
   const [error, setError] = useState<string | null>(null);
   const handleRef = useRef<ReviewInlineEditorHandle | null>(null);
@@ -138,9 +144,9 @@ export function DocumentCodeView({
 
       if (handle) return handle.setFindQuery(query);
 
-      return inlineEditorFactory.find({ path, side, ranges }, query);
+      return inlineEditorFactory.find({ path, side, pins, ranges }, query);
     },
-    [inlineEditorFactory, path, rangesKey, side],
+    [inlineEditorFactory, path, rangesKey, side, pinsKey],
   );
 
   const revealFindMatch = useCallback(
@@ -221,6 +227,7 @@ export function DocumentCodeView({
         title,
         description,
         side,
+        pins,
         ranges,
         heightMode,
         active,
@@ -270,6 +277,7 @@ export function DocumentCodeView({
     inlineEditorFactory,
     inlineEditorSessionId,
     path,
+    pinsKey,
     rangesKey,
     shouldMount,
     side,

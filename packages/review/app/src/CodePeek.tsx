@@ -159,6 +159,7 @@ export function CodePeekCard({
             : source.file
         }
         side={anchor.side}
+        pins={source.pins}
         ranges={ranges}
         countRanges={ranges}
         heightMode={heightMode}
@@ -169,6 +170,7 @@ export function CodePeekCard({
             anchor.file,
             { fromLine: anchor.fromLine, toLine: anchor.toLine },
             anchor.side,
+            source.pins,
           )
         }
       />
@@ -202,6 +204,7 @@ function FileSnippetCard({
         path={subject.file}
         title={subject.title}
         side={source.side}
+        pins={source.pins}
         ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
         heightMode={heightMode}
         active={active}
@@ -212,6 +215,7 @@ function FileSnippetCard({
             subject.file,
             { fromLine: subject.line, toLine: subject.endLine },
             source.side,
+            source.pins,
           )
         }
       />

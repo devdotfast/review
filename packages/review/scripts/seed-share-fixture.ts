@@ -23,7 +23,7 @@ const fixture = await createShareFixture(root, github);
 if (github)
   await verifyShareRepository(
     fixture.repo,
-    fixture.store.read(fixture.reviewId).pins,
+    fixture.store.read(fixture.reviewId).pins!,
   );
 
 const bundle = await exportShare({

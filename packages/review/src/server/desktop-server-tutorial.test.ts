@@ -110,8 +110,8 @@ describe("Review Desktop tutorial preparation", () => {
       });
       const snapshot = local.store.read(original.reviewId);
       expect(snapshot.pins).toMatchObject({
-        base: original.pins.base,
-        head: original.pins.head,
+        base: original.pins!.base,
+        head: original.pins!.head,
       });
       expect(snapshot.origin?.tutorial).toBe(true);
       expect(local.store.list()).toEqual([]);

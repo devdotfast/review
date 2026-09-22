@@ -775,7 +775,8 @@ function ReviewRow({
 const reviewListColumns: ColumnDef<ReviewApiSummary>[] = [
   {
     id: "workspace",
-    accessorFn: (review) => review.repositoryPath ?? review.pins.repositoryId,
+    accessorFn: (review) =>
+      review.repositoryPath ?? review.pins?.repositoryId ?? "",
     enableSorting: false,
   },
   {
@@ -961,7 +962,7 @@ export function groupReviewsByWorktree(
   const groups = new Map<string, ReviewWorkspace>();
 
   for (const review of reviews) {
-    const path = review.repositoryPath ?? review.pins.repositoryId;
+    const path = review.repositoryPath ?? review.pins?.repositoryId ?? "";
     let workspace = groups.get(path);
 
     if (!workspace) {
@@ -969,7 +970,9 @@ export function groupReviewsByWorktree(
         path,
         label:
           review.repositoryName ??
-          worktreeLabel(review.repositoryPath ?? review.pins.repositoryId),
+          worktreeLabel(
+            review.repositoryPath ?? review.pins?.repositoryId ?? "",
+          ),
         branch: readableSourceBranch(review.origin?.branch),
         reviews: [],
       };
@@ -1044,7 +1047,7 @@ function matchesQuery(review: ReviewApiSummary, query: string): boolean {
     query,
     reviewTitle(review),
     review.repositoryName ??
-      worktreeLabel(review.repositoryPath ?? review.pins.repositoryId),
+      worktreeLabel(review.repositoryPath ?? review.pins?.repositoryId ?? ""),
   );
 }
 

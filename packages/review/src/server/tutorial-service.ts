@@ -144,8 +144,10 @@ export function createTutorialService(input: {
 
       return snapshot.origin?.tutorial &&
         stamp.contentHash === assets.contentHash &&
-        snapshot.pins.head === head?.commit &&
-        snapshot.pins.base === base?.commit &&
+        head &&
+        base &&
+        snapshot.pins?.head === head.commit &&
+        snapshot.pins?.base === base.commit &&
         head.commit === assets.pins.head &&
         base.commit === assets.pins.base
         ? snapshot

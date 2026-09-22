@@ -6,7 +6,8 @@ import type {
 import type { LoadedAgentTrace } from "../use-agent-trace";
 
 export interface ReviewSessionData {
-  pins: { base: string; head: string };
+  /** Absent for a document whose references all carry their own pins. */
+  pins?: { base: string; head: string };
   historicalRevision: string | null;
   updatedAtMs: number;
   pullRequestNumber?: number;

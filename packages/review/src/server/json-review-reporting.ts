@@ -54,6 +54,8 @@ export function jsonReviewBugReportSource(
         : null;
     },
     async diff() {
+      if (!snapshot.pins) return { files: [] };
+
       return resolveReviewDiffFiles({
         rootPath: store.repositoryPath(snapshot.pins.repositoryId),
         baseRef: snapshot.pins.base,

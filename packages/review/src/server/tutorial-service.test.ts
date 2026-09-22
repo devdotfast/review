@@ -53,7 +53,7 @@ it("opens all shipped native evidence with retained maps and trace, without a le
 
   for (const { source } of sourceReferences(snapshot.document))
     expect(
-      await data.file(snapshot.pins, source.side, source.file),
+      await data.file(snapshot.pins!, source.side, source.file),
     ).toBeTruthy();
 
   for (const block of resourceReferences(snapshot.document))

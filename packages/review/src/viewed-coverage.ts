@@ -178,6 +178,36 @@ export function coverageProgress(
   };
 }
 
+/** Progress over several comparisons at once: the sums, and the same state
+ * rule as one. */
+export function mergeCoverageProgress(
+  parts: readonly CoverageProgress[],
+): CoverageProgress {
+  const total = { additions: 0, deletions: 0 },
+    remaining = { additions: 0, deletions: 0 };
+
+  for (const part of parts) {
+    total.additions += part.total.additions;
+    total.deletions += part.total.deletions;
+    remaining.additions += part.remaining.additions;
+    remaining.deletions += part.remaining.deletions;
+  }
+
+  const size = total.additions + total.deletions,
+    unread = remaining.additions + remaining.deletions;
+
+  return {
+    total,
+    remaining,
+    state:
+      size > 0 && unread === 0
+        ? "viewed"
+        : unread < size
+          ? "partial"
+          : "unread",
+  };
+}
+
 export function coverageSources(
   file: CoverageFile,
   coverage = file.viewed,

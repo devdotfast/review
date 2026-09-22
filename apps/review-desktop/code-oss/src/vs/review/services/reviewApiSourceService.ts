@@ -25,7 +25,7 @@ import type {
 	ReviewSourceEntry,
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
-import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
+import { resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
 import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
@@ -34,6 +34,19 @@ import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffVi
 import type { ReviewEmbeddedEditors } from "./reviewEmbeddedEditors.js";
 
 export { apiSourceUri, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
+
+/** The query that distinguishes one comparison's diff models from another's. */
+function comparisonQuery(view: ReviewSourceView): string | undefined {
+	const params = new URLSearchParams();
+	if (view.commit) params.set("commit", view.commit);
+	if (view.pins) {
+		params.set("repositoryId", view.pins.repositoryId);
+		params.set("head", view.pins.head);
+		if (view.pins.base) params.set("base", view.pins.base);
+	}
+	const query = params.toString();
+	return query || undefined;
+}
 
 export type ApiSourceTarget = ReviewApiSourceLocation;
 
@@ -253,7 +266,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 				return {
 					session: openComparison(current),
-					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: current.commit ? `commit=${encodeURIComponent(current.commit)}` : undefined }),
+					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: comparisonQuery(current) }),
 					entries: await Promise.all(entries.map(async file => {
 						const original = file.status === "added" ? undefined : await this.sourceResource({ view: current, side: "base", file: file.previousPath ?? file.path });
 						const modified = file.status === "deleted" ? undefined : await this.sourceResource({ view: current, side: "head", file: file.path });
@@ -264,9 +277,10 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		});
 		const diffSource = makeSource(view);
 		const documentScope = (spec: ReviewInlineFindSpec) => {
-			const current = reviewSourceComparison(view());
+			// A source with its own pins is read at them; the review comparison does not apply.
+			const current = spec.pins ? reviewSourceAnchor(view(), spec.pins) : reviewSourceComparison(view());
 			const lens: ReviewDiffLens = {
-				id: "document:" + JSON.stringify([spec.path, spec.ranges]), title: spec.path,
+				id: "document:" + JSON.stringify([spec.path, spec.ranges, spec.pins]), title: spec.path,
 				reviewId: current.reviewId, version: current.version,
 				ranges: spec.ranges.map(range => ({ file: spec.path, side: range.side ?? spec.side, fromLine: range.startLine, toLine: range.endLine })),
 			};

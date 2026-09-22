@@ -43,7 +43,7 @@ export async function resolveTraceReviewScope(
 ): Promise<TraceReviewScope> {
   const review = await resolveTraceReview(cwd, reviewUuid);
 
-  if (!review.repositoryPath)
+  if (!review.repositoryPath || !review.pins)
     throw new Error("Review repository is unavailable.");
 
   return {

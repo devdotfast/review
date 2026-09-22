@@ -51,8 +51,8 @@ describe("importLegacyReview", () => {
       revision: oids[2],
     });
     // Older revisions keep the pins they were sealed with.
-    expect(store.read(record.uuid, 0).pins.head).toBe(repo.base);
-    expect(store.read(record.uuid, 2).pins.head).toBe(repo.head);
+    expect(store.read(record.uuid, 0).pins!.head).toBe(repo.base);
+    expect(store.read(record.uuid, 2).pins!.head).toBe(repo.head);
     expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
     expect(await importReview()).toEqual({
       kind: "current",
@@ -503,7 +503,7 @@ describe("importLegacyReview", () => {
         .map((v) => store.read(fixture.record.uuid, v.version))
         .find((v) => v.origin?.revision === fixture.oids[0]);
 
-      expect(recovered?.pins.head).toBe(repo.base);
+      expect(recovered?.pins!.head).toBe(repo.base);
       expect(await importLegacyReview(complete)).toMatchObject({
         kind: "current",
       });
@@ -589,6 +589,7 @@ describe("importLegacyReview", () => {
       await store.importVersions([
         {
           ...clean,
+          pins: clean.pins!,
           document: [
             {
               type: "section",

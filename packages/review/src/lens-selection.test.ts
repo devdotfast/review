@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 
-import { diffSelectionSchema, resolveDiffSelection } from "./lens-selection.js";
+import {
+  diffSelectionSchema,
+  resolveDiffSelection,
+  selectSource,
+  selectionKey,
+  sourceAnchors,
+} from "./lens-selection.js";
 import { textualRows } from "./review-api/lens-alignment.js";
 import {
   type CoverageFile,
@@ -175,4 +181,50 @@ it("orders mixed endpoints by alignment position rather than line number", () =>
     { file: "a", side: "base", fromLine: 100, toLine: 100 },
     { file: "a", side: "head", fromLine: 2, toLine: 2 },
   ]);
+});
+
+const pins = { repositoryId: "repo-b", head: "b".repeat(40) };
+
+it("keeps a selection's own pins through its key, its anchors and its round trip from a range", () => {
+  const selection = diffSelectionSchema.parse({
+    file: "src/a.ts",
+    start: { side: "head", line: 2 },
+    end: { side: "head", line: 4 },
+    pins,
+  });
+
+  const inherited = diffSelectionSchema.parse({
+    file: "src/a.ts",
+    start: { side: "head", line: 2 },
+    end: { side: "head", line: 4 },
+  });
+
+  expect(selectionKey(selection)).not.toBe(selectionKey(inherited));
+  expect(selectionKey(inherited)).toBe(
+    JSON.stringify(["src/a.ts", "head", 2, "head", 4]),
+  );
+  expect(sourceAnchors(selection)).toEqual([
+    { file: "src/a.ts", side: "head", fromLine: 2, toLine: 4, pins },
+  ]);
+  expect(sourceAnchors(inherited)[0]).not.toHaveProperty("pins");
+  expect(selectSource(sourceAnchors(selection)[0]!)).toEqual(selection);
+  expect(selectSource(sourceAnchors(inherited)[0]!)).toEqual(inherited);
+});
+
+it("requires base pins before a selection may touch the base side", () => {
+  const base = {
+    file: "src/a.ts",
+    start: { side: "base", line: 2 },
+    end: { side: "head", line: 4 },
+  };
+
+  expect(() => diffSelectionSchema.parse({ ...base, pins })).toThrow(
+    /base-side endpoint needs base pins/,
+  );
+  expect(
+    diffSelectionSchema.parse({
+      ...base,
+      pins: { ...pins, base: "a".repeat(40) },
+    }).pins,
+  ).toEqual({ ...pins, base: "a".repeat(40) });
 });

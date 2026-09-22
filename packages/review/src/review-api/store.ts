@@ -19,12 +19,14 @@ import {
   type Pins,
   ReviewInputError,
   type ReviewTarget,
+  anchorPins,
   applyEdit,
   assignFreshIds,
   checkReferences,
   documentSchema,
   editSchema,
   elements,
+  explicitPins,
   pinsSchema,
   resourceReferences,
   reviewTargetSchema,
@@ -101,8 +103,10 @@ export interface Snapshot {
   reviewId: string;
   version: number;
   title: string;
-  pins: Pins;
-  target: ReviewTarget;
+  /** The default pins for references that name none. A document whose
+   * references all carry their own pins has neither pins nor target. */
+  pins?: Pins;
+  target?: ReviewTarget;
   staleSources?: string[];
   sourceUnavailable?: boolean;
   document: Block[];
@@ -136,15 +140,18 @@ export interface ReviewProviders {
   resolveTarget?(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }>;
-  /** Rejects with a 404 ReviewInputError when the snapshot's checkout is gone. */
-  sourcePins?(snapshot: Snapshot): Promise<Pins>;
+  /** Rejects with a 404 ReviewInputError when the snapshot's checkout is gone.
+   * Resolves undefined for a document without default pins. */
+  sourcePins?(snapshot: Snapshot): Promise<Pins | undefined>;
+  /** Ids of references whose own pins no longer name a usable checkout. */
+  unavailableAnchors?(snapshot: Snapshot): Promise<string[]>;
   validatePins(pins: Pins): Promise<void>;
   validateSource(
     pins: Pins,
     source: FileLineRange,
     options: { peek: boolean },
   ): Promise<void>;
-  validateResource(pins: Pins, block: Block): Promise<void>;
+  validateResource(pins: Pins | undefined, block: Block): Promise<void>;
   /** Import only: report a problem as a warning instead of rejecting. */
   validateSourceTolerant?(
     pins: Pins,
@@ -186,12 +193,27 @@ export class ReviewStore {
     snapshot: Snapshot,
     current = snapshot,
   ): Promise<Snapshot> {
-    if (snapshot.target.kind !== "worktree") {
+    if (snapshot.target?.kind !== "worktree") {
       await this.providers.sourcePins?.(snapshot);
 
-      return current.sourceUnavailable
-        ? { ...current, sourceUnavailable: undefined }
-        : current;
+      // References with their own pins go unavailable one at a time.
+      const unavailable =
+        (await this.providers.unavailableAnchors?.(snapshot)) ?? [];
+
+      const stale = [
+        ...new Set([...(snapshot.staleSources ?? []), ...unavailable]),
+      ];
+
+      const staleChanged =
+        JSON.stringify(stale) !== JSON.stringify(current.staleSources ?? []);
+
+      if (!current.sourceUnavailable && !staleChanged) return current;
+      const projected = { ...current, sourceUnavailable: undefined };
+
+      if (stale.length) projected.staleSources = stale;
+      else delete projected.staleSources;
+
+      return projected;
     }
 
     const { pins } = await this.providers.resolveTarget!(snapshot.target);
@@ -230,6 +252,8 @@ export class ReviewStore {
 
           if (
             JSON.stringify(previous) !== JSON.stringify(projected.pins) ||
+            JSON.stringify(last.staleSources ?? []) !==
+              JSON.stringify(projected.staleSources ?? []) ||
             last.sourceUnavailable
           )
             this.notify({
@@ -323,7 +347,7 @@ export class ReviewStore {
       read: (id) => this.read(id),
       assertInteractiveUnlocked: (id) => this.activity.assertWrite(id),
       validate: async (snapshot) => {
-        await this.providers.validatePins(snapshot.pins);
+        if (snapshot.pins) await this.providers.validatePins(snapshot.pins);
         await this.validateExternal(snapshot);
       },
       notify: (result) => this.notify(result),
@@ -491,10 +515,11 @@ export class ReviewStore {
   }
   unregisterRepository(id: string) {
     this.db
+      // Document pins and per-reference pins both spell the id in the snapshot.
       .prepare(`DELETE FROM repositories WHERE id=?
-      AND NOT EXISTS (SELECT 1 FROM versions WHERE json_extract(snapshot,'$.pins.repositoryId')=?)
+      AND NOT EXISTS (SELECT 1 FROM versions WHERE instr(snapshot, ?) > 0)
       AND NOT EXISTS (SELECT 1 FROM resources WHERE repository_id=?)`)
-      .run(id, id, id);
+      .run(id, `"repositoryId":${JSON.stringify(id)}`, id);
   }
   repositoryPath(id: string) {
     const row = this.db
@@ -583,12 +608,14 @@ export class ReviewStore {
     // SAFETY: stored blocks were validated on write; migration only replaces
     // retired attachment representations with their canonical equivalent.
     snapshot.document = migrateDiffSelections(snapshot.document) as Block[];
-    snapshot.target ??= {
-      kind: "commits",
-      repositoryId: snapshot.pins.repositoryId,
-      base: snapshot.pins.base,
-      head: snapshot.pins.head,
-    };
+
+    if (snapshot.pins)
+      snapshot.target ??= {
+        kind: "commits",
+        repositoryId: snapshot.pins.repositoryId,
+        base: snapshot.pins.base,
+        head: snapshot.pins.head,
+      };
     const live = version === undefined ? this.liveSources.get(id) : undefined;
 
     if (live?.version === snapshot.version) return structuredClone(live);
@@ -661,18 +688,19 @@ export class ReviewStore {
           "document"
         >;
 
-        summary.target ??= {
-          kind: "commits",
-          repositoryId: summary.pins.repositoryId,
-          base: summary.pins.base,
-          head: summary.pins.head,
-        };
+        if (summary.pins)
+          summary.target ??= {
+            kind: "commits",
+            repositoryId: summary.pins.repositoryId,
+            base: summary.pins.base,
+            head: summary.pins.head,
+          };
 
         const live = this.liveSources.get(summary.reviewId);
 
         if (
           live?.version === summary.version &&
-          summary.target.kind === "worktree"
+          summary.target?.kind === "worktree"
         )
           summary.pins = live.pins;
 
@@ -681,10 +709,12 @@ export class ReviewStore {
           repositoryPath: row.repository_path
             ? String(row.repository_path)
             : undefined,
-          diffStats: stats.get(JSON.stringify([summary.pins, mode])) ?? null,
+          diffStats: summary.pins
+            ? (stats.get(JSON.stringify([summary.pins, mode])) ?? null)
+            : null,
           repositoryName: row.repository_name
             ? String(row.repository_name)
-            : summary.pins.repositoryId,
+            : (summary.pins?.repositoryId ?? ""),
           viewedAt: row.viewed_at ? String(row.viewed_at) : null,
           dismissedAt: row.dismissed_at ? String(row.dismissed_at) : null,
         };
@@ -899,7 +929,7 @@ export class ReviewStore {
           snapshot.title = op.title;
           break;
         case "set_target":
-          if (snapshot.pins.repositoryId !== resolvedTarget!.pins.repositoryId)
+          if (snapshot.pins?.repositoryId !== resolvedTarget!.pins.repositoryId)
             setPullRequest(snapshot, null);
           snapshot.staleSources = [];
           snapshot.target = resolvedTarget!.target;
@@ -910,7 +940,7 @@ export class ReviewStore {
             snapshot,
             op.pullRequestUrl ??
               (op.pullRequestUrl === null ||
-              snapshot.pins.repositoryId !== op.pins.repositoryId
+              snapshot.pins?.repositoryId !== op.pins.repositoryId
                 ? null
                 : undefined),
           );
@@ -954,7 +984,7 @@ export class ReviewStore {
       }
 
       if (
-        snapshot.target.kind === "worktree" &&
+        snapshot.target?.kind === "worktree" &&
         op.type !== "restore" &&
         !resolvedTarget
       ) {
@@ -966,8 +996,9 @@ export class ReviewStore {
       checkReferences(snapshot.document);
 
       if (
-        !previous ||
-        JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins)
+        snapshot.pins &&
+        (!previous ||
+          JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins))
       )
         await this.providers.validatePins(snapshot.pins);
 
@@ -1153,9 +1184,11 @@ export class ReviewStore {
           seen.add(key);
 
           const warning = this.providers.validateSourceTolerant
-            ? await this.providers.validateSourceTolerant(input.pins, source, {
-                peek: peek === true,
-              })
+            ? await this.providers.validateSourceTolerant(
+                anchorPins(source, input.pins),
+                source,
+                { peek: peek === true },
+              )
             : null;
 
           if (warning) warnings.push(warning);
@@ -1282,37 +1315,54 @@ export class ReviewStore {
       previous &&
       JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins);
 
-    const worktreeMoved = pinsChanged && snapshot.target.kind === "worktree";
+    const worktreeMoved = pinsChanged && snapshot.target?.kind === "worktree";
     const retained = references(previous?.document ?? [], true);
 
     // Independent reads of immutable commits: run them concurrently.
     const checks: Promise<void>[] = [];
 
+    // Pins a reference names itself must be resolved commits of a registered
+    // repository, like document pins. Check each distinct new set once.
+    const retainedPins = new Set(
+      explicitPins([...retained.sources.values()]).map((pins) =>
+        JSON.stringify(pins),
+      ),
+    );
+
+    for (const pins of explicitPins([...current.sources.values()]))
+      if (!retainedPins.has(JSON.stringify(pins)))
+        checks.push(this.providers.validatePins(pins));
+
     for (const [key, { source, peek }] of current.sources) {
       const kept = retained.sources.get(key);
 
       // A range validated earlier as a prose link still needs the peek check
-      // the first time a code peek points at it.
-      if (pinsChanged || !kept || (peek && !kept.peek))
+      // the first time a code peek points at it. A reference with its own
+      // pins is unaffected by the document's pins changing.
+      if ((pinsChanged && !source.pins) || !kept || (peek && !kept.peek))
         checks.push(
-          this.providers.validateSource(snapshot.pins, source, { peek }).then(
-            () => {
-              if (repin)
+          this.providers
+            .validateSource(anchorPins(source, snapshot.pins), source, {
+              peek,
+            })
+            .then(
+              () => {
+                if (repin)
+                  warnings.push(
+                    `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: source pins changed; verify that this range still supports the document.`,
+                  );
+              },
+              (error) => {
+                if (
+                  (!repin && !(worktreeMoved && kept)) ||
+                  !(error instanceof ReviewInputError)
+                )
+                  throw error;
                 warnings.push(
-                  `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: source pins changed; verify that this range still supports the document.`,
+                  `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
                 );
-            },
-            (error) => {
-              if (
-                (!repin && !(worktreeMoved && kept)) ||
-                !(error instanceof ReviewInputError)
-              )
-                throw error;
-              warnings.push(
-                `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
-              );
-            },
-          ),
+              },
+            ),
         );
     }
 

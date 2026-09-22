@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   type LensSource,
+  comparisonKey,
   resolveDiffSelection,
   selectSource,
   selectionKey,
@@ -10,7 +11,7 @@ import { type FileLineRange, fileLineRangeSchema } from "../source.js";
 import { type CoverageFile, emptyCoverage } from "../viewed-coverage.js";
 import type { ComparisonCoverage } from "./comparison-coverage.js";
 import { type DiagramLens, diagramLenses } from "./diagram-lenses.js";
-import { selectionReferences } from "./document.js";
+import { type Pins, anchorPins, selectionReferences } from "./document.js";
 import { elements } from "./document.js";
 import { resolveFileLens, uncategorizedSources } from "./file-lenses.js";
 import type { LocalReviewData } from "./local-data.js";
@@ -39,6 +40,12 @@ export interface ReviewProgress {
   complete?: boolean;
   unavailableSelections?: Record<string, string>;
   files: CoverageFile[];
+  /** Changed files of the comparisons that references with their own pins
+   * named, by `comparisonKey` and then path. They are not the document's
+   * comparison, so they are not in `files`; a node attached to one still
+   * counts its changed lines, under its own pins only. A comparison that
+   * changed nothing at a cited path has an entry with no file for it. */
+  referenceFiles?: Record<string, Record<string, CoverageFile>>;
   resolvedSelections: Record<string, FileLineRange[]>;
   diagrams: (DiagramLens & { unavailable?: string; pending?: boolean })[];
 }
@@ -53,20 +60,53 @@ export async function reviewProgress(
   partial?: ComparisonCoverage,
 ): Promise<ReviewProgress> {
   const marks = store.viewedCoverage(snapshot.reviewId);
-  const { pins } = await data.resolveSource(snapshot);
 
-  const comparison =
-    partial ?? (await data.coverage(snapshot.reviewId, pins, mode));
+  const pins = snapshot.pins
+    ? (await data.resolveSource(snapshot)).pins
+    : undefined;
+
+  // A document without pins of its own has no changed files; its references
+  // each resolve against the comparison their own pins name.
+  const comparison: ComparisonCoverage = pins
+    ? (partial ?? (await data.coverage(snapshot.reviewId, pins, mode)))
+    : { files: [], fileSources: new Map(), alignments: new Map() };
 
   signal.throwIfAborted();
 
-  const files = comparison.files.map((file) => ({
+  const documentKey = JSON.stringify(pins);
+  const comparisons = new Map<string, Promise<ComparisonCoverage>>();
+
+  /** The comparison a reference's own pins name, shared across references. */
+  const ownComparison = (
+    own: Pins,
+  ): Promise<ComparisonCoverage> | undefined => {
+    const key = JSON.stringify(own);
+    let loading = comparisons.get(key);
+
+    if (loading) return loading;
+
+    if (partial) {
+      const state = data.coverageSnapshot(snapshot.reviewId, own, mode);
+
+      if (state.pending) return undefined;
+    }
+
+    loading = data.coverage(snapshot.reviewId, own, mode);
+    comparisons.set(key, loading);
+
+    return loading;
+  };
+
+  const withViewed = (file: CoverageFile): CoverageFile => ({
     ...file,
     viewed:
       marks.get(file.path)?.fingerprint === file.fingerprint
         ? marks.get(file.path)!.coverage
         : emptyCoverage(),
-  }));
+  });
+
+  const files = comparison.files.map(withViewed);
+  const referenceFiles: Record<string, Record<string, CoverageFile>> = {};
 
   const fileSources = new Map(comparison.fileSources);
   const alignments = new Map(comparison.alignments);
@@ -79,16 +119,40 @@ export async function reviewProgress(
     const key = selectionKey(source);
 
     if (resolvedSelections[key]) return resolvedSelections[key];
+    const sourcePins = anchorPins(source, pins);
+    const own = JSON.stringify(sourcePins) !== documentKey;
+    let ownFiles = files;
+    let ownAlignments = alignments;
 
-    const file = files.find(
+    if (own) {
+      const loading = ownComparison(sourcePins);
+
+      if (!loading) {
+        pendingSources.add(key);
+
+        return [];
+      }
+
+      const loaded = await loading;
+      ownFiles = loaded.files;
+      ownAlignments = loaded.alignments;
+    }
+
+    const file = ownFiles.find(
       (file) => source.file === file.path || source.file === file.previousPath,
     );
 
-    let rows = file && alignments.get(file.path);
+    if (own) {
+      const group = (referenceFiles[comparisonKey(sourcePins)] ??= {});
+
+      if (file) group[file.path] ??= withViewed(file);
+    }
+
+    let rows = file && ownAlignments.get(file.path);
 
     // Context-only files are absent from the changed-file stream. Read both pins
     // and require equality rather than inventing correspondence for missing diffs.
-    if (!file && partial) {
+    if (!file && partial && !own) {
       pendingSources.add(key);
 
       return [];
@@ -96,8 +160,8 @@ export async function reviewProgress(
 
     if (!file) {
       const [base, head] = await Promise.all([
-        data.file(pins, "base", source.file),
-        data.file(pins, "head", source.file),
+        data.file(sourcePins, "base", source.file),
+        data.file(sourcePins, "head", source.file),
       ]);
 
       if (base.text !== head.text)
@@ -270,6 +334,7 @@ export async function reviewProgress(
   return {
     complete: !partial,
     files,
+    referenceFiles,
     diagrams,
     resolvedSelections,
     unavailableSelections,

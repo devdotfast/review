@@ -55,7 +55,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.worktreeRevision ?? ""}`}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins?.worktreeRevision ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -153,7 +153,7 @@ export function ApiCanvas({
 
           if (
             shownVersion ===
-            `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`
+            `${snapshot.version}:${snapshot.pins?.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`
           ) {
             setError(undefined);
 
@@ -162,7 +162,7 @@ export function ApiCanvas({
 
           try {
             await show(snapshot);
-            shownVersion = `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`;
+            shownVersion = `${snapshot.version}:${snapshot.pins?.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`;
           } catch (cause) {
             // A failed resource or source fetch is a document problem. The
             // stream and the activity signal are still healthy, so do not
@@ -243,7 +243,9 @@ export function ApiCanvas({
     return {
       ...baseSession,
       review: {
-        pins: { base: snapshot.pins.base, head: snapshot.pins.head },
+        pins: snapshot.pins
+          ? { base: snapshot.pins.base, head: snapshot.pins.head }
+          : undefined,
         historicalRevision: version === undefined ? null : String(version),
         updatedAtMs: Date.parse(snapshot.createdAt),
         pullRequestNumber: snapshot.origin?.pullRequestNumber,
@@ -400,14 +402,16 @@ const CanvasDocument = memo(function CanvasDocument({
         },
       }}
       softwareMapEnabled={softwareMapEnabled && data.maps.size > 0}
+      // A document without pins of its own has no change range: the Diff and
+      // Commits views hide, as for a review whose base is its head.
       range={{
         sourceUnavailable: snapshot.sourceUnavailable
           ? "Local checkout unavailable."
           : undefined,
-        baseRef: snapshot.pins.base,
-        headRef: snapshot.pins.head,
-        baseCommit: snapshot.pins.base,
-        headCommit: snapshot.pins.head,
+        baseRef: snapshot.pins?.base ?? "",
+        headRef: snapshot.pins?.head ?? "",
+        baseCommit: snapshot.pins?.base ?? "",
+        headCommit: snapshot.pins?.head ?? "",
       }}
       commits={data.commits}
       findHost={findHost}

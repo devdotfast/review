@@ -146,3 +146,34 @@ it("marks every source that renders as a peek, but not prose links", () => {
     ["op-10", true],
   ]);
 });
+
+it("resolves a block's links at the block's own pins, and only where those pins allow", () => {
+  const pins = { repositoryId: "repo-b", head: "b".repeat(40) };
+
+  const [own] = sourceReferences([
+    {
+      type: "markdown",
+      id: "n-2",
+      markdown: "[save](review-source:head/src/save.ts#L2-L4)",
+      pins,
+    },
+  ]);
+
+  expect(own!.source).toEqual({
+    side: "head",
+    file: "src/save.ts",
+    fromLine: 2,
+    toLine: 4,
+    pins,
+  });
+  expect(() =>
+    sourceReferences([
+      {
+        type: "markdown",
+        id: "n-3",
+        markdown: "[old](review-source:base/src/save.ts#L2)",
+        pins,
+      },
+    ]),
+  ).toThrow(/base-side source needs base pins/);
+});

@@ -6,7 +6,12 @@ import {
   sourceAnchors,
 } from "../lens-selection.js";
 import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
-import { type FileLineRange, fileLineRangeSchema } from "../source.js";
+import {
+  type FileLineRange,
+  type SourcePins,
+  fileLineRangeSchema,
+  sourcePinsSchema,
+} from "../source.js";
 import { fileLensTargets } from "./blocks/file_lens.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
@@ -14,7 +19,7 @@ import { ReviewInputError } from "./input-error.js";
 
 export { ReviewInputError } from "./input-error.js";
 
-export { type FileLineRange, fileLineRangeSchema };
+export { type FileLineRange, type SourcePins, fileLineRangeSchema };
 
 export {
   type Block,
@@ -59,6 +64,43 @@ export const pinsSchema = z.strictObject({
 /** Source identity retained internally for a saved worktree generation. */
 /** worktreeRevision is a refresh token, never an address for stored source. */
 export type Pins = z.infer<typeof pinsSchema> & { worktreeRevision?: string };
+
+export { sourcePinsSchema };
+
+/** The pins one source reference reads at: its own when it names them,
+ * otherwise its document's. A reference with base-less pins reads base at
+ * head, like a commits target without a base. */
+export function anchorPins(
+  source: { pins?: SourcePins },
+  documentPins: Pins | undefined,
+): Pins {
+  if (source.pins)
+    return {
+      repositoryId: source.pins.repositoryId,
+      base: source.pins.base ?? source.pins.head,
+      head: source.pins.head,
+    };
+
+  if (!documentPins)
+    throw new ReviewInputError(
+      "This source names no repository or commit, and the document has no pins.",
+    );
+
+  return documentPins;
+}
+
+/** Distinct explicit pins named by a document's references, for validation. */
+export function explicitPins(references: { source: { pins?: SourcePins } }[]) {
+  const seen = new Map<string, Pins>();
+
+  for (const { source } of references)
+    if (source.pins) {
+      const pins = anchorPins(source, undefined);
+      seen.set(JSON.stringify(pins), pins);
+    }
+
+  return [...seen.values()];
+}
 
 export const reviewTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -178,12 +220,19 @@ function documentReferences(
             return reject("Invalid URL encoding in source link.");
           }
 
-          const source = fileLineRangeSchema.safeParse({
+          let source = fileLineRangeSchema.safeParse({
             side: match[1]!.toLowerCase(),
             file,
             fromLine: Number(match[3]),
             toLine: Number(match[4] ?? match[3]),
           });
+
+          // A block's pins are the default for every link it holds.
+          if (source.success && element.pins)
+            source = fileLineRangeSchema.safeParse({
+              ...source.data,
+              pins: element.pins,
+            });
 
           if (!source.success) {
             if (tolerant) return [];

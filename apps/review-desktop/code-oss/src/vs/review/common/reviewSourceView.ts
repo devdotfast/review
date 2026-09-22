@@ -1,5 +1,5 @@
 import { URI } from "../../base/common/uri.js";
-import { reviewSourceQuery, type ReviewApiSourceLocation, type ReviewSourceSelection } from "./reviewProtocol.js";
+import { reviewSourcePinsFromQuery, reviewSourceQuery, type ReviewApiSourceLocation, type ReviewSourceSelection } from "./reviewProtocol.js";
 
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
 
@@ -23,6 +23,7 @@ export function sourceLocation(resource: URI): ReviewApiSourceLocation {
 			version: Number(query.get("version")),
 			generation: query.get("generation") ?? undefined,
 			commit,
+			pins: reviewSourcePinsFromQuery((key) => query.get(key)),
 		}),
 		side: query.get("side") === "base" ? "base" : "head",
 		file: resource.path.slice(1),

@@ -114,7 +114,8 @@ the same version and side through the API, without a client-side checkout path.
 
 Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `move {targetId,parentId?,afterId?}`, `remove {targetId}`,
-`replace {targetId,content}`. Omitted placement appends to the root. Diagram
+`replace {targetId,content}`. Omitted placement appends to the root; on the
+scratchpad it prepends instead, so the pad reads newest first. Diagram
 units (a `step` in a sequence, a `flow_node` or `flow_edge` in a flow diagram)
 require their diagram as the parent and can move within it, but not between
 diagrams; removing a flow node removes the edges that touched it. A new

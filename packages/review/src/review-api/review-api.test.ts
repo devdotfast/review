@@ -1156,6 +1156,37 @@ describe("snapshot authoring", () => {
     expect(store.read(SCRATCHPAD_ID).document).toHaveLength(1);
   });
 
+  it("logs the scratchpad newest first while a review keeps appending", async () => {
+    await store.ensureScratchpad();
+    const note = (markdown: string) => ({ type: "markdown", markdown });
+
+    const order = (reviewId: string) =>
+      store
+        .read(reviewId)
+        .document.map((block) => "markdown" in block && block.markdown);
+
+    const first = await edit(SCRATCHPAD_ID, {
+      type: "insert",
+      content: note("first"),
+    });
+
+    await edit(SCRATCHPAD_ID, { type: "insert", content: note("second") });
+    expect(order(SCRATCHPAD_ID)).toEqual(["second", "first"]);
+
+    // An explicit anchor still wins: the block lands after it, not on top.
+    await edit(SCRATCHPAD_ID, {
+      type: "insert",
+      content: note("after first"),
+      afterId: first.targetId,
+    });
+    expect(order(SCRATCHPAD_ID)).toEqual(["second", "first", "after first"]);
+
+    const { reviewId } = await create();
+    await edit(reviewId, { type: "insert", content: note("first") });
+    await edit(reviewId, { type: "insert", content: note("second") });
+    expect(order(reviewId)).toEqual(["first", "second"]);
+  });
+
   it("serializes edits through async validation and preserves different-field patches", async () => {
     const { reviewId } = await create();
 

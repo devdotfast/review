@@ -1041,6 +1041,8 @@ export class ReviewStore {
             snapshot.document,
             op.edit,
             (prefix) => `${prefix}-${++nextId}`,
+            // The scratchpad is a running log: the newest thought goes on top.
+            { placement: snapshot.kind === "scratchpad" ? "first" : "last" },
           );
 
           targetId = applied.targetId;

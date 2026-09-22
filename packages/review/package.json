@@ -64,6 +64,7 @@
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",
+    "@img/sharp-wasm32": "0.35.4",
     "@modelcontextprotocol/sdk": "1.30.0",
     "commander": "14.0.3",
     "es-module-lexer": "2.1.0",

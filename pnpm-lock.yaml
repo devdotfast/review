@@ -14,6 +14,9 @@ overrides:
   undici: 7.29.0
   vite: 8.0.16
 
+patchedDependencies:
+  sharp@0.35.4: 835f2906b9cf67f80ba06711752ed525e9e4620c4e7b68a18f2e8b49965cdb97
+
 importers:
 
   .:
@@ -98,6 +101,9 @@ importers:
       '@hono/node-server':
         specifier: 2.0.12
         version: 2.0.12(hono@4.13.5)
+      '@img/sharp-wasm32':
+        specifier: 0.35.4
+        version: 0.35.4
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.4.3)
@@ -130,7 +136,7 @@ importers:
         version: 7.8.5
       sharp:
         specifier: 0.35.4
-        version: 0.35.4(@types/node@24.12.2)
+        version: 0.35.4(patch_hash=835f2906b9cf67f80ba06711752ed525e9e4620c4e7b68a18f2e8b49965cdb97)(@types/node@24.12.2)
       smol-toml:
         specifier: 1.8.0
         version: 1.8.0
@@ -3149,7 +3155,6 @@ snapshots:
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.8.1
-    optional: true
 
   '@emnapi/wasi-threads@1.2.1':
     dependencies:
@@ -3330,7 +3335,6 @@ snapshots:
   '@img/sharp-wasm32@0.35.4':
     dependencies:
       '@emnapi/runtime': 1.11.3
-    optional: true
 
   '@img/sharp-webcontainers-wasm32@0.35.4':
     dependencies:
@@ -5172,7 +5176,7 @@ snapshots:
       safe-buffer: 5.2.1
       to-buffer: 1.2.2
 
-  sharp@0.35.4(@types/node@24.12.2):
+  sharp@0.35.4(patch_hash=835f2906b9cf67f80ba06711752ed525e9e4620c4e7b68a18f2e8b49965cdb97)(@types/node@24.12.2):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -5352,8 +5356,7 @@ snapshots:
       - oxc-resolver
       - vue-tsc
 
-  tslib@2.8.1:
-    optional: true
+  tslib@2.8.1: {}
 
   tsx@4.21.0:
     dependencies:

@@ -35,3 +35,6 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+patchedDependencies:
+  sharp@0.35.4: patches/sharp@0.35.4.patch

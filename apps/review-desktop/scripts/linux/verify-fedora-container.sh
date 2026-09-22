@@ -22,6 +22,24 @@ EOF
 dnf -y --setopt=install_weak_deps=False install "$PACKAGE"
 if command -v node; then echo 'Fedora package unexpectedly requires system Node' >&2; exit 1; fi
 "$APP" --help >/dev/null
+# Exercise the shipped decoder in Electron, where native Sharp used to segfault.
+timeout 120 env ELECTRON_RUN_AS_NODE=1 "/usr/share/$APP/$APP" -e '
+  const assert = require("node:assert/strict");
+  const sharp = require(process.argv[1]);
+  (async () => {
+    for (const format of ["png", "jpeg", "webp"]) {
+      const input = await sharp({
+        create: { width: 2, height: 2, channels: 3, background: "red" }
+      }).toFormat(format).toBuffer();
+      const output = await sharp(input, { limitInputPixels: 20_000_000, failOn: "warning" }).png().toBuffer();
+      const metadata = await sharp(output).metadata();
+      assert.equal(metadata.format, "png");
+      assert.equal(metadata.width, 2);
+      assert.equal(metadata.height, 2);
+    }
+    console.log("Packaged Electron image decoding passed");
+  })().catch(error => { console.error(error); process.exitCode = 1; });
+' "/usr/share/$APP/resources/app/review-runtime/node_modules/sharp"
 test "$(stat -c %u:%g:%a "/usr/share/$APP/chrome-sandbox")" = "0:0:4755"
 test -f "/usr/share/applications/$PACKAGE.desktop"
 test ! -e "/usr/share/applications/$APP-url-handler.desktop"

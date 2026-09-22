@@ -611,7 +611,11 @@ jobs:
           echo "install.dev.fast (expect 302 to the disk image):"
           LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
           echo "$LOCATION"
-          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+          # The landing worker can deploy before or after this release.
+          case "$LOCATION" in
+            "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"|"https://install.dev.fast/releases/latest/darwin-arm64/Whiteboard.dmg") ;;
+            *) echo "Unexpected install redirect: $LOCATION" >&2; exit 1 ;;
+          esac
 
           echo "Following it (expect 200 and a disk image):"
           curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \

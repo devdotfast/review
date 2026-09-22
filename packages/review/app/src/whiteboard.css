@@ -1658,3 +1658,437 @@ button:focus-visible > .review-chevron {
     opacity: 1;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Drawing (study 05). Each accepted edit is drawn as it lands, one at a
+   time, from the draw queue in draw-queue.ts; the courier stands on the one
+   being drawn. Blocks and units carry `data-motion` for their phase and
+   everything below is the drawing itself. Outline first, then fill: a new
+   flow node is traced clockwise from its top-left on its real geometry
+   (pathLength=1 on the rect), pulses once, and its label composes; an edge
+   is one stroke from source to target; a new block gets a slot, then wipes
+   in behind the marker dot; a rewritten block is erased in three diagonal
+   passes and rewritten; a focused block wears the attention ring for as long
+   as the agent is on it. Queued content waits unseen so nothing lands twice.
+   --------------------------------------------------------------------------- */
+@property --wb-wipe {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@property --wb-sweep {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: -20%;
+}
+
+.api-document-node[data-motion="queued"] {
+  visibility: hidden;
+}
+
+/* Landing: a dashed slot, then the content wipes in behind the dot while
+   the slot takes the marker wash and a solid outline; both fade on settle. */
+.api-document-node[data-motion="landing"] {
+  position: relative;
+  border-radius: 8px;
+  animation: wb-land-slot 680ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.api-document-node[data-motion="landing"] > :not(.host-authoring-activity) {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  animation: wb-wipe 420ms cubic-bezier(0.2, 0.7, 0.2, 1) 260ms both;
+}
+
+.api-document-node[data-motion="landing"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: var(--wb-wipe);
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-glow);
+  pointer-events: none;
+  animation:
+    wb-wipe 420ms cubic-bezier(0.2, 0.7, 0.2, 1) 260ms both,
+    wb-dot-fade 150ms ease 680ms both;
+}
+
+@keyframes wb-land-slot {
+  0% {
+    outline: 1px dashed var(--rule-soft);
+    outline-offset: -1px;
+    background: var(--transparent);
+  }
+  38% {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+    background: var(--marker-tint);
+  }
+  70% {
+    outline: 1px solid var(--accent);
+    background: var(--marker-tint);
+  }
+  100% {
+    outline: 1px solid var(--transparent);
+    outline-offset: -1px;
+    background: var(--transparent);
+  }
+}
+
+@keyframes wb-wipe {
+  from {
+    --wb-wipe: 0%;
+  }
+  to {
+    --wb-wipe: 108%;
+  }
+}
+
+@keyframes wb-dot-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Rewriting: the eraser (a flat well-gray block) lands and makes three
+   diagonal passes; the text under it drops away, then the new ink wipes in
+   behind the dot. */
+.api-document-node[data-motion="rewriting"] {
+  position: relative;
+}
+
+.api-document-node[data-motion="rewriting"] > :not(.host-authoring-activity) {
+  animation:
+    wb-erase 400ms linear 200ms both,
+    wb-rewrite 500ms cubic-bezier(0.2, 0.7, 0.2, 1) 600ms both;
+}
+
+.api-document-node[data-motion="rewriting"]::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 44px;
+  height: 18px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--well);
+  opacity: 0;
+  pointer-events: none;
+  animation:
+    wb-eraser-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    wb-eraser-sweeps 400ms linear 200ms both,
+    wb-eraser-out 200ms ease 600ms both;
+}
+
+@keyframes wb-erase {
+  from {
+    --wb-sweep: -20%;
+    opacity: 1;
+    -webkit-mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+    mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+  }
+  to {
+    --wb-sweep: 130%;
+    opacity: 1;
+    -webkit-mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+    mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+  }
+}
+
+@keyframes wb-rewrite {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes wb-eraser-in {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) rotate(-6deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) rotate(-6deg);
+  }
+}
+
+@keyframes wb-eraser-sweeps {
+  0% {
+    transform: translate(0, 0) rotate(-6deg);
+  }
+  33% {
+    transform: translate(520px, 22px) rotate(-8deg);
+  }
+  34% {
+    transform: translate(30px, 26px) rotate(-6deg);
+  }
+  66% {
+    transform: translate(540px, 50px) rotate(-8deg);
+  }
+  67% {
+    transform: translate(60px, 54px) rotate(-6deg);
+  }
+  100% {
+    transform: translate(560px, 78px) rotate(-8deg);
+  }
+}
+
+@keyframes wb-eraser-out {
+  to {
+    opacity: 0;
+    transform: translate(600px, 88px) rotate(-8deg);
+  }
+}
+
+/* Erasing: a removed block gets the eraser's three passes, then the board
+   closes over the gap. Nothing is left behind. */
+.api-document-node[data-motion="erasing"] {
+  position: relative;
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  animation: wb-collapse 260ms cubic-bezier(0.2, 0.7, 0.2, 1) 400ms both;
+}
+
+.api-document-node[data-motion="erasing"] > :not(.host-authoring-activity) {
+  animation: wb-erase 400ms linear both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.api-document-node[data-motion="erasing"]::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 44px;
+  height: 18px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--well);
+  opacity: 0;
+  pointer-events: none;
+  animation:
+    wb-eraser-in 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    wb-eraser-sweeps 400ms linear both,
+    wb-eraser-out 120ms ease 400ms both;
+}
+
+@keyframes wb-collapse {
+  from {
+    height: auto;
+    margin-block: 0;
+  }
+  to {
+    height: 0;
+    margin-block: 0;
+  }
+}
+
+/* Attention: the ring is drawn on and held while the agent is on the block. */
+.api-document-node[data-motion="attention"] {
+  border-radius: 8px;
+  outline: 1px solid var(--accent);
+  outline-offset: 6px;
+  background: var(--marker-tint);
+  animation: wb-attention 250ms ease-out both;
+}
+
+@keyframes wb-attention {
+  from {
+    outline-color: var(--transparent);
+    background: var(--transparent);
+  }
+}
+
+/* Flow units. Queued: unseen. Outline: the tron trace runs the rect (or the
+   edge) end to end, brightest at the head; nothing is inside yet. Fill: the
+   marker wash and a pulse, then the label. Relabel: only the label goes. */
+.lens-flow-node[data-motion="queued"],
+.lens-flow-edge-group[data-motion="queued"] {
+  opacity: 0;
+}
+
+.lens-flow-node[data-motion="outline"] rect {
+  fill: var(--transparent);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.lens-flow-node[data-motion="outline"] text {
+  opacity: 0;
+}
+
+.lens-flow-node[data-motion="fill"] rect {
+  animation: wb-node-fill 330ms ease-out both;
+}
+
+.lens-flow-node[data-motion="fill"] text,
+.lens-flow-node[data-motion="relabel"] text {
+  animation: wb-label 330ms steps(12) 90ms both;
+}
+
+.lens-flow-node[data-motion="relabel"] rect {
+  animation: wb-node-fill 420ms ease-out both;
+}
+
+.lens-flow-edge-group[data-motion="outline"] .lens-flow-edge {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.lens-flow-edge-group[data-motion="outline"] text {
+  animation: wb-label 200ms steps(8) 300ms both;
+}
+
+.lens-flow-node[data-motion="attention"] rect {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  fill: var(--marker-tint);
+}
+
+@keyframes wb-trace {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes wb-node-fill {
+  0% {
+    fill: var(--marker-tint);
+    stroke: var(--accent);
+    stroke-width: 1.6;
+  }
+  60% {
+    fill: var(--marker-tint);
+    stroke: var(--accent);
+  }
+  100% {
+    stroke-width: 1;
+  }
+}
+
+@keyframes wb-label {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* A sequence step: the message line is one stroke drawn from its source
+   to its target, the arrowhead lands last, then the dot pops. */
+.sequence-message[data-motion="outline"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sequence-message[data-motion="fill"] {
+  stroke: var(--accent);
+}
+
+.sequence-message-dot[data-motion="fill"] {
+  animation: wb-step-pop 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sequence-message-dot[data-motion="attention"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-glow);
+}
+
+@keyframes wb-step-pop {
+  0% {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--marker-glow);
+  }
+  40% {
+    box-shadow: 0 0 0 8px var(--marker-glow);
+  }
+  100% {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--transparent);
+  }
+}
+
+/* Reduced motion: every phase is its finished frame. */
+@media (prefers-reduced-motion: reduce) {
+  .api-document-node[data-motion="landing"],
+  .api-document-node[data-motion="landing"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="landing"]::after,
+  .api-document-node[data-motion="rewriting"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="rewriting"]::before,
+  .api-document-node[data-motion="erasing"],
+  .api-document-node[data-motion="erasing"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="erasing"]::before,
+  .api-document-node[data-motion="attention"],
+  .lens-flow-node[data-motion] rect,
+  .lens-flow-node[data-motion] text,
+  .lens-flow-edge-group[data-motion] .lens-flow-edge,
+  .lens-flow-edge-group[data-motion] text,
+  .sequence-message[data-motion],
+  .sequence-message-dot[data-motion] {
+    animation: none !important;
+    -webkit-mask-image: none;
+    mask-image: none;
+    clip-path: none;
+  }
+
+  .api-document-node[data-motion="landing"]::after,
+  .api-document-node[data-motion="rewriting"]::before,
+  .api-document-node[data-motion="erasing"]::before {
+    display: none;
+  }
+
+  .api-document-node[data-motion="erasing"] {
+    display: none;
+  }
+}

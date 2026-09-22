@@ -31,8 +31,8 @@ import {
   type CursorMemory,
   nextCursor,
 } from "./authoring-cursor";
-import { AuthoringCursorContext } from "./courier";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
+import { DrawQueueProvider } from "./draw-queue-provider";
 import {
   ReviewSessionProvider,
   createReviewSession,
@@ -352,8 +352,8 @@ export function ApiCanvas({
               <AuthoringActivityContext.Provider
                 value={version === undefined ? activity : undefined}
               >
-                <AuthoringCursorContext.Provider
-                  value={version === undefined ? cursor : undefined}
+                <DrawQueueProvider
+                  cursor={version === undefined ? cursor : undefined}
                 >
                   <DisplayedReviewVersionContext.Provider
                     value={data.snapshot.version}
@@ -368,7 +368,7 @@ export function ApiCanvas({
                       />
                     </MapEnabled.Provider>
                   </DisplayedReviewVersionContext.Provider>
-                </AuthoringCursorContext.Provider>
+                </DrawQueueProvider>
               </AuthoringActivityContext.Provider>
             </TutorialProvider>
           </ReviewLensesProvider>

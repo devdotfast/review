@@ -1,5 +1,5 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 
 import { type DiffSelection } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
@@ -22,6 +22,7 @@ import {
   stored,
 } from "./blocks";
 import { Courier } from "./courier";
+import { useMotionPhase, useMotionPhases } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
@@ -271,6 +272,11 @@ function useHeadingFragments(): void {
   }, [roots]);
 }
 
+/**
+ * One list of sibling blocks. A block the latest version removed is kept on
+ * the board, in its old place, for as long as the draw queue is erasing it;
+ * the list remembers the version before so it still has the block to show.
+ */
 function DocumentBlocks({
   nodes,
   data,
@@ -280,7 +286,15 @@ function DocumentBlocks({
   data: ApiDocumentData;
   softwareMapEnabled: boolean;
 }) {
-  return nodes.map((node) => (
+  const phases = useMotionPhases();
+  const previous = useRef(nodes);
+  const shown = withErasedBlocks(nodes, previous.current, phases);
+
+  useEffect(() => {
+    previous.current = shown;
+  });
+
+  return shown.map((node) => (
     <DocumentNode
       key={node.id}
       node={node}
@@ -288,6 +302,40 @@ function DocumentBlocks({
       softwareMapEnabled={softwareMapEnabled}
     />
   ));
+}
+
+/** The current blocks, plus any block from the list before that is being
+ * erased, put back after the nearest survivor that preceded it. */
+export function withErasedBlocks(
+  nodes: Block[],
+  before: Block[],
+  phases: Map<string, string>,
+): Block[] {
+  const ids = new Set(nodes.map((node) => node.id));
+
+  const erased = before.filter(
+    (node) =>
+      node.id !== undefined &&
+      !ids.has(node.id) &&
+      phases.get(node.id) === "erasing",
+  );
+
+  if (!erased.length) return nodes;
+  const shown = [...nodes];
+
+  for (const node of erased) {
+    const index = before.indexOf(node);
+    const survivor = before.slice(0, index).findLast((b) => ids.has(b.id));
+
+    const at =
+      survivor === undefined
+        ? 0
+        : shown.findIndex((b) => b.id === survivor.id) + 1;
+
+    shown.splice(at, 0, node);
+  }
+
+  return shown;
 }
 
 // Memoized: unrelated App renders must not rebuild every block's view models.
@@ -301,6 +349,7 @@ export const DocumentNode = memo(function DocumentNode({
   softwareMapEnabled: boolean;
 }) {
   const session = useReviewSession();
+  const motion = useMotionPhase(node.id);
 
   const children = (nodes: Block[]) => (
     <DocumentBlocks
@@ -330,6 +379,7 @@ export const DocumentNode = memo(function DocumentNode({
     <div
       className="api-document-node"
       data-review-node-id={node.id}
+      data-motion={motion}
       data-review-copy-prose={
         node.type === "markdown" || node.type === "trace_quote" || undefined
       }

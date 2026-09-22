@@ -27,6 +27,7 @@ import { useReviewDebugSettings } from "./debug-settings";
 import { DiagramHeader } from "./diagram-header";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
+import { useMotionPhase } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
 import type { GuidedTour, PeekAnchor } from "./review-panel-model";
@@ -746,14 +747,19 @@ function SequenceMessageEdge(
     ? "sequence-message clickable active"
     : "sequence-message clickable";
 
+  const stepMotion = useMotionPhase(data.message.id);
+
   return (
     <>
       <BaseEdge
         id={props.id}
         path={edgePath}
-        markerEnd={props.markerEnd}
+        // The arrowhead is the last stroke: it appears once the line has run.
+        markerEnd={stepMotion === "outline" ? undefined : props.markerEnd}
         className={edgeClassName}
         style={props.style}
+        pathLength={1}
+        data-motion={stepMotion}
       />
       <path
         d={edgePath}
@@ -778,6 +784,7 @@ function SequenceMessageEdge(
             transform: `translate(-50%, -50%) translate(${props.sourceX}px,${props.sourceY}px)`,
           }}
           data-review-anchor-id={data.message.id}
+          data-motion={stepMotion}
           onClick={(event) => {
             event.stopPropagation();
             data.openTour(data.message.id);

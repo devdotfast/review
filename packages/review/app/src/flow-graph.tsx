@@ -1,11 +1,18 @@
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
-import { useEffect, useId, useState } from "react";
+import {
+  type ReactNode,
+  type SVGProps,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 
 import type {
   FlowDiagramBlock,
   FlowDiagramNode,
 } from "../../src/review-api/blocks/flow_diagram";
 import { coverageProgress } from "../../src/viewed-coverage";
+import { useMotionPhase } from "./draw-queue-provider";
 import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
 
@@ -128,13 +135,13 @@ export function FlowGraph({
           </marker>
         </defs>
         {layout.edges.map((edge, index) => (
-          <g
+          <FlowEdge
             key={`${edge.id}-${index}`}
-            className="lens-flow-edge-group"
-            data-review-unit-id={block.edges[Number(edge.id)]?.id}
+            id={block.edges[Number(edge.id)]?.id}
           >
             <path
               className="lens-flow-edge"
+              pathLength={1}
               strokeDasharray={edge.dashed ? "6 4" : undefined}
               markerEnd={`url(#${marker})`}
               d={edge.points
@@ -154,7 +161,7 @@ export function FlowGraph({
                   : edge.label}
               </text>
             )}
-          </g>
+          </FlowEdge>
         ))}
         {block.nodes.map((node) => {
           const position = layout.nodes.get(node.key);
@@ -184,9 +191,9 @@ export function FlowGraph({
                   : "unchanged";
 
           return (
-            <g
+            <FlowNode
               key={node.key}
-              data-review-unit-id={node.id}
+              id={node.id}
               transform={`translate(${position.x},${position.y})`}
               className={`flow-node lens-flow-node ${selectedKey === node.key ? "is-selected" : ""} lens-flow-node--${change} ${progress.state === "viewed" ? "is-viewed" : ""}`}
               role="button"
@@ -219,6 +226,7 @@ export function FlowGraph({
                 width={210}
                 height={62}
                 rx={node.kind === "terminal" ? 28 : 6}
+                pathLength={1}
               />
               <text x={12} y={26}>
                 {node.label.length > 26
@@ -238,10 +246,45 @@ export function FlowGraph({
                   "Concept"
                 )}
               </text>
-            </g>
+            </FlowNode>
           );
         })}
       </svg>
     </div>
+  );
+}
+
+/** A node group that carries its unit id and the phase it is drawn in. */
+function FlowNode({
+  id,
+  children,
+  ...props
+}: SVGProps<SVGGElement> & { id: string | undefined }) {
+  const motion = useMotionPhase(id);
+
+  return (
+    <g {...props} data-review-unit-id={id} data-motion={motion}>
+      {children}
+    </g>
+  );
+}
+
+function FlowEdge({
+  id,
+  children,
+}: {
+  id: string | undefined;
+  children: ReactNode;
+}) {
+  const motion = useMotionPhase(id);
+
+  return (
+    <g
+      className="lens-flow-edge-group"
+      data-review-unit-id={id}
+      data-motion={motion}
+    >
+      {children}
+    </g>
   );
 }

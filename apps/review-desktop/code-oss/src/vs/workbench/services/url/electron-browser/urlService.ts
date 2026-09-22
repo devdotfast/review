@@ -66,12 +66,13 @@ export class RelayURLService extends NativeURLService implements IURLHandler, IO
 	}
 
 	async handleURL(uri: URI, options?: IOpenURLOptions): Promise<boolean> {
+		// Show the receiving window before URL handlers start potentially slow downloads.
+		await this.nativeHostService.focusWindow({ mode: FocusMode.Force, targetWindowId: this.nativeHostService.windowId });
+
 		const result = await super.open(uri, options);
 
 		if (result) {
 			this.logService.trace('URLService#handleURL(): handled', uri.toString(true));
-
-			await this.nativeHostService.focusWindow({ mode: FocusMode.Force /* Application may not be active */, targetWindowId: this.nativeHostService.windowId });
 		} else {
 			this.logService.trace('URLService#handleURL(): not handled', uri.toString(true));
 		}

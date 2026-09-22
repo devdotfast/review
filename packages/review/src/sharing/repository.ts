@@ -47,7 +47,7 @@ function fetchError(stderr: string, publishing: boolean): ReviewInputError {
   );
 }
 
-/** A fresh, complete object store: never use shallow clones, alternates or partial fetches. */
+/** Recipients need complete history; publication only checks that the commits exist. */
 export async function fetchPinnedRepository(
   root: string,
   url: string,
@@ -64,18 +64,25 @@ export async function fetchPinnedRepository(
     );
   await mkdir(root, { recursive: true, mode: 0o700 });
   await sharedGit(root, ["init", "--quiet"]);
-  await sharedGit(root, ["config", "core.hooksPath", "/dev/null"]);
-  await sharedGit(root, ["config", "core.fsmonitor", "false"]);
-  await sharedGit(root, ["remote", "add", "origin", url]);
+
+  if (!publishing) {
+    await sharedGit(root, ["config", "core.hooksPath", "/dev/null"]);
+    await sharedGit(root, ["config", "core.fsmonitor", "false"]);
+    await sharedGit(root, ["remote", "add", "origin", url]);
+  }
+
+  // Branch refs make Git reject non-commit objects during the fetch itself.
+  const refs = publishing ? "refs/heads/review" : "refs/review";
 
   try {
     await sharedGit(root, [
       "fetch",
       "--no-tags",
       "--force",
-      "origin",
-      `${pins.base}:refs/review/base`,
-      `${pins.head}:refs/review/head`,
+      ...(publishing ? ["--depth=1", "--filter=tree:0"] : []),
+      publishing ? url : "origin",
+      `${pins.base}:${refs}/base`,
+      `${pins.head}:${refs}/head`,
     ]);
   } catch (error) {
     throw fetchError(
@@ -84,8 +91,9 @@ export async function fetchPinnedRepository(
     );
   }
 
-  for (const commit of [pins.base, pins.head])
-    await sharedGit(root, ["cat-file", "-e", `${commit}^{commit}`]);
+  if (!publishing)
+    for (const commit of [pins.base, pins.head])
+      await sharedGit(root, ["cat-file", "-e", `${commit}^{commit}`]);
 }
 
 export async function repositoryReady(
@@ -106,7 +114,7 @@ export async function repositoryReady(
   }
 }
 
-export async function verifyShareRepository(root: string, pins: Pins) {
+export async function readShareRepository(root: string) {
   let cloneUrl: string;
 
   try {
@@ -117,6 +125,15 @@ export async function verifyShareRepository(root: string, pins: Pins) {
     throw new ReviewInputError("Sharing requires a GitHub origin remote.");
   }
 
+  return { cloneUrl };
+}
+
+export async function verifyShareRepository(
+  root: string,
+  pins: Pins,
+  repository?: { cloneUrl: string },
+) {
+  const { cloneUrl } = repository ?? (await readShareRepository(root));
   const temporary = await mkdtemp(path.join(tmpdir(), "review-share-check-"));
 
   try {

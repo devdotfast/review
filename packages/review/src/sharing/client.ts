@@ -26,6 +26,16 @@ const createdSchema = z.strictObject({
   upload: uploadSchema,
 });
 
+const registeredSchema = z.object({
+  registered: z.literal(true),
+  uploads: z.record(z.string(), uploadSchema),
+});
+
+const UPLOAD_CONCURRENCY = 4;
+
+// Presigned URLs and headers are larger than manifest object descriptors.
+const MAX_UPLOAD_RESPONSE_BYTES = 8 * 1024 * 1024;
+
 const linkSchema = z.strictObject({ shareId: z.uuid(), url: z.url() });
 
 const receivedSchema = z.strictObject({
@@ -73,6 +83,24 @@ export class ShareAuthError extends Error {
   }
 }
 
+export class SharePreflightError extends Error {
+  constructor(cause: unknown) {
+    super(
+      cause instanceof Error
+        ? cause.message
+        : "Repository verification failed.",
+      { cause },
+    );
+    this.name = "SharePreflightError";
+  }
+}
+
+class ShareRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`Share request failed (${status}).`);
+  }
+}
+
 /** Account tokens go only to the configured API origin, never to object storage. */
 export class ShareClient {
   private readonly origin: string;
@@ -98,6 +126,7 @@ export class ShareClient {
     method = "GET",
     body?: JsonValue,
     capability?: string,
+    maxBytes = MAX_SHARE_MANIFEST_BYTES,
   ): Promise<JsonValue> {
     const headers = new Headers({ "content-type": "application/json" });
 
@@ -118,13 +147,11 @@ export class ShareClient {
       await response.body?.cancel();
 
       if (response.status === 401 && !capability) throw new ShareAuthError();
-      throw new Error(`Share request failed (${response.status}).`);
+      throw new ShareRequestError(response.status);
     }
 
     return parseJsonText(
-      Buffer.from(
-        await readBoundedBytes(response, MAX_SHARE_MANIFEST_BYTES),
-      ).toString(),
+      Buffer.from(await readBoundedBytes(response, maxBytes)).toString(),
     );
   }
 
@@ -151,7 +178,11 @@ export class ShareClient {
       throw new Error(`Object upload failed (${response.status}).`);
   }
 
-  async create(bundle: ShareBundle, requestId: string = randomUUID()) {
+  async create(
+    bundle: ShareBundle,
+    requestId: string = randomUUID(),
+    beforeUpload?: () => Promise<void>,
+  ) {
     validateShareBundle(bundle);
     const manifestBytes = Buffer.from(JSON.stringify(bundle.manifest));
 
@@ -167,23 +198,52 @@ export class ShareClient {
 
     const route = `/api/shares/${created.shareId}`;
     await this.upload(created.upload, manifestBytes);
-    await this.api(`${route}/manifest`, "POST", {});
 
-    for (const object of bundle.manifest.objects) {
-      const result = await this.api(
-        `${route}/objects/${object.id}/upload`,
+    const { uploads } = registeredSchema.parse(
+      await this.api(
+        `${route}/manifest`,
         "POST",
         {},
+        undefined,
+        MAX_UPLOAD_RESPONSE_BYTES,
+      ),
+    );
+
+    try {
+      await beforeUpload?.();
+    } catch (error) {
+      // A retry may recover an already published share after a lost response.
+      await this.recoverLink(created.shareId)
+        .catch(async (failure) => {
+          if (failure instanceof ShareRequestError && failure.status === 409)
+            await this.revoke(created.shareId);
+        })
+        .catch(() => {});
+      throw new SharePreflightError(error);
+    }
+
+    if (bundle.manifest.objects.some(({ id }) => !uploads[id]))
+      throw new Error("The share service omitted an object upload URL.");
+
+    for (
+      let offset = 0;
+      offset < bundle.manifest.objects.length;
+      offset += UPLOAD_CONCURRENCY
+    ) {
+      const results = await Promise.allSettled(
+        bundle.manifest.objects
+          .slice(offset, offset + UPLOAD_CONCURRENCY)
+          .map(async (object) => {
+            await this.upload(
+              uploads[object.id]!,
+              bundle.objects.get(object.id)!,
+            );
+          }),
       );
 
-      if (
-        z.strictObject({ present: z.literal(true) }).safeParse(result).success
-      )
-        continue;
-      await this.upload(
-        uploadSchema.parse(result),
-        bundle.objects.get(object.id)!,
-      );
+      const failed = results.find((result) => result.status === "rejected");
+
+      if (failed) throw failed.reason;
     }
 
     for (

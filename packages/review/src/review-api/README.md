@@ -117,7 +117,11 @@ Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `replace {targetId,content}`. Omitted placement appends to the root. Diagram
 units (a `step` in a sequence, a `flow_node` or `flow_edge` in a flow diagram)
 require their diagram as the parent and can move within it, but not between
-diagrams; removing a flow node removes the edges that touched it. Field patches
+diagrams; removing a flow node removes the edges that touched it. A new
+`flow_node` may carry `link:{from|to,label?,style?}` naming a node already
+drawn: the node and its edge are saved in one version, the edge stored as an
+ordinary `flow_edge`, and the version's `lastEdit.linkId` names it so the
+canvas draws the node in its final place and then the edge. Field patches
 preserve omitted values; null removes optional fields. Child collections use
 structural edits or replacement. Use fresh content without IDs for insert/replace.
 

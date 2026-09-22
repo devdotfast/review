@@ -94,8 +94,10 @@ export function DrawQueueProvider({
 
     if (due === null) return;
 
+    // A timer can fire a hair before its due time; the step it was set for
+    // is due regardless, or the queue would stall with no timer to follow.
     const timer = clock.setTimeout(
-      () => setState((current) => tick(current, clock.now())),
+      () => setState((current) => tick(current, Math.max(due, clock.now()))),
       Math.max(0, due - clock.now()),
     );
 

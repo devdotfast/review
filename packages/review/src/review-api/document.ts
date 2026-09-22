@@ -17,6 +17,7 @@ import {
   type FlowDiagramEdge,
   type FlowDiagramNode,
   flowEdgeSchema,
+  flowNodeInsertSchema,
   flowNodeSchema,
 } from "./blocks/flow_diagram.js";
 import { type Block, blockSchema } from "./blocks/index.js";
@@ -350,7 +351,7 @@ export const documentSchema = z.array(blockSchema);
 export const contentSchema = z.union([
   blockSchema,
   stepSchema,
-  flowNodeSchema,
+  flowNodeInsertSchema,
   flowEdgeSchema,
 ]);
 
@@ -388,6 +389,14 @@ export interface EditSummary {
   targetId: string;
   blockId: string;
   unit?: Unit["type"];
+  /** The edge a new flow node arrived with, drawn right after the node. */
+  linkId?: string;
+}
+
+/** What applying an edit produced: the target, and the edge a node came with. */
+export interface Applied {
+  targetId: string;
+  linkId?: string;
 }
 
 /** The block an element belongs to: itself, or the diagram around a unit. */
@@ -410,24 +419,26 @@ export function enclosingBlock(
  * element is found in the document before the edit; everything else after. */
 export function summarizeEdit(
   edit: Edit,
-  targetId: string,
+  applied: Applied,
   before: Element[],
   after: Element[],
 ): EditSummary | undefined {
   const found = enclosingBlock(
     edit.type === "remove" ? before : after,
-    targetId,
+    applied.targetId,
   );
 
   if (!found?.block.id) return undefined;
 
   const summary: EditSummary = {
     type: edit.type,
-    targetId,
+    targetId: applied.targetId,
     blockId: found.block.id,
   };
 
   if (isUnit(found.element)) summary.unit = found.element.type;
+
+  if (applied.linkId) summary.linkId = applied.linkId;
 
   return summary;
 }
@@ -538,7 +549,7 @@ export function applyEdit(
   document: Block[],
   edit: Edit,
   allocate: (prefix: string) => string,
-): string {
+): Applied {
   adoptFlowUnits(document, allocate);
 
   const locate = (id: string): { element: Element; siblings: Element[] } => {
@@ -608,10 +619,37 @@ export function applyEdit(
   };
 
   if (edit.type === "insert") {
+    // A node that arrives with its edge: the node is placed first, then the
+    // edge joins it to the board, so the layout has both from the start.
+    if (edit.content.type === "flow_node" && edit.content.link) {
+      const { link, ...node } = edit.content;
+
+      if ((link.from === undefined) === (link.to === undefined))
+        throw new ReviewInputError(
+          "A link names exactly one of from or to: the node already on the board.",
+        );
+      fresh(node);
+      place(node, edit.parentId, edit.afterId);
+
+      const edge: FlowDiagramEdge = {
+        type: "flow_edge",
+        from: link.from ?? node.key,
+        to: link.to ?? node.key,
+      };
+
+      if (link.label !== undefined) edge.label = link.label;
+
+      if (link.style !== undefined) edge.style = link.style;
+      fresh(edge);
+      place(edge, edit.parentId);
+
+      return { targetId: node.id!, linkId: edge.id! };
+    }
+
     fresh(edit.content);
     place(edit.content, edit.parentId, edit.afterId);
 
-    return edit.content.id!;
+    return { targetId: edit.content.id! };
   }
 
   const { element, siblings } = locate(edit.targetId);
@@ -630,6 +668,11 @@ export function applyEdit(
           throw new ReviewInputError(
             `Cannot patch ${key}; use structural edits or replace.`,
           );
+
+      if ("link" in edit.changes)
+        throw new ReviewInputError(
+          "A link only comes with a new node; insert a flow_edge instead.",
+        );
 
       const merged = Object.fromEntries(
         Object.entries({ ...element, ...edit.changes }).filter(
@@ -681,7 +724,7 @@ export function applyEdit(
       break;
   }
 
-  return edit.targetId;
+  return { targetId: edit.targetId };
 }
 
 /** Rewrite only parsed destinations, simultaneously, preserving surrounding Markdown. */

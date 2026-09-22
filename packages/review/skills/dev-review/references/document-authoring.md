@@ -67,7 +67,7 @@ Read the component schema when constructing the view. A database view requires u
 
 ### Flow diagrams
 
-Draw a flow diagram the way you would on a whiteboard: insert the block with its first node, then grow it one connected step at a time, each as its own edit with `parentId` set to the diagram's returned ID. Insert the next `flow_node`, then immediately the `flow_edge` that joins it to a node already drawn, then the next node. A node is never left unconnected while you add others; a reader cannot place an orphan. Extra edges between existing nodes come after both ends exist. Patch a node or edge by its returned ID; removing a node removes its edges. Read the diagram with `targetId` to get its unit IDs.
+Draw a flow diagram the way you would on a whiteboard: insert the block with its first node, then grow it one connected node at a time, each as its own edit with `parentId` set to the diagram's returned ID. A new `flow_node` carries the edge that attaches it: `link:{from:"<key already drawn>",label?,style?}` (or `to` when the arrow runs from the new node), so it is drawn in its final place and the edge follows it. A node is never left unconnected while you add others; a reader cannot place an orphan. Insert a `flow_edge` on its own only between nodes that already exist. Patch a node or edge by its returned ID; removing a node removes its edges. Read the diagram with `targetId` to get its unit IDs.
 
 ## Check against the code
 

@@ -212,7 +212,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 ## `review app pick` goes to the launcher instead of reporting an unusable pointer
 
 - **Journey:** `cli-desktop-edges` · **Found:** 2026-09-17 · **Status:** fix-pr #348
-- **Repro:** put an unusable pointer in `<home>/review-desktop/server.json` —
+- **Repro:** put an unusable pointer in `<home>/review-desktop/instances/<key>.json` —
   `version: 999`, or unparseable text, or a url nothing listens on — and run
   `review app pick --review <uuid>`.
 - **Expected:** the same message `review info` prints for that pointer:

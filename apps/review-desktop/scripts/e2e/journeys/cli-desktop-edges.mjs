@@ -1,7 +1,7 @@
-/** The CLI against a broken `server.json`: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
+/** The CLI against a broken instance record: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -22,8 +22,7 @@ export const options = {};
 const TITLE = "Order review";
 
 /** Every message a broken pointer can produce; a probe that must reach the Desktop asserts their absence. */
-const POINTER_ERRORS =
-  /Review Desktop uses protocol|discovery is unreadable|Review Desktop is not ready/;
+const POINTER_ERRORS = /is not running\.|Review Desktop is not ready/;
 
 /** A Desktop-side answer: a probe that must stop at the pointer may never produce one. */
 const LOOKUP_ERROR = /Not found\./;
@@ -107,13 +106,21 @@ async function installedDesktopPids(home) {
   return owned;
 }
 
+/** The one instance record a home's single Desktop wrote, found the same way the harness attaches to it. */
+async function instanceRecordPath(home) {
+  const dir = path.join(home, "review-desktop/instances");
+  const [name] = await readdir(dir);
+
+  return path.join(dir, name);
+}
+
 export async function run(ctx) {
   const review = await createReview(ctx, {
     title: TITLE,
     blocks: orderReviewBlocks,
   });
 
-  const pointer = path.join(ctx.home, "review-desktop/server.json");
+  const pointer = await instanceRecordPath(ctx.home);
 
   const original = await readFile(pointer, "utf8");
 
@@ -125,6 +132,11 @@ export async function run(ctx) {
   };
 
   const output = (result) => `${result.stdout}${result.stderr}`;
+
+  // Both a bad protocol and unparseable JSON make `readReviewDesktopDiscoveryFile` throw; `listReviewInstances`
+  // catches that per file and skips it with a warning, so the CLI cannot tell either apart from no Desktop at all.
+  const NOT_RUNNING =
+    /Whiteboard `stable` is not running\. Start it with `whiteboard app launch`, or pick another instance with `whiteboard instances`\. No Whiteboard is running\./;
 
   try {
     let result = await probe(
@@ -138,21 +150,18 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop uses protocol 999, but this Review CLI needs protocol 3\./,
-      `a protocol mismatch was not named: ${output(result)}`,
+      NOT_RUNNING,
+      `a protocol mismatch was not diagnosed as not running: ${output(result)}`,
     );
-    assert.match(
-      result.stderr,
-      /Update Review and Review Desktop to compatible versions, then try again\./,
-      `a protocol mismatch named no fix: ${output(result)}`,
-    );
-    // Stopping before the Desktop is the point: no talking to an unreadable protocol, and no second launch.
+    // Stopping before the Desktop is the point: no talking to a skipped record, and no second launch.
     assert.doesNotMatch(
       output(result),
       LOOKUP_ERROR,
       `a protocol mismatch still reached the Desktop: ${output(result)}`,
     );
-    ctx.check("protocol mismatch names the fix instead of launching");
+    ctx.check(
+      "a protocol mismatch is diagnosed as not running instead of launching",
+    );
 
     result = await probe("{not json");
 
@@ -163,22 +172,18 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop discovery is unreadable at .*review-desktop\/server\.json\./,
-      `a malformed pointer was not named: ${output(result)}`,
-    );
-    assert.match(
-      result.stderr,
-      /Restart Review Desktop and try again\./,
-      `a malformed pointer named no fix: ${output(result)}`,
+      NOT_RUNNING,
+      `a malformed pointer was not diagnosed as not running: ${output(result)}`,
     );
     assert.doesNotMatch(
       output(result),
       LOOKUP_ERROR,
       `a malformed pointer still reached the Desktop: ${output(result)}`,
     );
-    ctx.check("a malformed pointer is reported, not ignored");
+    ctx.check("a malformed pointer is reported as not running, not ignored");
 
     // Liveness is judged by fetching `<url>/health`, not by the pids; port 9 is the discard port, so nothing answers.
+    // Unlike the two records above, this one still parses, so it stays a listed (unhealthy) instance rather than being skipped.
     result = await probe(
       JSON.stringify({ ...JSON.parse(original), url: "http://127.0.0.1:9" }),
     );
@@ -190,7 +195,7 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop is not ready\. Run `review app launch`, then retry `review info`\./,
+      NOT_RUNNING,
       `an unreachable Desktop was not reported: ${output(result)}`,
     );
     assert.doesNotMatch(
@@ -229,7 +234,7 @@ export async function run(ctx) {
       /Review Desktop is already running\./,
       `app launch did not recognise the attached Desktop: ${output(result)}`,
     );
-    // `server.json` is written once on listen, so the same instanceId proves the attached Desktop answered.
+    // The instance record is written once on listen, so the same instanceId proves the attached Desktop answered.
     assert.equal(
       JSON.parse(await readFile(pointer, "utf8")).instanceId,
       ctx.discovery.instanceId,
@@ -249,15 +254,24 @@ export async function run(ctx) {
     await writeFile(pointer, original);
   }
 
-  // `app pick` would launch a Desktop if it still ignored the pointer, so it gets a home of its own.
+  // `app pick` would launch a Desktop if it still ignored the pointer, so it gets a home of its own. A skipped
+  // (unparseable or protocol-mismatched) record now reads as no Desktop at all, which `app pick` would "fix" by
+  // launching one; only a well-formed but unreachable record still reads as a Desktop to diagnose instead.
   const probeHome = path.join(ctx.root, "pick-probe-home");
 
-  const probePointer = path.join(probeHome, "review-desktop/server.json");
+  const probePointer = path.join(
+    probeHome,
+    "review-desktop/instances/stable.json",
+  );
 
   await mkdir(path.dirname(probePointer), { recursive: true });
   await writeFile(
     probePointer,
-    JSON.stringify({ ...JSON.parse(original), version: 999 }),
+    JSON.stringify({
+      ...JSON.parse(original),
+      key: "stable",
+      url: "http://127.0.0.1:9",
+    }),
   );
 
   const stray = async () => [...(await installedDesktopPids(probeHome))];
@@ -312,8 +326,8 @@ export async function run(ctx) {
   );
   assert.match(
     picked.stderr,
-    /Review Desktop uses protocol 999, but this Review CLI needs protocol 3\./,
-    `app pick did not name the protocol mismatch: ${output(picked)}`,
+    /Review Desktop is not ready\. Run `review app launch`, then retry `review app pick`\./,
+    `app pick did not name the unreachable instance: ${output(picked)}`,
   );
   assert.deepEqual(
     [...started],

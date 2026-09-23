@@ -175,10 +175,15 @@ async function until(run, label, timeout = 120000) {
   throw new Error(`Timed out: ${label} (${error?.message ?? "not ready"})`);
 }
 
+async function instanceRecordPath() {
+  const dir = path.join(home, "review-desktop/instances");
+  const [name] = await readdir(dir).catch(() => []);
+
+  return name && path.join(dir, name);
+}
+
 const discovery = await until(async () => {
-  const value = JSON.parse(
-    await readFile(path.join(home, "review-desktop/server.json"), "utf8"),
-  );
+  const value = JSON.parse(await readFile(await instanceRecordPath(), "utf8"));
 
   const health = await (await fetch(`${value.url}/health`)).json();
 

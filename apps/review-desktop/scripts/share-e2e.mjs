@@ -2,7 +2,14 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import path from "node:path";
@@ -148,15 +155,19 @@ const until = async (fn, label) => {
   throw new Error(`Timed out: ${label}: ${error?.message ?? ""}`);
 };
 
+const instanceRecordPath = async () => {
+  const dir = path.join(fixture.home, "review-desktop/instances");
+  const [name] = await readdir(dir).catch(() => []);
+
+  return name && path.join(dir, name);
+};
+
 let browser, page;
 
 try {
   const discovery = await until(async () => {
     const value = JSON.parse(
-      await readFile(
-        path.join(fixture.home, "review-desktop/server.json"),
-        "utf8",
-      ),
+      await readFile(await instanceRecordPath(), "utf8"),
     );
 
     const health = await (await fetch(value.url + "/health")).json();

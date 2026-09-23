@@ -1,4 +1,3 @@
-import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Real Desktop -> extension host -> language server regression gate.
  * Run after app:build: node scripts/lsp-e2e.mjs [--app /path/Review.app] [--keep]
  * Linux CI: xvfb-run -a node scripts/lsp-e2e.mjs
@@ -24,6 +23,10 @@ import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
+import {
+  sessionModelRequest,
+  sessionModelResponse,
+} from "@dev.fast/review-protocol/session-model-transport";
 import { chromium } from "playwright";
 
 const exec = promisify(execFile);
@@ -405,7 +408,10 @@ async function api(route, method = "GET", body) {
       "x-review-token": discovery.token,
       "content-type": "application/json",
     },
-    body: body === undefined ? undefined : JSON.stringify(sessionModelRequest(route, body)),
+    body:
+      body === undefined
+        ? undefined
+        : JSON.stringify(sessionModelRequest(route, body)),
   });
 
   const result = sessionModelResponse(route, await response.json());

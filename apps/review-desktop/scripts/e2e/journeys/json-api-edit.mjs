@@ -89,7 +89,11 @@ export async function run(ctx) {
 
   const after = await apiOk(`/sessions-api/${metadata.sourceUuid}?full=true`);
 
-  assert.deepEqual(after, before, "rejected edits must not change the document");
+  assert.deepEqual(
+    after,
+    before,
+    "rejected edits must not change the document",
+  );
 
   const accepted = await edit({
     type: "callout",
@@ -119,7 +123,10 @@ export async function run(ctx) {
   await created.canvas
     .getByRole("heading", { name: "Overview", exact: true })
     .waitFor();
-  await created.canvas.getByText("moves from draft to queued").first().waitFor();
+  await created.canvas
+    .getByText("moves from draft to queued")
+    .first()
+    .waitFor();
   assert.doesNotMatch(await created.canvas.innerText(), /Layout failed:/);
   ctx.check("createReview helper opens an API review");
 }

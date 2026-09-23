@@ -214,7 +214,11 @@ async function serverNeverStarted(
 
 /** The same review, in the window a restart left behind. */
 async function reopenReview(ctx, review) {
-  const opened = await ctx.api(`/sessions-api/${review.reviewId}/open`, "POST", {});
+  const opened = await ctx.api(
+    `/sessions-api/${review.reviewId}/open`,
+    "POST",
+    {},
+  );
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 
@@ -229,7 +233,10 @@ const goToolPath = (ctx, tool) => path.join(ctx.home, "go/bin", tool);
 /** Nothing the Go extension downloads may exist before the reader consents to its group. */
 async function assertNothingInstalledYet(ctx, tool) {
   assert.equal(
-    await access(goToolPath(ctx, tool)).then(() => true, () => false),
+    await access(goToolPath(ctx, tool)).then(
+      () => true,
+      () => false,
+    ),
     false,
     `${tool} was installed before the Go group was consented to`,
   );
@@ -247,7 +254,11 @@ async function assertNothingInstalledYet(ctx, tool) {
 /** Waits for the consented-to Go extension to provision `tool` into the journey's GOPATH. */
 async function provisionLanguageServer(ctx, tool) {
   await ctx.until(
-    () => access(goToolPath(ctx, tool)).then(() => true, () => false),
+    () =>
+      access(goToolPath(ctx, tool)).then(
+        () => true,
+        () => false,
+      ),
     `${tool} to be installed into the journey's GOPATH`,
     300000,
   );
@@ -420,7 +431,8 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const definitionName = path.basename(language.definitionFile);
 
   await ctx.until(
-    async () => (await modalTitle.innerText().catch(() => "")).includes(definitionName),
+    async () =>
+      (await modalTitle.innerText().catch(() => "")).includes(definitionName),
     `${id} Go to Definition to open ${language.definitionFile} in the modal editor`,
     60000,
   );

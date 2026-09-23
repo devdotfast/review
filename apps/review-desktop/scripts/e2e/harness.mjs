@@ -1,4 +1,3 @@
-import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Shared launch/attach/report harness for scripts/e2e/journeys/*. */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -17,6 +16,11 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+
+import {
+  sessionModelRequest,
+  sessionModelResponse,
+} from "@dev.fast/review-protocol/session-model-transport";
 
 import { assertRuntimeContents } from "../stage-review-runtime.mjs";
 
@@ -373,12 +377,24 @@ export async function createHarness({
         "x-review-token": discovery.token,
         "content-type": "application/json",
       },
-      body: body === undefined ? undefined : JSON.stringify(route.startsWith("/sessions-api") ? sessionModelRequest(route.slice("/sessions-api".length), body) : body),
+      body:
+        body === undefined
+          ? undefined
+          : JSON.stringify(
+              route.startsWith("/sessions-api")
+                ? sessionModelRequest(route.slice("/sessions-api".length), body)
+                : body,
+            ),
     });
 
     const value = await response.json();
 
-    return { status: response.status, value: route.startsWith("/sessions-api") ? sessionModelResponse(route.slice("/sessions-api".length), value) : value };
+    return {
+      status: response.status,
+      value: route.startsWith("/sessions-api")
+        ? sessionModelResponse(route.slice("/sessions-api".length), value)
+        : value,
+    };
   };
 
   /** `api` plus a 200 assertion: an error body is JSON too, so an unasserted read can stand in for a document. */

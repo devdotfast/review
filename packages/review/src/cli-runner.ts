@@ -258,29 +258,25 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         "0",
       )
       .option(
-        "--authoring-mode <mode>",
-        "authoring workflow: interactive or batch",
-        "interactive",
-      )
-      .option(
         "--software-maps",
         "allow the authoring skill to generate optional software maps",
-      ),
+      )
+      // Batch authoring was removed; name that instead of "unknown option".
+      .addOption(new Option("--authoring-mode <mode>").hideHelp()),
     "plain",
   ).action(async (_options, command: Command) => {
     const options = command.optsWithGlobals<{
       stateDir?: string;
       port: string;
       softwareMaps?: boolean;
-      authoringMode: string;
+      authoringMode?: string;
       json?: boolean;
     }>();
 
-    if (
-      options.authoringMode !== "interactive" &&
-      options.authoringMode !== "batch"
-    )
-      throw new Error("--authoring-mode must be interactive or batch.");
+    if (options.authoringMode !== undefined)
+      throw new Error(
+        "--authoring-mode was removed with batch authoring; the server always authors interactively. Drop the option.",
+      );
     const port = Number(options.port);
 
     if (!Number.isInteger(port) || port < 0 || port > 65535)
@@ -297,7 +293,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         stateDir,
         port,
         softwareMapEnabled: options.softwareMaps,
-        authoringMode: options.authoringMode,
         signal: controller.signal,
         onReady: ({ url, serverPid }) => {
           input.stdout.write(

@@ -214,7 +214,6 @@ export function createGlobalReviewServer(
           ...z.object({ softwareMapEnabled: z.boolean() }).parse(result.result),
         };
       },
-      undefined,
       () => scratchpadEnabled,
     ),
   );

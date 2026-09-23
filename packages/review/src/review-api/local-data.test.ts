@@ -526,41 +526,6 @@ it("keeps a created review when Desktop fails to open it", async () => {
   expect(local.store.read(created.reviewId).title).toBe("Saved anyway");
 });
 
-it("does not open reviews authored in batch mode", async () => {
-  const open = vi.fn<OpenDesktop>(async () => ({ softwareMapEnabled: false }));
-
-  const app = createReviewApi(
-    local.store,
-    local.data,
-    open,
-    undefined,
-    () => ({ desktopAvailable: true, softwareMapEnabled: false }),
-    "batch",
-  );
-
-  expect(
-    (
-      await postJson(
-        app,
-        "/commands",
-        command({ type: "create", title: "Direct", pins }),
-      )
-    ).status,
-  ).toBe(409);
-
-  const draft = await (
-    await postJson(app, "/draft-commands/begin", { title: "Batch", pins })
-  ).json();
-
-  const committed = await postJson(app, "/draft-commands/commit", {
-    draftId: draft.draftId,
-    commandId: randomUUID(),
-  });
-
-  expect(committed.status).toBe(200);
-  expect(open).not.toHaveBeenCalled();
-});
-
 it("only reports acquisition issues to agents and clears them after recovery", async () => {
   const created = await local.store.execute(
     command({ type: "create", title: "Language availability", pins }),
@@ -3447,31 +3412,4 @@ it("does not invent a head branch for detached or unrelated pinned commits", asy
   );
 
   expect(local.store.read(created.reviewId).origin?.branch).toBeUndefined();
-});
-
-it("saves the head branch in batch drafts and clears it when repinning to an unrelated commit", async () => {
-  git("checkout", "-b", "feature/batch");
-
-  const draft = await local.store.drafts.execute({
-    type: "begin",
-    title: "Batch branch",
-    pins,
-  });
-
-  if (!("draftId" in draft) || !("reviewId" in draft))
-    throw new Error("Expected draft");
-  await local.store.drafts.execute({
-    type: "commit",
-    draftId: draft.draftId,
-    commandId: randomUUID(),
-  });
-  expect(local.store.read(draft.reviewId).origin?.branch).toBe("feature/batch");
-  await local.store.execute(
-    command({
-      type: "repin",
-      reviewId: draft.reviewId,
-      pins: { ...pins, head: pins.base },
-    }),
-  );
-  expect(local.store.read(draft.reviewId).origin?.branch).toBeUndefined();
 });

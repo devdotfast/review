@@ -15,10 +15,9 @@
  *
  * Both failed *silently*: helper processes spawn, the dock icon appears, and
  * nothing else ever happens. So silence must never read as success here — the
- * check requires both a renderer process and the Whiteboard server's main-log ready
- * event, not merely the absence of a crash. An NSAlert-blocked main process
+ * check requires both a renderer process and an authenticated capabilities response from the embedded server, not merely the absence of a crash. An NSAlert-blocked main process
  * cannot create a renderer. A broken runtime can create a renderer but cannot
- * announce a ready server.
+ * answer a desktop capabilities request.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -43,18 +42,32 @@ const DEFAULT_APP = path.join(
 
 const POLL_INTERVAL_MS = 500;
 
-const SERVER_READY_PATTERN = /\[Whiteboard\] server ready at https?:\/\//;
+/** Probe the private discovery record created by this launch, never another app. */
+export async function desktopResponds(discoveryPath, appPid, timeoutMs = 2000) {
+  try {
+    const discovery = JSON.parse(await readFile(discoveryPath, "utf8"));
+    if (
+      discovery.appPid !== appPid ||
+      typeof discovery.token !== "string" ||
+      !discovery.token
+    )
+      return false;
+    const url = new URL(discovery.url);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") return false;
+    const response = await fetch(new URL("/sessions-api/capabilities", url), {
+      headers: { "x-whiteboard-token": discovery.token },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
+    });
+    return response.ok && (await response.json()).desktopAvailable === true;
+  } catch {
+    // Discovery, the HTTP listener, and the desktop connection arrive separately.
+    return false;
+  }
+}
 
-/** Output that means the boot already failed — no point waiting for the timeout. */
-const FATAL_PATTERNS = [
-  /!!! NLS MISSING/,
-  /Uncaught Exception/,
-  /(?:ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)|Module not found)/i,
-  /\[Whiteboard\] server host terminated:/,
-  /\[Whiteboard\] server host exited before announcing an endpoint\./,
-  /The Whiteboard server did not become ready within \d+ms\./,
-  /The Whiteboard server exhausted its restart budget without becoming ready\./,
-];
+const redactTokens = (text) =>
+  text.replace(/("token"\s*:\s*")[^"]*/g, "$1[redacted]");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,9 +82,13 @@ function hasRenderer(userDataDir) {
   try {
     // Match on the directory alone: a pattern starting with "--" would be read
     // as an option by BSD pgrep. The temp path is unique either way.
-    const matches = execFileSync("pgrep", [process.platform === "linux" ? "-fa" : "-fl", userDataDir], {
-      encoding: "utf8",
-    });
+    const matches = execFileSync(
+      "pgrep",
+      [process.platform === "linux" ? "-fa" : "-fl", userDataDir],
+      {
+        encoding: "utf8",
+      },
+    );
 
     return matches.split("\n").some((line) => line.includes("--type=renderer"));
   } catch {
@@ -115,40 +132,68 @@ export async function smokeLaunch({
   app = DEFAULT_APP,
   timeoutMs = 90_000,
 } = {}) {
-  const applicationName = process.platform === "linux"
-    ? JSON.parse(await readFile(path.join(app, "resources", "app", "product.json"), "utf8")).applicationName
-    : undefined;
+  const applicationName =
+    process.platform === "linux"
+      ? JSON.parse(
+          await readFile(
+            path.join(app, "resources", "app", "product.json"),
+            "utf8",
+          ),
+        ).applicationName
+      : undefined;
 
-  const binary = process.platform === "linux"
-    ? path.join(app, applicationName)
-    : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
+  const binary =
+    process.platform === "linux"
+      ? path.join(app, applicationName)
+      : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
 
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));
 
   // A launch that finds a running instance hands its arguments over and exits 0
   // without opening anything. The throwaway user-data-dir is what keeps this a
   // real boot rather than a silent no-op.
-  const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1", DEV_WHITEBOARD_HOME: path.join(userDataDir, "whiteboard-home"), DEV_WHITEBOARD_IMPORT_FROM: "none" };
+  const env = {
+    ...process.env,
+    ELECTRON_ENABLE_LOGGING: "1",
+    DEV_WHITEBOARD_HOME: path.join(userDataDir, "whiteboard-home"),
+    DEV_WHITEBOARD_IMPORT_FROM: "none",
+  };
   delete env.ELECTRON_RUN_AS_NODE;
 
-  const child = spawn(binary, [`--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(userDataDir, "extensions")}`], {
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    binary,
+    [
+      `--user-data-dir=${userDataDir}`,
+      `--extensions-dir=${path.join(userDataDir, "extensions")}`,
+    ],
+    {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   let output = "";
   let mainLog = "";
   let exited;
+  let serverReady = false;
+  const discoveryPath = path.join(
+    env.DEV_WHITEBOARD_HOME,
+    "review-desktop",
+    "server.json",
+  );
   const closed = new Promise((resolve) => child.once("close", resolve));
   child.stdout.on("data", (chunk) => (output += chunk));
   child.stderr.on("data", (chunk) => (output += chunk));
   child.on("exit", (code, signal) => (exited = { code, signal }));
-  child.on("error", (error) => { output += error.message; exited = { code: null, signal: null }; });
+  child.on("error", (error) => {
+    output += error.message;
+    exited = { code: null, signal: null };
+  });
 
   const fail = (message) => {
     throw new Error(
-      `${message}\n--- app output ---\n${output.trim() || "(no output)"}` +
-        `\n--- main log ---\n${mainLog.trim() || "(main log not created)"}`,
+      `${message}\n--- app output ---\n${redactTokens(output.trim()) || "(no output)"}` +
+        `\n--- main log ---\n${redactTokens(mainLog.trim()) || "(main log not created)"}`,
     );
   };
 
@@ -162,14 +207,6 @@ export async function smokeLaunch({
         startupOutput.match(/https?:\/\/[^\s"'<>]+/g) ?? [],
       );
 
-      const fatal = FATAL_PATTERNS.find((pattern) =>
-        pattern.test(startupOutput),
-      );
-
-      if (fatal) {
-        fail(`packaged app reported a fatal startup error (matched ${fatal})`);
-      }
-
       if (exited) {
         fail(
           `packaged app exited early (code=${exited.code} signal=${exited.signal}) ` +
@@ -177,7 +214,12 @@ export async function smokeLaunch({
         );
       }
 
-      if (hasRenderer(userDataDir) && SERVER_READY_PATTERN.test(mainLog)) {
+      serverReady = await desktopResponds(
+        discoveryPath,
+        child.pid,
+        Math.max(1, Math.min(2000, deadline - Date.now())),
+      );
+      if (!exited && hasRenderer(userDataDir) && serverReady) {
         console.log(
           `Packaged app opened a renderer and started the Whiteboard server in ${((timeoutMs - (deadline - Date.now())) / 1000).toFixed(1)}s: ${app}`,
         );
@@ -192,7 +234,7 @@ export async function smokeLaunch({
 
     const missing = [
       !hasRenderer(userDataDir) && "a renderer",
-      !SERVER_READY_PATTERN.test(mainLog) && "the Whiteboard server ready event",
+      !serverReady && "an authenticated desktop capabilities response",
     ].filter(Boolean);
 
     fail(

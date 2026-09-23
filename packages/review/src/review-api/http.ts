@@ -89,8 +89,20 @@ export function createReviewApi(
         400,
       );
 
-    // Provider failures may contain local paths/subprocess output; do not return them.
-    return context.json({ error: "Review operation failed." }, 500);
+    // Provider failures may contain local paths/subprocess output: the server
+    // log gets the cause, the response only its kind. Desktop routes this
+    // process's stderr to its main log.
+    console.error(
+      `[Review API] ${context.req.method} ${context.req.path} failed:`,
+      error,
+    );
+
+    return context.json(
+      {
+        error: `Review operation failed (${failureKind(error)}). The server logged the cause; Whiteboard Desktop writes it to main.log in its logs folder.`,
+      },
+      500,
+    );
   });
 
   if (data)
@@ -1212,6 +1224,15 @@ export function createReviewApi(
   });
 
   return app;
+}
+
+const systemErrorSchema = z.object({ code: z.string().regex(/^[A-Z0-9_]+$/) });
+
+/** A system error code such as EACCES, else the error's class; never its message. */
+function failureKind(error: Error): string {
+  const system = systemErrorSchema.safeParse(error);
+
+  return system.success ? system.data.code : error.name;
 }
 
 /**

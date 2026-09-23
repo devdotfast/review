@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -49,6 +49,7 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "../source.js";
+import { checkoutFs } from "./checkout-fs.js";
 import {
   type ComparisonCoverage,
   type CoverageMode,
@@ -211,7 +212,7 @@ export class LocalReviewData {
       const rootPath = await realpath(this.store.repositoryPath(repositoryId));
       const localPath = await localSourcePath(rootPath, file);
 
-      if ((await readFile(localPath, "utf8")) === text)
+      if ((await checkoutFs.readFile(localPath, "utf8")) === text)
         return { localPath, localRoot: rootPath };
     } catch {
       /* A moved or changed file can still be displayed without native LSP. */

@@ -6,7 +6,10 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WHITEBOARD_CONNECT_COPIED_STORAGE_KEY, WelcomePage } from "./welcome-page";
+import {
+  WHITEBOARD_CONNECT_COPIED_STORAGE_KEY,
+  WelcomePage,
+} from "./welcome-page";
 
 const fresh: WhiteboardCliInstallStatus = {
   fingerprint: "test",
@@ -165,7 +168,9 @@ describe("WelcomePage", () => {
     expect(stepState(1)).toBe("todo");
     await act(async () => buttons("Copy prompt")[0]?.click());
     expect(stepState(1)).toBe("done");
-    expect(localStorage.getItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY)).toBe("1");
+    expect(localStorage.getItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY)).toBe(
+      "1",
+    );
     writeText.mockRestore();
   });
 

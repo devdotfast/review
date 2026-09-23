@@ -72,7 +72,9 @@ describe("connectPrompt", () => {
       `"$HOME/.local/bin/whiteboard" api session_get_instructions '{}'`,
     );
     expect(prompt).not.toContain("MCP server named");
-    expect(prompt).not.toContain("whiteboard-version");
+    expect(prompt.split("```markdown\n")[1]?.split("```")[0]).not.toMatch(
+      /(?:whiteboard|review)-version:/,
+    );
     expect(prompt).toContain(
       "Skip step 2 if the Whiteboard package for Pi is already installed.",
     );

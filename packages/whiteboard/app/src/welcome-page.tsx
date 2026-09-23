@@ -94,7 +94,10 @@ export function WelcomePage({
     setConnectCopied(true);
 
     try {
-      globalThis.localStorage?.setItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY, "1");
+      globalThis.localStorage?.setItem(
+        WHITEBOARD_CONNECT_COPIED_STORAGE_KEY,
+        "1",
+      );
     } catch {
       // The desktop can disable DOM storage; the in-memory flag still works.
     }
@@ -107,7 +110,7 @@ export function WelcomePage({
     {
       title: "Install the whiteboard command",
       done: installed,
-      note: "writes ~/.local/bin/review",
+      note: "writes ~/.local/bin/whiteboard",
       body: (
         <>
           <p className="whiteboard-home-zero-hint">
@@ -232,8 +235,8 @@ export function WelcomePage({
                     Your codebase, explained by your agent.
                   </h1>
                   <p className="whiteboard-onboarding-sub">
-                    Install the command. Connect your agent. Explore a whiteboard.
-                    Create your own.
+                    Install the command. Connect your agent. Explore a
+                    whiteboard. Create your own.
                   </p>
                 </>
               )}
@@ -312,8 +315,9 @@ function onboardingSetupComplete(status: WhiteboardCliInstallStatus): boolean {
 function readConnectCopied(): boolean {
   try {
     return (
-      globalThis.localStorage?.getItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY) ===
-      "1"
+      globalThis.localStorage?.getItem(
+        WHITEBOARD_CONNECT_COPIED_STORAGE_KEY,
+      ) === "1"
     );
   } catch {
     return false;

@@ -70,7 +70,10 @@ export function ConnectCard({
     setExpanded(false);
 
     try {
-      globalThis.localStorage?.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, next);
+      globalThis.localStorage?.setItem(
+        WHITEBOARD_CONNECT_TARGET_STORAGE_KEY,
+        next,
+      );
     } catch {
       // The desktop can disable DOM storage; the in-memory selection still works.
     }
@@ -207,15 +210,15 @@ export function ConnectCard({
           {mode === "prompt" ? (
             <p className="whiteboard-connect-hint">
               Your agent should reply that it reached Whiteboard&apos;s
-              instructions. If it says Whiteboard is not running, keep this app open
-              and try again.
+              instructions. If it says Whiteboard is not running, keep this app
+              open and try again.
             </p>
           ) : null}
         </>
       ) : plugin.url ? (
         <>
           <p className="whiteboard-home-prompt-body">
-            Opens {agent} and adds the review server.
+            Opens {agent} and adds the whiteboard server.
           </p>
           <div className="whiteboard-home-prompt-actions">
             <a

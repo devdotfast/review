@@ -115,7 +115,9 @@ function body(container: HTMLElement) {
 }
 
 function copyButton(container: HTMLElement) {
-  return container.querySelector<HTMLButtonElement>(".whiteboard-home-prompt-copy");
+  return container.querySelector<HTMLButtonElement>(
+    ".whiteboard-home-prompt-copy",
+  );
 }
 
 describe("ConnectCard", () => {
@@ -235,7 +237,9 @@ describe("ConnectCard", () => {
       />,
     );
 
-    expect(container.querySelector(".whiteboard-connect-note")?.textContent).toBe(
+    expect(
+      container.querySelector(".whiteboard-connect-note")?.textContent,
+    ).toBe(
       "Install the whiteboard command first. The prompt and the plugin both launch it.",
     );
     expect(copyButton(container)?.disabled).toBe(false);
@@ -269,7 +273,7 @@ describe("ConnectCard", () => {
     await act(async () => (toggle as HTMLButtonElement).click());
     expect(body?.dataset.collapsed).toBe("false");
     expect(
-      container.querySelector(".review-connect-collapse")?.textContent,
+      container.querySelector(".whiteboard-connect-collapse")?.textContent,
     ).toBe("Show less");
 
     const copy = [...container.querySelectorAll("button")].find(

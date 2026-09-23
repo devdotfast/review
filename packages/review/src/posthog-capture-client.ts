@@ -391,6 +391,10 @@ export class PostHogCaptureClient {
             properties: {
               ...compactProperties(event.properties ?? {}),
               distinct_id: event.distinctId,
+              // The installation ID is random, so every event is sent as a
+              // personless event. Set on the wire, after the caller's
+              // properties, so no event can opt back into a person profile.
+              $process_person_profile: false,
             },
             timestamp: new Date(event.createdAt).toISOString(),
           })),

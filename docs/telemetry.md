@@ -19,8 +19,9 @@ Last checked against this repository: 2026-08-18.
   name, Review title, refs, revision hashes, raw Review UUID, coding-agent
   session ID, Review text, prompts, or model output.
 - Review uses a random installation ID. It does not use your email, username,
-  hostname, or a hardware identifier, and it does not create a PostHog person
-  profile.
+  hostname, or a hardware identifier. Every event is sent to PostHog with
+  `$process_person_profile: false`, so PostHog never creates a person profile
+  for it.
 - Product errors may include a cleaned error message and Review-only stack
   frames. Paths, web and email addresses, and recognizable secrets are removed
   on your machine before the event is accepted.
@@ -76,7 +77,10 @@ The full event-by-event list begins at [Event reference](#event-reference).
 
 On first use, Review creates a random installation UUID and stores it at
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
-PostHog's `identify()` API or associate that ID with a person profile.
+PostHog's `identify()` API, and it sends every event, including
+`review_telemetry_dropped`, with `$process_person_profile: false`, which tells
+PostHog to process it as a personless event and never create a person profile
+for that ID.
 
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
@@ -221,7 +225,7 @@ The server checks all properties in this table against
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
 | `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
-| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens                                                                                                                     | A user opens a code peek                     |
+| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                   | A user opens a code peek                     |
 | `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek resolves                         |
 | `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek does not resolve                 |
 | `review_tour_started`             | `steps`                                                                                                                                                        | A user starts a tour                         |

@@ -275,11 +275,13 @@ describe("snapshot authoring", () => {
 
     store.subscribe(documents);
     store.subscribeCatalog(catalog);
+
     const dismiss = request({
       type: "attention",
       sessionId,
       action: "dismiss",
     });
+
     const result = await store.execute(dismiss);
     await store.execute(dismiss);
     await store.execute(

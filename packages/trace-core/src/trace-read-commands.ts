@@ -12,14 +12,6 @@ export function registerTraceReadCommands(
   const sessionFlag = "session";
   const agentFlag = "agent-session";
 
-  const selectedSession = (options: { review?: string; session?: string }) =>
-    options.session;
-
-  const selectedAgent = (options: {
-    session?: string;
-    agentSession?: string;
-  }) => options.agentSession;
-
   const withStorage = <T extends Command>(command: T): T =>
     addTraceStorageOption(command);
 
@@ -39,26 +31,27 @@ export function registerTraceReadCommands(
       listOptions(
         trace
           .command("list")
-          .description("List agent sessions for a Review or commit"),
+          .description(
+            "List agent sessions for a Whiteboard session or commit",
+          ),
       ),
     ),
   ).action(
     async (options: {
-      review?: string;
       session?: string;
       agentSession?: string;
       commit?: string;
       storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
-      if (selectedSession(options) && options.commit) {
+      if (options.session && options.commit) {
         throw new Error(`Use either --${sessionFlag} or --commit, not both.`);
       }
 
       settings.setExitCode(
         await runtime.runTraceList({
           cwd,
-          sessionId: selectedSession(options),
+          sessionId: options.session,
           commitSha: options.commit,
           storage: options.storage,
           json: options.json,
@@ -126,7 +119,6 @@ export function registerTraceReadCommands(
   ).action(
     async (options: {
       repo?: string;
-      review?: string;
       session?: string;
       agentSession?: string;
       commit?: string;
@@ -135,9 +127,9 @@ export function registerTraceReadCommands(
       json?: boolean;
     }) => {
       const selectors = [
-        selectedSession(options),
+        options.session,
         options.commit,
-        selectedAgent(options),
+        options.agentSession,
       ].filter(Boolean);
 
       if (selectors.length > 1) {
@@ -150,9 +142,9 @@ export function registerTraceReadCommands(
         await runtime.runTracePull({
           cwd,
           repo: options.repo,
-          sessionId: selectedSession(options),
+          sessionId: options.session,
           commitSha: options.commit,
-          session: selectedAgent(options),
+          session: options.agentSession,
           mainOnly: options.mainOnly,
           storage: options.storage,
           json: options.json,

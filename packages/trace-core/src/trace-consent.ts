@@ -1,6 +1,6 @@
 // Per-user repository consent for the hosted trace store.
 //
-// A user allows a repository once with `review trace allow`, and every hosted
+// A user allows a repository once with `whiteboard trace allow`, and every hosted
 // upload path reads the entry back before it sends anything. Entries live in
 // the shared trace config under `repositories`, each naming the hosted
 // origins it may publish to. Consent never selects a store by itself.

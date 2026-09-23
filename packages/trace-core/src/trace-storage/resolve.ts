@@ -107,7 +107,7 @@ export function selectTraceStorage(
         config,
         s3,
         hosted,
-        error: `S3 trace storage is selected but no bucket credentials are configured. Run \`review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>\`.`,
+        error: `S3 trace storage is selected but no bucket credentials are configured. Run \`whiteboard trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>\`.`,
       };
     }
 
@@ -243,7 +243,7 @@ async function hostedStorage(
 
   if (!origin) {
     throw new TraceConfigurationError(
-      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`review trace storage use hosted\`.`,
+      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`whiteboard trace storage use hosted\`.`,
     );
   }
 

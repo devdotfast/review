@@ -373,7 +373,7 @@ export async function runTraceAllow(
       return failWithJsonError(
         input,
         "allow",
-        `This machine sends traces to a bucket. Run \`review trace storage use hosted\` first.`,
+        `This machine sends traces to a bucket. Run \`whiteboard trace storage use hosted\` first.`,
       );
     }
 
@@ -574,7 +574,7 @@ export async function runTraceSessions(
   // on here.
   if (mode === "s3") {
     return fail(
-      `\`${traceCommandPrefix()} sessions\` lists the hosted store only. Run \`review trace storage use hosted\`, or pass \`--storage hosted\`.`,
+      `\`${traceCommandPrefix()} sessions\` lists the hosted store only. Run \`whiteboard trace storage use hosted\`, or pass \`--storage hosted\`.`,
     );
   }
 
@@ -587,7 +587,7 @@ export async function runTraceSessions(
 
   if (!selection.hosted) {
     return fail(
-      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`review trace storage use hosted\`.`,
+      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`whiteboard trace storage use hosted\`.`,
     );
   }
 

@@ -31,12 +31,12 @@ export interface TraceCommand {
 
 /** The executable name used in trace hooks. */
 export function traceCliName(): string {
-  return "review";
+  return "whiteboard";
 }
 
 /** The command prefix used in trace instructions. */
 export function traceCommandPrefix(): string {
-  return "review trace";
+  return "whiteboard trace";
 }
 
 /** Returns the configured trace home, then the operating-system home. */
@@ -51,7 +51,6 @@ export function traceHomeDir(env: NodeJS.ProcessEnv = process.env): string {
 export function resolveTraceCommand(
   input: {
     explicit?: TraceCommand | string;
-    commandName?: "review" | "whiteboard";
     env?: NodeJS.ProcessEnv;
     homeDir?: string;
   } = {},
@@ -62,12 +61,10 @@ export function resolveTraceCommand(
 
   const env = input.env ?? process.env;
 
-  const commandName = input.commandName ?? "review";
+  const commandName = "whiteboard";
 
-  if (commandName === "whiteboard" && env.WHITEBOARD_TRACE_COMMAND)
+  if (env.WHITEBOARD_TRACE_COMMAND)
     return { file: env.WHITEBOARD_TRACE_COMMAND };
-
-  if (env.REVIEW_TRACE_COMMAND) return { file: env.REVIEW_TRACE_COMMAND };
 
   const installed = path.join(
     input.homeDir ?? traceHomeDir(env),

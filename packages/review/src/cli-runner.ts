@@ -153,7 +153,6 @@ export async function runWhiteboardCli(
   // The command every installed hook re-enters. The Review CLI resolves it
   // the same way the hooks did on their own, so `review` behaves as before.
   const traceCommand = resolveTraceCommand({
-    commandName: "whiteboard",
     env,
     homeDir: traceHomeDir(env),
   });

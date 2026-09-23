@@ -32,7 +32,8 @@ export interface AgentTraceHookInstallResult {
   keptCommand?: string;
 }
 
-const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
+const PI_EXTENSION_MARKER = "Managed by Whiteboard trace setup";
+const LEGACY_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
 
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;
 
@@ -112,7 +113,11 @@ export function traceHookCommandOwner(
 }
 
 function extensionCommandFile(source: string): string | undefined {
-  if (!source.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`))
+  if (
+    ![PI_EXTENSION_MARKER, LEGACY_EXTENSION_MARKER].some((marker) =>
+      source.trimStart().startsWith(`// ${marker}`),
+    )
+  )
     return undefined;
   const match = /spawn\(("(?:[^"\\]|\\.)*"), \["trace", "hook"/.exec(source);
 
@@ -185,7 +190,7 @@ interface OpenCodeEvent {
 // the prompt registers the session for commit stamping and idle syncs the
 // trace. Child sessions spawned by the task tool stay attached to their
 // parent's turn and are never registered on their own.
-export default async function reviewTracePlugin(input: { directory: string }) {
+export default async function whiteboardTracePlugin(input: { directory: string }) {
   const directories = new Map<string, string>();
   const childSessions = new Set<string>();
 

@@ -42,7 +42,7 @@ const temporaryDirectories: string[] = [];
 const packageRoot = path.resolve(import.meta.dirname, "..");
 
 const profileMarker =
-  "# Managed by Review Desktop: review command PATH. Do not edit.";
+  "# Managed by Whiteboard: whiteboard command PATH. Do not edit.";
 
 const profileExport = 'export PATH="$HOME/.local/bin:$PATH"';
 
@@ -407,7 +407,7 @@ describe("skill and review command installation", () => {
       shimPath: path.join(homeDir, ".local", "bin", "whiteboard"),
     });
     expect(await readFile(applied.shimPath!, "utf8")).toContain(
-      "Managed by Review Desktop",
+      "Managed by Whiteboard",
     );
     expect(await readFile(path.join(homeDir, ".zprofile"), "utf8")).toContain(
       profileExport,

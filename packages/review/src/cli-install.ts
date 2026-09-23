@@ -78,9 +78,15 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   pi: ".pi",
 };
 
-const SHIM_MARKER = "Managed by Review Desktop";
+const SHIM_MARKER = "Managed by Whiteboard";
+const LEGACY_SHIM_MARKER = "Managed by Review Desktop";
+function hasManagedShimMarker(source: string): boolean {
+  return source.includes(SHIM_MARKER) || source.includes(LEGACY_SHIM_MARKER);
+}
 
 const PROFILE_MARKER =
+  "# Managed by Whiteboard: whiteboard command PATH. Do not edit.";
+const LEGACY_PROFILE_MARKER =
   "# Managed by Review Desktop: review command PATH. Do not edit.";
 
 const PROFILE_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
@@ -618,12 +624,12 @@ async function removeCliInstallUnlocked(
     // the same path stays untouched.
     const contents = await readTextIfExists(shimPath);
 
-    if (contents.includes(SHIM_MARKER)) {
+    if (hasManagedShimMarker(contents)) {
       await rm(shimPath, { force: true });
       chunks.push(`[ok] removed whiteboard command ${shimPath}\n`);
     } else if (contents) {
       chunks.push(
-        `${shimPath} was not installed by Review Desktop; left in place.\n`,
+        `${shimPath} was not installed by Whiteboard; left in place.\n`,
       );
     }
 
@@ -816,7 +822,7 @@ export async function writePathShim(
   devHome: string,
 ): Promise<void> {
   const source = `#!/bin/sh
-# Managed by Review Desktop ("Review: Install CLI in PATH"). Do not edit.
+# Managed by Whiteboard ("Whiteboard: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DEFAULT_HOME=${shSingleQuote(devHome)}
@@ -857,13 +863,13 @@ if [ -n "$runtime" ] && [ -x "$runtime" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Review needs Node.js 24 or newer and none was found. Install Node 24, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer and none was found. Install Node 24, or install Review Desktop." >&2
   exit 1
 fi
 major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 case "$major" in *[!0-9]*) major=0;; esac
 if [ "$major" -lt 24 ]; then
-  echo "Review needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Review Desktop." >&2
   exit 1
 fi
 exec node "$cli" "$@"
@@ -941,12 +947,19 @@ export async function ensureShellProfilePath(input: {
   }
 
   if (!profileName) {
-    return "Review did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
+    return "Whiteboard did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
   }
 
   const profilePath = path.join(input.homeDir, profileName);
   const source = await readTextIfExists(profilePath);
 
+  if (source.includes(LEGACY_PROFILE_MARKER)) {
+    await writeTextAtomic(
+      profilePath,
+      source.replaceAll(LEGACY_PROFILE_MARKER, PROFILE_MARKER),
+    );
+    return "";
+  }
   if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
     return "";
   }
@@ -965,8 +978,15 @@ export async function removeShellProfilePath(
     const profilePath = path.join(homeDir, profileName);
     const source = await readTextIfExists(profilePath);
 
-    if (!source.includes(PROFILE_BLOCK)) continue;
-    await writeTextAtomic(profilePath, source.replaceAll(PROFILE_BLOCK, ""));
+    const oldBlock = PROFILE_BLOCK.replace(
+      PROFILE_MARKER,
+      LEGACY_PROFILE_MARKER,
+    );
+    if (!source.includes(PROFILE_BLOCK) && !source.includes(oldBlock)) continue;
+    await writeTextAtomic(
+      profilePath,
+      source.replaceAll(PROFILE_BLOCK, "").replaceAll(oldBlock, ""),
+    );
     removed.push(profilePath);
   }
 
@@ -994,7 +1014,7 @@ async function resolvePathCommand(
 
     if (!(await isExecutableFile(candidate))) continue;
 
-    if ((await readTextIfExists(candidate)).includes(SHIM_MARKER)) {
+    if (hasManagedShimMarker(await readTextIfExists(candidate))) {
       return undefined;
     }
 
@@ -1019,7 +1039,7 @@ function pathContainsDirectory(
 }
 
 async function isOwnedShim(shimPath: string): Promise<boolean> {
-  return (await readTextIfExists(shimPath)).includes(SHIM_MARKER);
+  return hasManagedShimMarker(await readTextIfExists(shimPath));
 }
 
 async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
@@ -1029,7 +1049,10 @@ async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
     ),
   );
 
-  return profiles.some((source) => source.includes(PROFILE_MARKER));
+  return profiles.some(
+    (source) =>
+      source.includes(PROFILE_MARKER) || source.includes(LEGACY_PROFILE_MARKER),
+  );
 }
 
 async function writeTextAtomic(

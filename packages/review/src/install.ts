@@ -29,7 +29,7 @@ import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
-const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-batch"] as const;
+const REQUIRED_SKILL_NAMES = ["dev-review"] as const;
 
 // Installed only on machines that capture traces; removed when capture is
 // disabled so agents are not steered toward an unconfigured feature.
@@ -47,6 +47,11 @@ const STALE_SKILL_NAMES = [
   "progressive-review",
   "pr-review",
 ] as const;
+
+// Skills Review once installed and no longer ships. Unlike the stale names
+// above, these are removed only while their SKILL.md still carries Review's
+// managed-by stamp, so a copy the user took over stays.
+const RETIRED_SKILL_NAMES = ["dev-review-batch"] as const;
 
 export const ALL_INSTALL_TARGETS: InstallTarget[] = [
   "claude",
@@ -345,6 +350,8 @@ async function removeInstalledSkillsUnlocked(
     await rm(path.join(destRoot, name), { recursive: true, force: true });
   }
 
+  await removeRetiredSkills(destRoot);
+
   if (
     target === "opencode" &&
     (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "managed"
@@ -636,6 +643,20 @@ async function managedOpenCodePlugin(
 async function removeStaleSkills(destRoot: string): Promise<void> {
   for (const skillName of STALE_SKILL_NAMES) {
     await rm(path.join(destRoot, skillName), { recursive: true, force: true });
+  }
+
+  await removeRetiredSkills(destRoot);
+}
+
+async function removeRetiredSkills(destRoot: string): Promise<void> {
+  for (const skillName of RETIRED_SKILL_NAMES) {
+    const skillDest = path.join(destRoot, skillName);
+
+    if (
+      (await readSkillVersion(path.join(skillDest, "SKILL.md"), skillName)) !==
+      null
+    )
+      await rm(skillDest, { recursive: true, force: true });
   }
 }
 

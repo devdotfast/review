@@ -112,6 +112,5 @@ jobs:
               echo 'This exact version and source commit were already published; no changes made.'
             else
               echo "Install: npm install --global @dev.fast/review@${VERSION}"
-              echo "For author-and-share, set review-version to ${VERSION}."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

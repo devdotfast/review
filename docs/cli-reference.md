@@ -101,14 +101,9 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
-Interactive mode (the default) saves each accepted edit as a version. Start with
-`--authoring-mode batch` to select scratch drafts and one atomic commit instead.
-Capabilities report the selected mode. The `dev-review` skill routes to the short
-`dev-review-batch` skill for this workflow. Draft ownership lasts until commit,
-abort or server shutdown, without model heartbeats. Uncommitted drafts are
-discarded when their server stops.
+Each accepted edit is saved as a version immediately; the author holds a
+`review_activity` lease while writing, exactly as with Desktop.
 
 For local testing, open Desktop on the same `DEV_REVIEW_HOME` and select the
 review from Home. Both hosts use `review-api.db`; edits appear live with the same
@@ -262,9 +257,6 @@ same server/profile as `review api`, including `--state-dir`. CI can supply
 credentials are not written to the profile. Git credentials are still needed
 for the verification fetch.
 
-Use the [author-and-share action](https://github.com/devdotfast/review/blob/main/actions/author-and-share/README.md) to run
-your own agent, upload the committed version, and update one PR comment with
-the link. It exposes URL, review ID, version and share ID as outputs.
 The exporter, importer and hosted client remain available from
 `@dev.fast/review/sharing` for other hosts.
 

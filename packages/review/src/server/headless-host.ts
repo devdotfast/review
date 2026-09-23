@@ -8,7 +8,6 @@ import { isObjectValue } from "@dev.fast/json";
 import { withFileLock, writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { Hono } from "hono";
 
-import type { AuthoringMode } from "../review-api/drafts.js";
 import { createReviewApi } from "../review-api/http.js";
 import { openReviewProfile } from "../review-api/profile.js";
 import { readScratchpadEnabled } from "../review-preferences.js";
@@ -25,7 +24,6 @@ import {
 
 interface HeadlessServerInput {
   stateDir: string;
-  authoringMode?: AuthoringMode;
   port?: number;
   softwareMapEnabled?: boolean;
   signal: AbortSignal;
@@ -93,7 +91,6 @@ async function serve(input: HeadlessServerInput) {
       desktopAvailable: false,
       softwareMapEnabled: input.softwareMapEnabled ?? false,
     }),
-    input.authoringMode,
     () => scratchpadEnabled,
   );
 

@@ -13,8 +13,8 @@ import { DISMISSED_KEY, WhiteboardCommunityContribution } from './whiteboardComm
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function setup(answer: Promise<IConfirmationResult>, whiteboards: Array<{ kind?: "scratchpad" }> = [{}, {}], dismissed = false) {
-	const catalog = { whiteboards, initialize: async () => { } };
+function setup(answer: Promise<IConfirmationResult>, reviews: Array<{ kind?: "scratchpad" }> = [{}, {}], dismissed = false) {
+	const catalog = { reviews, initialize: async () => { } };
 	const asked: IConfirmation[] = [];
 	const stored: Array<{ key: string; value: unknown }> = [];
 	const opened: unknown[] = [];
@@ -51,10 +51,10 @@ for (const confirmed of [false, true]) {
 	});
 }
 
-for (const whiteboards of [[], [{}], [{}, { kind: "scratchpad" as const }]]) {
-	test(`skips the invitation with fewer than two whiteboards: ${JSON.stringify(whiteboards)}`, async () => {
+for (const reviews of [[], [{}], [{}, { kind: "scratchpad" as const }]]) {
+	test(`skips the invitation with fewer than two reviews: ${JSON.stringify(reviews)}`, async () => {
 		setFirstRunReloadPending(false);
-		const { asked, invite } = setup(Promise.resolve({ confirmed: false }), whiteboards);
+		const { asked, invite } = setup(Promise.resolve({ confirmed: false }), reviews);
 		invite();
 		await settle();
 		assert.equal(asked.length, 0);
@@ -66,7 +66,7 @@ test('waits until the next launch after the second review is created', async () 
 	const { asked, invite, catalog } = setup(Promise.resolve({ confirmed: false }), [{}]);
 	invite();
 	await settle();
-	catalog.whiteboards.push({});
+	catalog.reviews.push({});
 	await settle();
 	assert.equal(asked.length, 0);
 	invite();
@@ -82,7 +82,7 @@ test('waits for the catalog to load before checking eligibility', async () => {
 	invite();
 	await settle();
 	assert.equal(asked.length, 0);
-	catalog.whiteboards.push({}, {}, {});
+	catalog.reviews.push({}, {}, {});
 	loaded();
 	await settle();
 	assert.equal(asked.length, 1);

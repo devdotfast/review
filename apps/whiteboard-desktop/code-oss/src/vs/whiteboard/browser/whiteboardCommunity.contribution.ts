@@ -36,7 +36,7 @@ export class WhiteboardCommunityContribution implements IWorkbenchContribution {
 			return; // the seeding reload would discard both the question and the answer
 		}
 		await catalogService.initialize();
-		if (catalogService.whiteboards.filter(whiteboard => whiteboard.kind !== 'scratchpad').length < 2) {
+		if (catalogService.reviews.filter(whiteboard => whiteboard.kind !== 'scratchpad').length < 2) {
 			return;
 		}
 		const result = await dialogService.confirm({

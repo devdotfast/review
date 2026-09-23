@@ -441,7 +441,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 			let renderSeq = 0;
 			const renderHome = async () => {
 				const seq = ++renderSeq;
-				const whiteboards = this.apiCatalog.whiteboards;
+				const whiteboards = this.apiCatalog.reviews;
 				const isEmpty = whiteboards.length === 0;
 				// Only the Welcome rail needs install status; the list must
 				// render without waiting on it. One fetch serves both the
@@ -456,7 +456,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 					this.whiteboardTelemetryService.capture("review_opened", {
 						via: "home",
 					});
-					const api = this.apiCatalog.whiteboards.find((whiteboard) => whiteboard.sessionId === uuid);
+					const api = this.apiCatalog.reviews.find((whiteboard) => whiteboard.sessionId === uuid);
 					return api ? this.tabsService.openApiWhiteboard(uuid, api.title) : Promise.resolve();
 				};
 				return this.render(
@@ -468,7 +468,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 						dismissWhiteboard: (uuid) => this.apiCatalog.attention(uuid, "dismiss"),
 						restoreWhiteboard: (uuid) => this.apiCatalog.attention(uuid, "restore"),
 						openSourceTree: (uuid) => {
-							const api = this.apiCatalog.whiteboards.find((whiteboard) => whiteboard.sessionId === uuid);
+							const api = this.apiCatalog.reviews.find((whiteboard) => whiteboard.sessionId === uuid);
 							if (api) {
 								void this.tabsService.openApiSource({ sessionId: api.sessionId, kind: "current" }, api.title).then(() => this.explorerParts.show());
 								return;
@@ -812,7 +812,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 			tutorialTotal: steps.length,
 			// Drafts are filtered out of this list and the tutorial never
 			// joins it, so this counts only a real published review.
-			published: this.apiCatalog.whiteboards.length > 0,
+			published: this.apiCatalog.reviews.length > 0,
 		};
 	}
 
@@ -1053,7 +1053,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 		return {
 			...connection,
 			wasmUrl: assets.whiteboardWasmUrl,
-			appVersion: this.productService.whiteboardVersion ?? this.productService.version,
+			appVersion: this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
 			host: "desktop",
 		};

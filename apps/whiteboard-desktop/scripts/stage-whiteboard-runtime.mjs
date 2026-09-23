@@ -52,6 +52,13 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "skills/whiteboard/SKILL.md",
   "skills/whiteboard/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
+  "instructions/authoring-live.md",
+  "instructions/authoring-batch.md",
+  "instructions/document-authoring.md",
+  "instructions/headless.md",
+  "instructions/prepared-worktrees.md",
+  "instructions/scratchpad.md",
+  "instructions/trace-archaeology.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
 ];

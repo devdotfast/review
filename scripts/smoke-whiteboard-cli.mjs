@@ -71,6 +71,13 @@ try {
     "dist/whiteboard-cli.js",
     "skills/whiteboard/docs/README.md",
     "skills/trace-archaeology/SKILL.md",
+    "instructions/authoring-live.md",
+    "instructions/authoring-batch.md",
+    "instructions/document-authoring.md",
+    "instructions/headless.md",
+    "instructions/prepared-worktrees.md",
+    "instructions/scratchpad.md",
+    "instructions/trace-archaeology.md",
   ])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));

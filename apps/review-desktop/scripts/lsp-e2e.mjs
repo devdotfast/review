@@ -1113,6 +1113,10 @@ try {
     path: path.join(root, "definition-target.png"),
   });
   await record("native Go to Definition stays in the saved review checkout");
+  await probe(
+    { command: "workbench.action.closeAllEditors" },
+    headNavigator.page,
+  );
 
   await api(`/${review.reviewId}/open`, "POST");
   await until(async () => {

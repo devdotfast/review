@@ -65,6 +65,7 @@ export type ReviewCliCommandPath =
   | "trace.config.migrate"
   | "api"
   | "mcp"
+  | "server.start"
   | "invalid";
 
 export type ReviewTelemetryErrorName =
@@ -127,11 +128,15 @@ export interface ReviewCommandTelemetryInput {
   properties?: PostHogCaptureProperties;
   errorName?: ReviewTelemetryErrorName;
   errorCategory?: ReviewTelemetryErrorCategory;
+  /** Overrides the instance surface as the `surface` property. */
+  surface?: ReviewTelemetrySurface;
 }
 
 export interface ReviewCommandStartedInput {
   command: ReviewCliCommandPath;
   commandRunId: string;
+  /** Overrides the instance surface as the `surface` property. */
+  surface?: ReviewTelemetrySurface;
 }
 
 export interface ReviewTelemetryContext {
@@ -297,27 +302,40 @@ export class ReviewTelemetry {
   }
 
   async captureInstallationCreated(): Promise<void> {
+    await this.announceOnce("installationCreatedSent", async (config) => {
+      await this.captureClient.capture({
+        event: "review_installation_created",
+        distinctId: config.installationId,
+        properties: await this.commonProperties(config),
+      });
+    });
+  }
+
+  /**
+   * Sends an event exactly once per identity, guarded by a persisted flag on
+   * the install config. The flag is persisted before the send completes:
+   * under-counting an install is recoverable, announcing one machine twice
+   * is not. A printed event is not a sent event, so the debug sink leaves
+   * the flag alone (it still always sends, ignoring opt-out as today).
+   */
+  private async announceOnce(
+    flag: "installationCreatedSent" | "firstReviewPresentedSent",
+    send: (config: ReviewTelemetryInstallConfig) => Promise<void>,
+  ): Promise<void> {
     if (!this.captureClient.enabled || this.optedOut()) return;
     await this.withConfigLock(async () => {
       const config = await this.readOrCreateInstallConfig();
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
 
-      if (this.optedOut(config) || config.installationCreatedSent) {
-        return;
+      if (this.optedOut(config) || config[flag]) return;
+
+      if (!this.captureClient.ignoresOptOut) {
+        config[flag] = true;
+        this.writeInstallConfig(config);
       }
 
-      await this.captureClient.capture({
-        event: "review_installation_created",
-        distinctId: config.installationId,
-        properties: await this.commonProperties(config),
-      });
-
-      // A printed event is not a sent event. Persisting the flag here would
-      // suppress the real installation event on this machine forever.
-      if (this.captureClient.ignoresOptOut) return;
-      config.installationCreatedSent = true;
-      this.writeInstallConfig(config);
+      await send(config);
     });
   }
 
@@ -338,6 +356,7 @@ export class ReviewTelemetry {
       command_path: input.command,
       command_run_id: input.commandRunId,
       agent_kind: this.sessionAgent(),
+      ...(input.surface ? { surface: input.surface } : {}),
     });
   }
 
@@ -475,6 +494,8 @@ export class ReviewTelemetry {
     if (input.errorName) properties.error_name = input.errorName;
 
     if (input.errorCategory) properties.error_category = input.errorCategory;
+
+    if (input.surface) properties.surface = input.surface;
     await this.captureEvent(event, properties);
   }
 
@@ -564,10 +585,15 @@ export class ReviewTelemetry {
       // Missing or invalid config gets replaced below.
     }
 
+    const legacyInstallId = await this.readLegacyInstallId();
     const config = createTelemetryInstallConfig(
-      (await this.readLegacyInstallId()) ?? this.idFactory(),
+      legacyInstallId ?? this.idFactory(),
       this.now,
     );
+
+    // A legacy id is by definition an existing installation: never announce
+    // it as newly created.
+    if (legacyInstallId) config.installationCreatedSent = true;
 
     this.writeInstallConfig(config);
 

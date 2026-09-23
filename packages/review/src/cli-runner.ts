@@ -66,6 +66,7 @@ import {
   serverNotReady,
 } from "./server-discovery";
 import { setTraceAttribute, span } from "./startup-trace";
+import type { ReviewTelemetrySurface } from "./telemetry-config";
 import {
   runTraceBlame,
   runTraceDisable,
@@ -175,6 +176,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         commandRunId: string;
         startedAt: number;
         finished: boolean;
+        surface?: ReviewTelemetrySurface;
       }
     | undefined;
 
@@ -788,15 +790,17 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     const commandRunId = telemetry.createCommandRunId();
     setTraceAttribute("command", command);
     setTraceAttribute("commandRunId", commandRunId);
+    const surface = commandSurface(command);
     activeTelemetry = {
       command,
       commandRunId,
       startedAt: Date.now(),
       finished: false,
+      surface,
     };
     await attemptTelemetry(() => telemetry.captureInstallationCreated());
     await attemptTelemetry(() =>
-      telemetry.captureCommandStarted({ command, commandRunId }),
+      telemetry.captureCommandStarted({ command, commandRunId, surface }),
     );
   });
   program.hook("postAction", async () => {
@@ -1037,6 +1041,7 @@ async function finishActiveTelemetry(
         commandRunId: string;
         startedAt: number;
         finished: boolean;
+        surface?: ReviewTelemetrySurface;
       }
     | undefined,
   exitCode: number,
@@ -1054,6 +1059,7 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
+          surface: active.surface,
         })
       : telemetry.captureCommandFailed({
           command: active.command,
@@ -1061,6 +1067,7 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
+          surface: active.surface,
           ...classification,
         }),
   );
@@ -1121,6 +1128,8 @@ function telemetryCommandPath(
 
   if (parent === "config" && name === "migrate") return "trace.config.migrate";
 
+  if (parent === "server" && name === "start") return "server.start";
+
   if (name === "login" || name === "logout" || name === "whoami") return name;
 
   if (name === "api" || name === "mcp" || name === "connect") return name;
@@ -1142,6 +1151,16 @@ function telemetryCommandPath(
   }
 
   return undefined;
+}
+
+function commandSurface(command: ReviewCliCommandPath): ReviewTelemetrySurface {
+  if (command === "server.start") return "headless";
+
+  if (command === "mcp") return "mcp";
+
+  if (command === "api") return "api";
+
+  return "cli";
 }
 
 interface ErrorClassification {

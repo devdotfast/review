@@ -464,6 +464,7 @@ describe("Review CLI", () => {
     expect(captureCommandStarted).toHaveBeenCalledWith({
       command: "info",
       commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+      surface: "cli",
     });
     expect(captureCommandFailed).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -189,6 +189,55 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("never announces a legacy installation as newly created", async () => {
+    const { configPath, events, legacyConfigPath, rootPath, telemetry } =
+      createTelemetry();
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(legacyConfigPath, { installId: "legacy-install" });
+
+    await telemetry.captureInstallationCreated();
+
+    expect(events).toEqual([]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "legacy-install",
+      installationCreatedSent: true,
+    });
+  });
+
+  it("marks the installation as announced before the event is queued", async () => {
+    const { configPath, rootPath, telemetry } = createTelemetry({
+      captureClient: {
+        enabled: true,
+        capture: async () => {
+          throw new Error("queue is full");
+        },
+      },
+    });
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureInstallationCreated().catch(() => undefined);
+
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationCreatedSent: true,
+    });
+  });
+
+  it("lets a command run override the surface", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureCommandStarted({
+      command: "server.start",
+      commandRunId: "run-12345678",
+      surface: "headless",
+    });
+
+    expect(events[0].properties).toMatchObject({
+      command_path: "server.start",
+      surface: "headless",
+    });
+  });
+
   it("preserves the stored internal marker when the telemetry setting changes", async () => {
     const { configPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -525,6 +574,7 @@ function createTelemetry(input?: {
   installationId?: string;
   commandRunId?: string;
   surface?: ReviewTelemetryOptions["surface"];
+  captureClient?: ReviewTelemetryCaptureClient;
 }) {
   const rootPath = path.join(
     os.tmpdir(),
@@ -535,7 +585,7 @@ function createTelemetry(input?: {
   const legacyConfigPath = path.join(rootPath, "legacy.json");
   const events: PostHogCaptureInput[] = [];
 
-  const captureClient: ReviewTelemetryCaptureClient & {
+  const defaultCaptureClient: ReviewTelemetryCaptureClient & {
     defaults?: PostHogCaptureProperties;
   } = {
     enabled: true,
@@ -543,9 +593,13 @@ function createTelemetry(input?: {
       events.push(event);
     },
     setDefaultProperties(properties) {
-      captureClient.defaults = properties;
+      defaultCaptureClient.defaults = properties;
     },
   };
+
+  const captureClient: ReviewTelemetryCaptureClient & {
+    defaults?: PostHogCaptureProperties;
+  } = input?.captureClient ?? defaultCaptureClient;
 
   const options: ReviewTelemetryOptions = {
     captureClient,

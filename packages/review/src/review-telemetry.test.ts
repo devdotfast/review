@@ -499,6 +499,7 @@ function storedConfig(
     installationId: "stored-install",
     createdAt: "2025-01-02T03:04:05.000Z",
     installationCreatedSent: false,
+    firstReviewPresentedSent: false,
     enabled: true,
     internal: false,
     ...input,

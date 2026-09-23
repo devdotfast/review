@@ -11,13 +11,70 @@ export interface ReviewTelemetryInstallConfig {
   installationId: string;
   createdAt: string;
   installationCreatedSent: boolean;
+  firstReviewPresentedSent: boolean;
   enabled: boolean;
   internal: boolean;
+}
+
+export type ReviewTelemetryChannel = "stable" | "preview" | "dev";
+
+export type ReviewTelemetryEnvironment =
+  | "production"
+  | "ci"
+  | "internal"
+  | "e2e"
+  | "smoke";
+
+export type ReviewTelemetrySurface =
+  | "desktop"
+  | "cli"
+  | "headless"
+  | "mcp"
+  | "api";
+
+/** Set by Electron main from product.json `quality`; `dev` for an unpackaged run. */
+export const REVIEW_CHANNEL_ENV = "DEV_FAST_REVIEW_CHANNEL";
+
+/** Set by the e2e harness (`e2e`) and the packaged smoke scripts (`smoke`). */
+export const REVIEW_TELEMETRY_ENV_ENV = "DEV_FAST_REVIEW_TELEMETRY_ENV";
+
+const CHANNELS: readonly ReviewTelemetryChannel[] = ["stable", "preview", "dev"];
+
+export function reviewTelemetryChannel(
+  env: NodeJS.ProcessEnv,
+): ReviewTelemetryChannel {
+  const value = env[REVIEW_CHANNEL_ENV]?.trim() as ReviewTelemetryChannel;
+
+  return CHANNELS.includes(value) ? value : "stable";
+}
+
+/**
+ * First match wins: a harness declares itself, then CI, then a dev.fast
+ * checkout or a persisted internal marker, else a real user.
+ */
+export function reviewTelemetryEnvironment(
+  env: NodeJS.ProcessEnv,
+  config?: Pick<ReviewTelemetryInstallConfig, "internal">,
+): ReviewTelemetryEnvironment {
+  const harness = env[REVIEW_TELEMETRY_ENV_ENV]?.trim();
+
+  if (harness === "e2e" || harness === "smoke") return harness;
+
+  if (env.CI) return "ci";
+
+  if (isInternalTelemetry(env, config)) return "internal";
+
+  return "production";
 }
 
 const TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
   "telemetry",
   "progressive-review.json",
+);
+
+const PREVIEW_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
+  "telemetry",
+  "progressive-review.preview.json",
 );
 
 const LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
@@ -28,7 +85,12 @@ const LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
 export function reviewTelemetryConfigPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return path.join(devReviewHome(env), TELEMETRY_CONFIG_RELATIVE_PATH);
+  return path.join(
+    devReviewHome(env),
+    reviewTelemetryChannel(env) === "preview"
+      ? PREVIEW_TELEMETRY_CONFIG_RELATIVE_PATH
+      : TELEMETRY_CONFIG_RELATIVE_PATH,
+  );
 }
 
 export function legacyAppTelemetryConfigPath(
@@ -73,6 +135,7 @@ const storedTelemetryInstallConfigSchema = z.looseObject({
   installationId: z.string().min(1),
   createdAt: z.string().optional().catch(undefined),
   installationCreatedSent: z.boolean().optional().catch(undefined),
+  firstReviewPresentedSent: z.boolean().optional().catch(undefined),
   enabled: z.boolean().optional().catch(undefined),
   internal: z.boolean().optional().catch(undefined),
 });
@@ -89,6 +152,7 @@ export function normalizeTelemetryInstallConfig(
     installationId: stored.data.installationId,
     createdAt: stored.data.createdAt ?? now().toISOString(),
     installationCreatedSent: stored.data.installationCreatedSent === true,
+    firstReviewPresentedSent: stored.data.firstReviewPresentedSent === true,
     enabled: stored.data.enabled !== false,
     internal: stored.data.internal === true,
   };
@@ -102,6 +166,7 @@ export function createTelemetryInstallConfig(
     installationId,
     createdAt: now().toISOString(),
     installationCreatedSent: false,
+    firstReviewPresentedSent: false,
     enabled: true,
     internal: false,
   };

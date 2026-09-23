@@ -1165,17 +1165,16 @@ it("keeps a live navigator attached to the live checkout without preparing it", 
   expect(git("worktree", "list", "--porcelain")).toBe(before);
   expect(existsSync(path.join(root, "prepared"))).toBe(false);
 
-  const live = await local.data.navigatorWorkspace(
-    local.store.read(reviewId),
-    { file: source.file },
-  );
+  const live = await local.data.navigatorWorkspace(local.store.read(reviewId), {
+    file: source.file,
+  });
 
   expect(live.filePath).toBe(path.join(root, source.file));
 
-  const base = await local.data.navigatorWorkspace(
-    local.store.read(reviewId),
-    { side: "base", file: source.file },
-  );
+  const base = await local.data.navigatorWorkspace(local.store.read(reviewId), {
+    side: "base",
+    file: source.file,
+  });
 
   expect(readFileSync(base.filePath!, "utf8")).toContain("value = 1");
   const outside = path.join(directory, "outside.ts");

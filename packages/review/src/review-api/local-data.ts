@@ -22,17 +22,19 @@ import {
   readFileAtCommit,
   splitGitPatchFiles,
 } from "@dev.fast/local-vcs";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { structuralChangeCounts } from "@dev.fast/review-protocol";
 import type {
   ReviewLanguageEnvironment,
   ReviewSourceEntry,
   StructuralDiffEvent,
 } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
 import { isMissingFileError } from "../fs-utils.js";
+import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
+import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import { StructuralComparisons } from "../server/structural-comparisons.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
@@ -46,8 +48,6 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "../source.js";
-import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
-import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import {
   type ComparisonCoverage,
   type CoverageMode,

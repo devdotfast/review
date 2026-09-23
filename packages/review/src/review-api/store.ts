@@ -1478,7 +1478,7 @@ export class SessionStore {
     const note = [
       "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with session_get first), or pass reuseExisting:false to create a separate review.",
       headMoved &&
-        "The PR head moved since this review's target was set, and the target was NOT changed: call review_set_target to move it, then repair the source references it reports.",
+        "The PR head moved since this review's target was set, and the target was NOT changed: call session_set_target to move it, then repair the source references it reports.",
       ownedBy &&
         "Another session is authoring it now; wait for its lease to end before editing.",
       others.length > 0 &&

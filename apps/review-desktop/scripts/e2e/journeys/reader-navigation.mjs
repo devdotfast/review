@@ -60,7 +60,7 @@ export async function run(ctx) {
       );
 
   const traces = await ctx.apiOk(
-    `/reviews-api/${review.sessionId}/agent-traces`,
+    `/sessions-api/${review.sessionId}/agent-traces`,
   );
 
   assert.ok(
@@ -223,11 +223,11 @@ export async function run(ctx) {
   }, "Risks to scroll to the top of the review");
   ctx.check("table of contents navigates");
 
-  const history = () => ctx.apiOk(`/reviews-api/${review.sessionId}/history`);
+  const history = () => ctx.apiOk(`/sessions-api/${review.sessionId}/history`);
 
   const before = await history();
 
-  const renamed = await ctx.api("/reviews-api/commands", "POST", {
+  const renamed = await ctx.api("/sessions-api/commands", "POST", {
     commandId: randomUUID(),
     operation: { type: "rename", sessionId: review.sessionId, title: RENAMED },
   });

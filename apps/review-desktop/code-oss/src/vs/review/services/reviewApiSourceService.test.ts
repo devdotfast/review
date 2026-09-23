@@ -149,7 +149,7 @@ test("tree entries retain version, side and selected commit when opening a child
 	t.after(() => service.dispose());
 	t.mock.method(globalThis, "fetch", async (value: string) => {
 		const url = new URL(value);
-		assert.equal(url.pathname, "/reviews-api/review-a/tree");
+		assert.equal(url.pathname, "/sessions-api/review-a/tree");
 		assert.equal(url.searchParams.get("path"), "src");
 		assert.equal(url.searchParams.get("version"), "3");
 		assert.equal(url.searchParams.get("side"), "base");
@@ -202,6 +202,7 @@ test("a refreshed current tree keeps its root when a file from the newer version
   t.mock.method(globalThis, "fetch", async (value: string) => {
     const url = new URL(value);
     if (url.pathname.endsWith("/tree")) {
+      assert.equal(url.pathname, "/sessions-api/review-a/tree");
       assert.equal(url.searchParams.get("version"), String(version));
       return Response.json([{ path: "src", kind: "directory" }, { path: "file.ts", kind: "file" }]);
     }

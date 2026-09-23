@@ -167,7 +167,7 @@ try {
   assert.equal(discovery.appPid, app.pid, "isolated implementation process");
 
   const api = async (route, body) => {
-    const response = await fetch(discovery.url + "/reviews-api" + route, {
+    const response = await fetch(discovery.url + "/sessions-api" + route, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         "x-review-token": discovery.token,

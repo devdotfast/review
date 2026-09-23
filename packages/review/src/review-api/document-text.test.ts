@@ -199,5 +199,7 @@ it("offers a shorter outline, complete target reads, and rejects missing IDs", (
   expect(target).not.toContain("[sequence-5]");
   expect(documentText(snapshot, "section-1")).toContain("notify();");
   expect(() => documentText(snapshot, "missing")).toThrow("Target not found");
-  expect(documentText({ ...snapshot, document: [] })).toContain("Empty review");
+  expect(documentText({ ...snapshot, document: [] })).toContain(
+    "Empty session",
+  );
 });

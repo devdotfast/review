@@ -24,7 +24,7 @@ export function documentText(
 
   const lines = [
     `# ${snapshot.title}`,
-    `Review ${snapshot.sessionId} · version ${snapshot.version}`,
+    `Session ${snapshot.sessionId} · version ${snapshot.version}`,
     "",
   ];
 
@@ -180,7 +180,7 @@ export function documentText(
     render(element, 0),
   );
 
-  if (!snapshot.document.length) lines.push("(Empty review)");
+  if (!snapshot.document.length) lines.push(`(Empty session)`);
 
   // Lenses sit beside the document; list them so their ids are at hand.
   if (!target && snapshot.lenses?.length) {
@@ -201,7 +201,7 @@ export function documentText(
   if (!detailed && snapshot.document.length)
     lines.push(
       "",
-      "Use targetId for one component's complete content, or full:true for the whole review.",
+      `Use targetId for one component's complete content, or full:true for the whole session.`,
     );
 
   return lines.join("\n");

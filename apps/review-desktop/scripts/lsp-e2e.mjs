@@ -398,7 +398,7 @@ async function stop() {
 }
 
 async function api(route, method = "GET", body) {
-  const response = await fetch(`${discovery.url}/reviews-api${route}`, {
+  const response = await fetch(`${discovery.url}/sessions-api${route}`, {
     method,
     headers: {
       "x-review-token": discovery.token,

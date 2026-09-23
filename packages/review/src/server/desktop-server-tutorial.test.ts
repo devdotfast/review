@@ -46,10 +46,27 @@ describe("Review Desktop tutorial preparation", () => {
         "content-type": "application/json",
       };
 
-      const catalog = await fetch(`${server.url}/reviews-api`, { headers });
+      const catalog = await fetch(`${server.url}/sessions-api`, { headers });
       expect(catalog.status).toBe(200);
       // The scratchpad is off by default; there are no reviews yet.
       expect(await catalog.json()).toEqual([]);
+
+      for (const route of [
+        "/reviews-api",
+        "/reviews-api/commands",
+        "/reviews-api/old/report",
+      ]) {
+        const response = await fetch(`${server.url}${route}`, {
+          headers,
+          method: "POST",
+          body: "{}",
+        });
+
+        expect(response.status).toBe(410);
+        expect(await response.json()).toMatchObject({
+          code: "review_renamed",
+        });
+      }
 
       for (const route of [
         "/reviews",

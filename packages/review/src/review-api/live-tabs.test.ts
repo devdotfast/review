@@ -30,7 +30,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
 
   const request = async (url: string, init?: RequestInit) => {
     const response = await app.request(
-      url.replace("http://review.test/reviews-api", ""),
+      url.replace("http://review.test/sessions-api", ""),
       init,
     );
 

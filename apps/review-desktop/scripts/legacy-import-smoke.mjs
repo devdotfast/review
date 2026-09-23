@@ -239,7 +239,7 @@ for (const review of expected) {
     } else {
       const snapshot = await until(async () => {
         await api("/reviews");
-        const candidate = await api(`/reviews-api/${review.uuid}?full=true`);
+        const candidate = await api(`/sessions-api/${review.uuid}?full=true`);
 
         if (candidate.status === 200) return candidate.value;
 

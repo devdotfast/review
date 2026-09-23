@@ -51,7 +51,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 			this.started = undefined;
 			this.reviews = this.reviews.map(review => ({ ...review, diffStats: null }));
 			this.changed.fire();
-			void this.initialize().catch(error => this.log.warn("[Review] Catalog mode change failed:", error));
+			void this.initialize().catch(error => this.log.warn("[Whiteboard] Catalog mode change failed:", error));
 		}));
 	}
 
@@ -71,7 +71,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		const abort = new AbortController();
 		this.connectionAbort = abort;
 		const mode = this.configuration.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === false ? "textual" : "structural";
-		const client = new SessionApiClient(await this.session.getConnection());
+		const client = new SessionApiClient({ ...await this.session.getConnection(), apiPath: "/sessions-api" });
 		this._register(toDisposable(() => abort.abort()));
 		const accept = (reviews: SessionSummary[]) => {
 			if (abort.signal.aborted) return;
@@ -89,7 +89,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		accept(await client.read<SessionSummary[]>(`?mode=${mode}`, abort.signal));
 		this.client = client;
 		void client.follow<SessionSummary[]>(null, abort.signal, accept, (error) =>
-			this.log.warn("[Review] API review list disconnected:", error),
+			this.log.warn("[Whiteboard] API review list disconnected:", error),
 			mode,
 		);
 	}

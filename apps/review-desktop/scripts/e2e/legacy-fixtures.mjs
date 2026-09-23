@@ -91,8 +91,8 @@ export const openLegacyReview = (ctx, fixture) =>
 /** Startup migrates the legacy directory before exposing the JSON catalog. */
 export const waitForImport = (ctx, sessionId) =>
   ctx.until(async () => {
-    await ctx.api("/reviews-api");
-    const snapshot = await ctx.api(`/reviews-api/${sessionId}?full=true`);
+    await ctx.api("/sessions-api");
+    const snapshot = await ctx.api(`/sessions-api/${sessionId}?full=true`);
 
     return snapshot.status === 200 ? snapshot.value : null;
   }, `${sessionId} imported`);

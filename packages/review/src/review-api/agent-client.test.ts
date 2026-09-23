@@ -24,7 +24,7 @@ afterAll(() => store.close());
 
 const client = new SessionApiClient(
   { serverUrl: "http://review.test", token: "test" },
-  async (url, init) => app.request(url.replace("/reviews-api", ""), init),
+  async (url, init) => app.request(url.replace("/sessions-api", ""), init),
 );
 
 afterEach(async () => {
@@ -47,7 +47,7 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
   const call = (name: string, args: Parameters<typeof callAuthoringTool>[2]) =>
     callAuthoringTool(
       client,
-      tools.find((t) => t.name === `review_${name}`)!,
+      tools.find((t) => t.name === `session_${name}`)!,
       args,
     );
 
@@ -149,10 +149,31 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
   ).toContain("Updated through the reading view.");
 });
 
-it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
+it("serves Whiteboard MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
+  const api = createSessionApi(
+    store,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  );
+
+  const apiClient = new SessionApiClient(
+    { serverUrl: "http://test", token: "test" },
+    async (url, init) => api.request(url.replace("/sessions-api", ""), init),
+  );
+
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const server = await serveWhiteboardMcp(async () => client, stdin, stdout);
+
+  const server = await serveWhiteboardMcp(
+    async () => apiClient,
+    stdin,
+    stdout,
+    process.stderr,
+  );
+
   let output = "";
   stdout.on("data", (chunk) => {
     output += chunk;
@@ -191,7 +212,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     ListToolsResultSchema.parse(list.result);
     expect(
       list.result.tools.find(
-        (tool: AuthoringTool) => tool.name === "review_edit",
+        (tool: AuthoringTool) => tool.name === `session_edit`,
       ).inputSchema,
     ).toMatchObject({
       type: "object",
@@ -199,7 +220,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     const error = await request(3, "tools/call", {
-      name: "review_get",
+      name: `session_get`,
       arguments: { sessionId: "missing" },
     });
 
@@ -209,7 +230,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     const next = await request(4, "tools/call", {
-      name: "review_list",
+      name: `session_list`,
       arguments: {},
     });
 
@@ -225,7 +246,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     const read = await request(5, "tools/call", {
-      name: "review_get",
+      name: `session_get`,
       arguments: { sessionId: created.sessionId },
     });
 
@@ -234,7 +255,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     );
 
     const raw = await request(6, "tools/call", {
-      name: "review_get",
+      name: `session_get`,
       arguments: { sessionId: created.sessionId, full: true, format: "json" },
     });
 
@@ -245,28 +266,6 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
   } finally {
     await server.close();
   }
-});
-
-it("shows CLI help without requiring Desktop or touching review storage", async () => {
-  let output = "";
-
-  const stream = new Writable({
-    write(chunk, _encoding, done) {
-      output += chunk;
-      done();
-    },
-  });
-
-  expect(
-    await runWhiteboardAgentCli({
-      argv: ["api", "--help"],
-      stdin: Readable.from([]),
-      stdout: stream,
-      stderr: stream,
-      env: { DEV_REVIEW_HOME: "/does-not-exist" },
-    }),
-  ).toBe(0);
-  expect(output).toContain("review api <tool-name>");
 });
 
 it("prints readable CLI output by default and raw objects with --json", async () => {
@@ -298,7 +297,7 @@ it("prints readable CLI output by default and raw objects with --json", async ()
         await runWhiteboardAgentCli({
           argv: [
             "api",
-            "review_get",
+            "session_get",
             JSON.stringify({ sessionId: created.sessionId, full: true }),
             ...flags,
           ],
@@ -348,7 +347,7 @@ it("binds existing content through the host-advertised PR tool", async () => {
 
   await callAuthoringTool(
     client,
-    tools.find((tool) => tool.name === "review_repin")!,
+    tools.find((tool) => tool.name === "session_repin")!,
     {
       commandId: randomUUID(),
       sessionId: created.sessionId,

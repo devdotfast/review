@@ -62,7 +62,9 @@ it("routes JSON reports and authenticated beacons without legacy document parame
     }),
   );
 
-  expect(report.pathname).toBe("/reviews-api/review%2Fid/telemetry/bug-report");
+  expect(report.pathname).toBe(
+    "/sessions-api/review%2Fid/telemetry/bug-report",
+  );
   expect([...report.searchParams]).toEqual([["version", "0"]]);
 
   const beacon = new URL(
@@ -78,7 +80,7 @@ it("routes JSON reports and authenticated beacons without legacy document parame
     ),
   );
 
-  expect(beacon.pathname).toBe("/reviews-api/review/telemetry/tab");
+  expect(beacon.pathname).toBe("/sessions-api/review/telemetry/tab");
   expect(beacon.searchParams.get("token")).toBe("a+b&c");
   expect(beacon.searchParams.has("document")).toBe(false);
 });

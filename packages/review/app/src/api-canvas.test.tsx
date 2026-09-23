@@ -84,8 +84,19 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     },
   });
 
-  const app = new Hono().route("/reviews-api", createSessionApi(store));
-  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const app = new Hono().route(
+    "/sessions-api",
+    createSessionApi(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ),
+  );
+
+  app.get("/sessions-api/:id/commits", (context) => context.json([]));
   const ready = vi.fn<() => void>();
   const displayedVersion = vi.fn<(version: number) => void>();
 
@@ -351,8 +362,19 @@ it("dismisses immediately through the API without changing the saved document", 
     pins,
   });
 
-  const app = new Hono().route("/reviews-api", createSessionApi(store));
-  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const app = new Hono().route(
+    "/sessions-api",
+    createSessionApi(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ),
+  );
+
+  app.get("/sessions-api/:id/commits", (context) => context.json([]));
 
   const bridge = testReviewBridge(
     {},
@@ -406,13 +428,24 @@ it.each([false, true])(
       ],
     };
 
-    const app = new Hono().route("/reviews-api", createSessionApi(store));
-    app.get("/reviews-api/:id/commits", (context) => context.json([]));
-    app.get("/reviews-api/:id/agent-traces", (context) =>
+    const app = new Hono().route(
+      "/sessions-api",
+      createSessionApi(
+        store,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    );
+
+    app.get("/sessions-api/:id/commits", (context) => context.json([]));
+    app.get("/sessions-api/:id/agent-traces", (context) =>
       context.json({ ok: true, sessions: [] }),
     );
     app.get(
-      `/reviews-api/${review.sessionId}/resources/${traceId}`,
+      `/sessions-api/${review.sessionId}/resources/${traceId}`,
       (context) => context.json(trace),
     );
 
@@ -517,7 +550,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
   });
 
   const app = new Hono();
-  app.get("/reviews-api/:id/progress", (c) =>
+  app.get("/sessions-api/:id/progress", (c) =>
     c.json({
       files: [],
       lenses: [],
@@ -529,8 +562,18 @@ it("renders a code peek block on its pinned side without fetching source text", 
       },
     }),
   );
-  app.route("/reviews-api", createSessionApi(store));
-  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  app.route(
+    "/sessions-api",
+    createSessionApi(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ),
+  );
+  app.get("/sessions-api/:id/commits", (context) => context.json([]));
   const requested: string[] = [];
   const created: ReviewInlineEditorSpec[] = [];
 
@@ -644,7 +687,12 @@ it("copies prose and code from the displayed historical JSON review", async () =
             : "latest source",
     };
   });
-  const app = new Hono().route("/reviews-api", createSessionApi(store, data));
+
+  const app = new Hono().route(
+    "/sessions-api",
+    createSessionApi(store, data, undefined, undefined, undefined, undefined),
+  );
+
   const listeners = new Set<Parameters<ReviewCanvasBridge["subscribe"]>[0]>();
 
   const bridge = testReviewBridge(
@@ -705,11 +753,11 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     const text = await copy();
     expect(text).toContain(
-      `Review ID: ${review.sessionId}\nVersion: ${inserted.version}`,
+      `Session ID: ${review.sessionId}\nVersion: ${inserted.version}`,
     );
     expect(text).toContain("> Selected historical prose");
     expect(text).toContain(
-      `review_get({"sessionId":"${review.sessionId}","version":${inserted.version},"full":true})`,
+      `session_get({"sessionId":"${review.sessionId}","version":${inserted.version},"full":true})`,
     );
     expect(text).not.toContain("review.mdx");
 
@@ -807,9 +855,21 @@ it("degrades to the retained document and an unavailable Commits tab when the ch
     });
 
     await gone.refreshWorktrees();
-    const app = new Hono().route("/reviews-api", createSessionApi(gone));
+
+    const app = new Hono().route(
+      "/sessions-api",
+      createSessionApi(
+        gone,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    );
+
     const commits = vi.fn<() => Response>(() => new Response("[]"));
-    app.get("/reviews-api/:id/commits", commits);
+    app.get("/sessions-api/:id/commits", commits);
 
     const bridge = testReviewBridge(
       {},

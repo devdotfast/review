@@ -37,11 +37,18 @@ const isBytes = (value: JsonValue | FixtureBytes): value is FixtureBytes =>
 export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
   const request = async (url: string | URL): Promise<Response> => {
     const { pathname, searchParams } = new URL(String(url));
-    const route = pathname.slice(pathname.indexOf("/reviews-api") + 12);
+
+    const route = pathname.slice(
+      pathname.indexOf("/sessions-api") + "/sessions-api".length,
+    );
+
     const id = api.snapshot.sessionId;
 
-    if (route === `/${id}` && searchParams.get("full") === "true")
-      return Response.json(api.snapshot);
+    if (route === `/${id}` && searchParams.get("full") === "true") {
+      const { sessionId, ...snapshot } = api.snapshot;
+
+      return Response.json({ ...snapshot, sessionId: sessionId });
+    }
 
     if (route === `/${id}/progress`)
       return Response.json(

@@ -860,11 +860,11 @@ it("lists the version's commits and reads a selected commit's diff against its p
   );
 
   const app = new Hono().route(
-    "/reviews-api",
+    "/sessions-api",
     createSessionApi(local.store, local.data),
   );
 
-  const route = `/reviews-api/${review.sessionId}`;
+  const route = `/sessions-api/${review.sessionId}`;
 
   const commits = await (
     await app.request(`${route}/commits?version=0`)
@@ -988,13 +988,13 @@ it("serves a historical version's file at the pins that version was saved with",
   expect(local.store.read(sessionId).version).toBe(2);
 
   const app = new Hono().route(
-    "/reviews-api",
+    "/sessions-api",
     createSessionApi(local.store, local.data),
   );
 
   const read = async (query: string) =>
     (
-      await app.request(`/reviews-api/${sessionId}/file?side=head&${query}`)
+      await app.request(`/sessions-api/${sessionId}/file?side=head&${query}`)
     ).json();
 
   expect(await read(`version=1&file=${source.file}`)).toEqual({
@@ -1037,11 +1037,11 @@ it("browses committed directories, including history, without listing untracked 
   );
 
   const app = new Hono().route(
-    "/reviews-api",
+    "/sessions-api",
     createSessionApi(local.store, local.data),
   );
 
-  const route = `/reviews-api/${sessionId}/tree`;
+  const route = `/sessions-api/${sessionId}/tree`;
   const root = await (await app.request(route)).json();
   expect(root).toContainEqual({ path: "nested", kind: "directory" });
   expect(root).not.toContainEqual(
@@ -1782,12 +1782,12 @@ it("decodes images and checks trace/map evidence before accepting components", a
   await local.data.upload(map);
 
   const app = new Hono().route(
-    "/reviews-api",
+    "/sessions-api",
     createSessionApi(local.store, local.data),
   );
 
   const resolved = await app.request(
-    `/reviews-api/${review.sessionId}/maps/${map.id}?version=0`,
+    `/sessions-api/${review.sessionId}/maps/${map.id}?version=0`,
   );
 
   expect(resolved.status).toBe(200);
@@ -1947,7 +1947,7 @@ it("exposes real source and resource operations through the authenticated deskto
 
   try {
     await server.listen();
-    const url = server.url + "/reviews-api";
+    const url = server.url + "/sessions-api";
 
     const headers = {
       "content-type": "application/json",
@@ -2126,7 +2126,7 @@ it("copies prose with the displayed version's title and immutable review identit
 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
-    text: `Selected text from Review: Original title\nReview ID: ${sessionId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nReview base: ${pins.base}\nReview head: ${pins.head}\nRead this version with review_get({"sessionId":"${sessionId}","version":0,"full":true}).\n\n> First line\n> Second line\n\n`,
+    text: `Selected text from Whiteboard: Original title\nSession ID: ${sessionId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nSession base: ${pins.base}\nSession head: ${pins.head}\nRead this version with session_get({"sessionId":"${sessionId}","version":0,"full":true}).\n\n> First line\n> Second line\n\n`,
   });
 });
 
@@ -2160,7 +2160,7 @@ it("copies code from historical pins after a repin, never from working-tree cont
 
   expect(historical.status).toBe(200);
   expect(await historical.json()).toEqual({
-    text: `Selected code from Review: Code\nReview ID: ${sessionId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nReview base: ${pins.base}\nReview head: ${pins.head}\nRead this version with review_get({"sessionId":"${sessionId}","version":0,"full":true}).\n\n## Value\n\nSelected source\n\n## head: example.ts:1-1 (${pins.head})\n    export const value = 2;\n\n`,
+    text: `Selected code from Whiteboard: Code\nSession ID: ${sessionId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nSession base: ${pins.base}\nSession head: ${pins.head}\nRead this version with session_get({"sessionId":"${sessionId}","version":0,"full":true}).\n\n## Value\n\nSelected source\n\n## head: example.ts:1-1 (${pins.head})\n    export const value = 2;\n\n`,
   });
 
   const latest = await app.request(`/${sessionId}/copy-context`, {
@@ -3152,7 +3152,7 @@ it("validates grouped source ranges with one read per pinned file", async () => 
   }
 });
 
-describe("review_diff", () => {
+describe("session_diff", () => {
   const exampleLines = (changed: number) =>
     Array.from({ length: 12 }, (_, index) =>
       index + 1 === changed ? "changed line" : `line ${index + 1}`,
@@ -3191,11 +3191,11 @@ describe("review_diff", () => {
 
     const client = new SessionApiClient(
       { serverUrl: "http://review.test", token: "test" },
-      async (url, init) => app.request(url.replace("/reviews-api", ""), init),
+      async (url, init) => app.request(url.replace("/sessions-api", ""), init),
     );
 
     const tools = await client.read<AuthoringTool[]>("/authoring");
-    const tool = tools.find((item) => item.name === "review_diff")!;
+    const tool = tools.find((item) => item.name === "session_diff")!;
 
     call = async (input) => {
       const result = await callAuthoringTool(client, tool, {

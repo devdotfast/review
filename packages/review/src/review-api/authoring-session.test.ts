@@ -56,7 +56,7 @@ it("enforces session ownership through the tool adapter while allowing reads and
 
   const client = new SessionApiClient(
     { serverUrl: "http://review.test", token: "test" },
-    async (url, init) => api.request(url.replace("/reviews-api", ""), init),
+    async (url, init) => api.request(url.replace("/sessions-api", ""), init),
   );
 
   const leaseId = randomUUID(),
@@ -66,7 +66,7 @@ it("enforces session ownership through the tool adapter while allowing reads and
 
   await callAuthoringTool(
     client,
-    tools.find((tool) => tool.name === "review_activity")!,
+    tools.find((tool) => tool.name === "session_activity")!,
     {
       sessionId,
       action: "begin",
@@ -120,12 +120,12 @@ it("enforces session ownership through the tool adapter while allowing reads and
 
   await callAuthoringTool(
     client,
-    tools.find((tool) => tool.name === "review_edit")!,
+    tools.find((tool) => tool.name === "session_edit")!,
     input,
   );
   await callAuthoringTool(
     client,
-    tools.find((tool) => tool.name === "review_edit")!,
+    tools.find((tool) => tool.name === "session_edit")!,
     input,
   );
   expect(b.read(sessionId)).toMatchObject({

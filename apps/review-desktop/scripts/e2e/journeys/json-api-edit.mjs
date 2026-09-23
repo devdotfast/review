@@ -37,10 +37,10 @@ export async function run(ctx) {
 
   const canvas = page.locator(".review-canvas-root");
 
-  const before = await apiOk(`/reviews-api/${metadata.sourceUuid}?full=true`);
+  const before = await apiOk(`/sessions-api/${metadata.sourceUuid}?full=true`);
 
   const edit = (content) =>
-    api("/reviews-api/commands", "POST", {
+    api("/sessions-api/commands", "POST", {
       commandId: randomUUID(),
       operation: {
         type: "edit",
@@ -87,7 +87,7 @@ export async function run(ctx) {
     assert.match(rejected.value.error, new RegExp(message));
   }
 
-  const after = await apiOk(`/reviews-api/${metadata.sourceUuid}?full=true`);
+  const after = await apiOk(`/sessions-api/${metadata.sourceUuid}?full=true`);
 
   assert.deepEqual(
     after,

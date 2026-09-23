@@ -32,7 +32,7 @@ function homeUi(ctx) {
 
 /** The review ids the store lists; `apiOk` keeps "the deleted review is gone" from passing on an error body. */
 async function listedReviewIds(ctx) {
-  return (await ctx.apiOk("/reviews-api")).map((summary) => summary.sessionId);
+  return (await ctx.apiOk("/sessions-api")).map((summary) => summary.sessionId);
 }
 
 export async function run(ctx) {

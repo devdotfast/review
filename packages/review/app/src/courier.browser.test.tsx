@@ -190,8 +190,26 @@ it("takes the reader to the courier from the top-bar badge, and he jumps", async
   await vi.waitFor(() => expect(scroll).toHaveBeenCalled());
   await vi.waitFor(() => expect(courier()!.dataset.motion).toBe("jumping"));
 
-  // Without a courier to go to, the badge is only a status.
+  // Without a courier to go to, the badge still opens the Review surface,
+  // and scrolls nowhere.
+  onLocate.mockClear();
+  scroll.mockClear();
   await render(working(), null);
+
+  const opener = article.querySelector<HTMLButtonElement>(
+    "button.host-authoring-activity",
+  )!;
+
+  expect(opener.getAttribute("aria-label")).toBeNull();
+  expect(opener.textContent).toContain("Agent working…");
+  await act(async () => opener.click());
+  expect(onLocate).toHaveBeenCalledTimes(1);
+  await new Promise(requestAnimationFrame);
+  await new Promise(requestAnimationFrame);
+  expect(scroll).not.toHaveBeenCalled();
+
+  // With the stream dropped, the badge is only a status.
+  await render("unknown", null);
   expect(article.querySelector("button.host-authoring-activity")).toBeNull();
   expect(article.querySelector(".host-authoring-activity")).toBeTruthy();
 });

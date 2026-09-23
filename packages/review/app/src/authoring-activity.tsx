@@ -15,14 +15,15 @@ export const AuthoringActivityContext = createContext<
 >(undefined);
 
 /**
- * The top-bar badge: the mini courier and what the agent is doing. Clicking
- * it takes the reader to the big courier, on the Review surface, and he
- * jumps so the eye finds him.
+ * The top-bar badge: the mini courier and what the agent is doing. While an
+ * agent works, clicking it opens the Review surface; when the courier is on
+ * the board, it also takes the reader to him, and he jumps so the eye finds
+ * him.
  */
 export function AuthoringActivityBadge({
   onLocate,
 }: {
-  /** Show the Review surface before scrolling to the courier. */
+  /** Show the Review surface (before scrolling to the courier, if any). */
   onLocate?(): void;
 }) {
   const activity = useContext(AuthoringActivityContext);
@@ -37,23 +38,22 @@ export function AuthoringActivityBadge({
     ...new Set(focuses.map((focus) => focus.description)),
   ].join(" · ");
 
-  const locatable = Boolean(cursor && working);
-
   const tooltip = useTooltip<HTMLElement>(
     working
-      ? `${description || "An agent has reported ongoing authoring work. This signal expires if updates stop."}${locatable ? " · Click to go to the courier." : ""}`
+      ? `${description || "An agent has reported ongoing authoring work. This signal expires if updates stop."}${cursor ? " · Click to go to the courier." : ""}`
       : "Activity updates stopped. This does not mean the agent finished.",
   );
 
   const locate = () => {
-    if (!locatable) return;
     onLocate?.();
+
+    if (!cursor) return;
 
     // The Review surface may only be mounting now; measure after it paints.
     requestAnimationFrame(() => {
       const article = roots?.articleRef.current;
 
-      if (!article || !cursor) return;
+      if (!article) return;
       const target = cursorElement(article, cursor);
 
       if (!target) return;
@@ -73,11 +73,10 @@ export function AuthoringActivityBadge({
 
   const className = "host-authoring-activity";
 
-  if (!locatable)
+  if (!working)
     return (
       <span
         className={className}
-        data-active={working || undefined}
         role="status"
         aria-live="polite"
         ref={tooltip}
@@ -93,7 +92,7 @@ export function AuthoringActivityBadge({
       className={className}
       data-active
       data-locatable
-      aria-label={`${text}. Go to the courier.`}
+      aria-label={cursor ? `${text}. Go to the courier.` : undefined}
       ref={tooltip}
       onClick={locate}
     >

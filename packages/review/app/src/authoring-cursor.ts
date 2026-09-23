@@ -6,13 +6,16 @@ import type { EditSummary } from "../../src/review-api/document";
  * that produced each version, and the lease's focus. A new version moves the
  * cursor to what it edited; between versions, a changed focus moves it to
  * what the agent says it is looking at. `seq` counts moves, so two edits to
- * the same target still read as two arrivals.
+ * the same target still read as two arrivals. A reader who joins mid-session
+ * finds him standing on the last edit, already drawn.
  */
 export interface AuthoringCursor {
   targetId: string;
   /** The block the target belongs to: itself, or a unit's diagram. */
   blockId: string;
-  source: "edit" | "focus";
+  /** `standing`: the edit was on the board before the reader arrived, so
+   * the courier stands on it and nothing is drawn. */
+  source: "edit" | "focus" | "standing";
   edit?: EditSummary;
   seq: number;
 }
@@ -42,10 +45,21 @@ export function nextCursor(
       ? memory.focusTarget
       : message.activity.focuses?.[0]?.targetId;
 
-  const versionChanged =
-    memory.version !== undefined && memory.version !== message.version;
+  const first = memory.version === undefined;
+  const versionChanged = !first && memory.version !== message.version;
 
   memory.version = message.version;
+
+  // The document as found: the courier starts on its last edit, unless the
+  // agent already names what it is looking at.
+  if (first && message.lastEdit && !focusTarget)
+    return {
+      targetId: message.lastEdit.targetId,
+      blockId: message.lastEdit.blockId,
+      source: "standing",
+      edit: message.lastEdit,
+      seq,
+    };
 
   if (versionChanged && message.lastEdit) {
     // The edit has the agent's attention: a focus set before it is spent.

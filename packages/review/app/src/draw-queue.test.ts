@@ -292,4 +292,22 @@ describe("draw queue", () => {
     expect(state.head).toBeNull();
     expect(standingCursor(state)?.targetId).toBe("block-2");
   });
+
+  it("stands on an edit drawn before the reader arrived without drawing it", () => {
+    const standing: AuthoringCursor = {
+      ...block("block-1"),
+      source: "standing",
+    };
+
+    let state = arrive(EMPTY_QUEUE, standing, 0);
+    expect(standingCursor(state)).toBe(standing);
+    expect(phases(state).size).toBe(0);
+    expect(nextDue(state)).toBeNull();
+
+    // The next edit is drawn as usual, from where he stands.
+    state = arrive(state, block("block-2"), 100);
+    expect(phases(state)).toEqual(new Map([["block-2", "landing"]]));
+    state = tick(state, 780);
+    expect(standingCursor(state)?.targetId).toBe("block-2");
+  });
 });

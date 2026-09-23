@@ -142,6 +142,10 @@ and trace settings. Each running Desktop records itself under
 `$DEV_REVIEW_HOME/review-desktop/instances/<key>.json`. The key is `stable`,
 `preview`, or `dev-<checkout>-<hash>` for a source checkout.
 
+All concurrent Desktops must support instance selection. Quit an older Desktop
+before starting a newer one on the same home. If a newer Desktop crashes and an
+older version reports a workspace lock, restart and quit the newer version first.
+
 Every command that talks to Desktop, including `whiteboard mcp` and
 `whiteboard api`, picks one instance in this order:
 

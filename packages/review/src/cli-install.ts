@@ -631,7 +631,11 @@ fi
 cli=""
 runtime=""
 delegated=""
-if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && live "$DISCOVERY"; then
+manage_instances=""
+for arg in "$@"; do
+  if [ "$arg" = "instances" ]; then manage_instances=1; break; fi
+done
+if [ -z "$manage_instances" ] && [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && live "$DISCOVERY"; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
   delegated="1"
   runtime=$(sed -n 's/.*"cliRuntimePath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)

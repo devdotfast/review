@@ -614,6 +614,7 @@ describe("installed launcher runtime selection", () => {
 
   it.each([
     ["healthy discovery", true, true, false, "discovered"],
+    ["instance management", true, true, false, "fallback"],
     ["missing discovered CLI", false, true, false, "fallback"],
     ["missing discovered runtime", true, false, false, "fallback"],
     ["delegation disabled", true, true, true, "fallback"],
@@ -653,7 +654,12 @@ describe("installed launcher runtime selection", () => {
       );
       await writePathShim(shim, fallbackCli, fallbackRuntime, home);
 
-      const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
+      const args =
+        _name === "instance management"
+          ? ["instances", "use", "preview"]
+          : ["trace", "status"];
+
+      const { stdout } = await promisify(execFile)(shim, args, {
         env: {
           ...process.env,
           DEV_REVIEW_HOME: home,
@@ -666,8 +672,7 @@ describe("installed launcher runtime selection", () => {
         "guard=1",
         `delegated=${expected === "discovered" ? "1" : ""}`,
         expected === "fallback" ? fallbackCli : discoveredCli,
-        "trace",
-        "status",
+        ...args,
       ]);
     },
   );

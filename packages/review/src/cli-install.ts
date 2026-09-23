@@ -19,6 +19,7 @@ import {
   type ReviewCliInstallStatus,
   type ReviewFffInstallTarget,
   type ReviewFffManagedRegistration,
+  type ReviewMcpRegistration,
 } from "@dev.fast/review-protocol";
 import {
   type TraceCredentialsInput,
@@ -293,6 +294,66 @@ async function resolveCliInstallState(input: {
   return { status, managedTargets };
 }
 
+/**
+ * Writes the MCP launcher and registers Review for the selected MCP agents.
+ * `managed` names entries Review wrote earlier, which it may update; any other
+ * existing entry is left alone.
+ */
+export async function registerReviewMcp(
+  input: {
+    targets: InstallTarget[];
+    cliPath: string;
+    cliRuntimePath?: string;
+    homeDir?: string;
+    env?: NodeJS.ProcessEnv;
+    managed?: ReviewMcpRegistration[];
+  },
+  onRegistered: (
+    registration: ReviewMcpRegistration,
+  ) => Promise<void> = async () => {},
+): Promise<string> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const env = input.env ?? process.env;
+
+  const targets = REVIEW_MCP_TARGETS.filter((target) =>
+    input.targets.includes(target),
+  );
+
+  if (targets.length === 0) return "";
+
+  await writePathShim(
+    reviewMcpLauncher(env),
+    input.cliPath,
+    input.cliRuntimePath,
+    devReviewHome(env, homeDir),
+  );
+
+  const output: string[] = [];
+
+  for (const target of targets) {
+    const registration = await reviewMcpRegistration(target, homeDir, env);
+
+    const installed = await writeReviewMcpRegistration(
+      registration,
+      input.managed?.find((item) => item.target === target),
+    );
+
+    if (!installed) {
+      output.push(
+        `The ${target} Review MCP entry was customized; left unchanged.\n`,
+      );
+      continue;
+    }
+
+    await onRegistered(registration);
+    output.push(
+      `[ok] Review MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
+    );
+  }
+
+  return output.join("");
+}
+
 interface ApplyCliInstallInput {
   packageRoot: string;
   targets: InstallTarget[];
@@ -507,46 +568,28 @@ async function applyCliInstallUnlocked(
   // Save ownership as each target succeeds, so a later failure remains repairable.
   await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
 
-  if (
-    input.cliPath &&
-    input.targets.some((target) =>
-      REVIEW_MCP_TARGETS.some((item) => item === target),
-    )
-  ) {
-    await writePathShim(
-      reviewMcpLauncher(env),
-      input.cliPath,
-      input.cliRuntimePath,
-      devReviewHome(env, homeDir),
+  if (input.cliPath) {
+    chunks.push(
+      await registerReviewMcp(
+        {
+          targets: input.targets,
+          cliPath: input.cliPath,
+          cliRuntimePath: input.cliRuntimePath,
+          homeDir,
+          env,
+          managed: stamp.mcpRegistrations,
+        },
+        async (registration) => {
+          stamp.mcpRegistrations = [
+            ...stamp.mcpRegistrations!.filter(
+              (item) => item.target !== registration.target,
+            ),
+            registration,
+          ];
+          await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+        },
+      ),
     );
-
-    for (const target of REVIEW_MCP_TARGETS.filter((target) =>
-      input.targets.includes(target),
-    )) {
-      const registration = await reviewMcpRegistration(target, homeDir, env);
-
-      const managed = stamp.mcpRegistrations.find(
-        (item) => item.target === target,
-      );
-
-      const installed = await writeReviewMcpRegistration(registration, managed);
-
-      if (!installed) {
-        chunks.push(
-          `The ${target} Review MCP entry was customized; left unchanged.\n`,
-        );
-        continue;
-      }
-
-      stamp.mcpRegistrations = [
-        ...stamp.mcpRegistrations.filter((item) => item.target !== target),
-        registration,
-      ];
-      await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
-      chunks.push(
-        `[ok] Review MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
-      );
-    }
   }
 
   const result: Awaited<ReturnType<typeof applyCliInstall>> = {

@@ -30,7 +30,14 @@ import {
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { installReviewCommand, pathShimPath } from "./cli-install";
+import { REVIEW_MCP_TARGETS } from "./agent-review-mcp";
+import {
+  cliInstallStampPath,
+  installReviewCommand,
+  pathShimPath,
+  readCliInstallStamp,
+  registerReviewMcp,
+} from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { isFile } from "./fs-utils";
@@ -89,6 +96,7 @@ interface ReviewCliRuntime {
   runReviewInfo: typeof runReviewInfo;
   runInstall: typeof runInstall;
   installReviewCommand: typeof installReviewCommand;
+  registerReviewMcp: typeof registerReviewMcp;
   runReviewMigration: typeof runReviewMigration;
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
@@ -472,13 +480,14 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   const install = configureJsonOutput(
     program
       .command("install")
-      .description("Install the bundled Review skills")
+      .description("Connect coding agents to Review")
       .addArgument(
         new Argument("[target...]", "coding agent target").choices([
           "claude",
           "claude-code",
           "codex",
           "cursor",
+          "opencode",
           "pi",
           "all",
         ]),
@@ -509,7 +518,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       )
       .option(
         "--no-shim",
-        "Install skills without the review command or PATH changes",
+        "Set up agents without the review command or PATH changes",
       )
       .addHelpText("after", reviewInstallHelp()),
     "plain",
@@ -532,9 +541,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       const selectedTargets = installTargets(targets);
       const installShim = options.shim !== false;
 
-      const cliSource = installShim
-        ? await resolveInstallCliSource(env)
-        : undefined;
+      const cliSource = await resolveInstallCliSource(env);
 
       const installInput: RunInstallInput = {
         targets: selectedTargets,
@@ -564,7 +571,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
       state.exitCode = await runtime.runInstall(installInput);
 
-      if (state.exitCode !== 0 || !installShim) return;
+      if (state.exitCode !== 0) return;
 
       const human = humanStream({
         json: options.json,
@@ -572,9 +579,37 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         stderr: input.stderr,
       });
 
+      const mcpTargets = selectedTargets.filter((target) =>
+        REVIEW_MCP_TARGETS.some((item) => item === target),
+      );
+
+      if (mcpTargets.length > 0) {
+        if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
+          // A headless selection is for this shell; Desktop MCP entries
+          // would point agents at the wrong server.
+          human.write(
+            "A headless Review server is selected, so no agent MCP entries were written. Agents can use `review api` or `review mcp` in this environment.\n",
+          );
+        } else if (cliSource) {
+          const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+
+          human.write(
+            await runtime.registerReviewMcp({
+              targets: mcpTargets,
+              ...cliSource,
+              env,
+              managed:
+                stamp?.consent === "granted" ? stamp.mcpRegistrations : [],
+            }),
+          );
+        }
+      }
+
+      if (!installShim) return;
+
       if (!cliSource) {
         human.write(
-          "Review did not install the review command because no built CLI was found. The skills were installed.\n",
+          "Review did not install the review command or MCP entries because no built CLI was found.\n",
         );
 
         return;
@@ -1031,6 +1066,7 @@ function reviewCliRuntime(
     runReviewInfo,
     runInstall,
     installReviewCommand,
+    registerReviewMcp,
     runReviewMigration,
     runTraceStatus,
     runTraceEnable,
@@ -1106,7 +1142,7 @@ function reviewTopLevelHelp(): string {
     "",
     "Example agent prompt (for a repository that provides a CI/CD system):",
     "",
-    "  Can you use $dev-review to explain this repository's CI/CD system to me?",
+    "  Can you use Review to explain this repository's CI/CD system to me?",
     "",
     "  My current understanding:",
     "",
@@ -1148,16 +1184,16 @@ function reviewInstallHelp(): string {
     "",
     "When no target is provided, Review installs for every supported agent.",
     "",
-    "Review Desktop is the primary install path: on startup it offers to",
-    "install the CLI and skills for detected agents, and keeps them in sync",
-    "with the app. This command remains for headless environments.",
+    "Review Desktop is the primary setup path: it connects detected agents to",
+    "Review's MCP tools and keeps that setup in sync with the app. Agents read",
+    "Review's instructions from the running server.",
     "",
     "Targets:",
-    "  claude   Claude Code (~/.claude/skills)",
-    "  codex    Codex (~/.agents/skills)",
-    "  cursor   Cursor (~/.cursor/skills)",
-    "  opencode OpenCode (~/.config/opencode/plugins)",
-    "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
+    "  claude   Claude Code (MCP in ~/.claude.json)",
+    "  codex    Codex (MCP in ~/.codex/config.toml)",
+    "  cursor   Cursor (MCP in ~/.cursor/mcp.json)",
+    "  opencode OpenCode (MCP in ~/.config/opencode/opencode.json)",
+    "  pi       Pi (pointer skill in ~/.agents/skills; uses the review command)",
     "  all      Every supported agent (default)",
     "",
     "Examples:",

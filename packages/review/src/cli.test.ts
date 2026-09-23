@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -19,6 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   installReviewCommand as installReviewCommandActual,
   pathShimPath,
+  registerReviewMcp as registerReviewMcpActual,
 } from "./cli-install";
 import { runReviewCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
@@ -38,7 +40,7 @@ import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Review CLI", () => {
   it.each([[], ["codex"]])(
-    "installs skills and PATH without agent executables: %j",
+    "sets up agents and PATH without agent executables: %j",
     async (...targets) => {
       const homeDir = await mkdtemp(
         path.join(os.tmpdir(), "review-no-agents-"),
@@ -84,16 +86,18 @@ describe("Review CLI", () => {
               runInstallActual({ ...input, homeDir, cwd: homeDir }),
             installReviewCommand: (input) =>
               installReviewCommandActual({ ...input, homeDir }),
+            registerReviewMcp: (input) =>
+              registerReviewMcpActual({ ...input, homeDir }),
           },
         });
 
         expect(code).toBe(0);
         expect(
-          await readFile(
-            path.join(homeDir, ".agents/skills/dev-review/SKILL.md"),
-            "utf8",
-          ),
-        ).toContain("dev-review");
+          await readFile(path.join(homeDir, ".codex/config.toml"), "utf8"),
+        ).toContain('args = [ "mcp" ]');
+        expect(
+          existsSync(path.join(homeDir, ".agents/skills/dev-review")),
+        ).toBe(targets.length === 0);
         expect(await readFile(pathShimPath(homeDir), "utf8")).toContain(
           cliPath,
         );
@@ -105,6 +109,36 @@ describe("Review CLI", () => {
       }
     },
   );
+
+  it("writes no Desktop MCP entries while a headless server is selected", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-headless-"));
+    const registerReviewMcp = vi.fn<typeof registerReviewMcpActual>();
+    const stderr = outputStream();
+
+    try {
+      const code = await runReviewCli({
+        argv: ["install", "claude", "--no-shim"],
+        cwd: homeDir,
+        env: {
+          HOME: homeDir,
+          DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+          DEV_REVIEW_SERVER_DIR: path.join(homeDir, ".dev"),
+        },
+        stdout: outputStream(),
+        stderr,
+        runtime: {
+          runInstall: (input) =>
+            runInstallActual({ ...input, homeDir, cwd: homeDir }),
+          registerReviewMcp,
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(registerReviewMcp).not.toHaveBeenCalled();
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
 
   it("routes own-upload status filters without requesting trace content", async () => {
     const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);

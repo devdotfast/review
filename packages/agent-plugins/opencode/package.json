@@ -1,11 +1,11 @@
 {
   "name": "@dev.fast/opencode-whiteboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Connect OpenCode to dev.fast Whiteboard",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/devdotfast/review.git",
+    "url": "git+https://github.com/devdotfast/review.git",
     "directory": "packages/agent-plugins/opencode"
   },
   "files": [

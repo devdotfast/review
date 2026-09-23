@@ -130,7 +130,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			.getChannel(REVIEW_DESKTOP_CHANNEL)
 			.call("getConnection")) as ReviewDesktopConnection;
 		if (connection?.version !== REVIEW_DESKTOP_CONNECTION_VERSION) {
-			throw new Error(`Unsupported Review Desktop connection version: ${String(connection?.version)}.`);
+			throw new Error(`Unsupported Whiteboard Desktop connection version: ${String(connection?.version)}.`);
 		}
 		this.connection = connection;
 	}
@@ -357,7 +357,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 					? detail.output
 					: typeof detail.error === "string"
 						? detail.error
-						: `Review install returned ${response.status}.`,
+						: `Whiteboard install returned ${response.status}.`,
 			);
 		}
 		return parseReviewCliInstallApplyResponse(payload);
@@ -378,7 +378,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) {
-			throw new Error(`Review install remove returned ${response.status}.`);
+			throw new Error(`Whiteboard install remove returned ${response.status}.`);
 		}
 	}
 
@@ -410,7 +410,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) {
-			throw new Error(`Review install ${verb} returned ${response.status}.`);
+			throw new Error(`Whiteboard install ${verb} returned ${response.status}.`);
 		}
 	}
 

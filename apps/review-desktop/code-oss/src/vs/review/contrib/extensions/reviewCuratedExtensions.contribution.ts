@@ -242,7 +242,7 @@ async function stageRustAnalyzer(
 	try {
 		await mainProcessService.getChannel(REVIEW_DESKTOP_CHANNEL).call('stageRustAnalyzer');
 	} catch (error) {
-		logService.error(`[Review extensions] Could not stage rust-analyzer: ${getErrorMessage(error)}`);
+		logService.error(`[Whiteboard extensions] Could not stage rust-analyzer: ${getErrorMessage(error)}`);
 	}
 }
 
@@ -683,7 +683,7 @@ class OptionalExtensionPinUpgrades implements IWorkbenchContribution {
 		@IReviewTelemetryService private readonly reviewTelemetryService: IReviewTelemetryService
 	) {
 		void this.run().catch(error => {
-			this.logService.error(`[Review extensions] Could not check optional extension pins: ${getErrorMessage(error)}`);
+			this.logService.error(`[Whiteboard extensions] Could not check optional extension pins: ${getErrorMessage(error)}`);
 		});
 	}
 
@@ -707,7 +707,7 @@ class OptionalExtensionPinUpgrades implements IWorkbenchContribution {
 			},
 			stageRustAnalyzer: () => stageRustAnalyzer(this.mainProcessService, this.logService),
 			logError: (message, error) => {
-				this.logService.error(`[Review extensions] ${message}: ${getErrorMessage(error)}`);
+				this.logService.error(`[Whiteboard extensions] ${message}: ${getErrorMessage(error)}`);
 			},
 			onInstalled: (extensionId, trigger, durationMs) => {
 				this.reviewTelemetryService.capture('extension_installed', {

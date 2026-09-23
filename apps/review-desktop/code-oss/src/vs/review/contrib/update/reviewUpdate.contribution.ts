@@ -105,7 +105,7 @@ class ReviewUpdateNotifications extends Disposable {
 			StorageScope.APPLICATION,
 			StorageTarget.MACHINE,
 		);
-		this.logService.error(`[ReviewUpdate] update failed (${failure.targetCommit})`);
+		this.logService.error(`[WhiteboardUpdate] update failed (${failure.targetCommit})`);
 		this.notificationService.notify({
 			severity: Severity.Error,
 			message: localize('review.update.installFailed', "Update failed"),
@@ -135,7 +135,7 @@ class ReviewUpdateNotifications extends Disposable {
 
 		// The update landed, so any skip recorded against it is spent.
 		this.storageService.remove(SKIPPED_UPDATE_STORAGE_KEY, StorageScope.APPLICATION);
-		this.logService.info(`[ReviewUpdate] running the staged update (${this.productService.commit})`);
+		this.logService.info(`[WhiteboardUpdate] running the staged update (${this.productService.commit})`);
 		this.notificationService.notify({
 			severity: Severity.Info,
 			message: notice.productVersion
@@ -178,7 +178,7 @@ class ReviewUpdateNotifications extends Disposable {
 
 		const next = stagedUpdateFromReady(state.update);
 		if (!next) {
-			this.logService.warn('[ReviewUpdate] update is ready but carries no commit; nothing to record');
+			this.logService.warn('[WhiteboardUpdate] update is ready but carries no commit; nothing to record');
 			return;
 		}
 

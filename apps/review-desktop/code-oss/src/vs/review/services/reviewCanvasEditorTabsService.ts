@@ -182,7 +182,7 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 			const status = await this.desktopConnection.getCliInstallStatus();
 			if (status.updateNeeded) await this.desktopConnection.finishCliInstallUpdate();
 		} catch (error) {
-			this.logService.warn("[Review] Could not finish the CLI install update:", error);
+			this.logService.warn("[Whiteboard] Could not finish the CLI install update:", error);
 		}
 	}
 

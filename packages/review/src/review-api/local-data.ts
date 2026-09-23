@@ -371,7 +371,9 @@ export class LocalReviewData {
     const workspacePath = path.join(
       reviewManagedCheckoutRoot(commonDir, snapshot.reviewId),
       "navigator",
-      `${live ? "worktree" : ref}.code-workspace`,
+      "workspaces",
+      live ? "worktree" : ref,
+      `${path.basename(repository)}.code-workspace`,
     );
 
     // A native workspace gives VS Code stable restoration, search scope and
@@ -382,12 +384,12 @@ export class LocalReviewData {
         folders: [
           {
             path: rootPath,
-            name: `${path.basename(repository)} (${live ? "live" : ref.slice(0, 8)})`,
+            name: path.basename(repository),
           },
         ],
         settings: {
           "files.readonlyInclude": { "**/*": true },
-          "window.title": `${snapshot.title} — ${live ? "Live source" : ref.slice(0, 8)} — Review`,
+          "window.title": `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Review`,
         },
       });
 

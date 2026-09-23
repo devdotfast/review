@@ -31,6 +31,21 @@ import { ISCMService } from '../workbench/contrib/scm/common/scm.js';
 import { SCMService } from '../workbench/contrib/scm/common/scmService.js';
 import { Registry } from '../platform/registry/common/platform.js';
 import { Extensions, IConfigurationRegistry } from '../platform/configuration/common/configurationRegistry.js';
+import { IStorageService, StorageScope, StorageTarget } from '../platform/storage/common/storage.js';
+import { AccountsActivityActionViewItem } from '../workbench/browser/parts/globalCompositeBar.js';
+import { registerWorkbenchContribution2, WorkbenchPhase } from '../workbench/common/contributions.js';
+
+class NavigatorDefaults {
+	constructor(@IStorageService storage: IStorageService) {
+		// Use VS Code's own Hide Accounts preference; users can show it again.
+		const key = AccountsActivityActionViewItem.ACCOUNTS_VISIBILITY_PREFERENCE_KEY;
+		if (storage.get(key, StorageScope.PROFILE) === undefined) {
+			storage.store(key, false, StorageScope.PROFILE, StorageTarget.USER);
+		}
+	}
+}
+
+registerWorkbenchContribution2('review.navigator.defaults', NavigatorDefaults, WorkbenchPhase.BlockStartup);
 
 registerSingleton(INotebookService, NotebookService, InstantiationType.Delayed);
 registerSingleton(INotebookEditorService, NotebookEditorWidgetService, InstantiationType.Delayed);

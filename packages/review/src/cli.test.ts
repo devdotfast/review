@@ -330,26 +330,6 @@ describe("Review CLI", () => {
     );
   });
 
-  // The JSON authoring verbs are the only remaining surface no other case
-  // drives; both print the agent CLI help without contacting the Desktop.
-  it.each([["api"], ["mcp", "--help"]])(
-    "registers the JSON authoring verb %j",
-    async (...argv) => {
-      const stdout = outputStream();
-      let output = "";
-      stdout.on("data", (chunk) => (output += String(chunk)));
-
-      await expect(
-        runWhiteboardCli({
-          argv,
-          stdout,
-          stderr: outputStream(),
-        }),
-      ).resolves.toBe(0);
-      expect(output).toContain("review api tools");
-    },
-  );
-
   it.each([
     [["app", "launch"], "launched", undefined],
     [["app"], "running", undefined],

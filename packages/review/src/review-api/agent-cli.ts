@@ -15,16 +15,18 @@ interface AgentCliInput {
   stderr: Writable;
 }
 
-export const reviewAgentCliHelp =
-  "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Review Desktop or review server start must be running)\nSelect headless state with DEV_REVIEW_SERVER_DIR or review --state-dir <path> api/mcp.\n";
+export const whiteboardAgentCliHelp =
+  "whiteboard api tools\nwhiteboard api <tool-name> '<json>'\nwhiteboard api <tool-name> -  (read JSON from stdin)\nwhiteboard mcp  (stdio MCP adapter; Whiteboard or whiteboard server start must be running)\nSelect headless state with DEV_WHITEBOARD_SERVER_DIR or whiteboard --state-dir <path> api/mcp.\n";
 
 export async function runWhiteboardAgentCli(
   input: AgentCliInput,
 ): Promise<number> {
+  const connect = () => connectSessionApi(input.env);
+
   try {
     const [mode, ...rest] = input.argv;
 
-    // --json requests raw data for review_get; other tools already return JSON.
+    // --json requests raw data for session_get; other tools already return JSON.
     const [name, json, ...extra] = rest.filter(
       (argument) => argument !== "--json",
     );
@@ -34,18 +36,18 @@ export async function runWhiteboardAgentCli(
       rest.includes("-h") ||
       (mode === "api" && !name)
     ) {
-      input.stdout.write(reviewAgentCliHelp);
+      input.stdout.write(whiteboardAgentCliHelp);
 
       return 0;
     }
 
     if (extra.length || (mode === "mcp" && name))
-      throw new Error("Unexpected arguments. Use review api --help.");
+      throw new Error(`Unexpected arguments. Use whiteboard api --help.`);
 
     if (mode === "mcp") {
       const { serveWhiteboardMcp } = await import("./mcp.js");
       await serveWhiteboardMcp(
-        () => connectSessionApi(input.env),
+        connect,
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
@@ -54,11 +56,11 @@ export async function runWhiteboardAgentCli(
       return 0;
     }
 
-    const client = await connectSessionApi(input.env);
+    const client = await connect();
     const tools = await client.read<AuthoringTool[]>("/authoring");
 
     if (name === "tools") {
-      if (json) throw new Error("review api tools takes no input.");
+      if (json) throw new Error(`whiteboard api tools takes no input.`);
       input.stdout.write(JSON.stringify(tools, null, 2) + "\n");
 
       return 0;
@@ -67,7 +69,7 @@ export async function runWhiteboardAgentCli(
     const tool = tools.find((tool) => tool.name === name);
 
     if (!tool)
-      throw new Error(`Unknown Review tool: ${name}. Use review api tools.`);
+      throw new Error(`Unknown tool: ${name}. Use whiteboard api tools.`);
     let source = json ?? "{}";
 
     if (source === "-") {
@@ -83,7 +85,7 @@ export async function runWhiteboardAgentCli(
     if (!isJsonObject(args))
       throw new Error("Tool input must be a JSON object.");
 
-    if (name === "review_get" && rest.includes("--json")) args.format = "json";
+    if (name === `session_get` && rest.includes("--json")) args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
     const text = toolResultText(tool, result);
     input.stdout.write(text.endsWith("\n") ? text : text + "\n");

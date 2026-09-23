@@ -15,7 +15,7 @@ export function jsonReviewApiUrl(
   options: { version?: number; tokenInQuery?: boolean } = {},
 ): string {
   const url = new URL(
-    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/reviews-api/${encodeURIComponent(sessionId)}${endpoint}`,
+    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/sessions-api/${encodeURIComponent(sessionId)}${endpoint}`,
   );
 
   if (options.version !== undefined)
@@ -34,7 +34,7 @@ export async function reviewFetchUrl(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
 
-  if (config.token) headers.set("x-review-token", config.token);
+  if (config.token) headers.set("x-whiteboard-token", config.token);
 
   return fetch(url, { ...init, headers });
 }

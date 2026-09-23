@@ -97,8 +97,8 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			for (const [key, value] of Object.entries(reviewSourceQuery(target.view))) {
 				if (value !== undefined) params.set(key, String(value));
 			}
-			const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(model.uri.authority)}/language-context?${params}`, {
-				headers: { "x-review-token": token }, signal: AbortSignal.timeout(10_000),
+			const response = await fetch(`${serverUrl}/sessions-api/${encodeURIComponent(model.uri.authority)}/language-context?${params}`, {
+				headers: { "x-whiteboard-token": token }, signal: AbortSignal.timeout(10_000),
 			});
 			return response.ok ? response.json() : undefined;
 		}, validate);

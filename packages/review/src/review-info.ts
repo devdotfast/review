@@ -30,7 +30,7 @@ export async function runReviewInfo(
     token: discovery.token,
   });
 
-  // The API is mounted at "/reviews-api" and Hono matches strictly; "" is the
+  // The API is mounted at "/sessions-api" and Hono matches strictly; "" is the
   // catalog route and "/" is a 404.
   const reviews = await client.read<SessionSummary[]>("");
 

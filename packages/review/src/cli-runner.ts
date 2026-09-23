@@ -44,7 +44,7 @@ import {
 } from "./install";
 import { runReviewMigration } from "./migrate";
 import { readReviewPackageVersion } from "./package-paths";
-import { reviewAgentCliHelp } from "./review-api/agent-cli";
+import { whiteboardAgentCliHelp } from "./review-api/agent-cli";
 import { type ReviewAppEvent, runReviewAppPick } from "./review-app";
 import {
   type ReviewAppLaunchEvent,
@@ -833,7 +833,7 @@ export async function runWhiteboardCli(
         .allowExcessArguments()
         .helpOption(false)
         .passThroughOptions()
-        .addHelpText("after", `\n${reviewAgentCliHelp}`),
+        .addHelpText("after", `\n${whiteboardAgentCliHelp}`),
       "plain",
     ).action(async (args: string[]) => {
       const { runWhiteboardAgentCli } =

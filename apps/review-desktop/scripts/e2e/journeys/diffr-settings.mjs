@@ -74,11 +74,11 @@ export async function run(ctx) {
   async function comparison() {
     const response = await fetch(
       new URL(
-        `/reviews-api/${review.sessionId}/structural-diff`,
+        `/sessions-api/${review.sessionId}/structural-diff`,
         ctx.discovery.url,
       ),
       {
-        headers: { "x-review-token": ctx.discovery.token },
+        headers: { "x-whiteboard-token": ctx.discovery.token },
       },
     );
 

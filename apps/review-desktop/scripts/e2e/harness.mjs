@@ -369,7 +369,7 @@ export async function createHarness({
     const response = await fetch(new URL(route, discovery.url), {
       method,
       headers: {
-        "x-review-token": discovery.token,
+        "x-whiteboard-token": discovery.token,
         "content-type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -588,14 +588,14 @@ export async function createHarness({
 
 /** Creates a review on spec's commits, inserts its blocks and opens it; returns { sessionId, repositoryId, title, canvas }. */
 export async function createReview(ctx, spec) {
-  const repository = await ctx.api("/reviews-api/repositories", "POST", {
+  const repository = await ctx.api("/sessions-api/repositories", "POST", {
     path: spec.repoPath ?? ctx.repo,
   });
 
   assert.equal(repository.status, 200, JSON.stringify(repository.value));
 
   const command = async (operation) => {
-    const result = await ctx.api("/reviews-api/commands", "POST", {
+    const result = await ctx.api("/sessions-api/commands", "POST", {
       commandId: randomUUID(),
       operation,
     });
@@ -623,7 +623,7 @@ export async function createReview(ctx, spec) {
       edit: { type: "insert", content },
     });
 
-  const opened = await ctx.api(`/reviews-api/${sessionId}/open`, "POST", {});
+  const opened = await ctx.api(`/sessions-api/${sessionId}/open`, "POST", {});
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 

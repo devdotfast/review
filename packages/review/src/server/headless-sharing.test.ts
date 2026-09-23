@@ -109,6 +109,8 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
 
     const client = new SessionApiClient({
       serverUrl: discovery.url,
+      apiPath: "/sessions-api",
+
       token: discovery.token,
     });
 

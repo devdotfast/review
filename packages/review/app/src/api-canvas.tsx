@@ -81,7 +81,14 @@ export function ApiCanvas({
   findHost?: ReviewFindHost;
 }) {
   const client = useMemo(
-    () => new SessionApiClient(content.bridge.config, content.bridge.request),
+    () =>
+      new SessionApiClient(
+        {
+          ...content.bridge.config,
+          apiPath: "/sessions-api",
+        },
+        content.bridge.request,
+      ),
     [content.bridge],
   );
 

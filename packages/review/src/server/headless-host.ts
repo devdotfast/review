@@ -8,6 +8,7 @@ import { isObjectValue } from "@dev.fast/json";
 import { withFileLock, writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { Hono } from "hono";
 
+import { legacyReviewApi } from "../legacy-rename.js";
 import { createSessionApi } from "../review-api/http.js";
 import { openReviewProfile } from "../review-api/profile.js";
 import { readScratchpadEnabled } from "../review-preferences.js";
@@ -78,9 +79,8 @@ async function serve(input: HeadlessServerInput) {
     context.json({ ok: true, instanceId: discovery.instanceId }),
   );
 
-  // Headless shares Desktop's database, so it lists the pad on the same
-  // terms; a preference changed after start applies at the next start.
   const scratchpadEnabled = await readScratchpadEnabled();
+  app.route("/reviews-api", legacyReviewApi());
 
   const api = createSessionApi(
     local.store,
@@ -95,7 +95,7 @@ async function serve(input: HeadlessServerInput) {
   );
 
   mountSharingPublisher(api, local.store, local.data);
-  app.route("/reviews-api", api);
+  app.route("/sessions-api", api);
 
   const server = createServer(createNodeRequestListener(app));
   let published = false;

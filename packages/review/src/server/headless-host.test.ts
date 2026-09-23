@@ -70,7 +70,12 @@ async function start(
   ]);
 
   const env = { ...process.env, DEV_REVIEW_SERVER_DIR: stateDir };
-  const client = await connectSessionApi(env);
+
+  const client = new SessionApiClient({
+    serverUrl: discovery.url,
+    token: discovery.token,
+    apiPath: "/sessions-api",
+  });
 
   return { client, discovery, env, stateDir, stop };
 }
@@ -140,7 +145,7 @@ it("shares review identity, resources, sessions and live changes with Desktop in
 
   const desktop = new SessionApiClient(
     { serverUrl: "http://desktop.test", token: "test" },
-    async (url, init) => app.request(url.replace("/reviews-api", ""), init),
+    async (url, init) => app.request(url.replace("/sessions-api", ""), init),
   );
 
   const abort = new AbortController();
@@ -166,6 +171,27 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       commandId: randomUUID(),
       operation: { type: "create", title: "Shared review", pins },
     });
+
+    const retired = await fetch(
+      `${server.discovery.url}/reviews-api/commands`,
+      {
+        method: "POST",
+        headers: {
+          "x-whiteboard-token": server.discovery.token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          commandId: randomUUID(),
+          operation: { type: "delete", sessionId: created.sessionId },
+        }),
+      },
+    );
+
+    expect(retired.status).toBe(410);
+    expect(await retired.json()).toMatchObject({ code: "review_renamed" });
+    expect(
+      await server.client.read(`/${created.sessionId}?full=true`),
+    ).toMatchObject({ sessionId: created.sessionId });
 
     // Catalog refreshes can also report repository registration before creation.
     for await (const value of catalog) {
@@ -311,7 +337,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
       "--state-dir",
       server.stateDir,
       "api",
-      "review_create",
+      "session_create",
       JSON.stringify({
         commandId: randomUUID(),
         title: "CI review",
@@ -473,6 +499,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     () => connectSessionApi(restarted.env),
     stdin,
     stdout,
+    process.stderr,
   );
 
   const replies: {
@@ -511,8 +538,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
         id: 2,
         method: "tools/call",
         params: {
-          name: "review_get",
-          arguments: { sessionId, full: true, format: "json" },
+          name: "session_get",
+          arguments: { sessionId: sessionId, full: true, format: "json" },
         },
       }) + "\n",
     );
@@ -522,7 +549,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     const result = replies.find((reply) => reply.id === 2)!.result;
     expect(result.isError).not.toBe(true);
     expect(JSON.parse(result.content![0].text)).toMatchObject({
-      sessionId,
+      sessionId: sessionId,
       version: 2,
     });
   } finally {
@@ -534,6 +561,22 @@ it("authenticates clients, reports capabilities and readiness without exposing t
   const server = await start(undefined, true);
   expect(await reviewServerIsHealthy(server.discovery)).toBe(true);
   expect((await fetch(`${server.discovery.url}/reviews-api`)).status).toBe(401);
+  expect((await fetch(`${server.discovery.url}/sessions-api`)).status).toBe(
+    401,
+  );
+
+  const sessionCapabilities = await fetch(
+    `${server.discovery.url}/sessions-api/capabilities`,
+    {
+      headers: { "x-whiteboard-token": server.discovery.token },
+    },
+  );
+
+  expect(sessionCapabilities.status).toBe(200);
+  expect(await sessionCapabilities.json()).toMatchObject({
+    desktopAvailable: false,
+    softwareMapEnabled: true,
+  });
   expect(await server.client.read("/capabilities")).toMatchObject({
     desktopAvailable: false,
     softwareMapEnabled: true,
@@ -662,4 +705,58 @@ it("refuses the removed batch authoring mode instead of ignoring it", async () =
 
   expect(result.exitCode).not.toBe(0);
   expect(result.errors).toContain("--authoring-mode was removed");
+});
+
+it("authors through Whiteboard discovery and session tools without changing the saved identity", async () => {
+  const repo = await repository();
+  const server = await start();
+
+  const registered = await server.client.post<{ id: string }>("/repositories", {
+    path: repo.directory,
+  });
+
+  const env = {
+    ...process.env,
+    DEV_WHITEBOARD_SERVER_DIR: server.stateDir,
+    DEV_REVIEW_SERVER_DIR: "/missing-old-server",
+  };
+
+  const created = await cli(
+    [
+      "api",
+      "session_create",
+      JSON.stringify({
+        commandId: randomUUID(),
+        title: "Whiteboard session",
+        pins: { repositoryId: registered.id, base: repo.base, head: repo.head },
+      }),
+    ],
+    env,
+  );
+
+  expect(created.exitCode).toBe(0);
+  const { sessionId } = JSON.parse(created.output);
+
+  const read = await cli(
+    ["api", "session_get", JSON.stringify({ sessionId, full: true }), "--json"],
+    env,
+  );
+
+  expect(read.exitCode).toBe(0);
+  expect(JSON.parse(read.output)).toMatchObject({
+    sessionId,
+    title: "Whiteboard session",
+  });
+  expect(await server.client.read(`/${sessionId}?full=true`)).toMatchObject({
+    sessionId: sessionId,
+    title: "Whiteboard session",
+  });
+
+  const text = await cli(
+    ["api", "session_get", JSON.stringify({ sessionId })],
+    env,
+  );
+
+  expect(text.output).toContain(`Session ${sessionId}`);
+  expect(text.output).not.toMatch(/^"/);
 });

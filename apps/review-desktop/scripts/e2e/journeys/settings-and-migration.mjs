@@ -173,7 +173,7 @@ export async function run(ctx) {
   // The onboarding rail is what an empty Home renders, so waiting for it makes the absences below mean "finished", not "slow".
   await home.getByText("Create your first review").waitFor({ timeout: 60000 });
 
-  const summaries = await ctx.api("/reviews-api");
+  const summaries = await ctx.api("/sessions-api");
 
   assert.equal(summaries.status, 200, JSON.stringify(summaries.value));
   assert.deepEqual(

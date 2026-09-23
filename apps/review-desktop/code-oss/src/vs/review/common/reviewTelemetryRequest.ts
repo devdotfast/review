@@ -21,7 +21,7 @@ export function reviewTelemetryEventRequest(
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			"x-review-token": auth.token,
+			"x-whiteboard-token": auth.token,
 			"x-review-app-session-id": auth.appSessionId,
 		},
 		body: JSON.stringify(event),

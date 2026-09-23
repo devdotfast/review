@@ -442,7 +442,7 @@ it("reports the changed lines no lens selects after each lens write", async () =
   const client = new SessionApiClient(
     { serverUrl: "http://review", token: "token" },
     async (url, init) =>
-      app.request(String(url).replace("http://review/reviews-api", ""), init),
+      app.request(String(url).replace("http://review/sessions-api", ""), init),
   );
 
   const tools = await client.read<AuthoringTool[]>("/authoring");
@@ -455,7 +455,7 @@ it("reports the changed lines no lens selects after each lens write", async () =
 
   try {
     expect(
-      await call("review_lens_edit", {
+      await call("session_lens_edit", {
         commandId: randomUUID(),
         edit: { type: "insert", title: "API", targets: files("src/**") },
       }),
@@ -478,13 +478,13 @@ it("reports the changed lines no lens selects after each lens write", async () =
     });
 
     expect(
-      await call("review_lens_edit", {
+      await call("session_lens_edit", {
         commandId: randomUUID(),
         edit: { type: "insert", title: "Docs", targets: files("docs/**") },
       }),
     ).toMatchObject({ uncategorized: { lines: 0, files: [] } });
 
-    expect(await call("review_lens_get", {})).toMatchObject({
+    expect(await call("session_lens_get", {})).toMatchObject({
       lenses: [
         { id: "lens-1", title: "API", fileCount: 1 },
         { id: "lens-2", title: "Docs", fileCount: 1 },

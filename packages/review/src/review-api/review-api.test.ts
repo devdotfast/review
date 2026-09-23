@@ -1103,7 +1103,8 @@ describe("snapshot authoring", () => {
           ];
 
     const published = nodeSchemas(
-      authoringTools().find((tool) => tool.name === "review_edit")!.inputSchema,
+      authoringTools().find((tool) => tool.name === "session_edit")!
+        .inputSchema,
     );
 
     expect(published.length).toBeGreaterThan(0);
@@ -1565,7 +1566,7 @@ describe("create for a pull request", () => {
     const moved = await createFor(url, { pins: { ...pins, head: "new-head" } });
 
     expect(moved).toMatchObject({ created: false, sessionId, headMoved: true });
-    expect(moved.note).toMatch(/review_set_target/);
+    expect(moved.note).toMatch(/session_set_target/);
     expect(store.read(sessionId).pins).toEqual(pins);
   });
 
@@ -1795,12 +1796,13 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
   try {
     await server.listen();
-    const url = server.url + "/reviews-api";
+    const url = server.url + "/sessions-api";
     expect((await fetch(url)).status).toBe(401);
+    expect((await fetch(server.url + "/sessions-api")).status).toBe(401);
 
     const headers = {
       "content-type": "application/json",
-      "x-review-token": "test-token",
+      "x-whiteboard-token": "test-token",
     };
 
     const post = <Operation>(operation: Operation) =>
@@ -1816,12 +1818,12 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const { sessionId } = created;
     // The result names what was created: the review's own catalog entry.
     const entries = await (await fetch(url, { headers })).json();
-    expect(created.review).toEqual(
+    expect(created.session).toEqual(
       entries.find(
         (review: { sessionId: string }) => review.sessionId === sessionId,
       ),
     );
-    expect(created.review).toMatchObject({
+    expect(created.session).toMatchObject({
       title: "HTTP review",
       target: { kind: "commits", head: pins.head },
     });
@@ -1839,6 +1841,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     const client = new SessionApiClient({
       serverUrl: server.url,
+      apiPath: "/sessions-api",
       token: "test-token",
     });
 
@@ -1865,7 +1868,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       expect(
         await callAuthoringTool(
           client,
-          tools.find((t) => t.name === "review_open")!,
+          tools.find((t) => t.name === "session_open")!,
           { sessionId },
         ),
       ).toMatchObject({
@@ -1877,7 +1880,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     expect(
       await callAuthoringTool(
         client,
-        tools.find((t) => t.name === "review_environment")!,
+        tools.find((t) => t.name === "session_environment")!,
         { sessionId },
       ),
     ).toEqual({
@@ -1891,10 +1894,10 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     // Listing through the interactive host, with the preference on, also
     // makes the one scratchpad.
-    // SAFETY: review_list returns the catalog summaries the store lists.
+    // SAFETY: session_list returns the catalog summaries the store lists.
     const listed = (await callAuthoringTool(
       client,
-      tools.find((t) => t.name === "review_list")!,
+      tools.find((t) => t.name === "session_list")!,
       {},
     )) as { sessionId: string; kind?: string }[];
 
@@ -1906,7 +1909,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       expect.objectContaining({ sessionId: SCRATCHPAD_ID, kind: "scratchpad" }),
     );
     await expect(
-      callAuthoringTool(client, tools.find((t) => t.name === "review_edit")!, {
+      callAuthoringTool(client, tools.find((t) => t.name === "session_edit")!, {
         commandId: randomUUID(),
         sessionId,
         edit: {

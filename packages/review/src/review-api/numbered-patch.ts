@@ -163,6 +163,6 @@ function truncate(numbered: string, maxBytes: number, path: string) {
   return (
     lines.slice(0, kept).join("\n") +
     (kept ? "\n" : "") +
-    `[${path} is cut at the ${maxBytes}-byte budget after ${kept} of ${lines.length - 1} lines. Raise maxBytes (up to 500000), lower context, or read the file with review_file.]\n`
+    `[${path} is cut at the ${maxBytes}-byte budget after ${kept} of ${lines.length - 1} lines. Raise maxBytes (up to 500000), lower context, or read the file with session_file.]\n`
   );
 }

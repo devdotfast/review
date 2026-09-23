@@ -76,17 +76,21 @@ const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
 export class SessionApiClient {
   constructor(
-    readonly connection: { serverUrl: string; token: string },
+    readonly connection: {
+      serverUrl: string;
+      token: string;
+      apiPath?: "/sessions-api";
+    },
     private readonly request: Request = defaultRequest,
   ) {}
   async response(route: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
-    headers.set("x-review-token", this.connection.token);
+    headers.set("x-whiteboard-token", this.connection.token);
 
     if (init?.body) headers.set("content-type", "application/json");
 
     const response = await this.request(
-      `${this.connection.serverUrl}/reviews-api${route}`,
+      `${this.connection.serverUrl}${this.connection.apiPath ?? "/sessions-api"}${route}`,
       { ...init, headers },
     );
 
@@ -101,7 +105,9 @@ export class SessionApiClient {
     return response;
   }
   async read<T>(route: string, signal?: AbortSignal): Promise<T> {
-    return (await this.response(route, { signal })).json();
+    const value = await (await this.response(route, { signal })).json();
+
+    return value;
   }
   async post<T>(
     route: string,
@@ -109,13 +115,17 @@ export class SessionApiClient {
     input: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
-    return (
+    const serialized = JSON.stringify(input);
+
+    const value = await (
       await this.response(route, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: serialized,
         signal,
       })
     ).json();
+
+    return value;
   }
   async *watch<T = unknown>(
     sessionId: string | null | Subscription[],
@@ -152,8 +162,9 @@ export class SessionApiClient {
         let end: number;
 
         while ((end = pending.indexOf("\n")) !== -1) {
-          // SAFETY: the authenticated host serializes the snapshot type requested by this caller.
-          yield JSON.parse(pending.slice(0, end)) as T;
+          const parsed = JSON.parse(pending.slice(0, end));
+          // SAFETY: the authenticated host serializes the requested snapshot type.
+          yield parsed as T;
           pending = pending.slice(end + 1);
         }
       }
@@ -179,6 +190,7 @@ export class SessionApiClient {
     const key = JSON.stringify([
       this.connection.serverUrl,
       this.connection.token,
+      this.connection.apiPath ?? "/sessions-api",
     ]);
 
     let live = connections.get(key);

@@ -54,7 +54,7 @@ export async function readReviewServerDiscovery(
 export async function reviewServerIsHealthy(discovery: ReviewServerDiscovery) {
   try {
     const response = await fetch(`${discovery.url}/health`, {
-      headers: { "x-review-token": discovery.token },
+      headers: { "x-whiteboard-token": discovery.token },
       signal: AbortSignal.timeout(1_500),
     });
 

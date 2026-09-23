@@ -35,7 +35,7 @@ describe("Hono HTTP adapter", () => {
     expect(
       isAuthorizedRequest(
         new Request("http://localhost/path?token=wrong", {
-          headers: { "x-review-token": "header-token" },
+          headers: { "x-whiteboard-token": "header-token" },
         }),
         "header-token",
       ),

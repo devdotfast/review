@@ -1,3 +1,4 @@
+import { type JsonValue } from "@dev.fast/json";
 import type { ReviewStructuralDiffEvent } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -76,14 +77,20 @@ export function createSessionApi(
       return context.json({ error: error.message }, error.status);
 
     // A readable message for agents and the canvas; issues stay for programs.
-    if (error instanceof z.ZodError)
+    if (error instanceof z.ZodError) {
       return context.json(
         { error: z.prettifyError(error), issues: error.issues },
         400,
       );
+    }
 
     // Provider failures may contain local paths/subprocess output; do not return them.
-    return context.json({ error: "Review operation failed." }, 500);
+    return context.json(
+      {
+        error: "Session operation failed.",
+      },
+      500,
+    );
   });
 
   if (data)
@@ -318,7 +325,7 @@ export function createSessionApi(
     const query = context.req.query("subscriptions");
 
     if (query !== undefined) {
-      let input: unknown;
+      let input: JsonValue;
 
       try {
         input = JSON.parse(query);
@@ -445,7 +452,7 @@ export function createSessionApi(
     } catch (error) {
       environmentIssues = [
         {
-          message: `Could not check language checkouts: ${errorMessage(error)}. Recheck with review_environment.`,
+          message: `Could not check language checkouts: ${errorMessage(error)}. Recheck with session_environment.`,
         },
       ];
     }
@@ -471,7 +478,7 @@ export function createSessionApi(
     } catch (error) {
       return {
         opened: false,
-        openError: `${errorMessage(error)} Retry with review_open.`,
+        openError: `${errorMessage(error)} Retry with session_open.`,
       };
     }
   };
@@ -905,8 +912,8 @@ export function createSessionApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
-        `Review ID: ${snapshot.sessionId}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from Whiteboard: ${snapshot.title}`,
+        `Session ID: ${snapshot.sessionId}`,
         `Version: ${snapshot.version}`,
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
@@ -923,11 +930,11 @@ export function createSessionApi(
         ...(snapshot.pins
           ? [
               `Repository ID: ${snapshot.pins.repositoryId}`,
-              `Review base: ${snapshot.pins.base}`,
-              `Review head: ${snapshot.pins.head}`,
+              `Session base: ${snapshot.pins.base}`,
+              `Session head: ${snapshot.pins.head}`,
             ]
           : []),
-        `Read this version with review_get({"sessionId":"${snapshot.sessionId}","version":${snapshot.version},"full":true}).`,
+        `Read this version with session_get({"sessionId":"${snapshot.sessionId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
         "",
@@ -1157,7 +1164,7 @@ export function createSessionApi(
 
     return context.json({
       ...result,
-      review: store.summary(result.sessionId),
+      session: store.summary(result.sessionId),
       ...(requestedOpen === false
         ? { opened: false }
         : await openCreated(result.sessionId)),

@@ -9,27 +9,27 @@ import { commandSchema } from "./store.js";
 /** The host publishes its actual input schemas; adapters do not validate documents. */
 export function authoringTools() {
   const id = z.string().min(1);
-  const review = { sessionId: id };
+  const session = { sessionId: id };
   const version = z.number().int().nonnegative().optional();
 
   const read = (name: keyof typeof readQuerySchemas) =>
-    z.strictObject({ ...review, ...readQuerySchemas[name].shape });
+    z.strictObject({ ...session, ...readQuerySchemas[name].shape });
 
   const descriptions = {
     create:
-      'Create a review with target: {kind: worktree, repositoryId, base?} for saved working files, or {kind: commits, repositoryId, head, base?} for immutable commits. Revisions are resolved on acceptance. Omitted commits base means source at head with no diff; supply the parent to review introduced changes. Legacy pins remain accepted. For a GitHub PR, pullRequestUrl alone is enough: target and title become optional, and the host fetches the PR into a registered checkout of its repository (or repositoryId) and pins the current PR head and GitHub diff base, titled from the PR. When a review for that PR exists, it is returned instead (created:false, a note saying so, its stored target, headMoved when the requested or current PR head differs, ownedBy when another session is authoring it); update it in place, move its target with review_set_target, or pass reuseExisting:false for a separate review. kind:"scratchpad" names the one scratchpad, which the host creates itself. The result carries review, the review as review_list shows it: its target with resolved commits, origin (its PR), repositoryName and repositoryPath, so no follow-up read is needed before diffing. When Desktop is available the review opens there and the result reports opened, softwareMapEnabled and environmentIssues, as review_open does; set open:false to author in the background without taking over Desktop.',
+      'Create a session with target: {kind: worktree, repositoryId, base?} for saved working files, or {kind: commits, repositoryId, head, base?} for immutable commits. Revisions are resolved on acceptance. Omitted commits base means source at head with no diff; supply the parent to session introduced changes. Legacy pins remain accepted. For a GitHub PR, pullRequestUrl alone is enough: target and title become optional, and the host fetches the PR into a registered checkout of its repository (or repositoryId) and pins the current PR head and GitHub diff base, titled from the PR. When a session for that PR exists, it is returned instead (created:false, a note saying so, its stored target, headMoved when the requested or current PR head differs, ownedBy when another agent is authoring it); update it in place, move its target with session_set_target, or pass reuseExisting:false for a separate session. kind:"scratchpad" names the one scratchpad, which the host creates itself. The result carries session, the session as session_list shows it: its target with resolved commits, origin (its PR), repositoryName and repositoryPath, so no follow-up read is needed before diffing. When Desktop is available the session opens there and the result reports opened, softwareMapEnabled and environmentIssues, as session_open does; set open:false to author in the background without taking over Desktop.',
     set_target:
-      "Change the review target, preserving document and component IDs. Returns warnings for source references needing repair. Earlier versions keep their retained source.",
+      "Change the session target, preserving document and component IDs. Returns warnings for source references needing repair. Earlier versions keep their retained source.",
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs; use returned IDs to edit components in place. The result names the target's type and, for an insert or replace, its first-level children as {id,type} (a container's blocks; a diagram's steps, or nodes then edges). Accepted edits are saved immediately. Omitted placement appends; on the scratchpad it lands at the top, so insert a multi-block thought bottom-up or chain each block with afterId. null removes an optional field in a patch. While a reader may be watching, write small and often: one paragraph per edit, so the document draws itself as you go. Insert a new diagram whole, with all its nodes and edges or steps; the board traces it in one quick pass. Change a diagram already on the board one unit at a time: insert, update or remove a flow_node, flow_edge or step by ID (parentId names the diagram). Give each added flow_node link:{from} (or to) naming a node already drawn, so it arrives attached; a separate flow_edge is only for two nodes that already exist. Removing a flow_node removes its edges.",
-    lens: 'Insert, update or remove one Diff-view lens. Lenses partition the review\'s change for the Diff view; they sit beside the document (never in it) and version with it. insert {title, targets, afterId?} appends (or follows afterId) and the host assigns the id (lens-N); update {targetId, title?, targets?} replaces only the fields named; remove {targetId}. targets is a union of {kind:"files", patterns:[paths or globs]} and {kind:"ranges", sources:[selections]}. Write one lens per call while a reader may be watching; each draws in on the Diffs page. Requires the lenses lease: review_activity with scope:"lenses", which another agent can hold while the document lease is held elsewhere. The result names the lens (targetId, type:"lens") and reports uncategorized: the changed lines no lens selects yet, by file ({lines, files:[{path, lines, ranges}], moreFiles?}). Keep adding lenses until it is empty or what remains is deliberate. review_lens_get reads the current lenses and gaps.',
-    rename: "Change the review title.",
+    lens: 'Insert, update or remove one Diff-view lens. Lenses partition the session\'s change for the Diff view; they sit beside the document (never in it) and version with it. insert {title, targets, afterId?} appends (or follows afterId) and the host assigns the id (lens-N); update {targetId, title?, targets?} replaces only the fields named; remove {targetId}. targets is a union of {kind:"files", patterns:[paths or globs]} and {kind:"ranges", sources:[selections]}. Write one lens per call while a reader may be watching; each draws in on the Diffs page. Requires the lenses lease: session_activity with scope:"lenses", which another agent can hold while the document lease is held elsewhere. The result names the lens (targetId, type:"lens") and reports uncategorized: the changed lines no lens selects yet, by file ({lines, files:[{path, lines, ranges}], moreFiles?}). Keep adding lenses until it is empty or what remains is deliberate. session_lens_get reads the current lenses and gaps.',
+    rename: "Change the session title.",
     repin:
-      "Update source pins or PR identity while preserving the document and component IDs. Returns warnings for retained source ranges to verify and resources that no longer match; fix them with review_edit. Previous pins and content remain in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
+      "Update source pins or PR identity while preserving the document and component IDs. Returns warnings for retained source ranges to verify and resources that no longer match; fix them with session_edit. Previous pins and content remain in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
     restore:
       "Restore title, source pins, PR identity and content from a saved version. Comments are not rolled back.",
     attention:
-      "Mark a review viewed, dismissed or restored without changing its content.",
-    delete: "Permanently delete this review and its history.",
+      "Mark a session viewed, dismissed or restored without changing its content.",
+    delete: "Permanently delete this session and its history.",
   };
 
   const tool = (
@@ -40,7 +40,7 @@ export function authoringTools() {
     path: string,
     commandType?: string,
   ) => ({
-    name: `review_${name}`,
+    name: `session_${name}`,
     description,
     inputSchema: {
       ...z.toJSONSchema(schema, { io: "input" }),
@@ -61,8 +61,8 @@ export function authoringTools() {
     ),
     tool(
       "activity",
-      'Acquire an exclusive authoring session for one scope of a review: begin with a fresh leaseId UUID, pass that leaseId on every write in that scope, and end when finished. scope "document" (default) covers every edit, rename, repin, target change, restore or delete; scope "lenses" covers review_lens_edit writes only, so one agent can author lenses while another holds the document lease. Each scope has its own lease and focus; a focus targetId in the lenses scope names a lens id. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.',
-      activitySchema.extend(review),
+      'Acquire an exclusive authoring session for one scope of a session: begin with a fresh leaseId UUID, pass that leaseId on every write in that scope, and end when finished. scope "document" (default) covers every edit, rename, repin, target change, restore or delete; scope "lenses" covers session_lens_edit writes only, so one agent can author lenses while another holds the document lease. Each scope has its own lease and focus; a focus targetId in the lenses scope names a lens id. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the session is finished: readers treat a session with content and no live session as ready. Ending it creates no document version.',
+      activitySchema.extend(session),
       "POST",
       "/:sessionId/activity",
     ),
@@ -72,7 +72,7 @@ export function authoringTools() {
 
       return tool(
         type === "lens" ? "lens_edit" : type,
-        `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response. For content changes to an owned review, include the leaseId from review_activity.`,
+        `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response. For content changes to an owned session, include the leaseId from session_activity.`,
         z.strictObject({
           ...fields,
           ...(type === "create" && { open: z.boolean().optional() }),
@@ -84,45 +84,45 @@ export function authoringTools() {
         type,
       );
     }),
-    tool("list", "List saved reviews.", z.strictObject({}), "GET", ""),
+    tool("list", "List saved sessions.", z.strictObject({}), "GET", ""),
     tool(
       "get",
       "Read a readable, nested text outline with editable IDs. targetId reads one component in full; full:true reads all content. Use format:json for raw node data or snapshots instead of text.",
-      z.strictObject({ ...review, ...inspectQuerySchema.shape }),
+      z.strictObject({ ...session, ...inspectQuerySchema.shape }),
       "GET",
       "/:sessionId/inspect",
     ),
     tool(
       "lens_get",
       "Read the review's Diff-view lenses as authored (ids, titles, targets), each lens's resolved fileCount (and unavailable reason, if any), and uncategorized: the changed lines no lens selects yet, by file.",
-      z.strictObject(review),
+      z.strictObject(session),
       "GET",
       "/:sessionId/lenses",
     ),
     tool(
       "history",
       "List saved document versions.",
-      z.strictObject(review),
+      z.strictObject(session),
       "GET",
       "/:sessionId/history",
     ),
     tool(
       "open",
-      "Show an existing review immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use review_environment to recheck.",
-      z.strictObject(review),
+      "Show an existing session immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use session_environment to recheck.",
+      z.strictObject(session),
       "POST",
       "/:sessionId/open",
     ),
     tool(
       "environment",
-      "Acquire and recheck this review's current base/head language checkouts (not historical or selected commits). Returns acquisition issues, not full LSP health. Missing optional setup and failed setup with a usable checkout stay silent. Set retry:true to rerun failed preparation after an actual language-feature failure; preparation runs in the background.",
-      z.strictObject({ ...review, retry: z.boolean().optional() }),
+      "Acquire and recheck this session's current base/head language checkouts (not historical or selected commits). Returns acquisition issues, not full LSP health. Missing optional setup and failed setup with a usable checkout stay silent. Set retry:true to rerun failed preparation after an actual language-feature failure; preparation runs in the background.",
+      z.strictObject({ ...session, retry: z.boolean().optional() }),
       "POST",
       "/:sessionId/environment",
     ),
     tool(
       "workspace_cleanup",
-      "Inspect failed cleanup of retired Review-owned checkouts. Supply workspaceId to retry removal of that checkout. This does not remove active review checkouts.",
+      "Inspect failed cleanup of retired Whiteboard-owned checkouts. Supply workspaceId to retry removal of that checkout. This does not remove active session checkouts.",
       z.strictObject({ workspaceId: id.optional() }),
       "POST",
       "/workspace-cleanup",
@@ -152,7 +152,7 @@ export function authoringTools() {
       "source",
       "Read an exact code range from the current target. An explicit version reads retained historical source. source.pins {repositoryId, head, base?} reads at those commits of any registered repository instead; the same pins on a stored selection or markdown block make it resolve there.",
       z.strictObject({
-        ...review,
+        ...session,
         version,
         source: fileLineRangeSchema,
         commit: z.string().min(1).optional(),
@@ -176,14 +176,14 @@ export function authoringTools() {
     ),
     tool(
       "diff",
-      'Read this review\'s changes. paths selects files (default: all). format:"files" lists them with status and counts; format:"patch" returns plain-text patches with base and head line numbers on every line, ready for review-source links. Patches past maxBytes are listed with a paths:[…] hint. commit selects one commit from this review; repositoryId, base and head compare explicit pins of a registered repository instead.',
+      'Read this session\'s changes. paths selects files (default: all). format:"files" lists them with status and counts; format:"patch" returns plain-text patches with base and head line numbers on every line, ready for review-source links. Patches past maxBytes are listed with a paths:[…] hint. commit selects one commit from this session; repositoryId, base and head compare explicit pins of a registered repository instead.',
       read("diff"),
       "GET",
       "/:sessionId/diff",
     ),
     tool(
       "commits",
-      "List commits in this review's pinned comparison.",
+      "List commits in this session's pinned comparison.",
       read("commits"),
       "GET",
       "/:sessionId/commits",

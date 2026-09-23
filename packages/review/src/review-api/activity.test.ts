@@ -67,7 +67,7 @@ it("streams activity separately from document versions and closes the stream on 
 
   const client = new SessionApiClient(
     { serverUrl: "http://review.test", token: "test" },
-    async (url, init) => api.request(url.replace("/reviews-api", ""), init),
+    async (url, init) => api.request(url.replace("/sessions-api", ""), init),
   );
 
   const command = <Operation>(operation: Operation) =>

@@ -165,12 +165,13 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 				.filter(([key, value]) => key !== "sessionId" && value !== undefined)
 				.map(([key, value]) => [key, String(value)]),
 		);
-		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(sessionId)}${route}?${params}`, {
-			headers: { "x-review-token": token },
+		const response = await fetch(`${serverUrl}/sessions-api/${encodeURIComponent(sessionId)}${route}?${params}`, {
+			headers: { "x-whiteboard-token": token },
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) throw await reviewResponseError(response, `Could not read pinned source (${response.status}).`);
-		return response.json();
+		// SAFETY: the route selects the response type; only the session metadata envelope changes.
+		return await response.json() as T;
 	}
 
 	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {
@@ -257,7 +258,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		const makeSource = (getView: () => ReviewSourceView): ReviewDiffViewSource => ({
 			files: scope => files(reviewSourceComparison(getView(), scope?.commit)),
 			load: async (scope, lens) => {
-				if (lens && (scope || lens.sessionId !== getView().sessionId)) throw new Error("A lens must use its review comparison.");
+				if (lens && (scope || lens.sessionId !== getView().sessionId)) throw new Error("A lens must use its session comparison.");
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(getView(), scope?.commit);
 				const comparisonFiles = await files(current);

@@ -172,7 +172,7 @@ export async function focusReviewDesktop(
 ): Promise<void> {
   const response = await fetch(`${discovery.url}/app/focus`, {
     method: "POST",
-    headers: { "x-review-token": discovery.token },
+    headers: { "x-whiteboard-token": discovery.token },
     signal: AbortSignal.timeout(5_000),
   });
 

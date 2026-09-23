@@ -79,7 +79,7 @@ export async function runReviewAppPick(
   let review: Pick<SessionSummary, "sessionId" | "title">;
 
   if (input.sessionId) {
-    // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
+    // Without `full`, GET /sessions-api/:id answers inspectSnapshot(): block
     // descriptors with no sessionId or title.
     review = await client.read(
       `/${encodeURIComponent(input.sessionId)}?full=true`,

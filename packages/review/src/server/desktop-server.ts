@@ -34,6 +34,7 @@ import {
   skipCliInstall,
 } from "../cli-install";
 import { syncScratchpadSkills } from "../install";
+import { legacyReviewApi } from "../legacy-rename.js";
 import { readReviewPackageVersion } from "../package-paths";
 import { SessionInputError } from "../review-api/document.js";
 import { createSessionApi } from "../review-api/http.js";
@@ -173,15 +174,16 @@ export function createGlobalReviewServer(
     await next();
   });
 
+  app.route("/reviews-api", legacyReviewApi());
   app.route(
-    "/reviews-api",
+    "/sessions-api",
     createJsonReviewReporting(input.reviewStore, telemetry, {
       shared: input.sharedReviews,
     }),
   );
 
   app.route(
-    "/reviews-api",
+    "/sessions-api",
     createSessionApi(
       input.reviewStore,
       input.reviewData,
@@ -217,6 +219,7 @@ export function createGlobalReviewServer(
       () => scratchpadEnabled,
     ),
   );
+
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );

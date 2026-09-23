@@ -6,7 +6,11 @@ import { type ReactNode, act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectCard, LegacySkillsRow } from "./connect-card";
+import {
+  ConnectCard,
+  LegacySkillsRow,
+  WHITEBOARD_CONNECT_TARGET_STORAGE_KEY,
+} from "./connect-card";
 
 const status: WhiteboardCliInstallStatus = {
   fingerprint: "f",
@@ -92,74 +96,100 @@ async function mount(node: ReactNode): Promise<HTMLDivElement> {
 }
 
 afterEach(async () => {
+  localStorage.removeItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY);
+
   for (const { root, container } of mounted.splice(0)) {
     await act(async () => root.unmount());
     container.remove();
   }
 });
 
+function button(container: HTMLElement, label: string) {
+  return [...container.querySelectorAll("button")].find(
+    (b) => b.textContent === label,
+  );
+}
+
+function body(container: HTMLElement) {
+  return container.querySelector(".whiteboard-home-prompt-body")?.textContent;
+}
+
+function copyButton(container: HTMLElement) {
+  return container.querySelector<HTMLButtonElement>(".whiteboard-home-prompt-copy");
+}
+
 describe("ConnectCard", () => {
-  it("copies the prompt for the chosen harness", async () => {
+  it("shows the Claude Code prompt first and switches harness on click", async () => {
+    const container = await mount(<ConnectCard install={content()} />);
+
+    expect(button(container, "Claude Code")?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(body(container)).toBe("CLAUDE PROMPT");
+
+    await act(async () => button(container, "Codex")?.click());
+    expect(button(container, "Codex")?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(button(container, "Claude Code")?.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+    expect(body(container)).toBe("CODEX PROMPT");
+    expect(localStorage.getItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY)).toBe(
+      "codex",
+    );
+  });
+
+  it("preselects the stored harness", async () => {
+    localStorage.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, "pi");
+
+    const container = await mount(<ConnectCard install={content()} />);
+
+    expect(button(container, "Pi")?.getAttribute("aria-pressed")).toBe("true");
+    expect(body(container)).toBe("PI PROMPT");
+  });
+
+  it("copies whichever text is shown", async () => {
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockResolvedValue();
 
     const container = await mount(<ConnectCard install={content()} />);
 
-    const buttons = [...container.querySelectorAll("button")].filter(
-      (b) => b.textContent === "Copy prompt",
-    );
-
-    expect(buttons).toHaveLength(5);
-    expect(buttons[1]?.getAttribute("aria-label")).toBe(
+    await act(async () => button(container, "Codex")?.click());
+    expect(copyButton(container)?.getAttribute("aria-label")).toBe(
       "Copy prompt for Codex",
     );
-    await act(async () => buttons[1]?.click());
-    expect(writeText).toHaveBeenCalledWith("CODEX PROMPT");
-    expect(container.textContent).toContain("Copied");
+    await act(async () => copyButton(container)?.click());
+    expect(writeText).toHaveBeenLastCalledWith("CODEX PROMPT");
+    expect(copyButton(container)?.textContent).toBe("Copied");
+
+    await act(async () => button(container, "Install the plugin")?.click());
+    expect(body(container)).toBe("CODEX COMMAND");
+    expect(copyButton(container)?.textContent).toBe("Copy command");
+    expect(copyButton(container)?.getAttribute("aria-label")).toBe(
+      "Copy install command for Codex",
+    );
+    await act(async () => copyButton(container)?.click());
+    expect(writeText).toHaveBeenLastCalledWith("CODEX COMMAND");
+    expect(copyButton(container)?.textContent).toBe("Copied");
     writeText.mockRestore();
   });
 
-  it("offers each harness's plugin above the prompt", async () => {
-    const writeText = vi
-      .spyOn(navigator.clipboard, "writeText")
-      .mockResolvedValue();
+  it("links to Cursor's installer, or asks for the whiteboard command without one", async () => {
+    localStorage.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, "cursor");
 
     const container = await mount(<ConnectCard install={content()} />);
 
-    const rows = [...container.querySelectorAll("li")];
+    await act(async () => button(container, "Install the plugin")?.click());
 
-    expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringContaining("Install the Claude Code plugin"),
-      expect.stringContaining("Install the Codex plugin"),
-      expect.stringContaining("Install in Cursor"),
-      expect.stringContaining("Install the OpenCode plugin"),
-      expect.stringContaining("Install the Pi package"),
-    ]);
-
-    for (const row of rows) {
-      expect(row.textContent).toContain("or paste this prompt");
-    }
-
-    const link = rows[2]?.querySelector("a");
+    const link = container.querySelector("a");
 
     expect(link?.textContent).toBe("Install in Cursor");
     expect(link?.getAttribute("href")).toMatch(/^cursor:\/\//);
     expect(link?.getAttribute("target")).toBe("_blank");
-    expect(rows[2]?.textContent).not.toContain("Copy command");
 
-    const copy = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Copy install command for Pi"]',
-    );
-
-    expect(copy?.textContent).toBe("Copy command");
-    await act(async () => copy?.click());
-    expect(writeText).toHaveBeenCalledWith("PI COMMAND");
-    writeText.mockRestore();
-  });
-
-  it("lets Desktop from source connect without the whiteboard command", async () => {
-    const container = await mount(
+    const bare = await mount(
       <ConnectCard
         install={content({
           cli: null,
@@ -175,49 +205,24 @@ describe("ConnectCard", () => {
       />,
     );
 
-    const cursor = container.querySelectorAll("li")[2];
-
-    expect(cursor?.querySelector("a")).toBeNull();
-    expect(cursor?.textContent).toContain("Install in Cursor");
-    expect(container.textContent).not.toContain(
-      "Install the whiteboard command first",
-    );
-    expect(
-      [...container.querySelectorAll("button")].every((b) => !b.disabled),
-    ).toBe(true);
+    await act(async () => button(bare, "Install the plugin")?.click());
+    expect(bare.querySelector("a")).toBeNull();
+    expect(body(bare)).toContain("Install in Cursor");
+    expect(body(bare)).toContain("Install the whiteboard command first.");
+    expect(bare.querySelector(".whiteboard-connect-note")).toBeNull();
   });
 
-  it("reveals the prompt text on demand", async () => {
-    const container = await mount(<ConnectCard install={content()} />);
-
-    const details = container.querySelectorAll("details")[4];
-
-    expect(details?.open).toBe(false);
-    expect(details?.querySelector("summary")?.textContent).toBe("Show prompt");
-    await act(async () => {
-      if (details) details.open = true;
-    });
-    expect(details?.querySelector("pre")?.textContent).toBe("PI PROMPT");
-  });
-
-  it("asks for the whiteboard command before agents can connect", async () => {
+  it("notes the missing whiteboard command without disabling copy", async () => {
     const container = await mount(
       <ConnectCard
         install={content({ shim: { ...status.shim, installed: false } })}
       />,
     );
 
-    expect(container.textContent).toContain(
-      "Install the whiteboard command first",
+    expect(container.querySelector(".whiteboard-connect-note")?.textContent).toBe(
+      "Install the whiteboard command first. The prompt and the plugin both launch it.",
     );
-
-    const copies = [...container.querySelectorAll("button")].filter((b) =>
-      ["Copy prompt", "Copy command"].includes(b.textContent ?? ""),
-    );
-
-    expect(copies).toHaveLength(9);
-    expect(copies.every((b) => b.disabled)).toBe(true);
-    expect(container.querySelector("a")).toBeNull();
+    expect(copyButton(container)?.disabled).toBe(false);
   });
 
   it("shows the setup error from the status", async () => {

@@ -107,7 +107,10 @@ describe("WelcomePage", () => {
         <WelcomePage install={content(fresh)} setupActions={setupActions} />,
       ),
     );
-    expect(buttons("Copy prompt")).toHaveLength(5);
+    expect(buttons("Copy prompt")).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[aria-label="Agent"] button'),
+    ).toHaveLength(5);
     expect(container.textContent).toContain("paste a prompt into each agent");
     expect(stepState()).toBe("todo");
 
@@ -135,7 +138,10 @@ describe("WelcomePage", () => {
       "Whiteboard now connects to your agents over MCP",
     );
     expect(container.textContent).toContain("/h/.codex/skills/whiteboard");
-    expect(buttons("Copy prompt")).toHaveLength(5);
+    expect(buttons("Copy prompt")).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[aria-label="Agent"] button'),
+    ).toHaveLength(5);
 
     await act(async () => buttons("Done")[0]?.click());
     expect(onClose).toHaveBeenCalledOnce();

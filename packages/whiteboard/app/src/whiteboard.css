@@ -1189,7 +1189,6 @@ button.host-authoring-activity[data-locatable]:focus-visible {
    --------------------------------------------------------------------------- */
 .whiteboard-corner-dismiss,
 .whiteboard-home-prompt-copy,
-.whiteboard-connect button,
 .whiteboard-connect-legacy button,
 .tutorial-guide button {
   border-radius: 6px;

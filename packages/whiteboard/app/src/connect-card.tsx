@@ -18,13 +18,21 @@ export const TARGET_LABELS: Record<WhiteboardCliInstallTarget, string> = {
   pi: "Pi",
 };
 
+export const WHITEBOARD_CONNECT_TARGET_STORAGE_KEY =
+  "dev.fast.whiteboard.connectTarget";
+
 const COPIED_RESET_MS = 2000;
 
-type CopyKind = "command" | "prompt";
+type Mode = "prompt" | "plugin";
+
+const MODES: ReadonlyArray<{ mode: Mode; label: string }> = [
+  { mode: "prompt", label: "Paste a prompt" },
+  { mode: "plugin", label: "Install the plugin" },
+];
 
 /**
- * Per agent, the published plugin (an install command, or Cursor's link) and,
- * below it, a paste-in prompt that has the agent add Whiteboard's MCP server.
+ * One agent at a time: a paste-in prompt that has the agent add Whiteboard's MCP
+ * server, or the published plugin (an install command, or Cursor's link).
  */
 export function ConnectCard({
   install,
@@ -33,14 +41,11 @@ export function ConnectCard({
 }) {
   const { status } = install;
 
-  // A packaged Desktop launches agents through the shim, so nothing works
-  // until it exists. From source the prompts use the bare command instead.
-  const blocked = Boolean(status.cli) && !status.shim.installed;
+  const [target, setTarget] =
+    useState<WhiteboardCliInstallTarget>(readStoredTarget);
 
-  const [copied, setCopied] = useState<{
-    kind: CopyKind;
-    target: WhiteboardCliInstallTarget;
-  } | null>(null);
+  const [mode, setMode] = useState<Mode>("prompt");
+  const [copied, setCopied] = useState(false);
 
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -48,102 +53,157 @@ export function ConnectCard({
 
   useEffect(() => () => clearTimeout(resetTimer.current), []);
 
-  const copy = (
-    kind: CopyKind,
-    target: WhiteboardCliInstallTarget,
-    text: string,
-  ) => {
-    void copyText(text).then((ok) => {
+  const clearCopied = () => {
+    setCopied(false);
+    clearTimeout(resetTimer.current);
+  };
+
+  const selectTarget = (next: WhiteboardCliInstallTarget) => {
+    setTarget(next);
+    clearCopied();
+
+    try {
+      globalThis.localStorage?.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, next);
+    } catch {
+      // The desktop can disable DOM storage; the in-memory selection still works.
+    }
+  };
+
+  const selectMode = (next: Mode) => {
+    setMode(next);
+    clearCopied();
+  };
+
+  const agent = TARGET_LABELS[target];
+
+  const plugin = status.connect.plugins[target];
+
+  const text =
+    mode === "prompt" ? status.connect.prompts[target] : plugin.command;
+
+  const copy = (value: string) => {
+    void copyText(value).then((ok) => {
       if (!ok) {
         return;
       }
 
-      setCopied({ kind, target });
+      setCopied(true);
       clearTimeout(resetTimer.current);
-      resetTimer.current = setTimeout(() => setCopied(null), COPIED_RESET_MS);
+      resetTimer.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
     });
   };
 
-  const isCopied = (kind: CopyKind, target: WhiteboardCliInstallTarget) =>
-    copied?.kind === kind && copied.target === target;
+  const noun = mode === "prompt" ? "prompt" : "install command";
 
   return (
     <section className="whiteboard-connect" aria-label="Connect your agents">
-      {blocked ? (
+      {/* A packaged Desktop launches agents through the shim, so nothing
+          works until it exists. From source the prompts use the bare
+          command instead. */}
+      {status.cli && !status.shim.installed ? (
         <p className="whiteboard-connect-note">
-          Install the whiteboard command first.
+          Install the whiteboard command first. The prompt and the plugin both
+          launch it.
         </p>
       ) : null}
-      <ul className="whiteboard-connect-agents">
-        {WhiteboardCliInstallTargetSchema.options.map((target) => {
-          const Logo = AGENT_LOGOS[target];
-
-          const agent = TARGET_LABELS[target];
-
-          const plugin = status.connect.plugins[target];
-
-          const { command } = plugin;
+      <div
+        className="whiteboard-home-prompt-tabs whiteboard-connect-tabs"
+        role="group"
+        aria-label="Agent"
+      >
+        {WhiteboardCliInstallTargetSchema.options.map((tab) => {
+          const Logo = AGENT_LOGOS[tab];
 
           return (
-            <li key={target}>
-              <span className="whiteboard-connect-logo-slot">
-                <Logo />
-              </span>
-              <span className="whiteboard-connect-name">{agent}</span>
-              <div className="whiteboard-connect-plugin">
-                {plugin.url && !blocked ? (
-                  <a href={plugin.url} {...newTabLinkProps(plugin.url)}>
-                    {plugin.label}
-                  </a>
-                ) : (
-                  <span>{plugin.label}</span>
-                )}
-                {command ? (
-                  <>
-                    <pre>{command}</pre>
-                    <button
-                      type="button"
-                      className="whiteboard-connect-copy"
-                      disabled={blocked}
-                      aria-live="polite"
-                      aria-label={`${isCopied("command", target) ? "Copied" : "Copy"} install command for ${agent}`}
-                      onClick={() => copy("command", target, command)}
-                    >
-                      <CopyIcon />
-                      {isCopied("command", target) ? "Copied" : "Copy command"}
-                    </button>
-                  </>
-                ) : null}
-              </div>
-              <span className="whiteboard-connect-or">
-                or paste this prompt
-              </span>
-              <button
-                type="button"
-                className="whiteboard-connect-copy"
-                disabled={blocked}
-                aria-live="polite"
-                aria-label={`${isCopied("prompt", target) ? "Copied" : "Copy"} prompt for ${agent}`}
-                onClick={() =>
-                  copy("prompt", target, status.connect.prompts[target])
-                }
-              >
-                <CopyIcon />
-                {isCopied("prompt", target) ? "Copied" : "Copy prompt"}
-              </button>
-              <details className="whiteboard-connect-prompt">
-                <summary>Show prompt</summary>
-                <pre>{status.connect.prompts[target]}</pre>
-              </details>
-            </li>
+            <button
+              key={tab}
+              type="button"
+              className={target === tab ? "is-active" : undefined}
+              aria-pressed={target === tab}
+              onClick={() => selectTarget(tab)}
+            >
+              <Logo />
+              {TARGET_LABELS[tab]}
+            </button>
           );
         })}
-      </ul>
+      </div>
+      <div
+        className="whiteboard-home-prompt-tabs whiteboard-connect-modes"
+        role="group"
+        aria-label="Setup method"
+      >
+        {MODES.map(({ mode: tab, label }) => (
+          <button
+            key={tab}
+            type="button"
+            className={mode === tab ? "is-active" : undefined}
+            aria-pressed={mode === tab}
+            onClick={() => selectMode(tab)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {text ? (
+        <>
+          <pre className="whiteboard-home-prompt-body">{text}</pre>
+          <div className="whiteboard-home-prompt-actions">
+            <button
+              type="button"
+              className="whiteboard-home-prompt-copy"
+              aria-live="polite"
+              aria-label={`${copied ? "Copied" : "Copy"} ${noun} for ${agent}`}
+              onClick={() => copy(text)}
+            >
+              <CopyIcon />
+              {copied
+                ? "Copied"
+                : `Copy ${mode === "prompt" ? "prompt" : "command"}`}
+            </button>
+          </div>
+        </>
+      ) : plugin.url ? (
+        <>
+          <p className="whiteboard-home-prompt-body">
+            Opens {agent} and adds the review server.
+          </p>
+          <div className="whiteboard-home-prompt-actions">
+            <a
+              className="whiteboard-home-prompt-copy"
+              href={plugin.url}
+              {...newTabLinkProps(plugin.url)}
+            >
+              {plugin.label}
+            </a>
+          </div>
+        </>
+      ) : (
+        <p className="whiteboard-home-prompt-body">
+          {`${plugin.label}\nInstall the whiteboard command first.`}
+        </p>
+      )}
       {status.error ? (
         <p className="whiteboard-connect-error">{status.error}</p>
       ) : null}
     </section>
   );
+}
+
+function readStoredTarget(): WhiteboardCliInstallTarget {
+  try {
+    const stored = WhiteboardCliInstallTargetSchema.safeParse(
+      globalThis.localStorage?.getItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY),
+    );
+
+    if (stored.success) {
+      return stored.data;
+    }
+  } catch {
+    // Fall through to the default when DOM storage is unavailable.
+  }
+
+  return "claude";
 }
 
 /**

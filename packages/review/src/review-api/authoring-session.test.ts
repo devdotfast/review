@@ -188,6 +188,76 @@ it("keeps a lease across restart and enforces it in an independent process witho
   expect(await child(reviewId)).toMatchObject({ reviewId, version: 1 });
 });
 
+it("keeps the lease alive through accepted writes but not rejected ones", async () => {
+  vi.useFakeTimers();
+
+  const leaseId = randomUUID(),
+    focus = { description: "Drafting" };
+
+  const expiresAt = () => b.activity.read(reviewId).expiresAt;
+
+  const insert = (markdown: string) => ({
+    type: "edit",
+    reviewId,
+    edit: { type: "insert", content: { type: "markdown", markdown } },
+  });
+
+  a.activity.update(reviewId, { action: "begin", leaseId, focus });
+
+  // Each accepted write lands just before expiry and pushes it a full TTL out.
+  for (const operation of [
+    insert("One"),
+    { type: "rename", reviewId, title: "Renamed" },
+    { type: "repin", reviewId, pins },
+  ]) {
+    vi.advanceTimersByTime(ACTIVITY_TTL_MS - 1_000);
+    await a.execute(command(operation, leaseId));
+    expect(expiresAt()).toBe(Date.now() + ACTIVITY_TTL_MS);
+  }
+
+  expect(b.activity.read(reviewId).focuses).toEqual([focus]);
+
+  // Rejected writes, with or without the lease, extend nothing.
+  vi.advanceTimersByTime(ACTIVITY_TTL_MS / 2);
+  const before = expiresAt();
+  await expect(
+    a.execute(
+      command(
+        { type: "edit", reviewId, edit: { type: "remove", targetId: "gone" } },
+        leaseId,
+      ),
+    ),
+  ).rejects.toMatchObject({ status: 400 });
+  await expect(
+    b.execute(command({ type: "rename", reviewId, title: "Intruder" })),
+  ).rejects.toMatchObject({ status: 409 });
+  await b.execute(command({ type: "attention", reviewId, action: "view" }));
+  expect(expiresAt()).toBe(before);
+
+  // Explicit renewal still works during a long pause without edits.
+  a.activity.update(reviewId, { action: "renew", leaseId });
+  expect(expiresAt()).toBe(Date.now() + ACTIVITY_TTL_MS);
+
+  // A TTL of inactivity ends the session; the next edit is refused.
+  const ended = vi.fn<(id: string) => void>();
+  a.activity.subscribe(ended);
+  vi.advanceTimersByTime(ACTIVITY_TTL_MS - 1);
+  expect(b.activity.read(reviewId).workingCount).toBe(1);
+  vi.advanceTimersByTime(1);
+  expect(b.activity.read(reviewId).workingCount).toBe(0);
+  expect(ended).toHaveBeenCalledWith(reviewId);
+  await expect(a.execute(command(insert("Too late"), leaseId))).rejects.toThrow(
+    /ended or expired/,
+  );
+
+  // A one-off write with no session creates none.
+  await b.execute(command({ type: "rename", reviewId, title: "One-off" }));
+  expect(b.activity.read(reviewId)).toEqual({
+    workingCount: 0,
+    expiresAt: null,
+  });
+});
+
 it("rejects a slow edit after its lease expires and a new author takes over", async () => {
   vi.useFakeTimers();
 

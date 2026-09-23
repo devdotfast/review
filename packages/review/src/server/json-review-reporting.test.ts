@@ -51,6 +51,13 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
   const telemetry = {
     captureUiEvent: vi.fn<ReviewTelemetry["captureUiEvent"]>(),
     captureTabViewed: vi.fn<ReviewTelemetry["captureTabViewed"]>(),
+    envelope: vi.fn<ReviewTelemetry["envelope"]>(async () => ({
+      channel: "stable",
+      environment: "e2e",
+      surface: "desktop",
+      ci: false,
+      internal: false,
+    })),
   };
 
   const payloads: BugReportPayload[] = [];
@@ -134,6 +141,13 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
   expect(payloads[0].review?.["review.json"]).toContain("Original prose");
   expect(payloads[0].review?.["review.json"]).not.toContain("Newer prose");
   expect(payloads[0].map).toContain("Original map");
+  expect(payloads[0].diagnostics.telemetry).toEqual({
+    channel: "stable",
+    environment: "e2e",
+    surface: "desktop",
+    ci: false,
+    internal: false,
+  });
   expect(
     (
       await post("bug-report?version=0", {
@@ -162,6 +176,7 @@ it("rejects shared telemetry when the shared store is unavailable", async () => 
   const app = createJsonReviewReporting(store, {
     captureUiEvent,
     captureTabViewed: vi.fn<ReviewTelemetry["captureTabViewed"]>(),
+    envelope: vi.fn<ReviewTelemetry["envelope"]>(async () => ({})),
   });
 
   const response = await app.request(

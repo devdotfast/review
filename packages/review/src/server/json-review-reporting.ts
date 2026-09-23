@@ -72,7 +72,10 @@ export function jsonReviewBugReportSource(
 /** Telemetry and report uploads for a pinned native review. */
 export function createJsonReviewReporting(
   store: ReviewStore,
-  telemetry: Pick<ReviewTelemetry, "captureUiEvent" | "captureTabViewed">,
+  telemetry: Pick<
+    ReviewTelemetry,
+    "captureUiEvent" | "captureTabViewed" | "envelope"
+  >,
   options: {
     submit?: typeof submitReviewBugReport;
     shared?: SharedReviewStore;
@@ -155,6 +158,7 @@ export function createJsonReviewReporting(
             }
           : jsonReviewBugReportSource(store, snapshot),
         clientErrorNames: clientErrorsForSession(report.app_session_id),
+        telemetryEnvelope: await telemetry.envelope(),
       }),
     );
   });

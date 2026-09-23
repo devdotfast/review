@@ -21,6 +21,7 @@ export function authoringTools() {
     set_target:
       "Change the review target, preserving document and component IDs. Returns warnings for source references needing repair. Earlier versions keep their retained source.",
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs; use returned IDs to edit components in place. The result names the target's type and, for an insert or replace, its first-level children as {id,type} (a container's blocks; a diagram's steps, or nodes then edges). Accepted edits are saved immediately. Omitted placement appends; on the scratchpad it lands at the top, so insert a multi-block thought bottom-up or chain each block with afterId. null removes an optional field in a patch. While a reader may be watching, write small and often: one paragraph per edit, so the document draws itself as you go. Insert a new diagram whole, with all its nodes and edges or steps; the board traces it in one quick pass. Change a diagram already on the board one unit at a time: insert, update or remove a flow_node, flow_edge or step by ID (parentId names the diagram). Give each added flow_node link:{from} (or to) naming a node already drawn, so it arrives attached; a separate flow_edge is only for two nodes that already exist. Removing a flow_node removes its edges.",
+    lens: 'Insert, update or remove one Diff-view lens. Lenses partition the review\'s change for the Diff view; they sit beside the document (never in it) and version with it. insert {title, targets, afterId?} appends (or follows afterId) and the host assigns the id (lens-N); update {targetId, title?, targets?} replaces only the fields named; remove {targetId}. targets is a union of {kind:"files", patterns:[paths or globs]} and {kind:"ranges", sources:[selections]}. Write one lens per call while a reader may be watching; each draws in on the Diffs page. Requires the lenses lease: review_activity with scope:"lenses", which another agent can hold while the document lease is held elsewhere. The result names the lens (targetId, type:"lens") and reports uncategorized: the changed lines no lens selects yet, by file ({lines, files:[{path, lines, ranges}], moreFiles?}). Keep adding lenses until it is empty or what remains is deliberate. review_lens_get reads the current lenses and gaps.',
     rename: "Change the review title.",
     repin:
       "Update source pins or PR identity while preserving the document and component IDs. Returns warnings for retained source ranges to verify and resources that no longer match; fix them with review_edit. Previous pins and content remain in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
@@ -60,7 +61,7 @@ export function authoringTools() {
     ),
     tool(
       "activity",
-      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, target change, restore or delete, and end when finished. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.",
+      'Acquire an exclusive authoring session for one scope of a review: begin with a fresh leaseId UUID, pass that leaseId on every write in that scope, and end when finished. scope "document" (default) covers every edit, rename, repin, target change, restore or delete; scope "lenses" covers review_lens_edit writes only, so one agent can author lenses while another holds the document lease. Each scope has its own lease and focus; a focus targetId in the lenses scope names a lens id. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.',
       activitySchema.extend(review),
       "POST",
       "/:reviewId/activity",
@@ -70,7 +71,7 @@ export function authoringTools() {
       const { type: _type, ...fields } = operation.shape;
 
       return tool(
-        type,
+        type === "lens" ? "lens_edit" : type,
         `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response. For content changes to an owned review, include the leaseId from review_activity.`,
         z.strictObject({
           ...fields,
@@ -90,6 +91,13 @@ export function authoringTools() {
       z.strictObject({ ...review, ...inspectQuerySchema.shape }),
       "GET",
       "/:reviewId/inspect",
+    ),
+    tool(
+      "lens_get",
+      "Read the review's Diff-view lenses as authored (ids, titles, targets), each lens's resolved fileCount (and unavailable reason, if any), and uncategorized: the changed lines no lens selects yet, by file.",
+      z.strictObject(review),
+      "GET",
+      "/:reviewId/lenses",
     ),
     tool(
       "history",

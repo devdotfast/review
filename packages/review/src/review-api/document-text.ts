@@ -1,5 +1,4 @@
 import { type LensSource } from "../lens-selection.js";
-import { fileLensTargets } from "./blocks/file_lens.js";
 import { type Element, ReviewInputError, elements } from "./document.js";
 import type { Snapshot } from "./store.js";
 
@@ -149,16 +148,6 @@ export function documentText(
         detail(`${element.traceId}, event ${element.eventId}`);
         detail(element.text);
         break;
-      case "file_lens":
-        for (const target of fileLensTargets(element)) {
-          if (target.kind === "files")
-            detail(`Files: ${target.patterns.join(", ")}`);
-          else
-            for (const source of target.sources)
-              detail(`Range: ${sourceText(source)}`);
-        }
-
-        break;
       case "flow_diagram":
         if (element.description) detail(element.description);
 
@@ -192,6 +181,22 @@ export function documentText(
   );
 
   if (!snapshot.document.length) lines.push("(Empty review)");
+
+  // Lenses sit beside the document; list them so their ids are at hand.
+  if (!target && snapshot.lenses?.length) {
+    lines.push("", "Lenses (edit with review_lens_edit):");
+
+    for (const lens of snapshot.lenses) {
+      write(0, `[${lens.id}] ${lens.title}`);
+
+      for (const item of lens.targets)
+        if (item.kind === "files")
+          write(1, `Files: ${item.patterns.join(", ")}`);
+        else
+          for (const source of item.sources)
+            write(1, `Range: ${sourceText(source)}`);
+    }
+  }
 
   if (!detailed && snapshot.document.length)
     lines.push(

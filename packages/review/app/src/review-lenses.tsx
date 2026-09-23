@@ -15,7 +15,7 @@ import {
   selectionKey,
 } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
-import { documentFileLenses } from "../../src/review-api/diff-lenses";
+import { UNCATEGORIZED_LENS_ID } from "../../src/review-api/diff-lenses";
 import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import type { FileLineRange } from "../../src/source";
@@ -121,20 +121,15 @@ export function ReviewLensesProvider({
     return () => abort.abort();
   }, [client, route, snapshot.version, mode, coverageRevision]);
 
-  const authored = useMemo(
-    () => documentFileLenses(snapshot.document),
-    [snapshot.document],
-  );
-
   const lenses: ReviewProgress["lenses"] = progress?.lenses ?? [
-    ...authored.map((lens) => ({
-      id: lens.id!,
+    ...(snapshot.lenses ?? []).map((lens) => ({
+      id: lens.id,
       title: lens.title,
       sources: [],
       pending: true,
     })),
     {
-      id: "automatic-uncategorized",
+      id: UNCATEGORIZED_LENS_ID,
       title: "Uncategorized changes",
       sources: [],
       pending: true,

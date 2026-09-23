@@ -12,7 +12,6 @@ import {
   fileLineRangeSchema,
   sourcePinsSchema,
 } from "../source.js";
-import { fileLensTargets } from "./blocks/file_lens.js";
 import {
   type FlowDiagramEdge,
   type FlowDiagramNode,
@@ -20,7 +19,7 @@ import {
   flowNodeInsertSchema,
   flowNodeSchema,
 } from "./blocks/flow_diagram.js";
-import { type Block, blockSchema } from "./blocks/index.js";
+import { type Block, blockSchema, fileLensMoved } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { ReviewInputError } from "./input-error.js";
 
@@ -275,16 +274,6 @@ function documentReferences(
         },
       );
 
-    if (element.type === "file_lens")
-      return fileLensTargets(element).flatMap((target, index) =>
-        target.kind === "ranges"
-          ? target.sources.map((source, range) => ({
-              id: `${element.id}:target:${index}:${range}`,
-              source,
-            }))
-          : [],
-      );
-
     if (element.type === "flow_diagram")
       return element.nodes.flatMap((node) =>
         node.attachments.flatMap((attachment, index) =>
@@ -359,12 +348,10 @@ export function sourceReferences(
 
 export const documentSchema = z.array(blockSchema);
 
-export const contentSchema = z.union([
-  blockSchema,
-  stepSchema,
-  flowNodeInsertSchema,
-  flowEdgeSchema,
-]);
+export const contentSchema = z.union(
+  [blockSchema, stepSchema, flowNodeInsertSchema, flowEdgeSchema],
+  { error: fileLensMoved },
+);
 
 const placement = { parentId: label.optional(), afterId: label.optional() };
 
@@ -398,9 +385,10 @@ export type Edit = z.infer<typeof editSchema>;
 export interface EditSummary {
   type: Edit["type"];
   targetId: string;
+  /** For a lens, the lens itself. */
   blockId: string;
-  /** What the target is: a block type or a unit type. */
-  kind: Element["type"];
+  /** What the target is: a block type, a unit type, or a Diff-view lens. */
+  kind: Element["type"] | "lens";
   unit?: Unit["type"];
   /** The edge a new flow node arrived with, drawn right after the node. */
   linkId?: string;

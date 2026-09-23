@@ -144,8 +144,25 @@ async function importHeadlessStore(home: string, source: string) {
               )
               .get()
           ) {
-            database.exec(`CREATE TABLE IF NOT EXISTS authoring_sessions(review_id TEXT PRIMARY KEY,lease_id TEXT NOT NULL,expires_at INTEGER NOT NULL,focus TEXT);
-            INSERT INTO authoring_sessions SELECT * FROM headless.authoring_sessions;`);
+            // Leases are keyed by (review, scope); either side may predate
+            // scopes, and a lease from before them is the document's.
+            database.exec(
+              `CREATE TABLE IF NOT EXISTS authoring_sessions(review_id TEXT NOT NULL,scope TEXT NOT NULL,lease_id TEXT NOT NULL,expires_at INTEGER NOT NULL,focus TEXT,PRIMARY KEY(review_id,scope))`,
+            );
+
+            const scoped = (schema: string) =>
+              database
+                .prepare(`PRAGMA ${schema}.table_info(authoring_sessions)`)
+                .all()
+                .some((column) => String(column.name) === "scope");
+
+            const scope = scoped("headless") ? "scope" : "'document'";
+
+            database.exec(
+              scoped("main")
+                ? `INSERT INTO authoring_sessions(review_id,scope,lease_id,expires_at,focus) SELECT review_id,${scope},lease_id,expires_at,focus FROM headless.authoring_sessions`
+                : `INSERT INTO authoring_sessions(review_id,lease_id,expires_at,focus) SELECT review_id,lease_id,expires_at,focus FROM headless.authoring_sessions WHERE ${scope}='document'`,
+            );
           }
 
           database

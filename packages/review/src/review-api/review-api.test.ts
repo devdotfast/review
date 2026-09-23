@@ -57,6 +57,12 @@ const create = () =>
 const edit = <Content>(reviewId: string, value: Content) =>
   store.execute(request({ type: "edit", reviewId, edit: value }));
 
+const writeLens = <Edit>(reviewId: string, value: Edit, leaseId?: string) =>
+  store.execute({
+    ...request({ type: "lens", reviewId, edit: value }),
+    leaseId,
+  });
+
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-lean-"));
   database = path.join(directory, "reviews.db");
@@ -2419,14 +2425,16 @@ it("resolves file lenses to whole changed files, preserves empty groups, and sha
   const { coverageProgress } = await import("../viewed-coverage.js");
   const { reviewId } = await create();
 
-  for (const content of [
-    { type: "file_lens", title: "Docs", patterns: ["docs/**", "docs/old.md"] },
-    { type: "file_lens", title: "Guide", patterns: ["guide/**"] },
-    { type: "file_lens", title: "Tests", patterns: ["**/*.test.ts"] },
-  ])
-    await store.execute(
-      request({ type: "edit", reviewId, edit: { type: "insert", content } }),
-    );
+  for (const [title, patterns] of [
+    ["Docs", ["docs/**", "docs/old.md"]],
+    ["Guide", ["guide/**"]],
+    ["Tests", ["**/*.test.ts"]],
+  ] as const)
+    await writeLens(reviewId, {
+      type: "insert",
+      title,
+      targets: [{ kind: "files", patterns }],
+    });
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
@@ -2517,19 +2525,17 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     toLine: 2,
   };
 
-  await edit(reviewId, {
+  const { targetId: lensId } = await writeLens(reviewId, {
     type: "insert",
-    content: {
-      type: "file_lens",
-      title: "One line",
-      targets: [
-        {
-          kind: "ranges",
-          sources: [selectSource(selected), selectSource(selected)],
-        },
-      ],
-    },
+    title: "One line",
+    targets: [
+      {
+        kind: "ranges",
+        sources: [selectSource(selected), selectSource(selected)],
+      },
+    ],
   });
+
   expect(providers.validateSource).toHaveBeenCalledWith(
     pins,
     selected,
@@ -2630,25 +2636,22 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     additions: 2,
     deletions: 2,
   });
-  await edit(reviewId, {
-    type: "replace",
-    targetId: store.read(reviewId).document[0]!.id!,
-    content: {
-      type: "file_lens",
-      title: "Stale selection",
-      targets: [
-        {
-          kind: "ranges",
-          sources: [
-            {
-              file: selected.file,
-              start: { side: "head", line: 99 },
-              end: { side: "head", line: 100 },
-            },
-          ],
-        },
-      ],
-    },
+  await writeLens(reviewId, {
+    type: "update",
+    targetId: lensId,
+    title: "Stale selection",
+    targets: [
+      {
+        kind: "ranges",
+        sources: [
+          {
+            file: selected.file,
+            start: { side: "head", line: 99 },
+            end: { side: "head", line: 100 },
+          },
+        ],
+      },
+    ],
   });
   const stale = await reviewProgress(store, data, store.read(reviewId));
   expect(stale.lenses[0].unavailable).toBeTruthy();
@@ -2657,32 +2660,44 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
   ).toEqual({ additions: 3, deletions: 3 });
 });
 
-it("rejects ambiguous lens scopes and validates range sources during authoring", async () => {
+it("rejects document lenses, unsafe patterns and missing range sources", async () => {
   const { reviewId } = await create();
 
-  for (const scope of [
-    {},
-    { patterns: ["**"], targets: [{ kind: "files", patterns: ["**"] }] },
+  // Lenses left the document: an insert says where they went.
+  for (const content of [
+    {
+      type: "file_lens",
+      title: "Old",
+      targets: [{ kind: "files", patterns: ["**"] }],
+    },
+    {
+      type: "section",
+      title: "Nested",
+      children: [{ type: "file_lens", title: "Old", patterns: ["**"] }],
+    },
   ])
-    await expect(
-      edit(reviewId, {
-        type: "insert",
-        content: { type: "file_lens", title: "Invalid", ...scope },
-      }),
-    ).rejects.toThrow(/either targets or legacy patterns/);
+    expect(() => edit(reviewId, { type: "insert", content })).toThrow(
+      /no longer a document block.*review_lens_edit/,
+    );
+
+  await expect(
+    writeLens(reviewId, {
+      type: "insert",
+      title: "Outside",
+      targets: [{ kind: "files", patterns: ["../secrets/**"] }],
+    }),
+  ).rejects.toThrow(/repository-relative/);
   vi.mocked(providers.validateSource).mockRejectedValue(
     new Error("File is unavailable"),
   );
   await expect(
-    edit(reviewId, {
+    writeLens(reviewId, {
       type: "insert",
-      content: {
-        type: "file_lens",
-        title: "Missing",
-        targets: [{ kind: "ranges", sources: [selectSource(source)] }],
-      },
+      title: "Missing",
+      targets: [{ kind: "ranges", sources: [selectSource(source)] }],
     }),
   ).rejects.toThrow("File is unavailable");
+  expect(store.read(reviewId).lenses).toBeUndefined();
 });
 
 it("returns coverage and lenses after initial files without requesting summary events", async () => {

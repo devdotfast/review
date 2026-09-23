@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { FILE_LENS_MOVED } from "../diff-lenses.js";
 import { call_stack_diff } from "./call_stack_diff.js";
 import { type CalloutBlock, callout } from "./callout.js";
 import { code } from "./code.js";
@@ -7,7 +8,6 @@ import { code_peek } from "./code_peek.js";
 import { database_lens } from "./database_lens.js";
 import type { BlockDefinition } from "./definition.js";
 import { divider } from "./divider.js";
-import { file_lens } from "./file_lens.js";
 import { flow_diagram } from "./flow_diagram.js";
 import { image } from "./image.js";
 import { markdown } from "./markdown.js";
@@ -17,21 +17,34 @@ import { software_map } from "./software_map.js";
 import { trace_quote } from "./trace_quote.js";
 import { type TutorialBlock, tutorial } from "./tutorial.js";
 
+/** Lenses left the document; say where they went instead of listing every
+ * block type the input did not match. */
+export function fileLensMoved(issue: { input?: unknown }) {
+  return retiredFileLens.safeParse(issue.input).success
+    ? FILE_LENS_MOVED
+    : undefined;
+}
+
+const retiredFileLens = z.object({ type: z.literal("file_lens") });
+
 /** Leaf kinds share one discriminated union so unknown types read as they always have. */
-export const leafSchema = z.discriminatedUnion("type", [
-  markdown.schema,
-  code.schema,
-  divider.schema,
-  code_peek.schema,
-  sequence.schema,
-  call_stack_diff.schema,
-  database_lens.schema,
-  image.schema,
-  trace_quote.schema,
-  software_map.schema,
-  flow_diagram.schema,
-  file_lens.schema,
-]);
+export const leafSchema = z.discriminatedUnion(
+  "type",
+  [
+    markdown.schema,
+    code.schema,
+    divider.schema,
+    code_peek.schema,
+    sequence.schema,
+    call_stack_diff.schema,
+    database_lens.schema,
+    image.schema,
+    trace_quote.schema,
+    software_map.schema,
+    flow_diagram.schema,
+  ],
+  { error: fileLensMoved },
+);
 
 export type LeafBlock = z.infer<typeof leafSchema>;
 
@@ -56,14 +69,15 @@ export const blocks = {
   trace_quote,
   software_map,
   flow_diagram,
-  file_lens,
   section,
   callout,
   tutorial,
 } satisfies Definitions;
 
 export const blockSchema: z.ZodType<Block> = z.lazy(() =>
-  z.union([leafSchema, section.schema, callout.schema, tutorial.schema]),
+  z.union([leafSchema, section.schema, callout.schema, tutorial.schema], {
+    error: fileLensMoved,
+  }),
 );
 
 function checkBlock<K extends BlockType>(

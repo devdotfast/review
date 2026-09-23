@@ -19,9 +19,10 @@ catalog. Tests inject the native store and source-data provider.
 - `review_attention`: viewed/dismissed timestamps, separate from document history.
 
 One host-owned store serializes writes, including asynchronous validation.
-An `authoring_sessions` row gives a review one authoring lease across database
-connections. While held, content mutations require its `leaseId`; reads and
-reader attention remain available. Mutation commits recheck the lease and current
+An `authoring_sessions` row gives a review one authoring lease per scope across
+database connections: `document` for document writes and `lenses` for the Diff
+view's file lenses. While held, writes in that scope require its `leaseId`; reads
+and reader attention remain available. Mutation commits recheck the lease and current
 version after asynchronous validation. Independent connections cannot overwrite a
 newer version or commit work from an expired session.
 Each connection checks SQLite `data_version` every 250 ms and refreshes document,
@@ -47,7 +48,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /authoring` | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters |
 | `GET /capabilities` | Desktop availability and permission for optional software-map generation, independent of opening a review |
 | `GET /:id/activity` | Currently reported authoring work, not stored in document history |
-| `POST /:id/activity {action,leaseId,focus?}` | Begin, renew or end a working signal; return count and expiry |
+| `POST /:id/activity {action,leaseId,scope?,focus?}` | Begin, renew or end a working signal in `scope` (`document`, the default, or `lenses`); return count, expiry and live scopes |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
 | `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
 | `GET /:id`                                | Compact outline                                                        |
@@ -59,6 +60,8 @@ All paths below are relative to `/reviews-api`.
 | `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
 | `POST /commands`                          | Apply one command; return review ID, version, and for an edit the target ID, its `type`, and — after an insert or replace — `children`: its first-level children as `{id,type}` (a container's blocks; a diagram's steps, or nodes then edges), so new components are addressable without a read. A `create` with `pullRequestUrl` returns the newest existing review for that PR instead (owner/repository matched case-insensitively) unless `operation.reuseExisting` is `false`: `created:false`, a `note`, its stored `target`, `headMoved`, and `ownedBy`/`otherReviewIds` when they apply; its target is never moved. A new review reports `created:true`. Either way the result carries `review`, the review's `GET /` catalog entry (target, origin, repository name and path). An interactive `create` also opens the new review in an attached Desktop unless `operation.open` is `false`, and reports `opened` with the open result or an `openError`; the review is saved either way |
+| `POST /commands {operation:{type:"lens",reviewId,edit}}` | Write one file lens under the `lenses` lease: `insert {title,targets,afterId?}` (host id `lens-N`), `update {targetId,title?,targets?}` or `remove {targetId}`. Returns `{targetId, type:"lens", uncategorized}`, where `uncategorized` lists changed files and ranges no lens covers yet (at most 50 files) |
+| `GET /:id/lenses` | The current version's file lenses with each one's file count, plus the same `uncategorized` report |
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
 | `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
@@ -240,6 +243,10 @@ how long a crashed author blocks others and reads as working. Another lease
 or an omitted lease gets HTTP 409 while the review is owned. One-off mutations
 without a lease remain available while no session owns the review; concurrent
 version changes produce a conflict rather than merging.
+Leases are scoped: a `lenses` lease and a `document` lease can be held by different
+sessions at once, so a subagent can write file lenses while the main author
+writes the document; each scope has its own focus, and a write outside the
+lease's scope gets HTTP 409.
 Repeating begin/end is safe; ending a different lease cannot release the owner.
 Leases survive server restart until expiry; deletion removes the lease. Ownership
 is not proof of completion. Uploads are immutable repository resources and do not

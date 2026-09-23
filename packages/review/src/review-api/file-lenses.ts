@@ -9,7 +9,7 @@ import {
   subtractIntervals,
   unionIntervals,
 } from "../viewed-coverage.js";
-import { type FileLensBlock, fileLensTargets } from "./blocks/file_lens.js";
+import type { Lens } from "./diff-lenses.js";
 
 /** Subtract authored coverage, independently of viewed state. */
 export function uncategorizedSources(
@@ -28,12 +28,12 @@ export function uncategorizedSources(
 
 /** Resolve all targets into one union; a whole-file range subsumes narrower ranges. */
 export function resolveFileLens(
-  block: FileLensBlock,
+  lens: Lens,
   files: readonly CoverageFile[],
   fileSources: ReadonlyMap<string, FileLineRange[]>,
   resolve: (source: LensSource) => FileLineRange[],
 ) {
-  const targets = fileLensTargets(block);
+  const targets = lens.targets;
 
   const selected = targets.flatMap((target) =>
     target.kind === "ranges"

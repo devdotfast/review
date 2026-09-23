@@ -10,14 +10,14 @@ import { isMissingFileError } from "../fs-utils";
 import {
   type Block,
   type Pins,
-  ReviewInputError,
+  SessionInputError,
   sourceReferences,
 } from "../review-api/document";
 import { decodeImage } from "../review-api/image-decode";
-import type { LocalReviewData } from "../review-api/local-data";
+import type { LocalSessionData } from "../review-api/local-data";
 import type {
   ImportedVersionInput,
-  ReviewStore,
+  SessionStore,
   SnapshotOrigin,
 } from "../review-api/store";
 import { REVIEW_DOCUMENT_BUNDLE_DIR } from "../review-bundle";
@@ -46,18 +46,18 @@ import { escapeMarkdownText } from "./prose-markdown";
 export type ImportOutcome =
   | {
       kind: "imported";
-      reviewId: string;
+      sessionId: string;
       title: string;
       version: number;
       warnings: string[];
     }
-  | { kind: "current"; reviewId: string; warnings?: string[] }
-  | { kind: "skipped"; reviewId: string; reason: string };
+  | { kind: "current"; sessionId: string; warnings?: string[] }
+  | { kind: "skipped"; sessionId: string; reason: string };
 
 export interface ImportLegacyReviewInput {
   review: StoredReview;
-  store: ReviewStore;
-  data: LocalReviewData;
+  store: SessionStore;
+  data: LocalSessionData;
   /** A directory holding the review at `revision` (the server's cache). */
   materialize: (review: StoredReview, revision: string) => Promise<string>;
   log?: (dir: string) => Promise<ReviewVcsLogEntry[]>;
@@ -68,7 +68,7 @@ export interface ImportLegacyReviewInput {
   /** Recover sealed history skipped by earlier importers without replacing edits. */
   completeHistory?: boolean;
   archiveMap?: (map: {
-    reviewId: string;
+    sessionId: string;
     documentRevision: string;
     mapRevision: string;
     blocks: Block[];
@@ -95,20 +95,20 @@ export async function importLegacyReview(
 ): Promise<ImportOutcome> {
   const { review, store, data } = input;
   const record = review.review;
-  const reviewId = record.uuid;
+  const sessionId = record.uuid;
   const now = input.now ?? (() => new Date());
 
   if (record.visibility === "system")
-    return { kind: "skipped", reviewId, reason: "system review" };
+    return { kind: "skipped", sessionId, reason: "system review" };
 
   if (!record.presentedDocumentRevision)
-    return { kind: "skipped", reviewId, reason: "never published" };
+    return { kind: "skipped", sessionId, reason: "never published" };
 
-  const progress = store.legacyImport(reviewId);
+  const progress = store.legacyImport(sessionId);
   const importedRevision = progress?.revision ?? null;
 
   // The import record outlives the review: a deleted review stays deleted.
-  if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
+  if (progress && !store.has(sessionId)) return { kind: "current", sessionId };
 
   const presentedMapRevision = record.presentedSoftwareMapRevision;
 
@@ -125,9 +125,9 @@ export async function importLegacyReview(
   if (!documentPending)
     return mapPending
       ? importPresentedMap(input, presentedMapRevision)
-      : { kind: "current", reviewId };
+      : { kind: "current", sessionId };
 
-  const imported = store.has(reviewId);
+  const imported = store.has(sessionId);
 
   let resolved:
     | { repositoryId: string; pins: Pins; worktreePath: string }
@@ -149,14 +149,14 @@ export async function importLegacyReview(
       resolved = { repositoryId, pins, worktreePath };
       break;
     } catch (error) {
-      if (!(error instanceof ReviewInputError)) throw error;
+      if (!(error instanceof SessionInputError)) throw error;
     }
   }
 
   if (!resolved)
     return {
       kind: "skipped",
-      reviewId,
+      sessionId,
       reason: `repository unavailable at ${record.worktreePath}`,
     };
   const { repositoryId, worktreePath } = resolved;
@@ -171,7 +171,7 @@ export async function importLegacyReview(
   if (!entries)
     return {
       kind: "skipped",
-      reviewId,
+      sessionId,
       reason: importedRevision
         ? `imported revision ${importedRevision} is not in the review log`
         : "presented revision is not in the review log",
@@ -180,13 +180,13 @@ export async function importLegacyReview(
   const known = new Set(
     input.completeHistory && imported
       ? store
-          .history(reviewId)
-          .map(({ version }) => store.read(reviewId, version).origin?.revision)
+          .history(sessionId)
+          .map(({ version }) => store.read(sessionId, version).origin?.revision)
       : [],
   );
 
   const preserved =
-    input.completeHistory && imported ? store.read(reviewId) : undefined;
+    input.completeHistory && imported ? store.read(sessionId) : undefined;
 
   let repaired = false;
   let importedMap: string | null = null;
@@ -253,7 +253,7 @@ export async function importLegacyReview(
 
       if (!map) throw new Error(mapWarnings.join("; "));
       input.archiveMap({
-        reviewId,
+        sessionId,
         documentRevision: entry.oid,
         mapRevision,
         blocks: [map],
@@ -335,7 +335,7 @@ export async function importLegacyReview(
     const versionOrigin = isLast ? origin : originFrom(sealedRecord);
 
     versions.push({
-      reviewId,
+      sessionId,
       title: (isLast ? record.title : sealedRecord.title) || document.title,
       pins,
       document: blocks,
@@ -360,20 +360,20 @@ export async function importLegacyReview(
 
       return {
         kind: "imported",
-        reviewId,
-        title: store.read(reviewId).title,
+        sessionId,
+        title: store.read(sessionId).title,
         version: result.version,
         warnings: result.warnings,
       };
     }
 
-    return { kind: "current", reviewId };
+    return { kind: "current", sessionId };
   }
 
   if (!last)
     return {
       kind: "skipped",
-      reviewId,
+      sessionId,
       reason: "no sealed JSON document in any revision",
     };
 
@@ -394,14 +394,14 @@ export async function importLegacyReview(
   });
 
   // The map cursor moves only once its section has landed.
-  store.recordLegacyImport(reviewId, {
+  store.recordLegacyImport(sessionId, {
     revision: record.presentedDocumentRevision,
     mapRevision: importedMap,
   });
 
   return {
     kind: "imported",
-    reviewId,
+    sessionId,
     title: last.title,
     version: result.version,
     warnings: [
@@ -418,8 +418,8 @@ async function importPresentedMap(
 ): Promise<ImportOutcome> {
   const { review, store } = input;
   const record = review.review;
-  const reviewId = record.uuid;
-  const head = store.read(reviewId);
+  const sessionId = record.uuid;
+  const head = store.read(sessionId);
   const warnings: string[] = [];
 
   // Legacy imports always land with document pins.
@@ -436,7 +436,7 @@ async function importPresentedMap(
   );
 
   // Never `skipped`: an imported review must still open in the JSON canvas.
-  if (!section) return { kind: "current", reviewId, warnings };
+  if (!section) return { kind: "current", sessionId, warnings };
 
   const replaced = head.document.find(isMapSection);
 
@@ -444,21 +444,21 @@ async function importPresentedMap(
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: replaced
         ? { type: "replace", targetId: replaced.id!, content: section }
         : { type: "insert", content: section },
     },
   });
 
-  store.recordLegacyImport(reviewId, {
+  store.recordLegacyImport(sessionId, {
     revision: record.presentedDocumentRevision!,
     mapRevision: revision,
   });
 
   return {
     kind: "imported",
-    reviewId,
+    sessionId,
     title: head.title,
     version: result.version,
     warnings,
@@ -484,7 +484,7 @@ async function importMapSection(
   review: StoredReview,
   revision: string,
   materialize: ImportLegacyReviewInput["materialize"],
-  store: ReviewStore,
+  store: SessionStore,
   repositoryId: string,
   warnings: string[],
   pins?: Pins,
@@ -607,7 +607,7 @@ async function readSealedDocument(dir: string): Promise<string | null> {
 async function revisionPins(
   dir: string,
   oid: string,
-  data: LocalReviewData,
+  data: LocalSessionData,
   repositoryId: string,
 ): Promise<Pins> {
   try {
@@ -629,7 +629,7 @@ async function revisionPins(
 
 async function unresolvedSources(
   version: ImportedVersionInput,
-  data: LocalReviewData,
+  data: LocalSessionData,
 ): Promise<string[]> {
   const warnings: string[] = [];
   const seen = new Set<string>();
@@ -687,7 +687,7 @@ class TraceResolver {
 
   constructor(
     private readonly input: {
-      store: ReviewStore;
+      store: SessionStore;
       repositoryId: string;
       worktreePath: string;
       loadTrace: typeof loadReviewAgentTrace;
@@ -783,7 +783,7 @@ class ImageResolver {
   private readonly stored = new Map<string, string>();
 
   constructor(
-    private readonly input: { store: ReviewStore; repositoryId: string },
+    private readonly input: { store: SessionStore; repositoryId: string },
   ) {}
 
   async replacements(

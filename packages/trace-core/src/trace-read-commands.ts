@@ -43,7 +43,7 @@ export function registerTraceReadCommands(
       settings.setExitCode(
         await runtime.runTraceList({
           cwd,
-          reviewUuid: options.review,
+          sessionId: options.review,
           commitSha: options.commit,
           storage: options.storage,
           json: options.json,
@@ -132,7 +132,7 @@ export function registerTraceReadCommands(
         await runtime.runTracePull({
           cwd,
           repo: options.repo,
-          reviewUuid: options.review,
+          sessionId: options.review,
           commitSha: options.commit,
           session: options.session,
           mainOnly: options.mainOnly,

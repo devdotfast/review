@@ -1,5 +1,5 @@
 import type {
-  ReviewApiSummary,
+  SessionSummary,
   ReviewCanvasHomeSetup,
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
@@ -25,15 +25,15 @@ import { useTopbarPopover } from "./use-topbar-popover";
 import { WelcomePage } from "./welcome-page";
 
 interface ReviewHomeProps {
-  reviews: readonly ReviewApiSummary[];
-  onOpen(review: ReviewApiSummary): void;
+  reviews: readonly SessionSummary[];
+  onOpen(review: SessionSummary): void;
   // Deletion is permanent and requires an arming click.
   // Absent when the host does not support deletion.
-  onDelete?(review: ReviewApiSummary): Promise<void>;
+  onDelete?(review: SessionSummary): Promise<void>;
   // Dismissal is reversible. Absent when the host does not
   // support them.
-  onDismiss?(review: ReviewApiSummary): Promise<void>;
-  onRestore?(review: ReviewApiSummary): Promise<void>;
+  onDismiss?(review: SessionSummary): Promise<void>;
+  onRestore?(review: SessionSummary): Promise<void>;
   setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
@@ -43,9 +43,9 @@ interface ReviewHomeProps {
 }
 
 interface ReviewAttentionActions {
-  onDelete?(review: ReviewApiSummary): Promise<void>;
-  onDismiss?(review: ReviewApiSummary): Promise<void>;
-  onRestore?(review: ReviewApiSummary): Promise<void>;
+  onDelete?(review: SessionSummary): Promise<void>;
+  onDismiss?(review: SessionSummary): Promise<void>;
+  onRestore?(review: SessionSummary): Promise<void>;
 }
 
 /* Passed by context rather than through every list and card signature: the
@@ -111,7 +111,7 @@ export function ReviewHome({
       for (const [id, status] of current) {
         if (
           status === "deleted" &&
-          !reviews.some((review) => review.reviewId === id)
+          !reviews.some((review) => review.sessionId === id)
         ) {
           next.delete(id);
         }
@@ -122,22 +122,22 @@ export function ReviewHome({
   }, [reviews, deletions]);
 
   const deleteReview = useCallback(
-    async (review: ReviewApiSummary) => {
+    async (review: SessionSummary) => {
       if (!onDelete) return;
       setDeleteError(undefined);
       setDeletions((current) =>
-        new Map(current).set(review.reviewId, "pending"),
+        new Map(current).set(review.sessionId, "pending"),
       );
 
       try {
         await onDelete(review);
         setDeletions((current) =>
-          new Map(current).set(review.reviewId, "deleted"),
+          new Map(current).set(review.sessionId, "deleted"),
         );
       } catch {
         setDeletions((current) => {
           const next = new Map(current);
-          next.delete(review.reviewId);
+          next.delete(review.sessionId);
 
           return next;
         });
@@ -182,7 +182,7 @@ export function ReviewHome({
     () =>
       listed.filter(
         (review) =>
-          !deletions.has(review.reviewId) && matchesQuery(review, needle),
+          !deletions.has(review.sessionId) && matchesQuery(review, needle),
       ),
     [listed, needle, deletions],
   );
@@ -369,11 +369,11 @@ function DismissedSection({
   onOpen,
   onDelete,
 }: {
-  reviews: readonly ReviewApiSummary[];
+  reviews: readonly SessionSummary[];
   expanded: boolean;
   onToggle(): void;
-  onOpen(review: ReviewApiSummary): void;
-  onDelete?(review: ReviewApiSummary): Promise<void>;
+  onOpen(review: SessionSummary): void;
+  onDelete?(review: SessionSummary): Promise<void>;
 }) {
   return (
     <section className="review-home-dismissed" aria-label="Dismissed reviews">
@@ -389,7 +389,7 @@ function DismissedSection({
       {expanded ? (
         <div className="review-home-dismissed-rows">
           {reviews.map((review) => (
-            <div key={review.reviewId} className="review-home-dismissed-row">
+            <div key={review.sessionId} className="review-home-dismissed-row">
               <button
                 type="button"
                 className="review-home-dismissed-open"
@@ -411,7 +411,7 @@ function DismissedSection({
 }
 
 /** Undo clears the dismissal stamp. */
-function RestoreReviewButton({ review }: { review: ReviewApiSummary }) {
+function RestoreReviewButton({ review }: { review: SessionSummary }) {
   const { onRestore } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
 
@@ -441,8 +441,8 @@ function ReviewTable({
   reviews,
   onOpen,
 }: {
-  reviews: readonly ReviewApiSummary[];
-  onOpen(review: ReviewApiSummary): void;
+  reviews: readonly SessionSummary[];
+  onOpen(review: SessionSummary): void;
 }) {
   const [repository, setRepository] = useState("");
   const [sort, setSort] = useState<ReviewSort>("newest");
@@ -453,7 +453,7 @@ function ReviewTable({
   );
 
   const sorted = [...filtered].sort((left, right) => {
-    const created = (review: ReviewApiSummary) =>
+    const created = (review: SessionSummary) =>
       Date.parse(review.firstCreatedAt ?? review.createdAt) || 0;
 
     switch (sort) {
@@ -527,7 +527,7 @@ function ReviewTable({
           </thead>
           <tbody>
             {sorted.map((review) => (
-              <tr key={review.reviewId} onClick={() => onOpen(review)}>
+              <tr key={review.sessionId} onClick={() => onOpen(review)}>
                 <td>
                   {review.origin?.pullRequestNumber
                     ? `#${review.origin.pullRequestNumber}`
@@ -584,7 +584,7 @@ function ReviewTable({
   );
 }
 
-function ReviewRowActions({ review }: { review: ReviewApiSummary }) {
+function ReviewRowActions({ review }: { review: SessionSummary }) {
   const { onDelete } = useContext(AttentionActionsContext);
   const [open, setOpen] = useState(false);
   const control = useRef<HTMLDivElement>(null);
@@ -750,8 +750,8 @@ function ScratchpadGroup({
   review,
   onOpen,
 }: {
-  review: ReviewApiSummary;
-  onOpen(review: ReviewApiSummary): void;
+  review: SessionSummary;
+  onOpen(review: SessionSummary): void;
 }) {
   const contents = review.contents;
 
@@ -806,7 +806,7 @@ function PencilIcon() {
  * so it needs no arming step. It stays enabled for unavailable reviews so a
  * dead review can still leave the list.
  */
-function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
+function DismissReviewButton({ review }: { review: SessionSummary }) {
   const { onDismiss } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
 
@@ -844,8 +844,8 @@ function DeleteReviewButton({
   onDelete,
   menu = false,
 }: {
-  review: ReviewApiSummary;
-  onDelete(review: ReviewApiSummary): Promise<void>;
+  review: SessionSummary;
+  onDelete(review: SessionSummary): Promise<void>;
   menu?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
@@ -900,7 +900,7 @@ function DeleteReviewButton({
   );
 }
 
-function RepositoryName({ review }: { review: ReviewApiSummary }) {
+function RepositoryName({ review }: { review: SessionSummary }) {
   const label = repositoryLabel(review);
   const separator = label.lastIndexOf("/");
 
@@ -921,16 +921,16 @@ function RepositoryName({ review }: { review: ReviewApiSummary }) {
   );
 }
 
-export function reviewUpdatedAt(review: ReviewApiSummary): string {
+export function reviewUpdatedAt(review: SessionSummary): string {
   return review.createdAt;
 }
 
 /** {@link reviewUpdatedAt} as epoch milliseconds; 0 when unknown. */
-function reviewUpdatedAtMs(review: ReviewApiSummary): number {
+function reviewUpdatedAtMs(review: SessionSummary): number {
   return Date.parse(reviewUpdatedAt(review) ?? "") || 0;
 }
 
-function latestFirst(left: ReviewApiSummary, right: ReviewApiSummary): number {
+function latestFirst(left: SessionSummary, right: SessionSummary): number {
   return reviewUpdatedAtMs(right) - reviewUpdatedAtMs(left);
 }
 
@@ -961,11 +961,11 @@ export function formatRelativeTime(
   }).format(then);
 }
 
-function reviewTitle(review: ReviewApiSummary): string {
+function reviewTitle(review: SessionSummary): string {
   return review.title.trim() || "Untitled review";
 }
 
-function matchesQuery(review: ReviewApiSummary, query: string): boolean {
+function matchesQuery(review: SessionSummary, query: string): boolean {
   return fuzzyMatches(
     query,
     reviewTitle(review),
@@ -975,7 +975,7 @@ function matchesQuery(review: ReviewApiSummary, query: string): boolean {
   );
 }
 
-function repositoryLabel(review: ReviewApiSummary): string {
+function repositoryLabel(review: SessionSummary): string {
   if (review.repositoryGroup) return review.repositoryGroup.label;
 
   if (review.shared?.cloneUrl) {

@@ -326,7 +326,7 @@ export class ReviewExplorerPart extends Part {
 				// Register the tab against the review it belongs to, so dismissing
 				// or deleting the review closes it — the same lifecycle the
 				// changed-files tree's diff tabs get from `reviewDiffTabs`.
-				const reviewId = stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? stat.resource.authority : undefined;
+				const sessionId = stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? stat.resource.authority : undefined;
 				void Promise.resolve(
 					this.editorService.openEditor(
 						{
@@ -340,8 +340,8 @@ export class ReviewExplorerPart extends Part {
 						this.editorGroupsService.mainPart.activeGroup,
 					),
 				).then((pane) => {
-					if (pane?.input && reviewId) {
-						this.tabsService.registerReviewEditor(reviewId, pane.input);
+					if (pane?.input && sessionId) {
+						this.tabsService.registerReviewEditor(sessionId, pane.input);
 					}
 				});
 			}),
@@ -351,8 +351,8 @@ export class ReviewExplorerPart extends Part {
 		let revision: string | undefined;
 		this._register(this.catalog.onDidChange(() => {
 			if (!this.root || sourceTreeSelection(this.root).kind !== "current") return;
-			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
-			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins?.worktreeRevision]);
+			const review = this.catalog.reviews.find(review => review.sessionId === this.root!.authority);
+			const next = JSON.stringify([review?.sessionId, review?.version, review?.pins?.worktreeRevision]);
 			if (next === revision) return;
 			revision = next;
 			this.refreshTree();

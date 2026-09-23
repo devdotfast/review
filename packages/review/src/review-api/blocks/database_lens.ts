@@ -2,7 +2,7 @@ import { type JsonValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { lensSourceSchema } from "../../lens-selection.js";
-import { ReviewInputError } from "../input-error.js";
+import { SessionInputError } from "../input-error.js";
 import {
   type BlockDefinition,
   defineBlock,
@@ -116,7 +116,7 @@ export const database_lens = {
 
       for (const part of name.split(".")) {
         if (!fields)
-          throw new ReviewInputError(`Unknown component name: ${name}`);
+          throw new SessionInputError(`Unknown component name: ${name}`);
         requireKey(fields, part);
         fields = fields[part]!.fields;
       }

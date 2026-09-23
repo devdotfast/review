@@ -6,8 +6,8 @@ import path from "node:path";
 
 import { afterEach, expect, test, vi } from "vitest";
 
-import { createReviewApi as createJsonReviewApi } from "../review-api/http.js";
-import { openLocalReviewStore } from "../review-api/local-data.js";
+import { createSessionApi as createJsonReviewApi } from "../review-api/http.js";
+import { openLocalSessionStore } from "../review-api/local-data.js";
 
 const roots: string[] = [];
 
@@ -87,7 +87,7 @@ console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
       { mode: 0o755 },
     );
     vi.stubEnv("REVIEW_DIFFR_BINARY", executable);
-    const local = openLocalReviewStore(path.join(root, "reviews.db"));
+    const local = openLocalSessionStore(path.join(root, "reviews.db"));
 
     try {
       const repository = await local.data.register(workspace);
@@ -98,7 +98,7 @@ console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
         head,
       );
 
-      const { reviewId } = await local.store.execute({
+      const { sessionId } = await local.store.execute({
         commandId: randomUUID(),
         operation: { type: "create", title: "Structural", pins },
       });
@@ -108,13 +108,13 @@ console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
       for (const commit of [undefined, head]) {
         const query = new URLSearchParams({
           file: "file name.ts",
-          version: String(local.store.read(reviewId).version),
+          version: String(local.store.read(sessionId).version),
         });
 
         if (commit) query.set("commit", commit);
 
         const response = await app.request(
-          `/${reviewId}/structural-diff?${query}`,
+          `/${sessionId}/structural-diff?${query}`,
         );
 
         expect(response.status).toBe(200);
@@ -134,7 +134,7 @@ console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
       }
 
       const invalid = await app.request(
-        `/${reviewId}/structural-diff?version=999`,
+        `/${sessionId}/structural-diff?version=999`,
       );
 
       expect(invalid.status).toBe(404);

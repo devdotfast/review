@@ -5,14 +5,14 @@ import path from "node:path";
 
 import { expect, it, vi } from "vitest";
 
-import { ReviewApiClient } from "./client";
-import { createReviewApi } from "./http";
-import { ReviewStore } from "./store";
+import { SessionApiClient } from "./client";
+import { createSessionApi } from "./http";
+import { SessionStore } from "./store";
 
 it("shares one live connection across reviews, reconnects, and isolates a deleted review", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "review-live-tabs-"));
 
-  const store = new ReviewStore(path.join(directory, "review.db"), {
+  const store = new SessionStore(path.join(directory, "review.db"), {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},
@@ -21,7 +21,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
   const command = <Operation>(operation: Operation) =>
     store.execute({ commandId: randomUUID(), operation });
 
-  const app = createReviewApi(store);
+  const app = createSessionApi(store);
 
   const requests: {
     signal: AbortSignal;
@@ -50,7 +50,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
 
   // Canvas configs contain per-review fields; those must not split connections.
   const client = (tab: string) =>
-    new ReviewApiClient(
+    new SessionApiClient(
       { serverUrl: "http://review.test", token: "token", ...{ tab } },
       request,
     );
@@ -62,8 +62,8 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
 
   try {
     const pins = { repositoryId: "repo", base: "base", head: "head" };
-    const a = (await command({ type: "create", title: "A", pins })).reviewId;
-    const b = (await command({ type: "create", title: "B", pins })).reviewId;
+    const a = (await command({ type: "create", title: "A", pins })).sessionId;
+    const b = (await command({ type: "create", title: "B", pins })).sessionId;
 
     const follow = (key: string, id: string | null, index: number) => {
       following.push(
@@ -89,7 +89,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
     expect(seen.get("a")).toMatchObject({ title: "A", version: 0 });
     expect(seen.get("catalog")).toHaveLength(2);
 
-    await command({ type: "rename", reviewId: a, title: "A updated" });
+    await command({ type: "rename", sessionId: a, title: "A updated" });
     await vi.waitFor(() =>
       expect(seen.get("a")).toMatchObject({ title: "A updated", version: 1 }),
     );
@@ -107,7 +107,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
     );
     await command({
       type: "rename",
-      reviewId: b,
+      sessionId: b,
       title: "Changed while disconnected",
     });
     await vi.waitFor(
@@ -118,9 +118,9 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
       { timeout: 3000 },
     );
 
-    await command({ type: "delete", reviewId: a });
+    await command({ type: "delete", sessionId: a });
     await vi.waitFor(() => expect(errors.get("a")).toBeTruthy());
-    await command({ type: "rename", reviewId: b, title: "Still live" });
+    await command({ type: "rename", sessionId: b, title: "Still live" });
     await vi.waitFor(() =>
       expect(seen.get("b")).toMatchObject({ title: "Still live" }),
     );
@@ -163,7 +163,7 @@ it("finishes an in-flight render before another tab replaces the shared stream",
     );
   };
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: "http://review.test", token: "token" },
     request,
   );

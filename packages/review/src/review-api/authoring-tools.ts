@@ -9,7 +9,7 @@ import { commandSchema } from "./store.js";
 /** The host publishes its actual input schemas; adapters do not validate documents. */
 export function authoringTools() {
   const id = z.string().min(1);
-  const review = { reviewId: id };
+  const review = { sessionId: id };
   const version = z.number().int().nonnegative().optional();
 
   const read = (name: keyof typeof readQuerySchemas) =>
@@ -64,7 +64,7 @@ export function authoringTools() {
       'Acquire an exclusive authoring session for one scope of a review: begin with a fresh leaseId UUID, pass that leaseId on every write in that scope, and end when finished. scope "document" (default) covers every edit, rename, repin, target change, restore or delete; scope "lenses" covers review_lens_edit writes only, so one agent can author lenses while another holds the document lease. Each scope has its own lease and focus; a focus targetId in the lenses scope names a lens id. Each accepted write carrying the leaseId keeps the session alive; renew during long reads or pauses between edits. The lease expires after 3 minutes without an accepted edit or renewal. Another session gets a conflict while this lease is active. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. End the session only when the review is finished: readers treat a review with content and no live session as ready. Ending it creates no document version.',
       activitySchema.extend(review),
       "POST",
-      "/:reviewId/activity",
+      "/:sessionId/activity",
     ),
     ...commandSchema.shape.operation.options.map((operation) => {
       const type = operation.shape.type.value;
@@ -90,35 +90,35 @@ export function authoringTools() {
       "Read a readable, nested text outline with editable IDs. targetId reads one component in full; full:true reads all content. Use format:json for raw node data or snapshots instead of text.",
       z.strictObject({ ...review, ...inspectQuerySchema.shape }),
       "GET",
-      "/:reviewId/inspect",
+      "/:sessionId/inspect",
     ),
     tool(
       "lens_get",
       "Read the review's Diff-view lenses as authored (ids, titles, targets), each lens's resolved fileCount (and unavailable reason, if any), and uncategorized: the changed lines no lens selects yet, by file.",
       z.strictObject(review),
       "GET",
-      "/:reviewId/lenses",
+      "/:sessionId/lenses",
     ),
     tool(
       "history",
       "List saved document versions.",
       z.strictObject(review),
       "GET",
-      "/:reviewId/history",
+      "/:sessionId/history",
     ),
     tool(
       "open",
       "Show an existing review immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use review_environment to recheck.",
       z.strictObject(review),
       "POST",
-      "/:reviewId/open",
+      "/:sessionId/open",
     ),
     tool(
       "environment",
       "Acquire and recheck this review's current base/head language checkouts (not historical or selected commits). Returns acquisition issues, not full LSP health. Missing optional setup and failed setup with a usable checkout stay silent. Set retry:true to rerun failed preparation after an actual language-feature failure; preparation runs in the background.",
       z.strictObject({ ...review, retry: z.boolean().optional() }),
       "POST",
-      "/:reviewId/environment",
+      "/:sessionId/environment",
     ),
     tool(
       "workspace_cleanup",
@@ -158,35 +158,35 @@ export function authoringTools() {
         commit: z.string().min(1).optional(),
       }),
       "POST",
-      "/:reviewId/source",
+      "/:sessionId/source",
     ),
     tool(
       "file",
       "Read a complete source file from the current target; version selects retained history. repositoryId and head (and base for the base side) read at explicit pins of any registered repository instead.",
       read("file"),
       "GET",
-      "/:reviewId/file",
+      "/:sessionId/file",
     ),
     tool(
       "tree",
       "List immediate directory entries in the target, including working files for worktree targets. repositoryId and head list a registered repository at explicit pins instead.",
       read("tree"),
       "GET",
-      "/:reviewId/tree",
+      "/:sessionId/tree",
     ),
     tool(
       "diff",
       'Read this review\'s changes. paths selects files (default: all). format:"files" lists them with status and counts; format:"patch" returns plain-text patches with base and head line numbers on every line, ready for review-source links. Patches past maxBytes are listed with a paths:[…] hint. commit selects one commit from this review; repositoryId, base and head compare explicit pins of a registered repository instead.',
       read("diff"),
       "GET",
-      "/:reviewId/diff",
+      "/:sessionId/diff",
     ),
     tool(
       "commits",
       "List commits in this review's pinned comparison.",
       read("commits"),
       "GET",
-      "/:reviewId/commits",
+      "/:sessionId/commits",
     ),
   ];
 }

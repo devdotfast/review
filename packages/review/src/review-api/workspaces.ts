@@ -4,6 +4,7 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { isJsonObject, parseJsonText } from "@dev.fast/json";
 import { git, gitCommonDir } from "@dev.fast/local-vcs";
 import { errorMessage, processIsAlive } from "@dev.fast/trace-core";
 
@@ -17,8 +18,8 @@ import {
   reviewPrepareLogPath,
   reviewPrepareMarkerPath,
 } from "../review-prepare.js";
-import { type Pins, ReviewInputError } from "./document.js";
-import type { ReviewStore } from "./store.js";
+import { type Pins, SessionInputError } from "./document.js";
+import type { SessionStore } from "./store.js";
 
 export interface WorkspaceStatus {
   id: string;
@@ -38,7 +39,7 @@ export interface WorkspaceStatus {
 }
 
 interface Environment extends WorkspaceStatus {
-  reviewId: string;
+  sessionId: string;
   repositoryId: string;
   repository: string;
   commandsHash: string;
@@ -63,7 +64,7 @@ export class ReviewWorkspaces {
 
   constructor(
     databasePath: string,
-    private readonly store: ReviewStore,
+    private readonly store: SessionStore,
   ) {
     this.db = new DatabaseSync(databasePath, { timeout: 5000 });
     this.db.exec(
@@ -80,13 +81,30 @@ export class ReviewWorkspaces {
         .get();
 
       if (owner && processIsAlive(Number(owner.pid)))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Another Desktop owns this profile's language workspaces. Close that Desktop before opening another instance.",
           409,
         );
       this.db
         .prepare("INSERT OR REPLACE INTO workspace_owner VALUES(1,?,?)")
         .run(this.ownerId, process.pid);
+
+      const write = this.db.prepare(
+        "UPDATE pinned_environments SET value=? WHERE id=?",
+      );
+
+      for (const row of this.db
+        .prepare("SELECT id,value FROM pinned_environments")
+        .iterate()) {
+        const value = parseJsonText(String(row.value));
+
+        if (isJsonObject(value) && "reviewId" in value) {
+          if ("sessionId" in value)
+            throw new Error("Workspace has conflicting session identifiers.");
+          const { reviewId, ...rest } = value;
+          write.run(JSON.stringify({ ...rest, sessionId: reviewId }), row.id);
+        }
+      }
 
       // Only the owning Desktop can invalidate generations or recover interrupted preparation.
       for (const environment of this.all()) {
@@ -132,16 +150,16 @@ export class ReviewWorkspaces {
 
   private assertReview(id: string) {
     if (!this.hasReview(id))
-      throw new ReviewInputError("Review not found.", 404);
+      throw new SessionInputError("Review not found.", 404);
   }
 
-  async remove(reviewId: string) {
+  async remove(sessionId: string) {
     await Promise.all(this.requests.values());
-    this.collect(undefined, reviewId);
+    this.collect(undefined, sessionId);
     await this.cleanup;
 
-    if (this.all().some((item) => item.reviewId === reviewId))
-      throw new ReviewInputError(
+    if (this.all().some((item) => item.sessionId === sessionId))
+      throw new SessionInputError(
         "Could not remove the managed workspace. Retry deletion.",
         409,
       );
@@ -187,9 +205,9 @@ export class ReviewWorkspaces {
     return status;
   }
 
-  list(reviewId: string): WorkspaceStatus[] {
+  list(sessionId: string): WorkspaceStatus[] {
     return this.all()
-      .filter((item) => item.reviewId === reviewId)
+      .filter((item) => item.sessionId === sessionId)
       .map((item) => this.status(item));
   }
 
@@ -203,38 +221,42 @@ export class ReviewWorkspaces {
     const environment = this.get(id);
 
     if (!environment || environment.state !== "cleanup-failed")
-      throw new ReviewInputError("Cleanup failure not found.", 404);
+      throw new SessionInputError("Cleanup failure not found.", 404);
     this.collect(id);
     await this.cleanup;
   }
 
-  async open(reviewId: string, pins: Pins): Promise<void> {
-    await this.source(reviewId, pins, "head");
+  async open(sessionId: string, pins: Pins): Promise<void> {
+    await this.source(sessionId, pins, "head");
 
-    if (pins.base !== pins.head) await this.source(reviewId, pins, "base");
+    if (pins.base !== pins.head) await this.source(sessionId, pins, "base");
   }
 
   source(
-    reviewId: string,
+    sessionId: string,
     pins: Pins,
     side: "base" | "head",
     retryFailed = false,
   ): Promise<WorkspaceStatus> {
     if (this.closed)
       return Promise.reject(new Error("Language environments are closed."));
-    this.assertReview(reviewId);
+    this.assertReview(sessionId);
 
     const id = createHash("sha256")
-      .update(JSON.stringify([reviewId, pins.repositoryId, pins[side]]))
+      .update(JSON.stringify([sessionId, pins.repositoryId, pins[side]]))
       .digest("hex");
 
     const current = this.requests.get(id);
 
     if (current) return current;
 
-    const request = this.acquire(id, reviewId, pins, side, retryFailed).finally(
-      () => this.requests.delete(id),
-    );
+    const request = this.acquire(
+      id,
+      sessionId,
+      pins,
+      side,
+      retryFailed,
+    ).finally(() => this.requests.delete(id));
 
     this.requests.set(id, request);
 
@@ -243,7 +265,7 @@ export class ReviewWorkspaces {
 
   private async acquire(
     id: string,
-    reviewId: string,
+    sessionId: string,
     pins: Pins,
     side: "base" | "head",
     retryFailed: boolean,
@@ -253,7 +275,7 @@ export class ReviewWorkspaces {
     if (this.jobs.has(id)) return this.status(environment!);
     environment ??= {
       id,
-      reviewId,
+      sessionId,
       repositoryId: pins.repositoryId,
       repository: "",
       commit: pins[side],
@@ -296,14 +318,14 @@ export class ReviewWorkspaces {
 
       const checkout = await ensureReviewPinnedCheckout({
         rootPath: existsSync(root) ? root : repository,
-        reviewUuid: reviewId,
+        sessionId: sessionId,
         ref: pins[side],
         role: environment.role,
       });
 
       if (!checkout) throw new Error("Pinned checkout is unavailable.");
 
-      if (!this.hasReview(reviewId)) {
+      if (!this.hasReview(sessionId)) {
         environment.rootPath = checkout;
         this.save(environment);
         this.collect();
@@ -388,11 +410,11 @@ export class ReviewWorkspaces {
     this.jobs.set(environment.id, { done, abort });
   }
 
-  async retry(reviewId: string, id: string): Promise<WorkspaceStatus> {
+  async retry(sessionId: string, id: string): Promise<WorkspaceStatus> {
     const environment = this.get(id);
 
-    if (!environment || environment.reviewId !== reviewId)
-      throw new ReviewInputError("Language environment not found.", 404);
+    if (!environment || environment.sessionId !== sessionId)
+      throw new SessionInputError("Language environment not found.", 404);
 
     if (this.jobs.has(id)) return this.status(environment);
 
@@ -402,7 +424,7 @@ export class ReviewWorkspaces {
       return this.status(environment);
     }
 
-    this.assertReview(reviewId);
+    this.assertReview(sessionId);
 
     if (environment.rootPath)
       await rm(reviewPrepareMarkerPath(environment.rootPath), { force: true });
@@ -411,7 +433,7 @@ export class ReviewWorkspaces {
     this.save(environment);
 
     return this.source(
-      reviewId,
+      sessionId,
       {
         repositoryId: environment.repositoryId,
         base: environment.commit,
@@ -425,11 +447,11 @@ export class ReviewWorkspaces {
     // Capture ownership before awaiting, so shutdown never reads a closed store.
     const deleted = this.all().filter(
       (environment) =>
-        (environment.reviewId === removedReviewId ||
-          !this.hasReview(environment.reviewId)) &&
+        (environment.sessionId === removedReviewId ||
+          !this.hasReview(environment.sessionId)) &&
         (environment.state !== "cleanup-failed" ||
           environment.id === retryId ||
-          environment.reviewId === removedReviewId),
+          environment.sessionId === removedReviewId),
     );
 
     this.cleanup = this.cleanup.then(async () => {
@@ -442,7 +464,7 @@ export class ReviewWorkspaces {
           if (environment.rootPath && existsSync(environment.rootPath)) {
             const managed = reviewManagedCheckoutRoot(
               environment.repository,
-              environment.reviewId,
+              environment.sessionId,
             );
 
             const relative = path.relative(managed, environment.rootPath);

@@ -6,8 +6,8 @@ import path from "node:path";
 import { parseReviewDesktopVerbFrame } from "@dev.fast/review-protocol";
 import { expect, it } from "vitest";
 
-import { connectReviewApi } from "../review-api/agent-client.js";
-import { openLocalReviewStore } from "../review-api/local-data.js";
+import { connectSessionApi } from "../review-api/agent-client.js";
+import { openLocalSessionStore } from "../review-api/local-data.js";
 import { ReviewTelemetry } from "../review-telemetry.js";
 import { createGlobalReviewServer } from "./desktop-server.js";
 import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay.js";
@@ -22,7 +22,7 @@ it("discovers the live Desktop map preference without opening a review", async (
     DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
   };
 
-  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const local = openLocalSessionStore(path.join(home, "review-api.db"));
   const relay = new GlobalReviewDesktopVerbRelay();
   let softwareMapEnabled = false;
   let opened = false;
@@ -68,7 +68,7 @@ it("discovers the live Desktop map preference without opening a review", async (
         token: "expired-headless-token",
       }),
     );
-    const client = await connectReviewApi(env);
+    const client = await connectSessionApi(env);
     expect(await client.read("/capabilities")).toMatchObject({
       desktopAvailable: true,
       softwareMapEnabled: false,
@@ -81,7 +81,7 @@ it("discovers the live Desktop map preference without opening a review", async (
     });
     expect(opened).toBe(false);
     await expect(
-      connectReviewApi({ ...env, DEV_REVIEW_SERVER_DIR: home }),
+      connectSessionApi({ ...env, DEV_REVIEW_SERVER_DIR: home }),
     ).rejects.toThrow(/review server start/);
     relay.close();
     expect(await client.read("/capabilities")).toMatchObject({
@@ -89,7 +89,7 @@ it("discovers the live Desktop map preference without opening a review", async (
       softwareMapEnabled: false,
     });
     await expect(
-      connectReviewApi({
+      connectSessionApi({
         ...env,
         DEV_REVIEW_SERVER_DIR: path.join(home, "missing"),
       }),

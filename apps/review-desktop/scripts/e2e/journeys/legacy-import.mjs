@@ -149,7 +149,7 @@ export async function run(ctx) {
     );
     assert.ok(
       (await apiOk("/reviews-api")).some(
-        (row) => row.reviewId === metadata.sourceUuid,
+        (row) => row.sessionId === metadata.sourceUuid,
       ),
       `${fixtureName} is listed by the review API`,
     );

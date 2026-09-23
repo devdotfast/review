@@ -121,7 +121,7 @@ export function AgentSelectionProvider({
       session.surface.subscribe((event) => {
         if (
           event.event !== "editorSelectionChanged" ||
-          event.reviewId !== session.config.reviewId ||
+          event.sessionId !== session.config.sessionId ||
           event.isEmpty === undefined ||
           !event.sideContext
         )

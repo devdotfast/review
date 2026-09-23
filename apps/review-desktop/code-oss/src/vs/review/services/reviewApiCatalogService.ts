@@ -10,20 +10,20 @@ import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { generateUuid } from "../../base/common/uuid.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../platform/log/common/log.js";
-import { ReviewApiClient, type ReviewApiSummary } from "../common/reviewProtocol.js";
+import { SessionApiClient, type SessionSummary } from "../common/reviewProtocol.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 
 export const IReviewApiCatalogService = createDecorator<IReviewApiCatalogService>("reviewApiCatalogService");
 export interface IReviewApiCatalogService {
 	readonly _serviceBrand: undefined;
-	readonly reviews: readonly ReviewApiSummary[];
+	readonly reviews: readonly SessionSummary[];
 	/** True once the first list arrived; an empty list is then real, not a failed load. */
 	readonly loaded: boolean;
 	readonly onDidChange: Event<void>;
 	readonly onDidCloseReview: Event<string>;
 	initialize(): Promise<void>;
-	attention(reviewId: string, action: "view" | "dismiss" | "restore"): Promise<void>;
-	deleteReview(reviewId: string): Promise<void>;
+	attention(sessionId: string, action: "view" | "dismiss" | "restore"): Promise<void>;
+	deleteReview(sessionId: string): Promise<void>;
 }
 
 /** A live API list for Home and tab restoration; no legacy review sessions. */
@@ -33,9 +33,9 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 	readonly onDidChange = this.changed.event;
 	private readonly closed = this._register(new Emitter<string>());
 	readonly onDidCloseReview = this.closed.event;
-	reviews: ReviewApiSummary[] = [];
+	reviews: SessionSummary[] = [];
 	loaded = false;
-	private client?: ReviewApiClient;
+	private client?: SessionApiClient;
 	private started?: Promise<void>;
 	private connectionAbort?: AbortController;
 
@@ -71,42 +71,42 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		const abort = new AbortController();
 		this.connectionAbort = abort;
 		const mode = this.configuration.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === false ? "textual" : "structural";
-		const client = new ReviewApiClient(await this.session.getConnection());
+		const client = new SessionApiClient(await this.session.getConnection());
 		this._register(toDisposable(() => abort.abort()));
-		const accept = (reviews: ReviewApiSummary[]) => {
+		const accept = (reviews: SessionSummary[]) => {
 			if (abort.signal.aborted) return;
 			const previous = this.reviews;
 			this.reviews = reviews;
 			this.loaded = true;
 			this.changed.fire();
 			for (const review of previous) {
-				const next = this.reviews.find((next) => next.reviewId === review.reviewId);
-				if (!next || (!review.dismissedAt && next.dismissedAt)) this.closed.fire(review.reviewId);
+				const next = this.reviews.find((next) => next.sessionId === review.sessionId);
+				if (!next || (!review.dismissedAt && next.dismissedAt)) this.closed.fire(review.sessionId);
 			}
 		};
 		// Surface a failed first list instead of reporting an empty catalog:
 		// tab restoration would otherwise drop every persisted API tab.
-		accept(await client.read<ReviewApiSummary[]>(`?mode=${mode}`, abort.signal));
+		accept(await client.read<SessionSummary[]>(`?mode=${mode}`, abort.signal));
 		this.client = client;
-		void client.follow<ReviewApiSummary[]>(null, abort.signal, accept, (error) =>
+		void client.follow<SessionSummary[]>(null, abort.signal, accept, (error) =>
 			this.log.warn("[Review] API review list disconnected:", error),
 			mode,
 		);
 	}
 
-	async attention(reviewId: string, action: "view" | "dismiss" | "restore"): Promise<void> {
+	async attention(sessionId: string, action: "view" | "dismiss" | "restore"): Promise<void> {
 		await this.initialize();
 		await this.client!.post("/commands", {
 			commandId: generateUuid(),
-			operation: { type: "attention", reviewId, action },
+			operation: { type: "attention", sessionId, action },
 		});
 	}
 
-	async deleteReview(reviewId: string): Promise<void> {
+	async deleteReview(sessionId: string): Promise<void> {
 		await this.initialize();
 		await this.client!.post("/commands", {
 			commandId: generateUuid(),
-			operation: { type: "delete", reviewId },
+			operation: { type: "delete", sessionId },
 		});
 	}
 }

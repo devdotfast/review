@@ -1,7 +1,7 @@
 import { errorMessage } from "@dev.fast/trace-core";
 
-import type { LocalReviewData } from "../review-api/local-data";
-import type { ReviewStore } from "../review-api/store";
+import type { LocalSessionData } from "../review-api/local-data";
+import type { SessionStore } from "../review-api/store";
 import type { StoredReview } from "../review-home";
 import type { ReviewVcsLogEntry } from "../review-vcs";
 import { type ImportOutcome, importLegacyReview } from "./import-review";
@@ -18,8 +18,8 @@ export interface LegacyImporter {
 }
 
 export function createLegacyImporter(input: {
-  store: ReviewStore;
-  data: LocalReviewData;
+  store: SessionStore;
+  data: LocalSessionData;
   materialize: (review: StoredReview, revision: string) => Promise<string>;
   onImported: (review: StoredReview, outcome: ImportedOutcome) => Promise<void>;
   log: (message: string) => void;
@@ -65,11 +65,15 @@ export function createLegacyImporter(input: {
         if (input.store.has(uuid))
           return {
             kind: "current",
-            reviewId: uuid,
+            sessionId: uuid,
             warnings: [errorMessage(error)],
           };
 
-        return { kind: "skipped", reviewId: uuid, reason: errorMessage(error) };
+        return {
+          kind: "skipped",
+          sessionId: uuid,
+          reason: errorMessage(error),
+        };
       })
       .then(async (outcome) => {
         if (outcome.kind === "skipped")

@@ -137,13 +137,13 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 				case "captureScreenshot":
 					return { ok: true, result: await this.captureScreenshot() };
 				case "openReview": {
-					const review = this.apiCatalog.reviews.find((review) => review.reviewId === request.args.reviewUuid);
+					const review = this.apiCatalog.reviews.find((review) => review.sessionId === request.args.sessionId);
 					if (!review) throw new Error("Review not found.");
-					await this.tabsService.openApiReview(review.reviewId, review.title, request.args.active);
+					await this.tabsService.openApiReview(review.sessionId, review.title, request.args.active);
 					break;
 				}
 				case "openApiReview":
-					await this.tabsService.openApiReview(request.args.reviewId, request.args.title);
+					await this.tabsService.openApiReview(request.args.sessionId, request.args.title);
 					break;
 			}
 			return { ok: true };

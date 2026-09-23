@@ -349,9 +349,9 @@ function renderWithSession(node: ReactNode) {
   );
 }
 
-function createTestSession(reviewId = "test"): ReviewSession {
+function createTestSession(sessionId = "test"): ReviewSession {
   return testReviewSession(
-    { reviewId, token: "" },
+    { sessionId, token: "" },
     {
       diffView: {
         files: async () => [],

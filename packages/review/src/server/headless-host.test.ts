@@ -9,12 +9,12 @@ import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { runReviewCli } from "../cli-runner.js";
-import { connectReviewApi } from "../review-api/agent-client.js";
-import { ReviewApiClient } from "../review-api/client.js";
+import { runWhiteboardCli } from "../cli-runner.js";
+import { connectSessionApi } from "../review-api/agent-client.js";
+import { SessionApiClient } from "../review-api/client.js";
 import type { Pins } from "../review-api/document.js";
-import { createReviewApi } from "../review-api/http.js";
-import { serveReviewMcp } from "../review-api/mcp.js";
+import { createSessionApi } from "../review-api/http.js";
+import { serveWhiteboardMcp } from "../review-api/mcp.js";
 import { openReviewProfile } from "../review-api/profile.js";
 import type { Result, Snapshot } from "../review-api/store.js";
 import {
@@ -70,7 +70,7 @@ async function start(
   ]);
 
   const env = { ...process.env, DEV_REVIEW_SERVER_DIR: stateDir };
-  const client = await connectReviewApi(env);
+  const client = await connectSessionApi(env);
 
   return { client, discovery, env, stateDir, stop };
 }
@@ -117,7 +117,7 @@ async function cli(argv: string[], env: NodeJS.ProcessEnv) {
   stderr.on("data", (chunk) => {
     errors += chunk;
   });
-  const exitCode = await runReviewCli({ argv, env, stdout, stderr });
+  const exitCode = await runWhiteboardCli({ argv, env, stdout, stderr });
 
   return { exitCode, output, errors };
 }
@@ -128,20 +128,24 @@ it("shares review identity, resources, sessions and live changes with Desktop in
   const local = await openReviewProfile(root, { manageWorkspaces: true });
   const opened: string[] = [];
 
-  const app = createReviewApi(local.store, local.data, async ({ reviewId }) => {
-    opened.push(reviewId);
+  const app = createSessionApi(
+    local.store,
+    local.data,
+    async ({ sessionId }) => {
+      opened.push(sessionId);
 
-    return { softwareMapEnabled: false };
-  });
+      return { softwareMapEnabled: false };
+    },
+  );
 
-  const desktop = new ReviewApiClient(
+  const desktop = new SessionApiClient(
     { serverUrl: "http://desktop.test", token: "test" },
     async (url, init) => app.request(url.replace("/reviews-api", ""), init),
   );
 
   const abort = new AbortController();
   const catalog = desktop.watch(null, abort.signal);
-  let reviewStream: ReturnType<ReviewApiClient["watch"]> | undefined;
+  let reviewStream: ReturnType<SessionApiClient["watch"]> | undefined;
 
   try {
     // The scratchpad is off by default, so there is nothing to list yet.
@@ -167,18 +171,18 @@ it("shares review identity, resources, sessions and live changes with Desktop in
     for await (const value of catalog) {
       if (
         Array.isArray(value) &&
-        value.some((item) => item.reviewId === created.reviewId)
+        value.some((item) => item.sessionId === created.sessionId)
       )
         break;
     }
 
-    reviewStream = desktop.watch(created.reviewId, abort.signal);
+    reviewStream = desktop.watch(created.sessionId, abort.signal);
     expect((await reviewStream.next()).value).toMatchObject({
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       version: 0,
     });
     const leaseId = randomUUID();
-    await server.client.post(`/${created.reviewId}/activity`, {
+    await server.client.post(`/${created.sessionId}/activity`, {
       action: "begin",
       leaseId,
     });
@@ -200,7 +204,7 @@ it("shares review identity, resources, sessions and live changes with Desktop in
         commandId: randomUUID(),
         operation: {
           type: "rename",
-          reviewId: created.reviewId,
+          sessionId: created.sessionId,
           title: "Competing author",
         },
       }),
@@ -216,7 +220,7 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       },
     });
     expect(
-      await desktop.read(`/${created.reviewId}/resources/${traceId}`),
+      await desktop.read(`/${created.sessionId}/resources/${traceId}`),
     ).toMatchObject({
       label: "Evidence",
     });
@@ -225,7 +229,7 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       leaseId,
       operation: {
         type: "edit",
-        reviewId: created.reviewId,
+        sessionId: created.sessionId,
         edit: {
           type: "insert",
           content: {
@@ -250,14 +254,14 @@ it("shares review identity, resources, sessions and live changes with Desktop in
         break;
     }
 
-    await desktop.post(`/${created.reviewId}/open`, {});
-    expect(opened).toEqual([created.reviewId]);
+    await desktop.post(`/${created.sessionId}/open`, {});
+    expect(opened).toEqual([created.sessionId]);
     expect(
       (await desktop.read<Snapshot[]>(""))
-        .map((item) => item.reviewId)
+        .map((item) => item.sessionId)
         .filter((id) => id !== "scratchpad"),
-    ).toEqual([created.reviewId]);
-    await server.client.post(`/${created.reviewId}/activity`, {
+    ).toEqual([created.sessionId]);
+    await server.client.post(`/${created.sessionId}/activity`, {
       action: "end",
       leaseId,
     });
@@ -265,16 +269,16 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       commandId: randomUUID(),
       operation: {
         type: "rename",
-        reviewId: created.reviewId,
+        sessionId: created.sessionId,
         title: "Changed in Desktop",
       },
     });
     expect(
-      await server.client.read(`/${created.reviewId}?full=true`),
+      await server.client.read(`/${created.sessionId}?full=true`),
     ).toMatchObject({ title: "Changed in Desktop", version: 2 });
     await server.client.post("/commands", {
       commandId: randomUUID(),
-      operation: { type: "delete", reviewId: created.reviewId },
+      operation: { type: "delete", sessionId: created.sessionId },
     });
     await expect(async () => {
       for await (const _value of reviewStream!) {
@@ -319,15 +323,15 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
 
   expect(created).toMatchObject({ exitCode: 0, errors: "" });
 
-  const { reviewId } = z
-    .object({ reviewId: z.string() })
+  const { sessionId } = z
+    .object({ sessionId: z.string() })
     .parse(JSON.parse(created.output));
 
   await client.post("/commands", {
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: {
         type: "insert",
         content: {
@@ -356,7 +360,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: {
         type: "insert",
         content: {
@@ -412,7 +416,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId,
+        sessionId,
         edit: {
           type: "insert",
           content: {
@@ -427,7 +431,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
       },
     }),
   ).rejects.toThrow(/unavailable at the pinned commit/i);
-  expect(await client.read<Snapshot>(`/${reviewId}?full=true`)).toMatchObject({
+  expect(await client.read<Snapshot>(`/${sessionId}?full=true`)).toMatchObject({
     version: 2,
   });
   await server.stop();
@@ -435,28 +439,29 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
 
   const restarted = await start(server.stateDir);
   expect(
-    await restarted.client.read<Snapshot>(`/${reviewId}?full=true`),
+    await restarted.client.read<Snapshot>(`/${sessionId}?full=true`),
   ).toMatchObject({
-    reviewId,
+    sessionId,
     pins,
     document: [{ title: "Work in progress" }, { assetId: imageId }],
   });
 
   const retained = await restarted.client.response(
-    `/${reviewId}/resources/${imageId}`,
+    `/${sessionId}/resources/${imageId}`,
   );
 
   expect(Buffer.from(await retained.arrayBuffer())).toEqual(image);
   expect(
-    (await restarted.client.response(`/${reviewId}/resources/${traceId}`))
+    (await restarted.client.response(`/${sessionId}/resources/${traceId}`))
       .status,
   ).toBe(200);
   expect(
-    (await restarted.client.response(`/${reviewId}/resources/${mapId}`)).status,
+    (await restarted.client.response(`/${sessionId}/resources/${mapId}`))
+      .status,
   ).toBe(200);
 
   const file = await restarted.client.read<{ text: string }>(
-    `/${reviewId}/file?side=head&file=example.ts`,
+    `/${sessionId}/file?side=head&file=example.ts`,
   );
 
   expect(file.text).toBe("export const value = 2;\n");
@@ -464,8 +469,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
   const stdin = new PassThrough(),
     stdout = new PassThrough();
 
-  const mcp = await serveReviewMcp(
-    () => connectReviewApi(restarted.env),
+  const mcp = await serveWhiteboardMcp(
+    () => connectSessionApi(restarted.env),
     stdin,
     stdout,
   );
@@ -507,7 +512,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
         method: "tools/call",
         params: {
           name: "review_get",
-          arguments: { reviewId, full: true, format: "json" },
+          arguments: { sessionId, full: true, format: "json" },
         },
       }) + "\n",
     );
@@ -517,7 +522,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     const result = replies.find((reply) => reply.id === 2)!.result;
     expect(result.isError).not.toBe(true);
     expect(JSON.parse(result.content![0].text)).toMatchObject({
-      reviewId,
+      sessionId,
       version: 2,
     });
   } finally {
@@ -569,13 +574,13 @@ it("authenticates clients, reports capabilities and readiness without exposing t
   });
 
   await expect(
-    server.client.post(`/${result.reviewId}/open`, {}),
+    server.client.post(`/${result.sessionId}/open`, {}),
   ).rejects.toThrow(/desktop is not connected/);
   await server.stop();
   const stopped = await cli(["server", "status", "--json"], server.env);
   expect(stopped.exitCode).toBe(1);
   expect(JSON.parse(stopped.output)).toMatchObject({ event: "error" });
-  await expect(connectReviewApi(server.env)).rejects.toThrow(
+  await expect(connectSessionApi(server.env)).rejects.toThrow(
     /review server start/,
   );
 });
@@ -639,7 +644,7 @@ it("does not connect to another instance through stale discovery", async () => {
     discoveryPath,
     JSON.stringify({ ...original, instanceId: randomUUID() }),
   );
-  await expect(connectReviewApi(server.env)).rejects.toThrow(/not ready/);
+  await expect(connectSessionApi(server.env)).rejects.toThrow(/not ready/);
 });
 
 it("refuses the removed batch authoring mode instead of ignoring it", async () => {

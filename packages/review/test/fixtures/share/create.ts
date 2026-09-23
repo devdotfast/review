@@ -5,7 +5,7 @@ import path from "node:path";
 
 import sharp from "sharp";
 
-import { openLocalReviewStore } from "../../../src/review-api/local-data.js";
+import { openLocalSessionStore } from "../../../src/review-api/local-data.js";
 import { fetchPinnedRepository } from "../../../src/sharing/repository.js";
 
 export async function createShareFixture(root: string, github = false) {
@@ -60,7 +60,7 @@ export async function createShareFixture(root: string, github = false) {
   const sourceFile = github ? "README" : "answer.ts";
   const sourceLines = github ? 1 : 3;
   const sourceText = github ? "Hello World!" : "return 42;";
-  const local = openLocalReviewStore(path.join(root, "sender.db"));
+  const local = openLocalSessionStore(path.join(root, "sender.db"));
   const registered = await local.data.register(repo);
   const pins = { repositoryId: registered.id, base, head };
 
@@ -177,7 +177,7 @@ export async function createShareFixture(root: string, github = false) {
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId: created.reviewId,
+        sessionId: created.sessionId,
         edit: { type: "insert", content },
       },
     });
@@ -185,7 +185,7 @@ export async function createShareFixture(root: string, github = false) {
   return {
     ...local,
     repo,
-    reviewId: created.reviewId,
+    sessionId: created.sessionId,
     repository: { cloneUrl },
     sourceFile,
     sourceText,

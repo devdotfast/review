@@ -1,5 +1,5 @@
 import type {
-  ReviewApiSummary,
+  SessionSummary,
   ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
@@ -35,23 +35,23 @@ describe("ReviewHome", () => {
 
     const reviews = [
       summary({
-        reviewId: uuid(1),
+        sessionId: uuid(1),
         title: "Week",
         createdAt: "2026-09-20T12:00:00Z",
       }),
       summary({
-        reviewId: uuid(2),
+        sessionId: uuid(2),
         title: "Recent local",
         createdAt: "2026-09-22T10:00:00Z",
         repositoryPath: "/worktrees/feature-a",
       }),
       summary({
-        reviewId: uuid(3),
+        sessionId: uuid(3),
         title: "Old",
         createdAt: "2026-09-01T12:00:00Z",
       }),
       summary({
-        reviewId: uuid(4),
+        sessionId: uuid(4),
         title: "Newest shared",
         createdAt: "2026-09-22T11:00:00Z",
         repositoryPath: undefined,
@@ -76,7 +76,7 @@ describe("ReviewHome", () => {
   it("filters repositories and changes sort order without losing review actions", async () => {
     const reviews = [
       summary({
-        reviewId: uuid(1),
+        sessionId: uuid(1),
         title: "Zulu",
         repositoryName: "alpha",
         firstCreatedAt: "2026-01-01T00:00:00Z",
@@ -84,7 +84,7 @@ describe("ReviewHome", () => {
         origin: { pullRequestNumber: 10 },
       }),
       summary({
-        reviewId: uuid(2),
+        sessionId: uuid(2),
         title: "Alpha",
         repositoryName: "beta",
         firstCreatedAt: "2026-02-01T00:00:00Z",
@@ -93,9 +93,9 @@ describe("ReviewHome", () => {
       }),
     ];
 
-    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const onOpen = vi.fn<(review: SessionSummary) => void>();
 
-    const onDismiss = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onDismiss = vi.fn<(review: SessionSummary) => Promise<void>>(
       async () => undefined,
     );
 
@@ -167,19 +167,19 @@ describe("ReviewHome", () => {
       repositoryPath: _path,
       ...base
     } = summary({
-      reviewId: "scratchpad",
+      sessionId: "scratchpad",
       title: "Scratchpad",
       repositoryName: "",
     });
 
-    const pad: ReviewApiSummary = {
+    const pad: SessionSummary = {
       ...base,
       kind: "scratchpad",
       contents: { blocks: 6, diagrams: 2 },
     };
 
-    const review = summary({ reviewId: uuid(1), title: "A review" });
-    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const review = summary({ sessionId: uuid(1), title: "A review" });
+    const onOpen = vi.fn<(review: SessionSummary) => void>();
     await act(async () =>
       root.render(<ReviewHome reviews={[review, pad]} onOpen={onOpen} />),
     );
@@ -226,10 +226,10 @@ describe("ReviewHome", () => {
 
   it("shows reviews from different repositories in one table", async () => {
     const reviews = [
-      summary({ reviewId: uuid(1), title: "First dev review" }),
-      summary({ reviewId: uuid(2), title: "Second dev review" }),
+      summary({ sessionId: uuid(1), title: "First dev review" }),
+      summary({ sessionId: uuid(2), title: "Second dev review" }),
       summary({
-        reviewId: uuid(3),
+        sessionId: uuid(3),
         title: "Other workspace review",
         repositoryPath: "/repo/other",
       }),
@@ -249,9 +249,9 @@ describe("ReviewHome", () => {
 
   it("opens the row menu without opening the review and requires confirmation to delete", async () => {
     const review = summary({ title: "Menu review" });
-    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const onOpen = vi.fn<(review: SessionSummary) => void>();
 
-    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onDelete = vi.fn<(review: SessionSummary) => Promise<void>>(
       async () => undefined,
     );
 
@@ -282,15 +282,15 @@ describe("ReviewHome", () => {
   });
 
   it("deletes a review after an arming click without opening it", async () => {
-    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const onOpen = vi.fn<(review: SessionSummary) => void>();
 
-    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onDelete = vi.fn<(review: SessionSummary) => Promise<void>>(
       async () => undefined,
     );
 
     const reviews = [
       summary({
-        reviewId: uuid(1),
+        sessionId: uuid(1),
         title: "Removable",
         dismissedAt: "2026-08-13T20:00:00.000Z",
       }),
@@ -335,7 +335,7 @@ describe("ReviewHome", () => {
 
       const deletion = Promise.withResolvers<void>();
 
-      const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      const onDelete = vi.fn<(review: SessionSummary) => Promise<void>>(
         () => deletion.promise,
       );
 
@@ -387,11 +387,11 @@ describe("ReviewHome", () => {
     const review = summary({ title: "Pending review" });
     const deletion = Promise.withResolvers<void>();
 
-    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onDelete = vi.fn<(review: SessionSummary) => Promise<void>>(
       () => deletion.promise,
     );
 
-    const render = async (reviews: ReviewApiSummary[]) =>
+    const render = async (reviews: SessionSummary[]) =>
       act(async () =>
         root.render(
           <ReviewHome
@@ -432,17 +432,17 @@ describe("ReviewHome", () => {
       origin: { pullRequestNumber: 320 },
     });
 
-    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const onOpen = vi.fn<(review: SessionSummary) => void>();
 
-    const onDismiss = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onDismiss = vi.fn<(review: SessionSummary) => Promise<void>>(
       async () => {},
     );
 
-    const onRestore = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+    const onRestore = vi.fn<(review: SessionSummary) => Promise<void>>(
       async () => {},
     );
 
-    const render = async (item: ReviewApiSummary) =>
+    const render = async (item: SessionSummary) =>
       act(async () =>
         root.render(
           <ReviewHome
@@ -566,9 +566,9 @@ describe("formatRelativeTime", () => {
   });
 });
 
-function summary(overrides: Partial<ReviewApiSummary> = {}): ReviewApiSummary {
+function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
-    reviewId: uuid(9),
+    sessionId: uuid(9),
     version: 0,
     title: "Progressive Review",
     repositoryPath: "/repo/dev",

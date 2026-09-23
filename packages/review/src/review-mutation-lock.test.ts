@@ -99,7 +99,7 @@ it("reports retryable contention and succeeds after the holder releases", async 
       name: "ReviewBusyError",
       code: "REVIEW_BUSY",
       retryable: true,
-      reviewUuid: path.basename(root),
+      sessionId: path.basename(root),
       message: expect.stringContaining(
         "Retry after its current operation completes",
       ),

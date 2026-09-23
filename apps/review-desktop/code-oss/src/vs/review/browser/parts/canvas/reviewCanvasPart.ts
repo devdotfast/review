@@ -193,7 +193,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			verbs.onDidEmitSurfaceEvent((event) => {
 				if (
 					event.event === "editorSelectionChanged" &&
-					event.reviewId !== this.apiContent?.reviewId
+					event.sessionId !== this.apiContent?.sessionId
 				)
 					return;
 				this.surfaceEvents.fire(event);
@@ -336,16 +336,16 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.modelSubscription.clear();
 		if (input.target.kind === "api") {
 			try {
-				const { reviewId } = input.target;
+				const { sessionId } = input.target;
 				const [connection, assets] = await Promise.all([this.desktopConnection.getConnection(), this.loadAssets()]);
 				if (generation !== this.loadGeneration || token.isCancellationRequested) return;
 				this.renderedInput = input;
-				this.setCanvasState("active", reviewId);
+				this.setCanvasState("active", sessionId);
 				void this.apiCatalog
-					.attention(reviewId, "view")
+					.attention(sessionId, "view")
 					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
-				let sourceSelection: ReviewSourceSelection = { reviewId, kind: "current" };
-				let sourceView: ReviewSourceView = resolveReviewSourceView({ reviewId, version: 0, pins: {} });
+				let sourceSelection: ReviewSourceSelection = { sessionId, kind: "current" };
+				let sourceView: ReviewSourceView = resolveReviewSourceView({ sessionId, version: 0, pins: {} });
 				const source = this.apiSource.canvas(() => sourceView, this.inlineEditors, this.diffViews);
 				const closeTutorial = () => void this.group.closeEditor(input);
 				const updateTutorial = (progress: TutorialProgressV1) => {
@@ -353,7 +353,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					if (!this.apiContent) return;
 					this.apiContent = {
 						...this.apiContent,
-						tutorial: this.createTutorialBridge(reviewId, progress, updateTutorial, closeTutorial),
+						tutorial: this.createTutorialBridge(sessionId, progress, updateTutorial, closeTutorial),
 					};
 					this.canvas.value?.update(this.apiContent);
 				};
@@ -369,13 +369,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							this.apiContent = {
 								...this.apiContent,
 								tutorial: enabled
-									? this.createTutorialBridge(reviewId, this.readTutorialProgress(), updateTutorial, closeTutorial)
+									? this.createTutorialBridge(sessionId, this.readTutorialProgress(), updateTutorial, closeTutorial)
 									: undefined,
 							};
 							this.canvas.value?.update(this.apiContent);
 						},
 						kind: "api",
-						reviewId,
+						sessionId,
 						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
@@ -393,7 +393,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							config: this.reviewRuntimeConfig(
 								{
 									...connection,
-									reviewId: reviewId,
+									sessionId: sessionId,
 								},
 								assets,
 							),
@@ -456,7 +456,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					this.reviewTelemetryService.capture("review_opened", {
 						via: "home",
 					});
-					const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
+					const api = this.apiCatalog.reviews.find((review) => review.sessionId === uuid);
 					return api ? this.tabsService.openApiReview(uuid, api.title) : Promise.resolve();
 				};
 				return this.render(
@@ -468,9 +468,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						dismissReview: (uuid) => this.apiCatalog.attention(uuid, "dismiss"),
 						restoreReview: (uuid) => this.apiCatalog.attention(uuid, "restore"),
 						openSourceTree: (uuid) => {
-							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
+							const api = this.apiCatalog.reviews.find((review) => review.sessionId === uuid);
 							if (api) {
-								void this.tabsService.openApiSource({ reviewId: api.reviewId, kind: "current" }, api.title).then(() => this.explorerParts.show());
+								void this.tabsService.openApiSource({ sessionId: api.sessionId, kind: "current" }, api.title).then(() => this.explorerParts.show());
 								return;
 							}
 						},
@@ -817,7 +817,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	private createTutorialBridge(
-		reviewUuid: string,
+		sessionId: string,
 		progress: TutorialProgressV1,
 		onChange: (progress: TutorialProgressV1) => void,
 		close: () => void,
@@ -835,7 +835,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			onChange({ ...current, checked: [...values] });
 		};
 		return {
-			content: { reviewUuid, progress, keymap: this.currentKeymap() },
+			content: { sessionId, progress, keymap: this.currentKeymap() },
 			setStep,
 			dismiss: () => onChange({ ...this.readTutorialProgress(), dismissed: true }),
 			reopen: () => onChange({ ...this.readTutorialProgress(), dismissed: false }),
@@ -1047,7 +1047,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	private reviewRuntimeConfig(
-		connection: Pick<ReviewRuntimeConfig, "serverUrl" | "reviewId" | "token">,
+		connection: Pick<ReviewRuntimeConfig, "serverUrl" | "sessionId" | "token">,
 		assets: ReviewCanvasAssetsModule,
 	): ReviewRuntimeConfig {
 		return {
@@ -1069,14 +1069,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		return generation === this.loadGeneration;
 	}
 
-	private setCanvasState(state: ReviewCanvasState, reviewId?: string): void {
+	private setCanvasState(state: ReviewCanvasState, sessionId?: string): void {
 		if (!this.targetDocument) return;
 		this.targetDocument.body.dataset["reviewCanvasState"] = state;
-		if (state === "active" && reviewId) {
-			this.targetDocument.body.dataset["reviewId"] = reviewId;
+		if (state === "active" && sessionId) {
+			this.targetDocument.body.dataset["sessionId"] = sessionId;
 			delete this.targetDocument.body.dataset["reviewCanvasReady"];
 		} else {
-			delete this.targetDocument.body.dataset["reviewId"];
+			delete this.targetDocument.body.dataset["sessionId"];
 			delete this.targetDocument.body.dataset["reviewCanvasReady"];
 		}
 	}

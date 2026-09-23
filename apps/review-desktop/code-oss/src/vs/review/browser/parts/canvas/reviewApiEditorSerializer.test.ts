@@ -51,12 +51,12 @@ test("native group restoration preserves both reviews, order and pinned source v
 		inputs.forEach((input) => input.dispose());
 	});
 	left.openEditor(tabs.inputFor({ kind: "home" }), { pinned: true, sticky: true });
-	left.openEditor(tabs.inputFor({ kind: "api", reviewId: "a", title: "Review A" }), { pinned: true, active: true });
-	left.openEditor(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "Review A", selection: { reviewId: "a", kind: "version", version: 7 } }), {
+	left.openEditor(tabs.inputFor({ kind: "api", sessionId: "a", title: "Review A" }), { pinned: true, active: true });
+	left.openEditor(tabs.inputFor({ kind: "api-source", sessionId: "a", title: "Review A", selection: { sessionId: "a", kind: "version", version: 7 } }), {
 		pinned: true,
 		active: false,
 	});
-	right.openEditor(tabs.inputFor({ kind: "api", reviewId: "b", title: "Review B" }), { pinned: true, active: true });
+	right.openEditor(tabs.inputFor({ kind: "api", sessionId: "b", title: "Review B" }), { pinned: true, active: true });
 	const saved = [left.serialize(), right.serialize()];
 	tabs.dispose();
 	tabs = createTabs();
@@ -81,7 +81,7 @@ test("invalid saved tabs are ignored instead of preventing the window from resto
 		"invalid JSON",
 		"null",
 		'{"kind":"api"}',
-		'{"kind":"api-source","reviewId":"a","title":"A","version":-1}',
+		'{"kind":"api-source","sessionId":"a","title":"A","version":-1}',
 	]) {
 		assert.equal(serializer.deserialize({} as never, value), undefined);
 	}
@@ -102,10 +102,13 @@ test("current Source tabs retain identity and main version tabs still restore", 
   tabs = new ReviewCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never);
   try {
     const serializer = new ReviewApiEditorSerializer();
-    const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }));
-    assert.equal(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }), restored);
-    assert.notEqual(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "version", version: 2 } }), restored);
-    const historical = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2 }));
+    const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", sessionId: "a", title: "A", selection: { sessionId: "a", kind: "current" } }));
+    assert.equal(tabs.inputFor({ kind: "api-source", sessionId: "a", title: "A", selection: { sessionId: "a", kind: "current" } }), restored);
+    assert.notEqual(tabs.inputFor({ kind: "api-source", sessionId: "a", title: "A", selection: { sessionId: "a", kind: "version", version: 2 } }), restored);
+    const upgraded = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }));
+    assert.equal(upgraded, restored);
+    assert.deepEqual(JSON.parse(serializer.serialize(upgraded as ReviewCanvasEditorInput)!), { kind: "api-source", sessionId: "a", title: "A", selection: { sessionId: "a", kind: "current" } });
+    const historical = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", sessionId: "a", title: "A", version: 2 }));
     assert.equal((historical as ReviewCanvasEditorInput).getName(), "Source — A (v2)");
   } finally { tabs.dispose(); inputs.forEach(input => input.dispose()); }
 });

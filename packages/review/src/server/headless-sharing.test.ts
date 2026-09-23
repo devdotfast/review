@@ -8,8 +8,8 @@ import { shareManifestSchema } from "@dev.fast/review-share-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createShareFixture } from "../../test/fixtures/share/create.js";
-import { runReviewCli } from "../cli-runner.js";
-import { ReviewApiClient } from "../review-api/client.js";
+import { runWhiteboardCli } from "../cli-runner.js";
+import { SessionApiClient } from "../review-api/client.js";
 import type { ReviewServerDiscovery } from "../server-discovery.js";
 import * as repository from "../sharing/repository.js";
 import { runHeadlessServer } from "./headless-host.js";
@@ -24,7 +24,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
   const root = await mkdtemp(path.join(tmpdir(), "review-headless-sharing-"));
   const fixture = await createShareFixture(root);
   const stateDir = path.join(root, "server");
-  const pins = fixture.store.read(fixture.reviewId).pins;
+  const pins = fixture.store.read(fixture.sessionId).pins;
 
   vi.spyOn(repository, "readShareRepository").mockResolvedValue(
     fixture.repository,
@@ -107,7 +107,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       }),
     ]);
 
-    const client = new ReviewApiClient({
+    const client = new SessionApiClient({
       serverUrl: discovery.url,
       token: discovery.token,
     });
@@ -116,7 +116,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       path: fixture.repo,
     });
 
-    const d = await client.post<{ reviewId: string }>("/commands", {
+    const d = await client.post<{ sessionId: string }>("/commands", {
       commandId: randomUUID(),
       operation: {
         type: "create",
@@ -139,7 +139,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId: d.reviewId,
+        sessionId: d.sessionId,
         edit: {
           type: "insert",
           content: {
@@ -176,13 +176,13 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
         output += chunk;
       });
 
-      const code = await runReviewCli({
+      const code = await runWhiteboardCli({
         argv: [
           "--state-dir",
           stateDir,
           "share",
           "--review",
-          d.reviewId,
+          d.sessionId,
           "--version",
           "1",
           "--request-id",
@@ -245,7 +245,7 @@ for (const json of [false, true]) {
     });
 
     try {
-      const code = await runReviewCli({
+      const code = await runWhiteboardCli({
         argv: [
           "--state-dir",
           stateDir,

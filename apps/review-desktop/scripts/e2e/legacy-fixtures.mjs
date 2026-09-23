@@ -89,10 +89,10 @@ export const openLegacyReview = (ctx, fixture) =>
   pickReview(ctx, fixture.metadata.sourceUuid, fixture.worktreePath);
 
 /** Startup migrates the legacy directory before exposing the JSON catalog. */
-export const waitForImport = (ctx, reviewId) =>
+export const waitForImport = (ctx, sessionId) =>
   ctx.until(async () => {
     await ctx.api("/reviews-api");
-    const snapshot = await ctx.api(`/reviews-api/${reviewId}?full=true`);
+    const snapshot = await ctx.api(`/reviews-api/${sessionId}?full=true`);
 
     return snapshot.status === 200 ? snapshot.value : null;
-  }, `${reviewId} imported`);
+  }, `${sessionId} imported`);

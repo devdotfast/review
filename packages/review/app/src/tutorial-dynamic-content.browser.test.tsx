@@ -23,7 +23,7 @@ const session = testReviewSession(
 
 const tutorial: ReviewCanvasTutorialBridge = {
   content: {
-    reviewUuid: "tutorial-review",
+    sessionId: "tutorial-review",
     progress: { version: 1, checked: [], dismissed: false },
     keymap: "none",
   },

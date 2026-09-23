@@ -5,7 +5,7 @@ import { type LocalVcsKind, parseGitRemoteSlug } from "@dev.fast/local-vcs";
 import { errorMessage } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { ReviewInputError } from "./document.js";
+import { SessionInputError } from "./document.js";
 
 /** Runs one subprocess and resolves its stdout; rejects on failure or timeout. */
 export type RunCommand = (
@@ -134,7 +134,7 @@ export async function readPullRequest(
   }
 
   if (response.status === 404)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       `${url} was not found: it does not exist, or it is private and gh is not signed in to an account that can read it (run \`gh auth status\`). gh said: ${ghFailure}`,
       404,
     );
@@ -289,7 +289,7 @@ export async function fetchPullRequest(
     try {
       await fetchRefs(`+refs/pull/${pr.number}/head:${refs.head}`);
     } catch {
-      throw new ReviewInputError(
+      throw new SessionInputError(
         `Could not fetch PR #${pr.number} from remote "${input.remote}" (${pr.slug}). Check \`git fetch ${input.remote}\` works with your Git credentials, then retry. Git said: ${firstLine(errorMessage(error))}`,
         409,
       );
@@ -301,7 +301,7 @@ export async function fetchPullRequest(
   baseTip ??= await frozenBase();
 
   if (!head || !baseTip)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       `Fetched PR #${pr.number} but could not resolve its ${head ? `base branch ${pr.baseRefName}` : "head"}.`,
       409,
     );
@@ -316,7 +316,7 @@ export async function fetchPullRequest(
   }
 
   if (!base)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       `PR #${pr.number}'s head shares no history with ${pr.baseRefName}.`,
       409,
     );
@@ -360,7 +360,7 @@ async function indexForJj(
 }
 
 function unreadable(url: string, ghFailure: string, fallback: string) {
-  return new ReviewInputError(
+  return new SessionInputError(
     `Could not read ${url}: gh failed (${ghFailure}) and ${fallback}. Run \`gh auth status\` and sign in with an account that can read the repository, then retry.`,
     409,
   );

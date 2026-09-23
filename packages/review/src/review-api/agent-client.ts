@@ -9,7 +9,7 @@ import {
   reviewServerStateDir,
   serverNotReady,
 } from "../server-discovery.js";
-import { ReviewApiClient } from "./client.js";
+import { SessionApiClient } from "./client.js";
 
 export interface AuthoringTool {
   name: string;
@@ -20,7 +20,7 @@ export interface AuthoringTool {
   commandType?: string;
 }
 
-export async function connectReviewApi(env = process.env) {
+export async function connectSessionApi(env = process.env) {
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
     const server = await readReviewServerDiscovery(stateDir);
@@ -28,7 +28,7 @@ export async function connectReviewApi(env = process.env) {
     if (!server || !(await reviewServerIsHealthy(server)))
       throw serverNotReady(stateDir);
 
-    return new ReviewApiClient({ serverUrl: server.url, token: server.token });
+    return new SessionApiClient({ serverUrl: server.url, token: server.token });
   }
 
   const discovery = await readHealthyReviewDesktopDiscovery({
@@ -41,7 +41,7 @@ export async function connectReviewApi(env = process.env) {
       "No Review Desktop server is ready. Run review app launch, or select a running headless server with --state-dir or DEV_REVIEW_SERVER_DIR, then retry.",
     );
 
-  return new ReviewApiClient({
+  return new SessionApiClient({
     serverUrl: discovery.url,
     token: discovery.token,
   });
@@ -49,7 +49,7 @@ export async function connectReviewApi(env = process.env) {
 
 /** Only translate the tool envelope. The host owns validation and persistence. */
 export async function callAuthoringTool(
-  client: ReviewApiClient,
+  client: SessionApiClient,
   tool: AuthoringTool,
   input: NonNullable<CallToolRequest["params"]["arguments"]>,
   signal?: AbortSignal,
@@ -66,12 +66,12 @@ export async function callAuthoringTool(
 
   const fields = { ...input };
 
-  const route = tool.path.replace(/:reviewId\b/g, () => {
-    const value = fields.reviewId;
+  const route = tool.path.replace(/:sessionId\b/g, () => {
+    const value = fields.sessionId;
 
     if (!isStringValue(value) || !value)
-      throw new Error("reviewId is required.");
-    delete fields.reviewId;
+      throw new Error("sessionId is required.");
+    delete fields.sessionId;
 
     return encodeURIComponent(value);
   });

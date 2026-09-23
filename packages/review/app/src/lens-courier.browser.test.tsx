@@ -3,7 +3,7 @@ import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
-import { ReviewApiClient } from "../../src/review-api/client";
+import { SessionApiClient } from "../../src/review-api/client";
 import type { Lens } from "../../src/review-api/diff-lenses";
 import type { Snapshot } from "../../src/review-api/store";
 import {
@@ -129,7 +129,7 @@ const session = testReviewSession(
   },
 );
 
-const client = new ReviewApiClient(session.config, session.bridge.request);
+const client = new SessionApiClient(session.config, session.bridge.request);
 
 beforeEach(() => {
   app = document.createElement("div");
@@ -156,7 +156,7 @@ const render = async (state: {
   served = state.lenses;
 
   const snapshot: Snapshot = {
-    reviewId: "lens-courier",
+    sessionId: "lens-courier",
     version: state.version,
     title: "Lenses",
     pins: { repositoryId: "r", base: "b", head: "h" },

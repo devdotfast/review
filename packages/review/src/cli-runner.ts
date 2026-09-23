@@ -115,7 +115,7 @@ interface ReviewCliRuntime {
   runStoreWhoami: typeof runStoreWhoami;
 }
 
-export interface ReviewCliInput {
+export interface WhiteboardCliInput {
   argv: string[];
   cliVersion?: string;
   cliPaths?: { requestedPath: string; effectivePath: string };
@@ -142,7 +142,9 @@ interface CliRunState {
   json: boolean;
 }
 
-export async function runReviewCli(input: ReviewCliInput): Promise<number> {
+export async function runWhiteboardCli(
+  input: WhiteboardCliInput,
+): Promise<number> {
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
@@ -396,7 +398,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
-      reviewUuid: options.review,
+      sessionId: options.review,
       focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
@@ -457,7 +459,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       const event = await runtime.runReviewInfo({
         cwd,
         all: options.all,
-        reviewUuid: options.review,
+        sessionId: options.review,
       });
 
       input.stdout.write(`${JSON.stringify(event)}\n`);
@@ -834,8 +836,10 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         .addHelpText("after", `\n${reviewAgentCliHelp}`),
       "plain",
     ).action(async (args: string[]) => {
-      const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
-      state.exitCode = await runReviewAgentCli({
+      const { runWhiteboardAgentCli } =
+        await import("./review-api/agent-cli.js");
+
+      state.exitCode = await runWhiteboardAgentCli({
         ...input,
         env: authoringEnv(),
         argv: [name, ...args],

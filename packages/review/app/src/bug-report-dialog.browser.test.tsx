@@ -296,7 +296,7 @@ describe("BugReportControl", () => {
 function tutorialBridge(): ReviewCanvasTutorialBridge {
   return {
     content: {
-      reviewUuid: "tutorial-review",
+      sessionId: "tutorial-review",
       progress: { version: 1, checked: [], dismissed: false },
       keymap: "none",
     },

@@ -8,9 +8,9 @@ import { Hono } from "hono";
 import { expect, it, vi } from "vitest";
 
 import { createShareFixture } from "../../test/fixtures/share/create.js";
-import { ReviewInputError } from "../review-api/document.js";
+import { SessionInputError } from "../review-api/document.js";
 import { mountSharingHost } from "./host.js";
-import { SharedReviewStore } from "./import.js";
+import { SharedSessionStore } from "./import.js";
 
 it.each([
   { verified: true, protocol: "dev-fast-review" },
@@ -46,14 +46,14 @@ it.each([
       api.onError((error, context) =>
         context.json(
           { error: error.message },
-          error instanceof ReviewInputError ? error.status : 500,
+          error instanceof SessionInputError ? error.status : 500,
         ),
       );
       mountSharingHost(
         api,
         fixture.store,
         fixture.data,
-        new SharedReviewStore(path.join(root, "shared")),
+        new SharedSessionStore(path.join(root, "shared")),
         {
           readRepository: async () => fixture.repository,
           verifyRepository: () => check.promise,
@@ -101,7 +101,7 @@ it.each([
       const response = api.request("/sharing/publish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reviewId: fixture.reviewId }),
+        body: JSON.stringify({ sessionId: fixture.sessionId }),
       });
 
       await registered.promise;
@@ -112,7 +112,7 @@ it.each([
       if (verified) check.resolve(fixture.repository);
       else
         check.reject(
-          new ReviewInputError(
+          new SessionInputError(
             "Push the reviewed commits to GitHub before sharing.",
             409,
           ),
@@ -162,14 +162,14 @@ it("signs the user out when the share service rejects the stored token", async (
     api.onError((error, context) =>
       context.json(
         { error: error.message },
-        error instanceof ReviewInputError ? error.status : 500,
+        error instanceof SessionInputError ? error.status : 500,
       ),
     );
     mountSharingHost(
       api,
       fixture.store,
       fixture.data,
-      new SharedReviewStore(path.join(root, "shared")),
+      new SharedSessionStore(path.join(root, "shared")),
       {
         readRepository: async () => fixture.repository,
         verifyRepository: async () => fixture.repository,
@@ -180,7 +180,7 @@ it("signs the user out when the share service rejects the stored token", async (
     const response = await api.request("/sharing/publish", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reviewId: fixture.reviewId }),
+      body: JSON.stringify({ sessionId: fixture.sessionId }),
     });
 
     expect(await response.json()).toEqual({

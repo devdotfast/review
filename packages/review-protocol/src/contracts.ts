@@ -5,7 +5,7 @@ import {
 } from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
-import type { ReviewApiSummary } from "./review-api-client.js";
+import type { SessionSummary } from "./review-api-client.js";
 
 // Version 3: the desktop serves prebuilt revisions instead of building them.
 // (Version 2 added the bundled-CLI discovery fields.)
@@ -88,7 +88,7 @@ const loopbackOriginSchema = urlSchema("origin", (url) =>
 
 export const ReviewRuntimeConfigSchema = z.strictObject({
   serverUrl: loopbackOriginSchema,
-  reviewId: requiredString,
+  sessionId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
@@ -194,7 +194,7 @@ export interface ReviewDiffLens {
   wholeFiles?: boolean;
   id: string;
   title: string;
-  reviewId: string;
+  sessionId: string;
   version: number;
   ranges: readonly {
     side: "base" | "head";
@@ -424,7 +424,7 @@ export interface TutorialProgressV1 {
 }
 
 export interface ReviewCanvasTutorialContent {
-  reviewUuid: string;
+  sessionId: string;
   progress: TutorialProgressV1;
   keymap: ReviewKeymapChoice;
 }
@@ -533,15 +533,15 @@ export interface ReviewLanguageEnvironment {
 
 /** Authored version selection is independent of whether source is live or fixed. */
 export type ReviewSourceSelection =
-  | { readonly reviewId: string; readonly kind: "current" }
+  | { readonly sessionId: string; readonly kind: "current" }
   | {
-      readonly reviewId: string;
+      readonly sessionId: string;
       readonly kind: "version";
       readonly version: number;
     };
 
 export interface ReviewSourceView {
-  readonly reviewId: string;
+  readonly sessionId: string;
   readonly version: number;
   /** Cache invalidation for live files; does not select historical source. */
   readonly generation?: string;
@@ -552,12 +552,12 @@ export interface ReviewSourceView {
 }
 
 export function resolveReviewSourceView(snapshot: {
-  reviewId: string;
+  sessionId: string;
   version: number;
   pins?: { worktreeRevision?: string };
 }): ReviewSourceView {
   return Object.freeze({
-    reviewId: snapshot.reviewId,
+    sessionId: snapshot.sessionId,
     version: snapshot.version,
     generation: snapshot.pins?.worktreeRevision,
   });
@@ -582,7 +582,7 @@ export function reviewSourceAnchor(
   pins: ReviewSourcePins | undefined,
 ): ReviewSourceView {
   return pins
-    ? Object.freeze({ reviewId: view.reviewId, version: view.version, pins })
+    ? Object.freeze({ sessionId: view.sessionId, version: view.version, pins })
     : view;
 }
 
@@ -626,7 +626,7 @@ export type ReviewCanvasContent =
       setTutorial?(enabled: boolean): void;
       structuralDiffEnabled?: boolean;
       softwareMapEnabled?: boolean;
-      reviewId: string;
+      sessionId: string;
       version?: number;
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
@@ -650,7 +650,7 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      reviews: readonly ReviewApiSummary[];
+      reviews: readonly SessionSummary[];
       openReview(uuid: string): void;
       // Deletes the review and closes its canvas. Absent when the host does
       // not support deletion.
@@ -844,7 +844,7 @@ export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 /** Managed tutorials use the native JSON canvas and stay out of Home. */
 export const ReviewTutorialOpenResponseSchema = z.strictObject({
   kind: z.literal("api"),
-  reviewUuid: z.uuid({ error: "must be a UUID" }),
+  sessionId: z.uuid({ error: "must be a UUID" }),
   title: stringAllowEmpty,
 });
 
@@ -856,7 +856,7 @@ export const ReviewStackLayerSchema = z.strictObject({
   branch: requiredString,
   pullRequestNumber: positiveInteger,
   pullRequestUrl: absoluteUrlSchema.nullable(),
-  reviewUuid: z.uuid({ error: "must be a UUID" }).nullable(),
+  sessionId: z.uuid({ error: "must be a UUID" }).nullable(),
   reviewTitle: stringAllowEmpty.nullable(),
   relation: z.enum(["earlier", "current", "later"]),
 });
@@ -1209,12 +1209,12 @@ const revealArgsSchema = z
 export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
 
 /** The one scratchpad's fixed review id. */
-export const SCRATCHPAD_REVIEW_ID = "scratchpad";
+export const SCRATCHPAD_SESSION_ID = "scratchpad";
 
 const apiReviewIdSchema = z.union([
   z.uuid(),
   z.string().regex(/^shared-[a-f0-9]{64}$/),
-  z.literal(SCRATCHPAD_REVIEW_ID),
+  z.literal(SCRATCHPAD_SESSION_ID),
 ]);
 
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
@@ -1258,14 +1258,14 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openReview"),
     args: z.strictObject({
-      reviewUuid: apiReviewIdSchema,
+      sessionId: apiReviewIdSchema,
       active: z.boolean(),
     }),
   }),
   z.strictObject({
     name: z.literal("openApiReview"),
     args: z.strictObject({
-      reviewId: apiReviewIdSchema,
+      sessionId: apiReviewIdSchema,
       title: requiredString,
     }),
   }),
@@ -1313,7 +1313,7 @@ export const ReviewSelectedDiffSchema = z.strictObject({
 });
 
 export const ReviewApiSelectionSourceSchema = z.strictObject({
-  reviewId: requiredString,
+  sessionId: requiredString,
   version: z.number().int().nonnegative(),
   commit: requiredString.optional(),
   pins: z
@@ -1328,7 +1328,7 @@ export const ReviewApiSelectionSourceSchema = z.strictObject({
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("editorSelectionChanged"),
-    reviewId: requiredString,
+    sessionId: requiredString,
     apiSource: ReviewApiSelectionSourceSchema.optional(),
     anchor: z.object({ x: z.number(), y: z.number() }).optional(),
     path: requiredString,

@@ -18,7 +18,7 @@ it("retains the document, images, maps and complete conversations without copyin
     const bundle = await exportShare(fixture);
     const parsed = validateShareBundle(bundle);
     expect(parsed.snapshot.pins).toEqual(
-      fixture.store.read(fixture.reviewId).pins,
+      fixture.store.read(fixture.sessionId).pins,
     );
     expect(bundle.manifest.repository).toEqual(fixture.repository);
 
@@ -71,7 +71,7 @@ it("checks every quote in a reused trace and rejects duplicate event IDs", async
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId: fixture.reviewId,
+        sessionId: fixture.sessionId,
         edit: {
           type: "insert",
           content: {

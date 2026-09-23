@@ -27,7 +27,7 @@ function ReviewCanvas({
     return (
       <div data-review-api="" className="review-api-canvas">
         <ApiCanvas
-          key={content.reviewId}
+          key={content.sessionId}
           content={content}
           findHost={findHost}
         />
@@ -93,15 +93,15 @@ function Home({
   return (
     <ReviewHome
       reviews={content.reviews}
-      onOpen={(review) => content.openReview(review.reviewId)}
+      onOpen={(review) => content.openReview(review.sessionId)}
       onDelete={
-        deleteReview ? (review) => deleteReview(review.reviewId) : undefined
+        deleteReview ? (review) => deleteReview(review.sessionId) : undefined
       }
       onDismiss={
-        dismissReview ? (review) => dismissReview(review.reviewId) : undefined
+        dismissReview ? (review) => dismissReview(review.sessionId) : undefined
       }
       onRestore={
-        restoreReview ? (review) => restoreReview(review.reviewId) : undefined
+        restoreReview ? (review) => restoreReview(review.sessionId) : undefined
       }
       setup={content.setup}
       install={content.install}

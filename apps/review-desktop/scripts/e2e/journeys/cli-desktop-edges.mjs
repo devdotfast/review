@@ -121,7 +121,7 @@ export async function run(ctx) {
   const probe = async (contents) => {
     await writeFile(pointer, contents);
 
-    return ctx.cliRaw(["info", "--review", review.reviewId]);
+    return ctx.cliRaw(["info", "--review", review.sessionId]);
   };
 
   const output = (result) => `${result.stdout}${result.stderr}`;
@@ -214,7 +214,7 @@ export async function run(ctx) {
     assert.equal(result.code, 0, `review info: ${output(result)}`);
     assert.match(
       result.stdout,
-      new RegExp(review.reviewId),
+      new RegExp(review.sessionId),
       `review info named no review: ${output(result)}`,
     );
     ctx.check("dead pids in the pointer do not stop the CLI reaching Desktop");
@@ -240,7 +240,7 @@ export async function run(ctx) {
       [],
       "app launch started a Desktop from /Applications although one was attached",
     );
-    await pickReview(ctx, review.reviewId);
+    await pickReview(ctx, review.sessionId);
     await review.canvas
       .getByRole("heading", { name: TITLE, exact: true })
       .waitFor();
@@ -263,7 +263,7 @@ export async function run(ctx) {
   const stray = async () => [...(await installedDesktopPids(probeHome))];
 
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", review.reviewId],
+    ["app", "pick", "--review", review.sessionId],
     ctx.repo,
     {
       timeout: 25000,

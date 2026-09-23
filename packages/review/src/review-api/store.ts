@@ -5,8 +5,8 @@ import { isDeepStrictEqual } from "node:util";
 
 import { resolveRepoContextSync } from "@dev.fast/local-vcs";
 import {
-  type ReviewApiSummary,
-  SCRATCHPAD_REVIEW_ID,
+  SCRATCHPAD_SESSION_ID,
+  type SessionSummary,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
@@ -21,7 +21,7 @@ import {
   emptyCoverage,
   updateCoverage,
 } from "../viewed-coverage.js";
-import { type LeaseScope, ReviewActivity } from "./activity.js";
+import { type LeaseScope, SessionActivity } from "./activity.js";
 import {
   type Lens,
   applyLensEdit,
@@ -35,8 +35,8 @@ import {
   type Element,
   type FileLineRange,
   type Pins,
-  ReviewInputError,
-  type ReviewTarget,
+  SessionInputError,
+  type SessionTarget,
   type WrittenComponent,
   anchorPins,
   applyEdit,
@@ -49,16 +49,17 @@ import {
   isUnit,
   pinsSchema,
   resourceReferences,
-  reviewTargetSchema,
+  sessionTargetSchema,
   sourceReferences,
   summarizeEdit,
 } from "./document.js";
 import { pullRequestKey, pullRequestUrl, setPullRequest } from "./origin.js";
+import { migrateSessionStorage } from "./session-storage-migration.js";
 
-const reviewId = z.string().min(1);
+const sessionId = z.string().min(1);
 
 /** There is one scratchpad. Its id is fixed so a skill can name it. */
-export const SCRATCHPAD_ID = SCRATCHPAD_REVIEW_ID;
+export const SCRATCHPAD_ID = SCRATCHPAD_SESSION_ID;
 
 const DIAGRAM_TYPES = new Set([
   "sequence",
@@ -77,10 +78,10 @@ export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   leaseId: z.uuid().optional(),
   operation: z.discriminatedUnion("type", [
-    z.strictObject({ type: z.literal("delete"), reviewId }),
+    z.strictObject({ type: z.literal("delete"), sessionId }),
     z.strictObject({
       type: z.literal("attention"),
-      reviewId,
+      sessionId,
       action: z.enum(["view", "dismiss", "restore"]),
     }),
     z.strictObject({
@@ -88,7 +89,7 @@ export const commandSchema = z.strictObject({
       /** Required unless pullRequestUrl alone names the source; then the PR title. */
       title: z.string().trim().min(1).optional(),
       pins: pinsSchema.optional(),
-      target: reviewTargetSchema.optional(),
+      target: sessionTargetSchema.optional(),
       pullRequestUrl: pullRequestUrl.optional(),
       /** With pullRequestUrl and no target: the checkout to fetch the PR into. */
       repositoryId: z
@@ -110,25 +111,29 @@ export const commandSchema = z.strictObject({
     }),
     z.strictObject({
       type: z.literal("set_target"),
-      reviewId,
-      target: reviewTargetSchema,
+      sessionId,
+      target: sessionTargetSchema,
     }),
-    z.strictObject({ type: z.literal("edit"), reviewId, edit: editSchema }),
-    z.strictObject({ type: z.literal("lens"), reviewId, edit: lensEditSchema }),
+    z.strictObject({ type: z.literal("edit"), sessionId, edit: editSchema }),
+    z.strictObject({
+      type: z.literal("lens"),
+      sessionId,
+      edit: lensEditSchema,
+    }),
     z.strictObject({
       type: z.literal("rename"),
-      reviewId,
+      sessionId,
       title: z.string().trim().min(1),
     }),
     z.strictObject({
       type: z.literal("repin"),
-      reviewId,
+      sessionId,
       pins: pinsSchema,
       pullRequestUrl: pullRequestUrl.nullable().optional(),
     }),
     z.strictObject({
       type: z.literal("restore"),
-      reviewId,
+      sessionId,
       version: z.number().int().nonnegative(),
     }),
   ]),
@@ -155,7 +160,7 @@ export interface SnapshotOrigin {
 
 export interface Snapshot {
   shared?: { login?: string; sharedAt?: number; cloneUrl?: string };
-  reviewId: string;
+  sessionId: string;
   version: number;
   title: string;
   /** Absent for a review. The scratchpad has no pins, target or lifecycle. */
@@ -163,7 +168,7 @@ export interface Snapshot {
   /** The default pins for references that name none. A document whose
    * references all carry their own pins has neither pins nor target. */
   pins?: Pins;
-  target?: ReviewTarget;
+  target?: SessionTarget;
   staleSources?: string[];
   sourceUnavailable?: boolean;
   document: Block[];
@@ -180,7 +185,7 @@ export interface Snapshot {
 /** A whole version written by legacy import: ids are assigned here, sources
  * are checked tolerantly, and attention is applied only for a new review. */
 export interface ImportedVersionInput {
-  reviewId: string;
+  sessionId: string;
   title: string;
   pins: Pins;
   document: Block[];
@@ -194,15 +199,15 @@ export interface Result {
   created?: boolean;
   /** Why an existing review came back, and what to do next, in words. */
   note?: string;
-  reviewId: string;
+  sessionId: string;
   version: number;
   /** The existing review's stored target; the requested one is not applied. */
-  target?: ReviewTarget;
+  target?: SessionTarget;
   /** The requested head differs from the existing review's. */
   headMoved?: boolean;
   /** A live authoring lease that is not the caller's. */
   ownedBy?: "another session";
-  /** Older reviews that also name the PR, newest first. */
+  /** Older sessions that also name the PR, newest first. */
   otherReviewIds?: string[];
   /** The component an edit landed on, its type, and — for an insert or
    * replace — its first-level children with their fresh IDs. */
@@ -216,12 +221,12 @@ export interface Result {
 
 /** A PR's current comparison: GitHub's head and diff base, fetched locally. */
 export interface ResolvedPullRequest {
-  target: ReviewTarget;
+  target: SessionTarget;
   pins: Pins;
   title: string;
 }
 
-export interface ReviewProviders {
+export interface SessionProviders {
   headBranch?(pins: Pins, headRef?: string): Promise<string | undefined>;
   projectSource?(snapshot: Snapshot, pins: Pins): Promise<Snapshot>;
   /** Fetch a PR into a registered checkout: the named one, else the first
@@ -231,9 +236,9 @@ export interface ReviewProviders {
     repository: { id?: string; preferred?: string },
   ): Promise<ResolvedPullRequest>;
   resolveTarget?(
-    target: ReviewTarget,
-  ): Promise<{ target: ReviewTarget; pins: Pins }>;
-  /** Rejects with a 404 ReviewInputError when the snapshot's checkout is gone.
+    target: SessionTarget,
+  ): Promise<{ target: SessionTarget; pins: Pins }>;
+  /** Rejects with a 404 SessionInputError when the snapshot's checkout is gone.
    * Resolves undefined for a document without default pins. */
   sourcePins?(snapshot: Snapshot): Promise<Pins | undefined>;
   /** Ids of references whose own pins no longer name a usable checkout. */
@@ -257,8 +262,8 @@ export interface ReviewProviders {
  * The queue includes async validation; SQLite transactions contain only writes.
  * This prototype uses a new, explicitly supplied database, never an existing profile.
  */
-export class ReviewStore {
-  readonly activity: ReviewActivity;
+export class SessionStore {
+  readonly activity: SessionActivity;
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -331,16 +336,16 @@ export class ReviewStore {
 
     const run = this.pending.then(async () => {
       for (const summary of this.list()) {
-        const snapshot = this.read(summary.reviewId, summary.version);
+        const snapshot = this.read(summary.sessionId, summary.version);
 
         try {
-          const live = this.liveSources.get(summary.reviewId);
+          const live = this.liveSources.get(summary.sessionId);
           const last = live?.version === snapshot.version ? live : snapshot;
           const previous = last.pins;
           const projected = await this.projectLiveSource(snapshot, last);
 
           if (projected === last) continue;
-          this.liveSources.set(snapshot.reviewId, projected);
+          this.liveSources.set(snapshot.sessionId, projected);
 
           if (
             JSON.stringify(previous) !== JSON.stringify(projected.pins) ||
@@ -349,20 +354,20 @@ export class ReviewStore {
             last.sourceUnavailable
           )
             this.notify({
-              reviewId: snapshot.reviewId,
+              sessionId: snapshot.sessionId,
               version: snapshot.version,
             });
         } catch (error) {
-          if (error instanceof ReviewInputError && error.status === 404) {
-            const last = this.read(snapshot.reviewId);
+          if (error instanceof SessionInputError && error.status === 404) {
+            const last = this.read(snapshot.sessionId);
 
             if (!last.sourceUnavailable) {
-              this.liveSources.set(snapshot.reviewId, {
+              this.liveSources.set(snapshot.sessionId, {
                 ...last,
                 sourceUnavailable: true,
               });
               this.notify({
-                reviewId: snapshot.reviewId,
+                sessionId: snapshot.sessionId,
                 version: snapshot.version,
               });
             }
@@ -409,25 +414,34 @@ export class ReviewStore {
   }
   constructor(
     databasePath: string,
-    private readonly providers: ReviewProviders,
+    private readonly providers: SessionProviders,
   ) {
     // WAL plus a busy timeout: another host on the same home waits instead of failing.
     this.db = new DatabaseSync(databasePath, { timeout: 5000 });
+    this.db.exec("PRAGMA foreign_keys=ON");
+
+    try {
+      migrateSessionStorage(this.db);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
+
     this.db.exec(`PRAGMA journal_mode=WAL;
       PRAGMA foreign_keys=ON;
-      CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY, version INTEGER NOT NULL, next_id INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS versions(review_id TEXT REFERENCES reviews(id), version INTEGER, snapshot TEXT NOT NULL,
-        PRIMARY KEY(review_id,version));
+      CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, version INTEGER NOT NULL, next_id INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS versions(session_id TEXT REFERENCES sessions(id), version INTEGER, snapshot TEXT NOT NULL,
+        PRIMARY KEY(session_id,version));
       CREATE TABLE IF NOT EXISTS receipts(command_id TEXT PRIMARY KEY, request TEXT NOT NULL, response TEXT NOT NULL);`);
     this.db.exec(
-      `CREATE TABLE IF NOT EXISTS review_attention(review_id TEXT PRIMARY KEY REFERENCES reviews(id), viewed_at TEXT, dismissed_at TEXT);`,
+      `CREATE TABLE IF NOT EXISTS session_attention(session_id TEXT PRIMARY KEY REFERENCES sessions(id), viewed_at TEXT, dismissed_at TEXT);`,
     );
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
     this.db.exec(
-      "CREATE TABLE IF NOT EXISTS review_coverage(review_id TEXT REFERENCES reviews(id), file TEXT, fingerprint TEXT NOT NULL, coverage TEXT NOT NULL, PRIMARY KEY(review_id,file));",
+      "CREATE TABLE IF NOT EXISTS session_coverage(session_id TEXT REFERENCES sessions(id), file TEXT, fingerprint TEXT NOT NULL, coverage TEXT NOT NULL, PRIMARY KEY(session_id,file));",
     );
     this.db.exec("DROP TABLE IF EXISTS review_viewed");
     this.db.exec(
@@ -437,11 +451,11 @@ export class ReviewStore {
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
     this.db.exec(
-      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
+      `CREATE TABLE IF NOT EXISTS legacy_imports(session_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
     // Batch authoring's scratch drafts were removed; drop their leftover table.
     this.db.exec("DROP TABLE IF EXISTS authoring_drafts");
-    this.activity = new ReviewActivity(this.db, (id) => this.assertExists(id));
+    this.activity = new SessionActivity(this.db, (id) => this.assertExists(id));
 
     // Homes written before map resumption lack the column.
     if (
@@ -468,7 +482,7 @@ export class ReviewStore {
   private currentVersions() {
     return new Map(
       this.db
-        .prepare("SELECT id,version FROM reviews")
+        .prepare("SELECT id,version FROM sessions")
         .all()
         .map((row) => [String(row.id), Number(row.version)]),
     );
@@ -483,14 +497,14 @@ export class ReviewStore {
     const previous = this.observedVersions;
     this.observedVersions = current;
 
-    for (const [reviewId, savedVersion] of current)
-      if (previous.get(reviewId) !== savedVersion)
-        this.notify({ reviewId, version: savedVersion });
+    for (const [sessionId, savedVersion] of current)
+      if (previous.get(sessionId) !== savedVersion)
+        this.notify({ sessionId, version: savedVersion });
 
-    for (const [reviewId, savedVersion] of previous)
-      if (!current.has(reviewId)) {
-        this.activity.deleted(reviewId);
-        this.notify({ reviewId, version: savedVersion, deleted: true });
+    for (const [sessionId, savedVersion] of previous)
+      if (!current.has(sessionId)) {
+        this.activity.deleted(sessionId);
+        this.notify({ sessionId, version: savedVersion, deleted: true });
       }
 
     this.activity.refresh();
@@ -506,16 +520,16 @@ export class ReviewStore {
   }
   /** Reader progress never creates a document version or authoring event. */
   viewedCoverage(
-    reviewId: string,
+    sessionId: string,
   ): Map<string, { fingerprint: string; coverage: Coverage }> {
-    this.assertExists(reviewId);
+    this.assertExists(sessionId);
 
     return new Map(
       this.db
         .prepare(
-          "SELECT file,fingerprint,coverage FROM review_coverage WHERE review_id=?",
+          "SELECT file,fingerprint,coverage FROM session_coverage WHERE session_id=?",
         )
-        .all(reviewId)
+        .all(sessionId)
         .map((row) => [
           String(row.file),
           {
@@ -526,15 +540,15 @@ export class ReviewStore {
     );
   }
   updateViewedCoverage(
-    reviewId: string,
+    sessionId: string,
     files: { path: string; fingerprint: string; scope: Coverage }[],
     viewed: boolean,
   ): void {
-    this.assertExists(reviewId);
+    this.assertExists(sessionId);
     this.db.exec("BEGIN IMMEDIATE");
 
     try {
-      const current = this.viewedCoverage(reviewId);
+      const current = this.viewedCoverage(sessionId);
 
       for (const file of files) {
         const previous = current.get(file.path);
@@ -549,9 +563,14 @@ export class ReviewStore {
 
         this.db
           .prepare(
-            "INSERT OR REPLACE INTO review_coverage(review_id,file,fingerprint,coverage) VALUES(?,?,?,?)",
+            "INSERT OR REPLACE INTO session_coverage(session_id,file,fingerprint,coverage) VALUES(?,?,?,?)",
           )
-          .run(reviewId, file.path, file.fingerprint, JSON.stringify(coverage));
+          .run(
+            sessionId,
+            file.path,
+            file.fingerprint,
+            JSON.stringify(coverage),
+          );
       }
 
       this.db.exec("COMMIT");
@@ -561,12 +580,12 @@ export class ReviewStore {
     }
   }
   /** The last legacy revisions imported for a review, kept after deletion. */
-  legacyImport(reviewId: string): LegacyImportProgress | null {
+  legacyImport(sessionId: string): LegacyImportProgress | null {
     const row = this.db
       .prepare(
-        "SELECT revision,map_revision,imported_at FROM legacy_imports WHERE review_id=?",
+        "SELECT revision,map_revision,imported_at FROM legacy_imports WHERE session_id=?",
       )
-      .get(reviewId);
+      .get(sessionId);
 
     return row
       ? {
@@ -578,15 +597,15 @@ export class ReviewStore {
       : null;
   }
   recordLegacyImport(
-    reviewId: string,
+    sessionId: string,
     progress: Omit<LegacyImportProgress, "importedAt">,
   ) {
     this.db
       .prepare(
-        "INSERT INTO legacy_imports(review_id,revision,map_revision,imported_at) VALUES(?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,map_revision=excluded.map_revision,imported_at=excluded.imported_at",
+        "INSERT INTO legacy_imports(session_id,revision,map_revision,imported_at) VALUES(?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET revision=excluded.revision,map_revision=excluded.map_revision,imported_at=excluded.imported_at",
       )
       .run(
-        reviewId,
+        sessionId,
         progress.revision,
         progress.mapRevision,
         new Date().toISOString(),
@@ -594,10 +613,10 @@ export class ReviewStore {
   }
   private readonly repositoryGroups = new Map<
     string,
-    ReviewApiSummary["repositoryGroup"]
+    SessionSummary["repositoryGroup"]
   >();
 
-  private repositoryGroup(root: string): ReviewApiSummary["repositoryGroup"] {
+  private repositoryGroup(root: string): SessionSummary["repositoryGroup"] {
     if (this.repositoryGroups.has(root)) return this.repositoryGroups.get(root);
 
     const context = resolveRepoContextSync(root);
@@ -650,7 +669,7 @@ export class ReviewStore {
       .prepare("SELECT path FROM repositories WHERE id=?")
       .get(id);
 
-    if (!row) throw new ReviewInputError("Repository is not registered.", 404);
+    if (!row) throw new SessionInputError("Repository is not registered.", 404);
 
     return String(row.path);
   }
@@ -674,7 +693,7 @@ export class ReviewStore {
       saved.mimeType !== mimeType ||
       !Buffer.from(saved.data).equals(data)
     )
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Resource ID was already used for different content.",
         409,
       );
@@ -684,7 +703,7 @@ export class ReviewStore {
   resource(id: string) {
     const row = this.db.prepare("SELECT * FROM resources WHERE id=?").get(id);
 
-    if (!row) throw new ReviewInputError("Resource not found.", 404);
+    if (!row) throw new SessionInputError("Resource not found.", 404);
 
     return {
       id,
@@ -707,24 +726,24 @@ export class ReviewStore {
   }
   /** The 404 check alone, without loading a snapshot. */
   assertExists(id: string) {
-    if (!this.db.prepare("SELECT 1 FROM reviews WHERE id=?").get(id))
-      throw new ReviewInputError("Review not found.", 404);
+    if (!this.db.prepare("SELECT 1 FROM sessions WHERE id=?").get(id))
+      throw new SessionInputError("Review not found.", 404);
   }
   read(id: string, version?: number): Snapshot {
     const row =
       version === undefined
         ? this.db
             .prepare(
-              "SELECT snapshot FROM versions JOIN reviews ON reviews.id=review_id AND reviews.version=versions.version WHERE reviews.id=?",
+              "SELECT snapshot FROM versions JOIN sessions ON sessions.id=session_id AND sessions.version=versions.version WHERE sessions.id=?",
             )
             .get(id)
         : this.db
             .prepare(
-              "SELECT snapshot FROM versions WHERE review_id=? AND version=?",
+              "SELECT snapshot FROM versions WHERE session_id=? AND version=?",
             )
             .get(id, version);
 
-    if (!row) throw new ReviewInputError("Review or version not found.", 404);
+    if (!row) throw new SessionInputError("Review or version not found.", 404);
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
     const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
@@ -759,7 +778,7 @@ export class ReviewStore {
   }
   setDiffStats(
     pins: Pins,
-    stats: NonNullable<ReviewApiSummary["diffStats"]>,
+    stats: NonNullable<SessionSummary["diffStats"]>,
     mode: "structural" | "textual" = "structural",
   ) {
     if (this.closing) return;
@@ -782,38 +801,38 @@ export class ReviewStore {
   tutorialIds(): string[] {
     return this.db
       .prepare(
-        `SELECT reviews.id FROM reviews JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version WHERE json_extract(versions.snapshot,'$.origin.tutorial') = 1`,
+        `SELECT sessions.id FROM sessions JOIN versions ON versions.session_id=sessions.id AND versions.version=sessions.version WHERE json_extract(versions.snapshot,'$.origin.tutorial') = 1`,
       )
       .all()
       .map((row) => String(row.id));
   }
 
-  list(mode: "structural" | "textual" = "structural"): ReviewApiSummary[] {
+  list(mode: "structural" | "textual" = "structural"): SessionSummary[] {
     return this.summaries(mode);
   }
   /** One review's catalog entry, as review_list shows it. */
-  summary(id: string): ReviewApiSummary | undefined {
+  summary(id: string): SessionSummary | undefined {
     return this.summaries("structural", id)[0];
   }
   private summaries(
     mode: "structural" | "textual",
     id?: string,
-  ): ReviewApiSummary[] {
+  ): SessionSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
 
     const reviews = this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
-          (SELECT json_extract(first.snapshot,'$.createdAt') FROM versions AS first WHERE first.review_id=reviews.id ORDER BY first.version LIMIT 1) AS first_created_at,
-          review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name, repositories.path AS repository_path
-        FROM reviews
-        JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
-        LEFT JOIN review_attention ON review_attention.review_id=reviews.id
+          (SELECT json_extract(first.snapshot,'$.createdAt') FROM versions AS first WHERE first.session_id=sessions.id ORDER BY first.version LIMIT 1) AS first_created_at,
+          session_attention.viewed_at, session_attention.dismissed_at, repositories.name AS repository_name, repositories.path AS repository_path
+        FROM sessions
+        JOIN versions ON versions.session_id=sessions.id AND versions.version=sessions.version
+        LEFT JOIN session_attention ON session_attention.session_id=sessions.id
         LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
         WHERE COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
-        ${id === undefined ? "" : "AND reviews.id=?"}
-        ORDER BY reviews.rowid`,
+        ${id === undefined ? "" : "AND sessions.id=?"}
+        ORDER BY sessions.rowid`,
       )
       .all(...(id === undefined ? [] : [id]))
       .map((row) => {
@@ -831,7 +850,7 @@ export class ReviewStore {
             head: summary.pins.head,
           };
 
-        const live = this.liveSources.get(summary.reviewId);
+        const live = this.liveSources.get(summary.sessionId);
 
         if (
           live?.version === summary.version &&
@@ -839,7 +858,7 @@ export class ReviewStore {
         )
           summary.pins = live.pins;
 
-        const listed: ReviewApiSummary = {
+        const listed: SessionSummary = {
           ...summary,
           firstCreatedAt: row.first_created_at
             ? String(row.first_created_at)
@@ -867,7 +886,7 @@ export class ReviewStore {
   }
 
   /** Local and imported summaries use the same persisted, mode-specific counts. */
-  withDiffStats<T extends ReviewApiSummary>(
+  withDiffStats<T extends SessionSummary>(
     reviews: T[],
     mode: "structural" | "textual" = "structural",
   ): T[] {
@@ -879,7 +898,7 @@ export class ReviewStore {
           String(row.identity),
           // SAFETY: comparison_stats is written only from the validated diff-stats contract.
           JSON.parse(String(row.stats)) as NonNullable<
-            ReviewApiSummary["diffStats"]
+            SessionSummary["diffStats"]
           >,
         ]),
     );
@@ -893,7 +912,7 @@ export class ReviewStore {
   }
 
   /** What the pad holds, for its Home card: blocks, and the diagrams among them. */
-  private scratchpadContents(): NonNullable<ReviewApiSummary["contents"]> {
+  private scratchpadContents(): NonNullable<SessionSummary["contents"]> {
     const blocks = elements(this.read(SCRATCHPAD_ID).document).filter(
       (element) => !isUnit(element),
     );
@@ -924,7 +943,7 @@ export class ReviewStore {
   history(id: string) {
     return this.db
       .prepare(
-        "SELECT version,json_extract(snapshot,'$.title') AS title,json_extract(snapshot,'$.createdAt') AS created_at FROM versions WHERE review_id=? ORDER BY version",
+        "SELECT version,json_extract(snapshot,'$.title') AS title,json_extract(snapshot,'$.createdAt') AS created_at FROM versions WHERE session_id=? ORDER BY version",
       )
       .all(id)
       .map((row) => ({
@@ -949,7 +968,7 @@ export class ReviewStore {
     const command = commandSchema.parse(input);
 
     if (initial && command.operation.type !== "create")
-      throw new ReviewInputError("Initial content requires a create command.");
+      throw new SessionInputError("Initial content requires a create command.");
     const request = JSON.stringify(initial ? { command, initial } : command);
 
     // Network and fetch time stay out of the write queue. A replayed command
@@ -965,7 +984,10 @@ export class ReviewStore {
 
       if (receipt) {
         if (receipt.request === "null")
-          throw new ReviewInputError("This command's review was deleted.", 404);
+          throw new SessionInputError(
+            "This command's review was deleted.",
+            404,
+          );
 
         if (
           !isDeepStrictEqual(
@@ -973,7 +995,7 @@ export class ReviewStore {
             JSON.parse(request),
           )
         )
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "Command ID was already used for different input.",
             409,
           );
@@ -985,7 +1007,7 @@ export class ReviewStore {
       const op = command.operation;
 
       if (op.type !== "create" && op.type !== "attention") {
-        this.activity.assertWrite(op.reviewId, command.leaseId, scopeOf(op));
+        this.activity.assertWrite(op.sessionId, command.leaseId, scopeOf(op));
       }
 
       // The scratchpad is edited and restored like a review, and nothing else.
@@ -994,39 +1016,39 @@ export class ReviewStore {
         op.type !== "edit" &&
         op.type !== "lens" &&
         op.type !== "restore" &&
-        this.read(op.reviewId).kind === "scratchpad"
+        this.read(op.sessionId).kind === "scratchpad"
       )
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "The scratchpad has no lifecycle, title or pins of its own.",
           409,
         );
 
       if (op.type === "create" && op.kind === "scratchpad") {
         if (op.pins || op.target)
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "A scratchpad has no target or pins of its own.",
           );
 
         if (this.has(SCRATCHPAD_ID))
-          throw new ReviewInputError("The scratchpad already exists.", 409);
+          throw new SessionInputError("The scratchpad already exists.", 409);
       } else if (op.type === "create") {
         if (op.pins && op.target)
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "Supply exactly one of target or legacy pins.",
           );
 
         if (!op.pins && !op.target && !op.pullRequestUrl)
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "Supply a target, legacy pins, or a pullRequestUrl.",
           );
 
         if (op.repositoryId && (op.pins || op.target))
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "repositoryId applies only to a create from pullRequestUrl alone; put it in the target instead.",
           );
 
         if (!op.title && (op.pins || op.target))
-          throw new ReviewInputError("Supply a title.");
+          throw new SessionInputError("Supply a title.");
       }
 
       const requestedTarget =
@@ -1041,7 +1063,7 @@ export class ReviewStore {
         : fromPullRequest;
 
       if (requestedTarget && !resolvedTarget)
-        throw new ReviewInputError("Review targets are unavailable.");
+        throw new SessionInputError("Review targets are unavailable.");
 
       if (
         op.type === "create" &&
@@ -1074,8 +1096,8 @@ export class ReviewStore {
 
       if (op.type === "delete") {
         const result: Result = {
-          reviewId: op.reviewId,
-          version: this.read(op.reviewId).version,
+          sessionId: op.sessionId,
+          version: this.read(op.sessionId).version,
           deleted: true,
         };
 
@@ -1086,24 +1108,26 @@ export class ReviewStore {
           () => {
             for (const table of [
               "authoring_sessions",
-              "review_coverage",
-              "review_attention",
+              "session_coverage",
+              "session_attention",
               "versions",
             ])
               this.db
-                .prepare(`DELETE FROM ${table} WHERE review_id=?`)
-                .run(op.reviewId);
-            this.db.prepare("DELETE FROM reviews WHERE id=?").run(op.reviewId);
+                .prepare(`DELETE FROM ${table} WHERE session_id=?`)
+                .run(op.sessionId);
+            this.db
+              .prepare("DELETE FROM sessions WHERE id=?")
+              .run(op.sessionId);
             // Keep command IDs so a delayed retry cannot recreate deleted content.
             // Erase their saved inputs while retaining the retry record.
             this.db
               .prepare(
-                "UPDATE receipts SET request='null',response=? WHERE json_extract(response,'$.reviewId')=?",
+                "UPDATE receipts SET request='null',response=? WHERE json_extract(response,'$.sessionId')=?",
               )
-              .run(JSON.stringify(result), op.reviewId);
+              .run(JSON.stringify(result), op.sessionId);
           },
           () =>
-            this.assertMutation(op.reviewId, result.version, command.leaseId),
+            this.assertMutation(op.sessionId, result.version, command.leaseId),
         );
 
         return result;
@@ -1111,32 +1135,32 @@ export class ReviewStore {
 
       if (op.type === "attention") {
         const result: Result = {
-          reviewId: op.reviewId,
-          version: this.read(op.reviewId).version,
+          sessionId: op.sessionId,
+          version: this.read(op.sessionId).version,
           attention: true,
         };
 
         this.commitCommand(command.commandId, request, result, () => {
           this.db
             .prepare(
-              "INSERT OR IGNORE INTO review_attention(review_id) VALUES(?)",
+              "INSERT OR IGNORE INTO session_attention(session_id) VALUES(?)",
             )
-            .run(op.reviewId);
+            .run(op.sessionId);
 
           if (op.action === "view")
             this.db
               .prepare(
-                "UPDATE review_attention SET viewed_at=? WHERE review_id=?",
+                "UPDATE session_attention SET viewed_at=? WHERE session_id=?",
               )
-              .run(new Date().toISOString(), op.reviewId);
+              .run(new Date().toISOString(), op.sessionId);
           else
             this.db
               .prepare(
-                "UPDATE review_attention SET dismissed_at=? WHERE review_id=?",
+                "UPDATE session_attention SET dismissed_at=? WHERE session_id=?",
               )
               .run(
                 op.action === "dismiss" ? new Date().toISOString() : null,
-                op.reviewId,
+                op.sessionId,
               );
         });
 
@@ -1145,7 +1169,7 @@ export class ReviewStore {
 
       const id =
         op.type !== "create"
-          ? op.reviewId
+          ? op.sessionId
           : op.kind === "scratchpad"
             ? SCRATCHPAD_ID
             : randomUUID();
@@ -1164,7 +1188,7 @@ export class ReviewStore {
 
       let nextId = previous
         ? Number(
-            this.db.prepare("SELECT next_id FROM reviews WHERE id=?").get(id)!
+            this.db.prepare("SELECT next_id FROM sessions WHERE id=?").get(id)!
               .next_id,
           )
         : 0;
@@ -1239,7 +1263,7 @@ export class ReviewStore {
           break;
         case "lens": {
           if (snapshot.kind === "scratchpad")
-            throw new ReviewInputError(
+            throw new SessionInputError(
               "The scratchpad has no changes of its own to lens.",
               409,
             );
@@ -1335,7 +1359,7 @@ export class ReviewStore {
 
       const result: Result = {
         ...(op.type === "create" && { created: true }),
-        reviewId: id,
+        sessionId: id,
         version: snapshot.version,
         targetId: applied?.targetId ?? lensTarget?.targetId,
         ...(applied && { type: applied.type }),
@@ -1357,12 +1381,12 @@ export class ReviewStore {
         () => {
           this.db
             .prepare(
-              "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
+              "INSERT INTO sessions(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
             )
             .run(id, snapshot.version, nextId);
           this.db
             .prepare(
-              "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+              "INSERT INTO versions(session_id,version,snapshot) VALUES(?,?,?)",
             )
             .run(id, snapshot.version, JSON.stringify(snapshot));
         },
@@ -1406,7 +1430,7 @@ export class ReviewStore {
 
     if (!this.providers.resolvePullRequest)
       return Promise.reject(
-        new ReviewInputError("Pull request targets are unavailable."),
+        new SessionInputError("Pull request targets are unavailable."),
       );
 
     // Keep an existing review's checkout so headMoved compares like with like.
@@ -1424,11 +1448,11 @@ export class ReviewStore {
   private reviewsForPullRequest(url: string): string[] {
     return this.db
       .prepare(
-        `SELECT reviews.id FROM reviews
-        JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
+        `SELECT sessions.id FROM sessions
+        JOIN versions ON versions.session_id=sessions.id AND versions.version=sessions.version
         WHERE lower(json_extract(versions.snapshot,'$.origin.pullRequestUrl'))=?
           AND COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
-        ORDER BY json_extract(versions.snapshot,'$.createdAt') DESC, reviews.rowid DESC`,
+        ORDER BY json_extract(versions.snapshot,'$.createdAt') DESC, sessions.rowid DESC`,
       )
       .all(pullRequestKey(url))
       .map((row) => String(row.id));
@@ -1436,27 +1460,27 @@ export class ReviewStore {
   /** The answer to a create that found its PR's review. Its target stays:
    * moving it would silently point existing links at different code. */
   private existingReview(
-    reviewId: string,
+    sessionId: string,
     others: string[],
     requested: Pins,
     leaseId?: string,
   ): Result {
-    const snapshot = this.read(reviewId);
+    const snapshot = this.read(sessionId);
 
     const headMoved =
       snapshot.pins?.repositoryId !== requested.repositoryId ||
       snapshot.pins?.head !== requested.head;
 
-    const ownedBy = this.activity.heldByAnother(reviewId, leaseId);
+    const ownedBy = this.activity.heldByAnother(sessionId, leaseId);
 
     const note = [
-      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with review_get first), or pass reuseExisting:false to create a separate review.",
+      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with session_get first), or pass reuseExisting:false to create a separate review.",
       headMoved &&
         "The PR head moved since this review's target was set, and the target was NOT changed: call review_set_target to move it, then repair the source references it reports.",
       ownedBy &&
         "Another session is authoring it now; wait for its lease to end before editing.",
       others.length > 0 &&
-        "Older reviews also name this PR; see otherReviewIds.",
+        "Older sessions also name this PR; see otherReviewIds.",
     ]
       .filter(Boolean)
       .join(" ");
@@ -1464,7 +1488,7 @@ export class ReviewStore {
     return {
       created: false,
       note,
-      reviewId,
+      sessionId,
       version: snapshot.version,
       target: snapshot.target,
       headMoved,
@@ -1493,40 +1517,40 @@ export class ReviewStore {
         )
         .run(commandId, request, JSON.stringify(result));
       // An accepted write is proof of life: it renews the author's lease.
-      extended = this.activity.extend(result.reviewId, leaseId, scope);
+      extended = this.activity.extend(result.sessionId, leaseId, scope);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
 
-    if (result.deleted) this.activity.deleted(result.reviewId);
-    else if (extended) this.activity.extended(result.reviewId);
+    if (result.deleted) this.activity.deleted(result.sessionId);
+    else if (extended) this.activity.extended(result.sessionId);
     this.notify(result);
   }
   private assertMutation(
-    reviewId: string,
+    sessionId: string,
     version: number | undefined,
     leaseId?: string,
     scope: LeaseScope = "document",
   ) {
-    this.activity.assertWrite(reviewId, leaseId, scope);
+    this.activity.assertWrite(sessionId, leaseId, scope);
 
     const current = this.db
-      .prepare("SELECT version FROM reviews WHERE id=?")
-      .get(reviewId);
+      .prepare("SELECT version FROM sessions WHERE id=?")
+      .get(sessionId);
 
     if ((current ? Number(current.version) : undefined) !== version)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Review changed during validation. Reread it and retry the edit.",
         409,
       );
   }
 
   private notify(result: Result) {
-    if (result.deleted) this.observedVersions.delete(result.reviewId);
+    if (result.deleted) this.observedVersions.delete(result.sessionId);
     else if (!result.attention)
-      this.observedVersions.set(result.reviewId, result.version);
+      this.observedVersions.set(result.sessionId, result.version);
 
     if (!result.attention)
       for (const listener of this.listeners)
@@ -1543,9 +1567,9 @@ export class ReviewStore {
         // The saved command must remain successful if a viewer disconnects.
       }
   }
-  has(reviewId: string): boolean {
+  has(sessionId: string): boolean {
     return (
-      this.db.prepare("SELECT 1 FROM reviews WHERE id=?").get(reviewId) !==
+      this.db.prepare("SELECT 1 FROM sessions WHERE id=?").get(sessionId) !==
       undefined
     );
   }
@@ -1566,22 +1590,24 @@ export class ReviewStore {
     if (this.closing)
       return Promise.reject(new Error("Review store is closing."));
 
-    const reviewId = inputs[0]?.reviewId ?? options.preserveCurrent?.reviewId;
+    const sessionId =
+      inputs[0]?.sessionId ?? options.preserveCurrent?.sessionId;
 
-    if (!reviewId) return Promise.reject(new Error("Nothing to import."));
+    if (!sessionId) return Promise.reject(new Error("Nothing to import."));
 
     if (
-      inputs.some((input) => input.reviewId !== reviewId) ||
-      (options.preserveCurrent && options.preserveCurrent.reviewId !== reviewId)
+      inputs.some((input) => input.sessionId !== sessionId) ||
+      (options.preserveCurrent &&
+        options.preserveCurrent.sessionId !== sessionId)
     )
       return Promise.reject(new Error("Import versions of one review only."));
 
     const run = this.pending.then(async () => {
-      this.activity.assertWrite(reviewId);
+      this.activity.assertWrite(sessionId);
 
       const existing = this.db
-        .prepare("SELECT version,next_id FROM reviews WHERE id=?")
-        .get(reviewId);
+        .prepare("SELECT version,next_id FROM sessions WHERE id=?")
+        .get(sessionId);
 
       let nextId = existing ? Number(existing.next_id) : 0;
       let version = existing ? Number(existing.version) : -1;
@@ -1625,7 +1651,7 @@ export class ReviewStore {
         version += 1;
 
         const snapshot: Snapshot = {
-          reviewId,
+          sessionId,
           version,
           title: input.title,
           pins: input.pins,
@@ -1642,7 +1668,7 @@ export class ReviewStore {
       // Keep all existing version numbers and element IDs stable.
       if (existing && options.preserveCurrent) {
         if (options.preserveCurrent.version !== Number(existing.version))
-          throw new ReviewInputError("Review changed during migration.", 409);
+          throw new SessionInputError("Review changed during migration.", 409);
 
         const document = documentSchema.parse(
           migrateStoredDocument(options.preserveCurrent.document),
@@ -1660,29 +1686,29 @@ export class ReviewStore {
 
       try {
         this.assertMutation(
-          reviewId,
+          sessionId,
           existing ? Number(existing.version) : undefined,
         );
         this.db
           .prepare(
-            "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
+            "INSERT INTO sessions(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
           )
-          .run(reviewId, version, nextId);
+          .run(sessionId, version, nextId);
 
         for (const snapshot of snapshots)
           this.db
             .prepare(
-              "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+              "INSERT INTO versions(session_id,version,snapshot) VALUES(?,?,?)",
             )
-            .run(reviewId, snapshot.version, JSON.stringify(snapshot));
+            .run(sessionId, snapshot.version, JSON.stringify(snapshot));
 
         if (!existing && attention)
           this.db
             .prepare(
-              "INSERT INTO review_attention(review_id,viewed_at,dismissed_at) VALUES(?,?,?)",
+              "INSERT INTO session_attention(session_id,viewed_at,dismissed_at) VALUES(?,?,?)",
             )
             .run(
-              reviewId,
+              sessionId,
               attention.viewedAt ?? null,
               attention.dismissedAt ?? null,
             );
@@ -1691,7 +1717,7 @@ export class ReviewStore {
 
         // The importer records the map once it knows whether it landed.
         if (cursor)
-          this.recordLegacyImport(reviewId, {
+          this.recordLegacyImport(sessionId, {
             revision: cursor,
             mapRevision: null,
           });
@@ -1701,7 +1727,7 @@ export class ReviewStore {
         throw error;
       }
 
-      this.notify({ reviewId, version });
+      this.notify({ sessionId, version });
 
       return { version, warnings: [...new Set(warnings)] };
     });
@@ -1801,7 +1827,7 @@ export class ReviewStore {
               (error) => {
                 if (
                   (!repin && !(worktreeMoved && kept)) ||
-                  !(error instanceof ReviewInputError)
+                  !(error instanceof SessionInputError)
                 )
                   throw error;
                 warnings.push(
@@ -1820,7 +1846,7 @@ export class ReviewStore {
             .catch((error) => {
               if (
                 (!repin && !(worktreeMoved && retained.resources.has(key))) ||
-                !(error instanceof ReviewInputError)
+                !(error instanceof SessionInputError)
               )
                 throw error;
               warnings.push(`${block.id} (${block.type}): ${error.message}`);
@@ -1847,17 +1873,17 @@ function createdSnapshot(
     kind?: "scratchpad";
     pins?: z.infer<typeof pinsSchema>;
   },
-  resolved: { target: ReviewTarget; pins: Pins } | undefined,
+  resolved: { target: SessionTarget; pins: Pins } | undefined,
   defaultTitle?: string,
 ): Snapshot {
   const pins = resolved?.pins ?? op.pins;
   const title = op.title ?? defaultTitle;
 
-  if (!title) throw new ReviewInputError("Supply a title.");
+  if (!title) throw new SessionInputError("Supply a title.");
 
   if (!pins)
     return {
-      reviewId: id,
+      sessionId: id,
       version: 0,
       title,
       kind: op.kind,
@@ -1866,7 +1892,7 @@ function createdSnapshot(
     };
 
   return {
-    reviewId: id,
+    sessionId: id,
     version: 0,
     title,
     pins,
@@ -1883,7 +1909,7 @@ export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {
     );
 
     if (!target)
-      throw new ReviewInputError("Target not found in this version.", 404);
+      throw new SessionInputError("Target not found in this version.", 404);
 
     return target;
   }

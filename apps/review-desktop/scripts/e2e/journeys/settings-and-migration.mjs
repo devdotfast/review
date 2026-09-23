@@ -177,7 +177,7 @@ export async function run(ctx) {
 
   assert.equal(summaries.status, 200, JSON.stringify(summaries.value));
   assert.deepEqual(
-    summaries.value.filter((summary) => summary.reviewId === LEGACY_UUID),
+    summaries.value.filter((summary) => summary.sessionId === LEGACY_UUID),
     [],
     "the store listed a review it cannot read",
   );

@@ -2,7 +2,7 @@ import { act, createRef } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { ReviewApiClient } from "../../src/review-api/client";
+import { SessionApiClient } from "../../src/review-api/client";
 import type { Block } from "../../src/review-api/document";
 import { ApiDocument, createDocumentLoader } from "./api-document";
 import { ReviewSessionProvider } from "./host/review-session";
@@ -107,7 +107,7 @@ it("renders the retained document without reading commits when the source is gon
   );
 
   const loader = createDocumentLoader(
-    new ReviewApiClient(
+    new SessionApiClient(
       { serverUrl: "http://review.invalid", token: "t" },
       request,
     ),

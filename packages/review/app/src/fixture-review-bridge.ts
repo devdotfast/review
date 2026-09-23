@@ -38,7 +38,7 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
   const request = async (url: string | URL): Promise<Response> => {
     const { pathname, searchParams } = new URL(String(url));
     const route = pathname.slice(pathname.indexOf("/reviews-api") + 12);
-    const id = api.snapshot.reviewId;
+    const id = api.snapshot.sessionId;
 
     if (route === `/${id}` && searchParams.get("full") === "true")
       return Response.json(api.snapshot);

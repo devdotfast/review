@@ -131,7 +131,7 @@ export interface ReviewCommandStartedInput {
 }
 
 export interface ReviewTelemetryContext {
-  reviewUuid?: string;
+  sessionId?: string;
   presentationSessionId?: string;
 }
 
@@ -140,7 +140,7 @@ export interface ReviewSessionStartedInput {
   agentKind?: ReviewSessionAgent;
   mode?: "pr" | "refs" | "branch";
   appSessionId?: string;
-  reviewUuid?: string;
+  sessionId?: string;
   presentationSessionId?: string;
 }
 
@@ -641,7 +641,7 @@ function sessionTelemetryContext(
   input: ReviewSessionStartedInput,
 ): ReviewTelemetryContext {
   return {
-    reviewUuid: input.reviewUuid,
+    sessionId: input.sessionId,
     presentationSessionId: input.presentationSessionId,
   };
 }
@@ -654,12 +654,12 @@ function correlationProperties(
 
   if (!context) return properties;
 
-  if (context.reviewUuid) {
+  if (context.sessionId) {
     properties.review_id = opaqueCorrelationId(
       "rv_",
       installationId,
       "review",
-      context.reviewUuid,
+      context.sessionId,
     );
   }
 

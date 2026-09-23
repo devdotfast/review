@@ -129,7 +129,7 @@ export interface ListReviewsFilter {
 
 export interface ReviewHomeError {
   reviewDir: string;
-  reviewUuid: string | null;
+  sessionId: string | null;
   title: string;
   worktreePath: string;
   lastPublishedAt: string | null;
@@ -775,7 +775,7 @@ function reviewHomeError(
   const directoryUuid = path.basename(reviewDir);
   const storedUuid = jsonString(record?.uuid) ?? null;
 
-  const reviewUuid = UUID_PATTERN.test(storedUuid ?? "")
+  const sessionId = UUID_PATTERN.test(storedUuid ?? "")
     ? storedUuid
     : UUID_PATTERN.test(directoryUuid)
       ? directoryUuid
@@ -783,7 +783,7 @@ function reviewHomeError(
 
   const result: ReviewHomeError = {
     reviewDir,
-    reviewUuid,
+    sessionId,
     title: jsonString(record?.title) ?? "",
     worktreePath: jsonString(record?.worktreePath) || reviewDir,
     lastPublishedAt: jsonString(record?.lastPublishedAt) ?? null,

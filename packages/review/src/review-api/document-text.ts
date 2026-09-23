@@ -1,5 +1,5 @@
 import { type LensSource } from "../lens-selection.js";
-import { type Element, ReviewInputError, elements } from "./document.js";
+import { type Element, SessionInputError, elements } from "./document.js";
 import type { Snapshot } from "./store.js";
 
 const sourceText = (source: LensSource) =>
@@ -19,12 +19,12 @@ export function documentText(
       : elements(snapshot.document).find((item) => item.id === targetId);
 
   if (targetId !== undefined && !target)
-    throw new ReviewInputError("Target not found in this version.", 404);
+    throw new SessionInputError("Target not found in this version.", 404);
   const detailed = full || target !== undefined;
 
   const lines = [
     `# ${snapshot.title}`,
-    `Review ${snapshot.reviewId} · version ${snapshot.version}`,
+    `Review ${snapshot.sessionId} · version ${snapshot.version}`,
     "",
   ];
 

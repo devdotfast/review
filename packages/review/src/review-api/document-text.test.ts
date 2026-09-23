@@ -13,7 +13,7 @@ const source = {
 };
 
 const snapshot: Snapshot = {
-  reviewId: "review-1",
+  sessionId: "review-1",
   version: 2,
   title: "Save flow",
   createdAt: "today",

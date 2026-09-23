@@ -25,10 +25,10 @@ import type {
 import type { runTraceBlame, runTraceShow } from "./trace-read-cli";
 import type { TraceStorageKind } from "./trace-storage/types";
 
-/** `trace list` as the CLI calls it; the review shape resolves `reviewUuid`. */
+/** `trace list` as the CLI calls it; the review shape resolves `sessionId`. */
 export interface TraceListCommandInput {
   cwd: string;
-  reviewUuid?: string;
+  sessionId?: string;
   commitSha?: string;
   storage?: TraceStorageKind;
   json?: boolean;
@@ -38,7 +38,7 @@ export interface TraceListCommandInput {
 export interface TracePullCommandInput {
   cwd: string;
   repo?: string;
-  reviewUuid?: string;
+  sessionId?: string;
   commitSha?: string;
   session?: string;
   mainOnly?: boolean;

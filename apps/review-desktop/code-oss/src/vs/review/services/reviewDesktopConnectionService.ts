@@ -59,7 +59,7 @@ export interface IReviewDesktopConnectionService {
 	/** The scratchpad preference: a server preference, since `review install` reads it too. */
 	readScratchpadEnabled(): Promise<boolean>;
 	setScratchpadEnabled(enabled: boolean): Promise<boolean>;
-	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
+	getTutorialStatus(): Promise<{ version: 1; sessionId: string | null }>;
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
 	deleteTutorial(): Promise<void>;
@@ -233,7 +233,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		return result.summary;
 	}
 
-	async getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }> {
+	async getTutorialStatus(): Promise<{ version: 1; sessionId: string | null }> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/tutorial/status`, {
 			headers: this.authHeaders(),
@@ -242,12 +242,12 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		await this.requireOk(response, "Review tutorial status");
 		const payload = (await response.json()) as {
 			version?: unknown;
-			reviewUuid?: unknown;
+			sessionId?: unknown;
 		};
-		if (payload.version !== 1 || (payload.reviewUuid !== null && typeof payload.reviewUuid !== "string")) {
+		if (payload.version !== 1 || (payload.sessionId !== null && typeof payload.sessionId !== "string")) {
 			throw new Error("Review tutorial status is invalid.");
 		}
-		return { version: 1, reviewUuid: payload.reviewUuid as string | null };
+		return { version: 1, sessionId: payload.sessionId as string | null };
 	}
 
 	prepareTutorial(): Promise<void> {

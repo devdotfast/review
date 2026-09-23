@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { lensSourceSchema } from "../../lens-selection.js";
-import { ReviewInputError } from "../input-error.js";
+import { SessionInputError } from "../input-error.js";
 import {
   type BlockDefinition,
   defineBlock,
@@ -52,7 +52,9 @@ export const call_stack_diff = {
       );
 
       if (new Set(keys).size !== keys.length)
-        throw new ReviewInputError(`Frame keys must be unique within ${side}.`);
+        throw new SessionInputError(
+          `Frame keys must be unique within ${side}.`,
+        );
 
       for (const [index, frame] of block[side].entries()) {
         if (
@@ -61,7 +63,7 @@ export const call_stack_diff = {
             .slice(0, index)
             .some((parent) => parent.key === frame.parentKey)
         )
-          throw new ReviewInputError(
+          throw new SessionInputError(
             "A frame parentKey must name an earlier frame on the same side.",
           );
       }

@@ -1,1 +1,1 @@
-export { ReviewApiClient, ReviewApiError } from "@dev.fast/review-protocol";
+export { SessionApiClient, SessionApiError } from "@dev.fast/review-protocol";

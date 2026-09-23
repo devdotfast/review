@@ -5,14 +5,14 @@ import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { createReviewApi } from "../../src/review-api/http";
-import { ReviewStore } from "../../src/review-api/store";
+import { createSessionApi } from "../../src/review-api/http";
+import { SessionStore } from "../../src/review-api/store";
 import { mountReviewCanvas } from "./desktop-entry";
 import { testReviewBridge } from "./review-session-test-utils";
 
 let canvas: ReturnType<typeof mountReviewCanvas> | undefined;
 
-let store: ReviewStore;
+let store: SessionStore;
 
 beforeEach(() => {
   localStorage.clear();
@@ -43,14 +43,14 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
     addEventListener() {},
     removeEventListener() {},
   }));
-  store = new ReviewStore(":memory:", {
+  store = new SessionStore(":memory:", {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},
   });
-  const reviewId = randomUUID();
+  const sessionId = randomUUID();
   await store.importVersion({
-    reviewId,
+    sessionId,
     title: "Navigation",
     pins: { repositoryId: "repo", base: "base", head: "head" },
     createdAt: new Date().toISOString(),
@@ -75,7 +75,7 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
           branch: "first",
           pullRequestNumber: 41,
           pullRequestUrl: null,
-          reviewUuid: "11111111-1111-4111-8111-111111111111",
+          sessionId: "11111111-1111-4111-8111-111111111111",
           reviewTitle: "Earlier",
           relation: "earlier",
         },
@@ -83,14 +83,14 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
           branch: "second",
           pullRequestNumber: 42,
           pullRequestUrl: null,
-          reviewUuid: reviewId,
+          sessionId: sessionId,
           reviewTitle: "Navigation",
           relation: "current",
         },
       ],
     }),
   );
-  app.route("/reviews-api", createReviewApi(store));
+  app.route("/reviews-api", createSessionApi(store));
   app.get("/reviews-api/:id/commits", (c) => c.json([]));
   const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
 
@@ -111,7 +111,7 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
   const container = document.createElement("div");
   document.body.append(container);
   await act(async () => {
-    canvas = mountReviewCanvas(container, { kind: "api", reviewId, bridge });
+    canvas = mountReviewCanvas(container, { kind: "api", sessionId, bridge });
   });
   await act(async () => {
     await vi.waitFor(() =>

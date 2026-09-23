@@ -88,7 +88,7 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     ReviewRuntimeConfigSchema,
     {
       serverUrl: "http://127.0.0.1:5570",
-      reviewId: "review-1",
+      sessionId: "review-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
       appVersion: "0.0.13",

@@ -507,7 +507,8 @@ export async function createHarness({
 
     while (app.exitCode === null && Date.now() < deadline) await sleep(100);
 
-    if (app.exitCode === null) throw new Error(`Timed out waiting for ${label}`);
+    if (app.exitCode === null)
+      throw new Error(`Timed out waiting for ${label}`);
   }
 
   async function restartDesktop() {
@@ -585,7 +586,7 @@ export async function createHarness({
   });
 }
 
-/** Creates a review on spec's commits, inserts its blocks and opens it; returns { reviewId, repositoryId, title, canvas }. */
+/** Creates a review on spec's commits, inserts its blocks and opens it; returns { sessionId, repositoryId, title, canvas }. */
 export async function createReview(ctx, spec) {
   const repository = await ctx.api("/reviews-api/repositories", "POST", {
     path: spec.repoPath ?? ctx.repo,
@@ -604,7 +605,7 @@ export async function createReview(ctx, spec) {
     return result.value;
   };
 
-  const { reviewId } = await command({
+  const { sessionId } = await command({
     type: "create",
     title: spec.title,
     target: {
@@ -616,16 +617,20 @@ export async function createReview(ctx, spec) {
   });
 
   for (const content of spec.blocks)
-    await command({ type: "edit", reviewId, edit: { type: "insert", content } });
+    await command({
+      type: "edit",
+      sessionId,
+      edit: { type: "insert", content },
+    });
 
-  const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
+  const opened = await ctx.api(`/reviews-api/${sessionId}/open`, "POST", {});
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 
   const page = await ctx.apiCanvasFor(spec.title);
 
   return {
-    reviewId,
+    sessionId,
     repositoryId: repository.value.id,
     title: spec.title,
     canvas: page.locator(".review-canvas-root [data-review-api]"),
@@ -682,9 +687,9 @@ export async function dismissModalEditor(
 }
 
 /** Opens a review the way a reader does, with `review app pick --review`. */
-export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
+export async function pickReview(ctx, sessionId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", reviewId, "--json"],
+    ["app", "pick", "--review", sessionId, "--json"],
     cwd,
   );
 

@@ -6,7 +6,7 @@ import type { ReviewDiffFileWire, ReviewDiffLens } from './reviewProtocol.js';
 
 const files: ReviewDiffFileWire[] = [{ path: 'renamed.ts', previousPath: 'old.ts', status: 'renamed', additions: 2, deletions: 1 }];
 const lens: ReviewDiffLens = {
-	id: 'lens', title: 'Context', reviewId: 'review', version: 1, ranges: [
+	id: 'lens', title: 'Context', sessionId: 'review', version: 1, ranges: [
 		{ file: 'old.ts', side: 'base', fromLine: 2, toLine: 5 },
 		{ file: 'context.ts', side: 'base', fromLine: 10, toLine: 12 },
 		{ file: 'context.ts', side: 'head', fromLine: 10, toLine: 12 },

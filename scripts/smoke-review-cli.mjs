@@ -124,11 +124,11 @@ try {
   );
   const removed = JSON.parse(await run(["trace", "uninstall-hooks", "--json"]));
   assert.equal(removed.removed.length, 4);
-  server = spawn(
-    cli,
-    ["server", "start", "--json"],
-    { cwd: root, env, stdio: ["ignore", "ignore", "inherit"] },
-  );
+  server = spawn(cli, ["server", "start", "--json"], {
+    cwd: root,
+    env,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
   exited = new Promise((resolve) => {
     server.once("exit", resolve);
     server.once("error", resolve);
@@ -182,7 +182,7 @@ try {
     open: false,
   });
 
-  const lease = { reviewId: created.reviewId, leaseId: randomUUID() };
+  const lease = { sessionId: created.sessionId, leaseId: randomUUID() };
   await api("review_activity", { ...lease, action: "begin" });
   await api("review_edit", {
     ...lease,

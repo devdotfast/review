@@ -21,14 +21,14 @@ import {
 import {
   MAX_SHARE_MANIFEST_BYTES,
   type ShareManifest,
+  importedShareManifestSchema,
   shareIdSchema,
-  shareManifestSchema,
 } from "@dev.fast/review-share-protocol";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
 import { lensSchema } from "../review-api/diff-lenses.js";
-import { ReviewInputError } from "../review-api/document.js";
+import { SessionInputError } from "../review-api/document.js";
 import {
   checkReferences,
   documentSchema,
@@ -37,8 +37,8 @@ import {
   resourceReferences,
   sourceReferences,
 } from "../review-api/document.js";
-import type { LocalReviewData } from "../review-api/local-data.js";
-import type { ReviewStore } from "../review-api/store.js";
+import type { LocalSessionData } from "../review-api/local-data.js";
+import type { SessionStore } from "../review-api/store.js";
 import { traceSchema } from "../review-api/trace-schema.js";
 import {
   normalizedSoftwareElementSchema,
@@ -56,7 +56,7 @@ import {
 } from "./repository.js";
 
 export const sharedSnapshotSchema = z.strictObject({
-  reviewId: z.string().min(1),
+  sessionId: z.string().min(1),
   version: z.number().int().nonnegative(),
   title: z.string().min(1),
   pins: pinsSchema.extend({
@@ -117,7 +117,7 @@ export const sharePresentationSchema = z.strictObject({
 });
 
 export function validateShareBundle(bundle: ShareBundle) {
-  const manifest = shareManifestSchema.parse(bundle.manifest);
+  const manifest = importedShareManifestSchema.parse(bundle.manifest);
 
   if (Buffer.byteLength(JSON.stringify(manifest)) > MAX_SHARE_MANIFEST_BYTES)
     throw new Error("Share manifest is too large.");
@@ -139,7 +139,7 @@ export function validateShareBundle(bundle: ShareBundle) {
   const json = (id: string) =>
     parseJsonText(Buffer.from(bundle.objects.get(id)!).toString());
 
-  const stored = json(manifest.snapshot);
+  const stored = upgradeSharedId(json(manifest.snapshot));
 
   // Bundles shared before a field was retired still open; the bytes stay
   // sealed and only the parsed document drops the retired form. Lenses
@@ -151,7 +151,7 @@ export function validateShareBundle(bundle: ShareBundle) {
   );
 
   if (
-    snapshot.reviewId !== manifest.reviewId ||
+    snapshot.sessionId !== manifest.sessionId ||
     snapshot.version !== manifest.version ||
     snapshot.title !== manifest.title
   )
@@ -221,7 +221,7 @@ function liftSharedLenses(stored: JsonObject, migrated: JsonValue): JsonObject {
   };
 }
 
-export function sharedReviewId(origin: string, shareId: string) {
+export function sharedSessionId(origin: string, shareId: string) {
   const url = new URL(origin);
   shareIdSchema.parse(shareId);
 
@@ -229,7 +229,7 @@ export function sharedReviewId(origin: string, shareId: string) {
 }
 
 /** Separate immutable directory tree; authoring mutation handlers cannot write it. */
-export class SharedReviewStore {
+export class SharedSessionStore {
   private readonly loaded = new Map<string, Omit<ShareBundle, "objects">>();
   private readonly validated = new Map<
     string,
@@ -252,7 +252,7 @@ export class SharedReviewStore {
     await Promise.allSettled([...this.downloads, ...this.jobs.values()]);
   }
 
-  private local?: { store: ReviewStore; data: LocalReviewData };
+  private local?: { store: SessionStore; data: LocalSessionData };
   private readonly repositories = new Map<string, string>();
   private readonly jobs = new Map<string, Promise<void>>();
   private readonly states = new Map<
@@ -268,7 +268,7 @@ export class SharedReviewStore {
     private readonly fetchRepository = fetchPinnedRepository,
   ) {}
 
-  connect(store: ReviewStore, data: LocalReviewData) {
+  connect(store: SessionStore, data: LocalSessionData) {
     this.local = { store, data };
     data.workspaces.attachExternalReviews({
       has: (id) =>
@@ -302,7 +302,7 @@ export class SharedReviewStore {
 
   repositoryRoot(id: string) {
     if (!/^shared-[a-f0-9]{64}$/.test(id))
-      throw new ReviewInputError("Invalid shared review ID.");
+      throw new SessionInputError("Invalid shared review ID.");
 
     return path.join(this.root, ".repositories", id);
   }
@@ -321,11 +321,11 @@ export class SharedReviewStore {
     const local = this.local;
 
     if (!local)
-      throw new ReviewInputError("Repository service is unavailable.", 409);
+      throw new SessionInputError("Repository service is unavailable.", 409);
     const saved = this.validated.get(id);
 
     if (!saved)
-      throw new ReviewInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared review is not available.", 404);
     const root = this.repositoryRoot(id);
 
     try {
@@ -375,7 +375,7 @@ export class SharedReviewStore {
       if (
         local.data.workspaces.list(id).some((workspace) => !workspace.rootPath)
       )
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Could not prepare the pinned checkout. Retry opening the share.",
           409,
         );
@@ -387,12 +387,12 @@ export class SharedReviewStore {
       this.setStatus(id, "ready");
     } catch (error) {
       const message =
-        error instanceof ReviewInputError
+        error instanceof SessionInputError
           ? error.message
           : "Could not prepare the shared repository. Check Git credentials and retry.";
 
       this.setStatus(id, "error", message);
-      throw new ReviewInputError(message, 409);
+      throw new SessionInputError(message, 409);
     }
   }
 
@@ -408,7 +408,7 @@ export class SharedReviewStore {
         "error",
         "The managed checkout is missing. Reopen the share link to fetch it again.",
       );
-      throw new ReviewInputError(this.status(id).error!, 409);
+      throw new SessionInputError(this.status(id).error!, 409);
     }
 
     this.get(id);
@@ -427,7 +427,7 @@ export class SharedReviewStore {
 
     for (const id of await readdir(this.root)) {
       if (!/^shared-[a-f0-9]{64}$/.test(id)) continue;
-      let saved: Awaited<ReturnType<SharedReviewStore["readValidated"]>>;
+      let saved: Awaited<ReturnType<SharedSessionStore["readValidated"]>>;
 
       try {
         saved = await this.readValidated(id);
@@ -526,7 +526,7 @@ export class SharedReviewStore {
     const bundle = this.loaded.get(id);
 
     if (!bundle)
-      throw new ReviewInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared review is not available.", 404);
     const validated = this.validated.get(id)!;
     const repositoryId = this.repositories.get(id);
 
@@ -535,7 +535,7 @@ export class SharedReviewStore {
       this.status(id).stage !== "ready" ||
       !existsSync(path.join(this.repositoryRoot(id), ".git"))
     )
-      throw new ReviewInputError(
+      throw new SessionInputError(
         this.status(id).error ??
           "Fetch the shared repository before opening this review.",
         409,
@@ -545,7 +545,7 @@ export class SharedReviewStore {
       ...validated,
       snapshot: {
         ...validated.snapshot,
-        reviewId: id,
+        sessionId: id,
         pins: { ...validated.snapshot.pins, repositoryId },
         target: {
           kind: "commits" as const,
@@ -591,7 +591,7 @@ export class SharedReviewStore {
     );
 
     if (!entry)
-      throw new ReviewInputError("Shared object is unavailable.", 404);
+      throw new SessionInputError("Shared object is unavailable.", 404);
     const file = path.join(this.root, id, objectId);
 
     if ((await stat(file)).size !== entry.size)
@@ -608,7 +608,7 @@ export class SharedReviewStore {
     await this.jobs.get(id)?.catch(() => {});
 
     if (!this.loaded.has(id))
-      throw new ReviewInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared review is not available.", 404);
     await this.local?.data.workspaces.remove(id);
     const repositoryId = this.repositories.get(id);
 
@@ -652,7 +652,7 @@ export class SharedReviewStore {
 
   async import(origin: string, shareId: string, bundle: ShareBundle) {
     const validated = validateShareBundle(bundle);
-    const id = sharedReviewId(origin, shareId);
+    const id = sharedSessionId(origin, shareId);
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const staging = await mkdtemp(path.join(this.root, ".import-"));
 
@@ -723,8 +723,10 @@ export class SharedReviewStore {
     )
       throw new Error("Shared manifest is too large.");
 
-    const manifest: ShareManifest = shareManifestSchema.parse(
-      JSON.parse(await readFile(path.join(dir, "manifest.json"), "utf8")),
+    const manifest: ShareManifest = importedShareManifestSchema.parse(
+      upgradeSharedId(
+        JSON.parse(await readFile(path.join(dir, "manifest.json"), "utf8")),
+      ),
     );
 
     const objects = new Map<string, Uint8Array>();
@@ -756,4 +758,15 @@ export class SharedReviewStore {
 
     return { bundle, validated };
   }
+}
+
+/** Old published bytes stay immutable; normalize only their owned envelope on import. */
+function upgradeSharedId(value: JsonValue): JsonValue {
+  if (!isJsonObject(value) || !("reviewId" in value)) return value;
+
+  if ("sessionId" in value)
+    throw new Error("Shared data has conflicting session identifiers.");
+  const { reviewId, ...rest } = value;
+
+  return { ...rest, sessionId: reviewId };
 }

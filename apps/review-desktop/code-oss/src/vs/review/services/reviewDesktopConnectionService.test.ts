@@ -119,7 +119,7 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 		if (url.endsWith("/tutorial/open")) {
 			return Response.json({
 				kind: "api",
-				reviewUuid: uuid,
+				sessionId: uuid,
 				title: "Tutorial",
 			});
 		}

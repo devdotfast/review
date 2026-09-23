@@ -11,13 +11,13 @@ import type {
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { coverageProgress, coverageSources } from "../viewed-coverage.js";
-import { ReviewApiClient } from "./client.js";
+import { SessionApiClient } from "./client.js";
 import { foldedChanges } from "./comparison-coverage.js";
 import { UNCATEGORIZED_LENS_ID } from "./diff-lenses.js";
-import { createReviewApi } from "./http.js";
-import { LocalReviewData } from "./local-data.js";
+import { createSessionApi } from "./http.js";
+import { LocalSessionData } from "./local-data.js";
 import type { ReviewProgress } from "./review-progress.js";
-import { type ReviewProviders, ReviewStore } from "./store.js";
+import { type SessionProviders, SessionStore } from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
 
@@ -203,21 +203,21 @@ it("any region diffr collapses folds its changed lines, whatever its kind: a doc
   });
 });
 
-let directory: string, store: ReviewStore;
+let directory: string, store: SessionStore;
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-folded-"));
   vi.stubEnv("DEV_REVIEW_HOME", directory);
 
-  const providers: ReviewProviders = {
-    validatePins: vi.fn<ReviewProviders["validatePins"]>(async () => {}),
-    validateSource: vi.fn<ReviewProviders["validateSource"]>(async () => {}),
-    validateResource: vi.fn<ReviewProviders["validateResource"]>(
+  const providers: SessionProviders = {
+    validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
+    validateSource: vi.fn<SessionProviders["validateSource"]>(async () => {}),
+    validateResource: vi.fn<SessionProviders["validateResource"]>(
       async () => {},
     ),
   };
 
-  store = new ReviewStore(path.join(directory, "reviews.db"), providers);
+  store = new SessionStore(path.join(directory, "reviews.db"), providers);
 });
 
 afterEach(async () => {
@@ -253,10 +253,10 @@ async function progressApi() {
   const run = <Operation>(operation: Operation) =>
     store.execute({ commandId: randomUUID(), operation });
 
-  const { reviewId } = await run({ type: "create", title: "Folds", pins });
+  const { sessionId } = await run({ type: "create", title: "Folds", pins });
   await run({
     type: "lens",
-    reviewId,
+    sessionId,
     edit: {
       type: "insert",
       title: "Rust",
@@ -264,7 +264,7 @@ async function progressApi() {
     },
   });
 
-  const data = new LocalReviewData(store);
+  const data = new LocalSessionData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
     pins: snapshot.pins!,
@@ -286,20 +286,20 @@ async function progressApi() {
     yield { type: "complete", succeeded: records.length, failed: 0 };
   });
 
-  const app = createReviewApi(store, data);
+  const app = createSessionApi(store, data);
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: "http://review", token: "token" },
     async (url, init) =>
       app.request(String(url).replace("http://review/reviews-api", ""), init),
   );
 
-  return { reviewId, client };
+  return { sessionId, client };
 }
 
 it("progress counts folded changes as done, overall, per lens and uncategorized", async () => {
-  const { reviewId, client } = await progressApi();
-  const progress = await client.read<ReviewProgress>(`/${reviewId}/progress`);
+  const { sessionId, client } = await progressApi();
+  const progress = await client.read<ReviewProgress>(`/${sessionId}/progress`);
 
   const lens = (id: string) =>
     progress.lenses.find((lens) => lens.id === id)!.sources;
@@ -328,9 +328,9 @@ it("progress counts folded changes as done, overall, per lens and uncategorized"
   expect(coverageProgress([file("Cargo.lock")]).state).toBe("folded");
 
   // Viewing every unfolded line reads 100%, with the folded code unopened.
-  const viewed = await client.post<ReviewProgress>(`/${reviewId}/progress`, {
+  const viewed = await client.post<ReviewProgress>(`/${sessionId}/progress`, {
     mode: "structural",
-    version: store.read(reviewId).version,
+    version: store.read(sessionId).version,
     viewed: true,
     files: ["src/api.rs", "src/main.rs", "docs/readme.md"].map((path) => ({
       path,

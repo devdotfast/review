@@ -2,11 +2,11 @@ import { isJsonObject } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-import { ReviewInputError, resourceReferences } from "../review-api/document";
+import { SessionInputError, resourceReferences } from "../review-api/document";
 import { readQuerySchemas } from "../review-api/read-schemas";
-import { ReviewStore, type Snapshot } from "../review-api/store";
+import { SessionStore, type Snapshot } from "../review-api/store";
 import { resolveReviewDiffFiles } from "../review-diff-files";
-import type { SharedReviewStore } from "../sharing/import.js";
+import type { SharedSessionStore } from "../sharing/import.js";
 import type { ReviewTelemetry } from "../telemetry";
 import {
   type BugReportSource,
@@ -26,7 +26,7 @@ import {
 } from "./ui-telemetry";
 
 export function jsonReviewBugReportSource(
-  store: ReviewStore,
+  store: SessionStore,
   snapshot: Snapshot,
 ): BugReportSource {
   return {
@@ -71,11 +71,11 @@ export function jsonReviewBugReportSource(
 
 /** Telemetry and report uploads for a pinned native review. */
 export function createJsonReviewReporting(
-  store: ReviewStore,
+  store: SessionStore,
   telemetry: Pick<ReviewTelemetry, "captureUiEvent" | "captureTabViewed">,
   options: {
     submit?: typeof submitReviewBugReport;
-    shared?: SharedReviewStore;
+    shared?: SharedSessionStore;
   } = {},
 ) {
   const { submit = submitReviewBugReport, shared } = options;
@@ -86,7 +86,7 @@ export function createJsonReviewReporting(
       // SAFETY: the report uploader returns HTTP error statuses; parser failures are 4xx.
       (error instanceof BugReportUpstreamError
         ? error.status
-        : error instanceof ReviewInputError
+        : error instanceof SessionInputError
           ? error.status
           : requestJsonErrorStatus(error)) as ContentfulStatusCode,
     ),
@@ -96,7 +96,7 @@ export function createJsonReviewReporting(
 
     if (id.startsWith("shared-")) {
       if (!shared)
-        throw new ReviewInputError("Shared review is not available.", 404);
+        throw new SessionInputError("Shared review is not available.", 404);
       shared.get(id);
     } else store.assertExists(id);
     await next();

@@ -108,7 +108,7 @@ function DividerBlock() {
 function SectionBlock({ node, data, children }: BlockProps<"section">) {
   return (
     <ReviewSection
-      stateKey={`${data.snapshot.reviewId}:${node.id}`}
+      stateKey={`${data.snapshot.sessionId}:${node.id}`}
       title={node.title}
       id={data.headings.get(node.id)}
       defaultCollapsed={node.defaultCollapsed}

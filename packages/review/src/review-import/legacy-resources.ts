@@ -62,7 +62,7 @@ export interface MapResourcePayload {
 }
 
 /** The two sides of a presented software map bundle as `map` resources in
- * the shape `LocalReviewData.map` reads back. */
+ * the shape `LocalSessionData.map` reads back. */
 export function mapResourcesFromBundle(
   bundle: ReviewSoftwareMapBundle,
 ): MapResourcePayload[] {

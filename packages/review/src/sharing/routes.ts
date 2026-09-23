@@ -1,15 +1,15 @@
-import { ReviewInputError } from "../review-api/document.js";
-import type { SharedReviewStore } from "./import.js";
+import { SessionInputError } from "../review-api/document.js";
+import type { SharedSessionStore } from "./import.js";
 
 /** Snapshot-backed reads used by the same HTTP routes as local reviews. */
-export class SharedReviewData {
-  constructor(private readonly store: SharedReviewStore) {}
+export class SharedSessionData {
+  constructor(private readonly store: SharedSessionStore) {}
 
   map(id: string, resourceId: string) {
     const map = this.store.get(id).presentation.maps[resourceId];
 
     if (!map)
-      throw new ReviewInputError("Map is not included in this share.", 404);
+      throw new SessionInputError("Map is not included in this share.", 404);
 
     return map;
   }
@@ -20,7 +20,7 @@ export class SharedReviewData {
       .manifest.resources.find((item) => item.id === resourceId);
 
     if (!resource)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Resource is not included in this share.",
         404,
       );

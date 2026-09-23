@@ -549,7 +549,7 @@ function tutorialBridge(
 
   return {
     content: {
-      reviewUuid: "tutorial-review",
+      sessionId: "tutorial-review",
       progress: { version: 1, checked, dismissed },
       keymap: "none",
     },

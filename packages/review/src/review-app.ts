@@ -1,8 +1,8 @@
 import type { Writable } from "node:stream";
 
 import {
-  ReviewApiClient,
-  type ReviewApiSummary,
+  SessionApiClient,
+  type SessionSummary,
 } from "@dev.fast/review-protocol";
 
 import {
@@ -24,7 +24,7 @@ interface ReviewAppRuntime {
 
 export interface RunReviewAppInput {
   cwd: string;
-  reviewUuid?: string;
+  sessionId?: string;
   /** Bring Review Desktop forward. */
   focus?: boolean;
   stdin: NodeJS.ReadStream;
@@ -34,7 +34,7 @@ export interface RunReviewAppInput {
 export interface ReviewAppEvent {
   event: "app";
   action: "pick";
-  reviewUuid: string;
+  sessionId: string;
   title: string;
   cancelled?: boolean;
 }
@@ -71,18 +71,18 @@ export async function runReviewAppPick(
     },
   );
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: discovery.url, token: discovery.token },
     runtime.fetch,
   );
 
-  let review: Pick<ReviewApiSummary, "reviewId" | "title">;
+  let review: Pick<SessionSummary, "sessionId" | "title">;
 
-  if (input.reviewUuid) {
+  if (input.sessionId) {
     // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
-    // descriptors with no reviewId or title.
+    // descriptors with no sessionId or title.
     review = await client.read(
-      `/${encodeURIComponent(input.reviewUuid)}?full=true`,
+      `/${encodeURIComponent(input.sessionId)}?full=true`,
     );
   } else {
     if (!input.stdin.isTTY)
@@ -91,7 +91,7 @@ export async function runReviewAppPick(
       );
     const root = await runtime.resolveReviewRoot(input.cwd);
 
-    const reviews = (await client.read<ReviewApiSummary[]>(""))
+    const reviews = (await client.read<SessionSummary[]>(""))
       .filter((review) => review.repositoryPath === root && !review.dismissedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -99,7 +99,7 @@ export async function runReviewAppPick(
 
     const picked = await runtime.pickReview(
       reviews.map((review) => ({
-        uuid: review.reviewId,
+        uuid: review.sessionId,
         title: review.title,
         status: review.viewedAt ? "viewed" : "new",
         lastPublishedAt: review.createdAt,
@@ -108,10 +108,10 @@ export async function runReviewAppPick(
     );
 
     if (!picked) return null;
-    review = { reviewId: picked.uuid, title: picked.title };
+    review = { sessionId: picked.uuid, title: picked.title };
   }
 
-  await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
+  await client.post(`/${encodeURIComponent(review.sessionId)}/open`, {});
 
   // A focused fresh launch already came forward; a running one must be asked.
   if (input.focus && !launched)
@@ -120,7 +120,7 @@ export async function runReviewAppPick(
   return {
     event: "app",
     action: "pick",
-    reviewUuid: review.reviewId,
+    sessionId: review.sessionId,
     title: review.title,
   };
 }

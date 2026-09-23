@@ -219,7 +219,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     expect(listed.errors).toHaveLength(1);
     expect(listed.errors[0]).toMatchObject({
       code: "REPAIR_REQUIRED",
-      reviewUuid: uuid,
+      sessionId: uuid,
     });
     expect(listed.errors[0]?.message).toContain(
       "Delete it from Home and recreate it with the Review skill.",
@@ -263,7 +263,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
   expect(listed.errors).toHaveLength(1);
   expect(listed.errors[0]).toMatchObject({
     code: "REPAIR_REQUIRED",
-    reviewUuid: broken.uuid,
+    sessionId: broken.uuid,
   });
   expect(await snapshotReviewTree(broken.dir)).toEqual(snapshot);
 });

@@ -3,7 +3,7 @@ import test from "node:test";
 import { ReviewLanguageEnvironmentRequests } from "./reviewLanguageEnvironmentRequests.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
 
-const view = { reviewId: "review", version: 3 };
+const view = { sessionId: "review", version: 3 };
 const ready = { rootPath: "/project", identity: "first" };
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -52,7 +52,7 @@ test("sessions, authored versions, sides and selected commits never share lookup
 		requests.read("one", { ...view, version: 4 }, "head", load),
 		requests.read("one", view, "base", load),
 		requests.read("one", { ...view, commit: "selected" }, "head", load),
-		requests.read("one", { ...view, reviewId: "other" }, "head", load),
+		requests.read("one", { ...view, sessionId: "other" }, "head", load),
 	]);
 	assert.equal(new Set(results.map(result => result?.identity)).size, 6);
 });

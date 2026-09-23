@@ -23,13 +23,13 @@ export const IReviewCanvasEditorTabsService = createDecorator<IReviewCanvasEdito
 export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
 	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput;
-	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
+	openApiReview(sessionId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
 	openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
-	registerReviewEditor(reviewUuid: string, input: EditorInput): void;
-	closeReview(reviewUuid: string): Promise<void>;
+	registerReviewEditor(sessionId: string, input: EditorInput): void;
+	closeReview(sessionId: string): Promise<void>;
 }
 
 export class ReviewCanvasEditorTabsService extends Disposable implements IReviewCanvasEditorTabsService {
@@ -66,8 +66,8 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 			target.kind === "home"
 				? "home"
 				: target.kind === "api"
-					? `api:${target.reviewId}`
-					: `api:${target.reviewId}:source:${sourceSelectionIdentity(target.selection)}`;
+					? `api:${target.sessionId}`
+					: `api:${target.sessionId}:source:${sourceSelectionIdentity(target.selection)}`;
 		let input = this.inputs.get(key);
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
@@ -77,8 +77,8 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		return input;
 	}
 
-	async openApiReview(reviewId: string, title: string, active = true): Promise<ReviewCanvasEditorInput> {
-		const input = this.inputFor({ kind: "api", reviewId, title });
+	async openApiReview(sessionId: string, title: string, active = true): Promise<ReviewCanvasEditorInput> {
+		const input = this.inputFor({ kind: "api", sessionId, title });
 		await this.openReviewInput(input, active);
 		return input;
 	}
@@ -88,7 +88,7 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 	}
 
 	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput> {
-		const input = this.inputFor({ kind: "api-source", reviewId: selection.reviewId, selection, title });
+		const input = this.inputFor({ kind: "api-source", sessionId: selection.sessionId, selection, title });
 		await this.openReviewInput(input, true);
 		return input;
 	}
@@ -125,20 +125,20 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		await this.editorService.openEditor(input, { pinned: true, inactive: !active, revealIfVisible: true }, targetGroup);
 	}
 
-	async closeReview(reviewUuid: string): Promise<void> {
+	async closeReview(sessionId: string): Promise<void> {
 		const keys = [...this.inputs.keys()].filter(
 			(key) =>
-				key === reviewUuid ||
-				key === `api:${reviewUuid}` ||
-				key.startsWith(`api:${reviewUuid}:source:`) ||
-				key.startsWith(`${reviewUuid}@`),
+				key === sessionId ||
+				key === `api:${sessionId}` ||
+				key.startsWith(`api:${sessionId}:source:`) ||
+				key.startsWith(`${sessionId}@`),
 		);
 		const reviewInputs = keys
 			.map((key) => this.inputs.get(key))
 			.filter((input): input is ReviewCanvasEditorInput => Boolean(input && !input.isDisposed()));
-		const reviewEditors = [...(this.reviewEditors.get(reviewUuid) ?? [])];
+		const reviewEditors = [...(this.reviewEditors.get(sessionId) ?? [])];
 		for (const key of keys) this.inputs.delete(key);
-		this.reviewEditors.delete(reviewUuid);
+		this.reviewEditors.delete(sessionId);
 		const editors = [
 			...reviewInputs.flatMap((input) =>
 				this.editorGroupsService.groups
@@ -155,11 +155,11 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		await this.editorService.closeEditors(editors);
 	}
 
-	registerReviewEditor(reviewUuid: string, input: EditorInput): void {
-		let editors = this.reviewEditors.get(reviewUuid);
+	registerReviewEditor(sessionId: string, input: EditorInput): void {
+		let editors = this.reviewEditors.get(sessionId);
 		if (!editors) {
 			editors = new Set();
-			this.reviewEditors.set(reviewUuid, editors);
+			this.reviewEditors.set(sessionId, editors);
 		}
 		editors.add(input);
 	}
@@ -168,10 +168,10 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		if (this.editorGroupsService.groups.some((group) => group.contains(input))) {
 			return;
 		}
-		for (const [reviewUuid, editors] of this.reviewEditors) {
+		for (const [sessionId, editors] of this.reviewEditors) {
 			editors.delete(input);
 			if (editors.size === 0) {
-				this.reviewEditors.delete(reviewUuid);
+				this.reviewEditors.delete(sessionId);
 			}
 		}
 	}

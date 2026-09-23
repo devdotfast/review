@@ -20,23 +20,23 @@ export function reviewManagedCheckoutsDir(gitCommonDir: string): string {
 /** Return the checkout subtree owned by one Review UUID. */
 export function reviewManagedCheckoutRoot(
   gitCommonDir: string,
-  reviewUuid: string,
+  sessionId: string,
 ): string {
   return path.join(
     reviewManagedCheckoutsDir(gitCommonDir),
-    safeStorageSegment(reviewUuid),
+    safeStorageSegment(sessionId),
   );
 }
 
 /** A detached checkout owned by one Review revision and source role. */
 export function reviewManagedCheckoutDir(
   gitCommonDir: string,
-  reviewUuid: string,
+  sessionId: string,
   role: ReviewCheckoutRole,
   commit: string,
 ): string {
   return path.join(
-    reviewManagedCheckoutRoot(gitCommonDir, reviewUuid),
+    reviewManagedCheckoutRoot(gitCommonDir, sessionId),
     role,
     safeStorageSegment(commit),
   );

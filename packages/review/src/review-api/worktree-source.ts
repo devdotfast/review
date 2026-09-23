@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { type LocalVcs, gitCommonDir } from "@dev.fast/local-vcs";
 
 import { isMissingFileError } from "../fs-utils.js";
-import { ReviewInputError } from "./document.js";
+import { SessionInputError } from "./document.js";
 
 const exec = promisify(execFile);
 
@@ -28,11 +28,11 @@ export async function localSourcePath(
     child === ".." ||
     child.startsWith(`..${sep}`)
   )
-    throw new ReviewInputError("Source symlink leaves the selected worktree.");
+    throw new SessionInputError("Source symlink leaves the selected worktree.");
   const stat = await lstat(candidate);
 
   if (!stat.isFile())
-    throw new ReviewInputError("Source is not a regular file.");
+    throw new SessionInputError("Source is not a regular file.");
 
   return candidate;
 }
@@ -43,7 +43,7 @@ export async function workingFiles(vcs: LocalVcs): Promise<string[]> {
     vcs.kind === "jj" ? await gitCommonDir(vcs.rootPath) : undefined;
 
   if (vcs.kind === "jj" && !gitDirectory)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Working source requires a Git-backed jj repository.",
     );
 
@@ -124,7 +124,7 @@ export async function readWorkingFile(
     );
 
     if (isAbsolute(parent) || parent === ".." || parent.startsWith(`..${sep}`))
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Source symlink leaves the selected worktree.",
       );
 

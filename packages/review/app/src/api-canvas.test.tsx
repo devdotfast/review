@@ -14,16 +14,16 @@ import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { selectSource } from "../../src/lens-selection";
-import { createReviewApi } from "../../src/review-api/http";
-import { ReviewInputError } from "../../src/review-api/input-error";
-import { LocalReviewData } from "../../src/review-api/local-data";
-import { ReviewStore } from "../../src/review-api/store";
+import { createSessionApi } from "../../src/review-api/http";
+import { SessionInputError } from "../../src/review-api/input-error";
+import { LocalSessionData } from "../../src/review-api/local-data";
+import { SessionStore } from "../../src/review-api/store";
 import * as clipboard from "./copy-text";
 import { mountReviewCanvas as mount } from "./desktop-entry";
 import { createSequenceTourEntry, sequenceView } from "./diagrams";
 import { testReviewBridge } from "./review-session-test-utils";
 
-let store: ReviewStore, directory: string;
+let store: SessionStore, directory: string;
 
 let canvas: ReturnType<typeof mount> | undefined;
 
@@ -36,7 +36,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   directory = mkdtempSync(path.join(tmpdir(), "review-api-canvas-"));
-  store = new ReviewStore(path.join(directory, "review.db"), {
+  store = new SessionStore(path.join(directory, "review.db"), {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},
@@ -73,7 +73,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
 
   const inserted = await command({
     type: "edit",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     edit: {
       type: "insert",
       content: {
@@ -84,7 +84,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     },
   });
 
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  const app = new Hono().route("/reviews-api", createSessionApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
   const ready = vi.fn<() => void>();
   const displayedVersion = vi.fn<(version: number) => void>();
@@ -110,7 +110,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   await act(async () => {
     canvas = mount(container, {
       kind: "api",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       bridge,
       setSourceView: (_selection, view) => displayedVersion(view.version),
     });
@@ -138,7 +138,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(node.textContent).toContain("1 paragraph");
   const leaseId = randomUUID();
   await act(async () => {
-    store.activity.update(review.reviewId, { action: "begin", leaseId });
+    store.activity.update(review.sessionId, { action: "begin", leaseId });
   });
   await vi.waitFor(async () => {
     await act(async () => {});
@@ -149,7 +149,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   ).toBe(node);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   await act(async () => {
-    store.activity.update(review.reviewId, {
+    store.activity.update(review.sessionId, {
       action: "renew",
       leaseId,
       focus: { targetId: inserted.targetId, description: "Adding details" },
@@ -162,7 +162,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(displayedVersion).toHaveBeenLastCalledWith(inserted.version);
   await act(async () => {
-    store.activity.update(review.reviewId, {
+    store.activity.update(review.sessionId, {
       action: "renew",
       leaseId,
       focus: { description: "Checking the outline" },
@@ -173,7 +173,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     expect(container.textContent).toContain("Checking the outline");
   });
   await act(async () => {
-    store.activity.update(review.reviewId, { action: "end", leaseId });
+    store.activity.update(review.sessionId, { action: "end", leaseId });
   });
   await vi.waitFor(async () => {
     await act(async () => {});
@@ -183,7 +183,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   await act(async () => {
     await command({
       type: "edit",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       edit: {
         type: "update",
         targetId: inserted.targetId,
@@ -200,13 +200,13 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     container.querySelector(`[data-review-node-id="${inserted.targetId}"]`),
   ).toBe(node);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  const section = store.read(review.reviewId).document[0]!;
+  const section = store.read(review.sessionId).document[0]!;
 
   if (section.type !== "section") throw new Error("Expected section");
   await act(async () => {
     await command({
       type: "edit",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       edit: {
         type: "update",
         targetId: section.children[0]!.id,
@@ -221,7 +221,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   await act(async () => {
     await command({
       type: "edit",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       edit: {
         type: "insert",
         content: {
@@ -243,7 +243,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   await act(async () => {
     canvas!.update({
       kind: "api",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       version: inserted.version,
       bridge,
       setSourceView: (_selection, view) => displayedVersion(view.version),
@@ -256,14 +256,14 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   });
   expect(container.textContent).not.toContain("Next section");
   await act(async () => {
-    store.activity.update(review.reviewId, { action: "begin", leaseId });
+    store.activity.update(review.sessionId, { action: "begin", leaseId });
   });
   expect(container.textContent).not.toContain("Agent working…");
   await act(async () => {
     await command(
       {
         type: "edit",
-        reviewId: review.reviewId,
+        sessionId: review.sessionId,
         edit: {
           type: "insert",
           content: {
@@ -296,7 +296,7 @@ it("keeps sequence step identities and supports explanation/code steps without i
 
   const inserted = await command({
     type: "edit",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     edit: {
       type: "insert",
       content: {
@@ -322,7 +322,7 @@ it("keeps sequence step identities and supports explanation/code steps without i
     },
   });
 
-  const node = store.read(review.reviewId).document[0]!;
+  const node = store.read(review.sessionId).document[0]!;
 
   if (node.type !== "sequence") throw new Error("Expected sequence");
 
@@ -345,13 +345,13 @@ it("keeps sequence step identities and supports explanation/code steps without i
 });
 
 it("dismisses immediately through the API without changing the saved document", async () => {
-  const { reviewId } = await command({
+  const { sessionId } = await command({
     type: "create",
     title: "Dismiss me",
     pins,
   });
 
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  const app = new Hono().route("/reviews-api", createSessionApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
 
   const bridge = testReviewBridge(
@@ -362,7 +362,7 @@ it("dismisses immediately through the API without changing the saved document", 
   const container = document.createElement("div");
   document.body.append(container);
   await act(async () => {
-    canvas = mount(container, { kind: "api", reviewId, bridge });
+    canvas = mount(container, { kind: "api", sessionId, bridge });
   });
   await act(async () => {
     await vi.waitFor(() =>
@@ -379,7 +379,7 @@ it("dismisses immediately through the API without changing the saved document", 
   await vi.waitFor(() =>
     expect(store.list()[0]?.dismissedAt).toEqual(expect.any(String)),
   );
-  expect(store.read(reviewId).version).toBe(0);
+  expect(store.read(sessionId).version).toBe(0);
 });
 
 it.each([false, true])(
@@ -406,13 +406,14 @@ it.each([false, true])(
       ],
     };
 
-    const app = new Hono().route("/reviews-api", createReviewApi(store));
+    const app = new Hono().route("/reviews-api", createSessionApi(store));
     app.get("/reviews-api/:id/commits", (context) => context.json([]));
     app.get("/reviews-api/:id/agent-traces", (context) =>
       context.json({ ok: true, sessions: [] }),
     );
-    app.get(`/reviews-api/${review.reviewId}/resources/${traceId}`, (context) =>
-      context.json(trace),
+    app.get(
+      `/reviews-api/${review.sessionId}/resources/${traceId}`,
+      (context) => context.json(trace),
     );
 
     const bridge = testReviewBridge(
@@ -433,7 +434,7 @@ it.each([false, true])(
     await act(async () => {
       canvas = mount(container, {
         kind: "api",
-        reviewId: review.reviewId,
+        sessionId: review.sessionId,
         bridge,
       });
     });
@@ -454,7 +455,7 @@ it.each([false, true])(
     await act(async () => {
       await command({
         type: "edit",
-        reviewId: review.reviewId,
+        sessionId: review.sessionId,
         edit: {
           type: "insert",
           content: inline
@@ -500,7 +501,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
 
   await command({
     type: "edit",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     edit: {
       type: "insert",
       content: {
@@ -528,7 +529,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
       },
     }),
   );
-  app.route("/reviews-api", createReviewApi(store));
+  app.route("/reviews-api", createSessionApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
   const requested: string[] = [];
   const created: ReviewInlineEditorSpec[] = [];
@@ -577,7 +578,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
   await act(async () => {
     canvas = mount(container, {
       kind: "api",
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       bridge,
       setSourceView: () => {},
     });
@@ -601,7 +602,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
   const inserted = await command({
     type: "edit",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     edit: {
       type: "insert",
       content: { type: "markdown", markdown: "Selected historical prose" },
@@ -610,10 +611,10 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
   await command({
     type: "repin",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     pins: { ...pins, head: "new-head" },
   });
-  const data = new LocalReviewData(store);
+  const data = new LocalSessionData(store);
   vi.spyOn(data, "commits").mockResolvedValue([]);
   vi.spyOn(data, "sourcePins").mockImplementation(
     async (snapshot) => snapshot.pins,
@@ -643,7 +644,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
             : "latest source",
     };
   });
-  const app = new Hono().route("/reviews-api", createReviewApi(store, data));
+  const app = new Hono().route("/reviews-api", createSessionApi(store, data));
   const listeners = new Set<Parameters<ReviewCanvasBridge["subscribe"]>[0]>();
 
   const bridge = testReviewBridge(
@@ -670,7 +671,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
     await act(async () => {
       canvas = mount(container, {
         kind: "api",
-        reviewId: review.reviewId,
+        sessionId: review.sessionId,
         version: inserted.version,
         bridge,
       });
@@ -704,17 +705,17 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     const text = await copy();
     expect(text).toContain(
-      `Review ID: ${review.reviewId}\nVersion: ${inserted.version}`,
+      `Review ID: ${review.sessionId}\nVersion: ${inserted.version}`,
     );
     expect(text).toContain("> Selected historical prose");
     expect(text).toContain(
-      `review_get({"reviewId":"${review.reviewId}","version":${inserted.version},"full":true})`,
+      `review_get({"sessionId":"${review.sessionId}","version":${inserted.version},"full":true})`,
     );
     expect(text).not.toContain("review.mdx");
 
     const selected: ReviewSurfaceEvent = {
       event: "editorSelectionChanged",
-      reviewId: bridge.config.reviewId,
+      sessionId: bridge.config.sessionId,
       path: "example.ts",
       range: { fromLine: 2, toLine: 2 },
       sideContext: "head",
@@ -735,7 +736,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
           ...selected,
           sideContext: "base",
           apiSource: {
-            reviewId: review.reviewId,
+            sessionId: review.sessionId,
             version: inserted.version,
             commit: "selected-commit",
           },
@@ -751,7 +752,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
       for (const listener of listeners)
         listener({
           ...selected,
-          reviewId: "another-review",
+          sessionId: "another-review",
           path: "unrelated.ts",
         });
     });
@@ -783,13 +784,13 @@ it("copies prose and code from the displayed historical JSON review", async () =
 });
 
 it("degrades to the retained document and an unavailable Commits tab when the checkout is gone", async () => {
-  const gone = new ReviewStore(path.join(directory, "gone.db"), {
+  const gone = new SessionStore(path.join(directory, "gone.db"), {
     // Present only so the refresh loop runs; a commit-pinned review never calls it.
     resolveTarget: async () => {
       throw new Error("This review is commit-pinned.");
     },
     sourcePins: async () => {
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "The selected local checkout is unavailable.",
         404,
       );
@@ -800,13 +801,13 @@ it("degrades to the retained document and an unavailable Commits tab when the ch
   });
 
   try {
-    const { reviewId } = await gone.execute({
+    const { sessionId } = await gone.execute({
       commandId: randomUUID(),
       operation: { type: "create", title: "Moved review", pins },
     });
 
     await gone.refreshWorktrees();
-    const app = new Hono().route("/reviews-api", createReviewApi(gone));
+    const app = new Hono().route("/reviews-api", createSessionApi(gone));
     const commits = vi.fn<() => Response>(() => new Response("[]"));
     app.get("/reviews-api/:id/commits", commits);
 
@@ -818,7 +819,7 @@ it("degrades to the retained document and an unavailable Commits tab when the ch
     const container = document.createElement("div");
     document.body.append(container);
     await act(async () => {
-      canvas = mount(container, { kind: "api", reviewId, bridge });
+      canvas = mount(container, { kind: "api", sessionId, bridge });
     });
     await act(async () =>
       vi.waitFor(() =>

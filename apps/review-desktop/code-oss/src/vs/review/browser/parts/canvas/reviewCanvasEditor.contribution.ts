@@ -98,7 +98,7 @@ class ReviewCanvasEditorContribution extends Disposable implements IWorkbenchCon
 				group.editors.flatMap((editor) =>
 					editor instanceof ReviewCanvasEditorInput &&
 					(editor.target.kind === "api" || editor.target.kind === "api-source")
-						? [editor.target.reviewId]
+						? [editor.target.sessionId]
 						: [],
 				),
 			),
@@ -107,10 +107,10 @@ class ReviewCanvasEditorContribution extends Disposable implements IWorkbenchCon
 		const reconcile = async () => {
 			// The managed tutorial is intentionally absent from the Home catalog.
 			const tutorial = await this.desktopConnection.getTutorialStatus().catch(() => undefined);
-			for (const reviewId of restored) {
-				if (reviewId === tutorial?.reviewUuid) continue;
-				const review = this.apiCatalog.reviews.find((review) => review.reviewId === reviewId);
-				if (!review || review.dismissedAt) void this.tabsService.closeReview(reviewId);
+			for (const sessionId of restored) {
+				if (sessionId === tutorial?.sessionId) continue;
+				const review = this.apiCatalog.reviews.find((review) => review.sessionId === sessionId);
+				if (!review || review.dismissedAt) void this.tabsService.closeReview(sessionId);
 			}
 		};
 		if (this.apiCatalog.loaded) void reconcile();

@@ -8,8 +8,8 @@ import {
 } from "react";
 
 import {
-  type ReviewApiClient,
-  ReviewApiError,
+  type SessionApiClient,
+  SessionApiError,
 } from "../../src/review-api/client";
 
 import "./share-control.css";
@@ -20,8 +20,8 @@ import { useTooltip } from "./use-tooltip";
 import { useTopbarPopover } from "./use-topbar-popover";
 
 export const SharingContext = createContext<{
-  client: ReviewApiClient;
-  reviewId: string;
+  client: SessionApiClient;
+  sessionId: string;
   version: number;
   sender?: string;
   cloneUrl?: string;
@@ -35,7 +35,8 @@ interface SharingAccount {
 
 const POLL_WHILE_PENDING_MS = 2000;
 
-const linkKey = (reviewId: string, version: number) => `${reviewId}@${version}`;
+const linkKey = (sessionId: string, version: number) =>
+  `${sessionId}@${version}`;
 
 export function ShareControl() {
   const context = useContext(SharingContext);
@@ -59,7 +60,7 @@ export function ShareControl() {
 
   const popover = useRef<HTMLDivElement>(null);
   const popoverRef = useTopbarPopover(open, popover);
-  const shared = context?.reviewId.startsWith("shared-");
+  const shared = context?.sessionId.startsWith("shared-");
   const signedIn = Boolean(account?.account);
   const pending = Boolean(account?.pending);
 
@@ -110,7 +111,7 @@ export function ShareControl() {
       await operation();
     } catch (error) {
       setError(
-        error instanceof ReviewApiError && error.status < 500
+        error instanceof SessionApiError && error.status < 500
           ? error.message
           : "Could not complete this action. Please retry.",
       );
@@ -133,17 +134,17 @@ export function ShareControl() {
       try {
         const result = await context.client.post<{ url: string }>(
           "/sharing/publish",
-          { reviewId: context.reviewId, version, requestId },
+          { sessionId: context.sessionId, version, requestId },
         );
 
-        links.current.set(linkKey(context.reviewId, version), result.url);
+        links.current.set(linkKey(context.sessionId, version), result.url);
         setLink(result.url);
       } catch (error) {
-        if (error instanceof ReviewApiError && error.status === 422)
+        if (error instanceof SessionApiError && error.status === 422)
           frozen.current.requestId = crypto.randomUUID();
 
         // The host forgot a stale login; show sign-in and upload again after it.
-        if (error instanceof ReviewApiError && error.status === 401) {
+        if (error instanceof SessionApiError && error.status === 401) {
           frozen.current.started = false;
           void loadAccount();
         }
@@ -185,7 +186,7 @@ export function ShareControl() {
           if (!open) {
             // A version shared earlier this session reuses its link.
             const cached = links.current.get(
-              linkKey(context.reviewId, context.version),
+              linkKey(context.sessionId, context.version),
             );
 
             frozen.current = {

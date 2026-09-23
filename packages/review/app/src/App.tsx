@@ -829,7 +829,7 @@ function ReviewDocumentLoadState({
           message={state.message}
           action={
             state.currentReviewUuid ? (
-              <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+              <OpenCurrentReview sessionId={state.currentReviewUuid} />
             ) : null
           }
         />
@@ -860,7 +860,7 @@ function ReviewSoftwareMapLoadState({
           message={`Software map unavailable: ${state.message}`}
           action={
             state.currentReviewUuid ? (
-              <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+              <OpenCurrentReview sessionId={state.currentReviewUuid} />
             ) : null
           }
         />
@@ -877,11 +877,7 @@ function ReviewSoftwareMapLoadState({
   }
 }
 
-function OpenCurrentReview({
-  reviewUuid,
-}: {
-  reviewUuid: string;
-}): ReactElement {
+function OpenCurrentReview({ sessionId }: { sessionId: string }): ReactElement {
   const session = useReviewSession();
 
   return (
@@ -890,7 +886,7 @@ function OpenCurrentReview({
       onClick={() =>
         void session.surface.post({
           name: "openReview",
-          args: { reviewUuid, active: true },
+          args: { sessionId, active: true },
         })
       }
     >

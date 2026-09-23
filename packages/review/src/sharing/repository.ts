@@ -5,7 +5,7 @@ import path from "node:path";
 import { gitAt } from "@dev.fast/local-vcs";
 import { normalizeGitHubRemote } from "@dev.fast/review-share-protocol";
 
-import { type Pins, ReviewInputError } from "../review-api/document.js";
+import { type Pins, SessionInputError } from "../review-api/document.js";
 
 /** Keep credential helpers but prevent the calling shell from redirecting Git's object store. */
 export function sharedGit(cwd: string, args: string[]) {
@@ -32,16 +32,16 @@ export function sharedGit(cwd: string, args: string[]) {
   );
 }
 
-function fetchError(stderr: string, publishing: boolean): ReviewInputError {
+function fetchError(stderr: string, publishing: boolean): SessionInputError {
   if (/not our ref|couldn't find remote ref|unadvertised object/i.test(stderr))
-    return new ReviewInputError(
+    return new SessionInputError(
       publishing
         ? "Push the reviewed commits to GitHub before sharing."
         : "The shared commits are no longer available on GitHub. Ask the sender to restore them, then retry.",
       409,
     );
 
-  return new ReviewInputError(
+  return new SessionInputError(
     "Could not fetch the GitHub repository. Check your connection and Git credentials for this repository, then retry.",
     409,
   );
@@ -59,7 +59,7 @@ export async function fetchPinnedRepository(
       /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit),
     )
   )
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Sharing requires immutable base and head commits.",
     );
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -122,7 +122,7 @@ export async function readShareRepository(root: string) {
       (await sharedGit(root, ["remote", "get-url", "origin"])).stdout,
     );
   } catch {
-    throw new ReviewInputError("Sharing requires a GitHub origin remote.");
+    throw new SessionInputError("Sharing requires a GitHub origin remote.");
   }
 
   return { cloneUrl };

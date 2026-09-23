@@ -11,7 +11,7 @@ import { createShareFixture } from "../../test/fixtures/share/create.js";
 import { ShareClient } from "./client.js";
 import { exportShare } from "./export.js";
 import { mountSharingHost } from "./host.js";
-import { SharedReviewStore } from "./import.js";
+import { SharedSessionStore } from "./import.js";
 import { fetchPinnedRepository } from "./repository.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -27,7 +27,7 @@ it("exposes the device URL while login is pending and allows retry after failure
     api,
     fixture.store,
     fixture.data,
-    new SharedReviewStore(path.join(root, "shared")),
+    new SharedSessionStore(path.join(root, "shared")),
     { login, openUrl },
   );
   let finish!: (code: number) => void;
@@ -100,7 +100,7 @@ it("reports download and checkout preparation without starting duplicate imports
     fetched = resolve;
   });
 
-  const shared = new SharedReviewStore(
+  const shared = new SharedSessionStore(
     path.join(root, "shared"),
     async (target, _url, pins) => {
       await gate;
@@ -124,10 +124,10 @@ it("reports download and checkout preparation without starting duplicate imports
   try {
     const response = await start();
     expect(response.status).toBe(202);
-    const { reviewId } = await response.json();
+    const { sessionId } = await response.json();
 
     const status = async () =>
-      (await api.request(`/sharing/import/${reviewId}`)).json();
+      (await api.request(`/sharing/import/${sessionId}`)).json();
 
     expect(await status()).toMatchObject({ stage: "downloading" });
     await start();

@@ -52,9 +52,7 @@ export async function run(ctx) {
   await ctx.page
     .locator(".quick-input-widget input")
     .fill(">Review: Open Tutorial");
-  await ctx.page
-    .getByRole("option", { name: /Review: Open Tutorial/ })
-    .click();
+  await ctx.page.getByRole("option", { name: /Review: Open Tutorial/ }).click();
 
   const page = await apiCanvasFor(TITLE);
 
@@ -210,8 +208,8 @@ export async function run(ctx) {
 
   await ctx.api("/tutorial", "DELETE");
 
-  assert.equal((await status()).reviewUuid, null);
+  assert.equal((await status()).sessionId, null);
   await ctx.api("/tutorial/prepare", "POST", {});
-  await until(async () => (await status()).reviewUuid, "tutorial re-prepared");
+  await until(async () => (await status()).sessionId, "tutorial re-prepared");
   ctx.check("DELETE /tutorial then prepare restores the hidden review");
 }

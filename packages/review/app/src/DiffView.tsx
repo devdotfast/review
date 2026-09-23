@@ -399,7 +399,7 @@ function NativeDiffView({
   }, [
     container,
     session.bridge.diffView,
-    session.config.reviewId,
+    session.config.sessionId,
     scope?.commit,
     lens,
     treeContainer,

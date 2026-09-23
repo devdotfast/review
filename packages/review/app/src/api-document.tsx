@@ -2,14 +2,14 @@ import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
 import { memo, useEffect, useMemo, useRef } from "react";
 
 import { type DiffSelection } from "../../src/lens-selection";
-import type { ReviewApiClient } from "../../src/review-api/client";
+import type { SessionApiClient } from "../../src/review-api/client";
 import {
   type Block,
   elements,
   resourceReferences,
   selectionReferences,
 } from "../../src/review-api/document";
-import type { LocalReviewData } from "../../src/review-api/local-data";
+import type { LocalSessionData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
 import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
@@ -57,7 +57,7 @@ export interface ApiDocumentData {
 }
 
 /** Cache only immutable resources and commit-addressed quotes, for this canvas. */
-export function createDocumentLoader(client: ReviewApiClient) {
+export function createDocumentLoader(client: SessionApiClient) {
   const cache = new Map<string, Promise<unknown>>();
   const urls = new Set<string>();
   let disposed = false;
@@ -92,7 +92,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
             ? []
             : await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
                 client.read<ReviewCommitSummary[]>(
-                  `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+                  `/${snapshot.sessionId}/commits?version=${snapshot.version}`,
                 ),
               ),
         anchors: new Map(),
@@ -122,7 +122,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
             const url = await once(`image:${node.assetId}`, async () => {
               const blob = await (
                 await client.response(
-                  `/${encodeURIComponent(snapshot.reviewId)}/resources/${encodeURIComponent(node.assetId)}`,
+                  `/${encodeURIComponent(snapshot.sessionId)}/resources/${encodeURIComponent(node.assetId)}`,
                 )
               ).blob();
 
@@ -140,7 +140,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
           if (node.type === "trace_quote") {
             const loaded = await once(`trace:${node.traceId}`, () =>
               client.read<Trace>(
-                `/${encodeURIComponent(snapshot.reviewId)}/resources/${encodeURIComponent(node.traceId)}`,
+                `/${encodeURIComponent(snapshot.sessionId)}/resources/${encodeURIComponent(node.traceId)}`,
               ),
             ).catch(() => undefined);
 
@@ -152,9 +152,9 @@ export function createDocumentLoader(client: ReviewApiClient) {
               `map:${node.mapVersionId}:${JSON.stringify(snapshot.pins ?? null)}`,
               async () => {
                 const saved = await client.read<
-                  Awaited<ReturnType<LocalReviewData["map"]>>
+                  Awaited<ReturnType<LocalSessionData["map"]>>
                 >(
-                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}`,
+                  `/${snapshot.sessionId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}`,
                 );
 
                 return {

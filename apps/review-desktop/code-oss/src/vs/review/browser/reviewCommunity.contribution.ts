@@ -41,7 +41,7 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 		}
 		const result = await dialogService.confirm({
 			type: 'info',
-			message: 'Join the Review community',
+			message: 'Join the Whiteboard community',
 			detail: 'Meet the team, ask questions, and share feedback in the /dev/fast Discord. You can also join anytime using the Discord link next to Report a bug.',
 			primaryButton: 'Join Discord',
 			cancelButton: 'Not now',

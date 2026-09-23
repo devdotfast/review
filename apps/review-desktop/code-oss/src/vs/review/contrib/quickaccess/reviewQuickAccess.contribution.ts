@@ -68,9 +68,9 @@ Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessPro
 	ctor: ReviewCommandsQuickAccessProvider,
 	prefix: ReviewCommandsQuickAccessProvider.PREFIX,
 	contextKey: 'inCommandsPicker',
-	placeholder: localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of an editor or Review command to run.'),
+	placeholder: localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of an editor or Whiteboard command to run.'),
 	helpEntries: [{
-		description: localize('reviewCommandsQuickAccess', 'Show and run Review commands'),
+		description: localize('reviewCommandsQuickAccess', 'Show and run Whiteboard commands'),
 		commandId: ShowAllCommandsAction.ID,
 		commandCenterOrder: 20
 	}]

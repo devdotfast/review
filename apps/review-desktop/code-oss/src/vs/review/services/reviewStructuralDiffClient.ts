@@ -20,7 +20,7 @@ export class StructuralDiffClient implements StructuralDiffStream {
 		if (!response.ok) throw new Error((await response.json()).error ?? "Structural diff request failed.");
 		if (!response.body || !response.headers.get("content-type")?.includes("ndjson")) {
 			await response.body?.cancel();
-			throw new Error("The Review host must be updated to stream structural diffs.");
+			throw new Error("The Whiteboard host must be updated to stream structural diffs.");
 		}
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();

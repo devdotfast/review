@@ -29,7 +29,7 @@ export async function run(ctx) {
   const first = legacyFixtures[0];
 
   const info = await ctx.cliRaw(
-    ["info", "--review", first.metadata.sourceUuid, "--json"],
+    ["info", "--session", first.metadata.sourceUuid, "--json"],
     first.worktreePath,
   );
 

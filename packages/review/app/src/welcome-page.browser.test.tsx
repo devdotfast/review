@@ -98,9 +98,9 @@ describe("Welcome agent installation", () => {
       expect(container.textContent).toContain("No coding agents detected.");
       expect(container.querySelector('[role="alert"]')).toBeNull();
       expect(container.querySelector(".review-agent-setup-agents")).toBeNull();
-      await click("Install review in PATH");
+      await click("Install whiteboard in PATH");
       expect(setupActions.installCli).toHaveBeenCalledOnce();
-      expect(container.textContent).toContain("review command installed.");
+      expect(container.textContent).toContain("whiteboard command installed.");
       await click("Refresh agents");
       expect(container.textContent).not.toContain("No coding agents detected.");
       expect(
@@ -223,7 +223,7 @@ describe("Welcome agent installation", () => {
         await click("Collapse Connect your agents");
         await click("Expand Connect your agents");
         expect(state()).toBe("installed");
-        await click("Expand Create your first review");
+        await click("Expand Create your first session");
 
         const writeText = vi
           .spyOn(navigator.clipboard, "writeText")

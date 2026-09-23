@@ -35,7 +35,7 @@ Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEdit
 );
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(ReviewCanvasEditorPane, ReviewCanvasEditorPane.ID, "Review"),
+	EditorPaneDescriptor.create(ReviewCanvasEditorPane, ReviewCanvasEditorPane.ID, "Whiteboard"),
 	[new SyncDescriptor(ReviewCanvasEditorInput)],
 );
 

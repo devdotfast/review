@@ -204,7 +204,7 @@ export async function createHarness({
 
     // New workbench windows can show the isolated profile's community invitation.
     await candidate.addLocatorHandler(
-      candidate.getByText("Join the Review community", { exact: true }),
+      candidate.getByText("Join the Whiteboard community", { exact: true }),
       async () => {
         await candidate
           .getByRole("checkbox", { name: "Don't show again" })
@@ -315,7 +315,7 @@ export async function createHarness({
   async function dismissCommunityDialog(candidate) {
     if (disableCommunityHandler) return;
 
-    const dialog = candidate.getByText("Join the Review community", {
+    const dialog = candidate.getByText("Join the Whiteboard community", {
       exact: true,
     });
 
@@ -375,7 +375,12 @@ export async function createHarness({
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
-    return { status: response.status, value: await response.json() };
+    const value = await response.json();
+
+    return {
+      status: response.status,
+      value: value,
+    };
   };
 
   /** `api` plus a 200 assertion: an error body is JSON too, so an unasserted read can stand in for a document. */
@@ -423,7 +428,7 @@ export async function createHarness({
       return {
         ...(await exec(
           process.execPath,
-          [path.join(runtime, "dist/cli.js"), ...args],
+          [path.join(runtime, "dist/whiteboard-cli.js"), ...args],
           {
             cwd,
             env: commandEnv,
@@ -456,7 +461,7 @@ export async function createHarness({
         return {
           ...(await exec(
             process.execPath,
-            [path.join(runtime, "dist/cli.js"), ...args, "--json"],
+            [path.join(runtime, "dist/whiteboard-cli.js"), ...args, "--json"],
             { cwd, env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 },
           )),
           code: 0,
@@ -686,10 +691,10 @@ export async function dismissModalEditor(
   return true;
 }
 
-/** Opens a review the way a reader does, with `review app pick --review`. */
+/** Opens a review the way a reader does, with `review app pick --session`. */
 export async function pickReview(ctx, sessionId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", sessionId, "--json"],
+    ["app", "pick", "--session", sessionId, "--json"],
     cwd,
   );
 

@@ -125,7 +125,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 
 	private requireConnection(): ReviewDesktopConnection {
 		if (!this.connection) {
-			throw new Error("The Review Desktop connection is not established yet.");
+			throw new Error("The Whiteboard connection is not established yet.");
 		}
 		return this.connection;
 	}
@@ -239,13 +239,13 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			headers: this.authHeaders(),
 			signal: AbortSignal.timeout(5_000),
 		});
-		await this.requireOk(response, "Review tutorial status");
+		await this.requireOk(response, "Whiteboard tutorial status");
 		const payload = (await response.json()) as {
 			version?: unknown;
 			sessionId?: unknown;
 		};
 		if (payload.version !== 1 || (payload.sessionId !== null && typeof payload.sessionId !== "string")) {
-			throw new Error("Review tutorial status is invalid.");
+			throw new Error("Whiteboard tutorial status is invalid.");
 		}
 		return { version: 1, sessionId: payload.sessionId as string | null };
 	}
@@ -275,7 +275,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			headers: this.authHeaders(),
 			signal: AbortSignal.timeout(120_000),
 		});
-		await this.requireOk(response, "Review tutorial preparation");
+		await this.requireOk(response, "Whiteboard tutorial preparation");
 	}
 
 	async openTutorial(): Promise<ReviewTutorialOpenResponse> {
@@ -285,7 +285,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			headers: this.authHeaders(),
 			signal: AbortSignal.timeout(120_000),
 		});
-		await this.requireOk(response, "Review tutorial open");
+		await this.requireOk(response, "Whiteboard tutorial open");
 		const payload = parseReviewTutorialOpenResponse(await response.json());
 		this.tutorialPrepareAttempted = true;
 		this.storageService.remove(REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY, StorageScope.APPLICATION);
@@ -299,7 +299,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			headers: this.authHeaders(),
 			signal: AbortSignal.timeout(30_000),
 		});
-		await this.requireOk(response, "Review tutorial delete");
+		await this.requireOk(response, "Whiteboard tutorial delete");
 		this.tutorialPreparePromise = undefined;
 		this.tutorialPrepareAttempted = true;
 		this.storageService.store(
@@ -434,7 +434,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 				? current(value)
 				: Promise.resolve({
 						ok: false,
-						error: "Review Desktop control handler is unavailable.",
+						error: "Whiteboard control handler is unavailable.",
 					});
 		});
 	}
@@ -459,7 +459,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 				await this.maintainControl(dispatch);
 			},
 			{
-				onRetry: (error) => console.error("[Review Desktop] control channel stopped", error),
+				onRetry: (error) => console.error("[Whiteboard] control channel stopped", error),
 			},
 		);
 	}
@@ -478,7 +478,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			}
 			await new Promise((resolve) => setTimeout(resolve, 100));
 		}
-		throw new Error("The embedded Review server did not become healthy.");
+		throw new Error("The embedded Whiteboard server did not become healthy.");
 	}
 
 
@@ -488,7 +488,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			async (onConnected) => {
 				await this.consumeControl(dispatch, onConnected);
 				if (this.controller.signal.aborted) return;
-				throw new Error("The Review Desktop control stream ended.");
+				throw new Error("The Whiteboard control stream ended.");
 			},
 			{
 				onExhausted: (error) => {

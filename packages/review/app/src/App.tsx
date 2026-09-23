@@ -574,7 +574,7 @@ function ReviewLayoutContent({
               <div
                 className="review-segmented"
                 role="group"
-                aria-label="Review views"
+                aria-label="Session views"
               >
                 {reviewViews.map((view) => (
                   <button
@@ -674,7 +674,7 @@ function ReviewLayoutContent({
           </header>
           {review.historicalRevision ? (
             <div className="review-history-banner" role="status">
-              <span>You are viewing an older version of this review.</span>
+              <span>You are viewing an older version of this session.</span>
               <button
                 type="button"
                 onClick={() =>
@@ -825,7 +825,7 @@ function ReviewDocumentLoadState({
     case "unavailable":
       return (
         <ReviewUnavailable
-          title="Review unavailable"
+          title="Session unavailable"
           message={state.message}
           action={
             state.currentReviewUuid ? (

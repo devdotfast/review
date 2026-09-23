@@ -26,12 +26,12 @@ async function openShare(
 	progress: IProgressService,
 ) {
 	try {
-		const client = new SessionApiClient(await session.getConnection());
+		const client = new SessionApiClient({ ...await session.getConnection(), apiPath: "/sessions-api" });
 		await progress.withProgress({ location: ProgressLocation.Notification, title: "Opening shared review" }, async (reporter) => {
 			const started = await client.post<{ sessionId: string }>("/sharing/import", { url });
 			for (;;) {
 				const status = await client.read<{ stage: string; title?: string; error?: string }>(`/sharing/import/${started.sessionId}`);
-				if (status.stage === "error") throw new Error(status.error ?? "Could not open the shared review.");
+				if (status.stage === "error") throw new Error(status.error ?? "Could not open the shared session.");
 				if (status.stage === "ready") {
 					await tabs.openApiReview(started.sessionId, status.title ?? "Shared review");
 					return;
@@ -48,7 +48,7 @@ async function openShare(
 	} catch (error) {
 		notifications.prompt(
 			Severity.Error,
-			error instanceof Error ? error.message : "Could not open the shared review.",
+			error instanceof Error ? error.message : "Could not open the shared session.",
 			[{ label: "Retry", run: () => openShare(url, session, tabs, notifications, progress) }],
 		);
 	}
@@ -73,7 +73,7 @@ class SharedReviewUrlHandler extends Disposable implements IURLHandler {
 			url.hash = uri.fragment;
 			await openShare(url.href, this.session, this.tabs, this.notifications, this.progress);
 		} catch {
-			this.notifications.error("Invalid Review share link.");
+			this.notifications.error("Invalid Whiteboard share link.");
 		}
 		return true;
 	}
@@ -88,7 +88,7 @@ registerAction2(
 		constructor() {
 			super({
 				id: "review.openSharedReview",
-				title: localize2("review.openSharedReview", "Open Shared Review"),
+				title: localize2("review.openSharedReview", "Open Shared Session"),
 				f1: true,
 			});
 		}
@@ -100,7 +100,7 @@ registerAction2(
 			const url = await accessor
 				.get(IQuickInputService)
 				.input({
-					prompt: "Paste a Review share link",
+					prompt: "Paste a Whiteboard share link",
 					placeHolder: "https://app.dev.fast/s/…",
 					ignoreFocusLost: true,
 				});

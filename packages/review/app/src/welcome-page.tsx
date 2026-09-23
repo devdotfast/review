@@ -102,11 +102,11 @@ export function WelcomePage({
                 {install
                   ? "No coding agents detected."
                   : "Agent setup is unavailable."}{" "}
-                Install <code>review</code> to get started.
+                Install <code>whiteboard</code> to get started.
               </p>
               {status?.shim.installed ? (
                 <p>
-                  <code>review</code> command installed.
+                  <code>whiteboard</code> command installed.
                 </p>
               ) : null}
               {setupActions ? (
@@ -121,8 +121,8 @@ export function WelcomePage({
                   }
                 >
                   {status?.shim.installed
-                    ? "Reinstall review in PATH"
-                    : "Install review in PATH"}
+                    ? "Reinstall whiteboard in PATH"
+                    : "Install whiteboard in PATH"}
                 </button>
               ) : null}
             </>
@@ -160,11 +160,11 @@ export function WelcomePage({
       done: tourTotal > 0 && tourChecked >= tourTotal,
       note: onboarding
         ? `${tourChecked} of ${tourTotal} checks`
-        : "a three-minute sample review",
+        : "a three-minute sample session",
       body: (
         <>
           <p className="review-home-zero-hint">
-            Explore a sample review in three minutes.
+            Explore a sample session in three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -175,7 +175,7 @@ export function WelcomePage({
       ),
     },
     {
-      title: "Create your first review",
+      title: "Create your first session",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
       body: <PromptCard agent={promptAgent(status)} />,
@@ -195,13 +195,13 @@ export function WelcomePage({
           <div className="review-onboarding-columns">
             <div className="review-onboarding-intro">
               <span className="review-onboarding-kicker">
-                Welcome to Review
+                Welcome to Whiteboard
               </span>
               <h1 className="review-onboarding-headline">
                 Your codebase, explained by your agent.
               </h1>
               <p className="review-onboarding-sub">
-                Connect your agent. Explore a review. Create your own.
+                Connect your agent. Explore a session. Create your own.
               </p>
               {onClose ? (
                 <button
@@ -262,7 +262,7 @@ function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
   if (installedAgents.length === 0) return false;
 
   // Optional trace-search registrations are managed in Settings and do not
-  // determine whether Review skills are installed.
+  // determine whether Whiteboard skills are installed.
   return !status.cli || status.shim.installed;
 }
 

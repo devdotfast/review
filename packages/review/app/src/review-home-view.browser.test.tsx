@@ -547,7 +547,7 @@ describe("setupBannerMessage", () => {
     };
 
     expect(setupBannerMessage(status)).toBe(
-      "Review is not set up for your coding agents yet.",
+      "Whiteboard is not set up for your coding agents yet.",
     );
   });
 });

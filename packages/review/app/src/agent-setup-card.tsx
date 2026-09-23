@@ -146,7 +146,7 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installs Review skills, the <code>review</code> command, and MCP tools
+        Installs Whiteboard skills, the <code>whiteboard</code> command, and MCP tools
         where supported.
       </p>
       {error || status.error ? (
@@ -167,7 +167,7 @@ export function AgentSetupCard({
         .map((item) => (
           <p className="review-agent-setup-error" key={item.target}>
             {item.error ??
-              `${TARGET_LABELS[item.target]} already has custom Review MCP settings. Remove that entry in your agent's settings, then reinstall here to let Review manage it.`}
+              `${TARGET_LABELS[item.target]} already has custom Whiteboard MCP settings. Remove that entry in your agent's settings, then reinstall here to let Whiteboard manage it.`}
           </p>
         ))}
     </section>

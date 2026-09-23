@@ -17,7 +17,7 @@ WORKSPACE=$(cd "$(dirname "$0")/../../.." && pwd)
 FIXTURES="$WORKSPACE/packages/review/src/fixtures/legacy-reviews"
 HOME_DIR=${1:-$(mktemp -d /tmp/review-live-XXXX)}
 SCRATCH="$HOME_DIR/repos/review-scratch"
-LIVE="${DEV_REVIEW_HOME:-$HOME/.dev}"
+LIVE="${DEV_WHITEBOARD_HOME:-$HOME/.dev}"
 
 if [ "$(cd "$HOME_DIR" && pwd -P)" = "$(cd "$LIVE" 2>/dev/null && pwd -P)" ]; then
   echo "refusing to build inside the live review home $LIVE" >&2
@@ -89,11 +89,11 @@ fi
   echo "Launch the Desktop:"
   echo
   echo "    cd $WORKSPACE"
-  echo "    DEV_REVIEW_HOME=\"$HOME_DIR\" DEV_FAST_REVIEW_TELEMETRY_DISABLED=1 DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_REVIEW_EXTENSIONS=none pnpm dev"
+  echo "    DEV_WHITEBOARD_HOME=\"$HOME_DIR\" DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1 DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_WHITEBOARD_EXTENSIONS=none pnpm dev"
   echo
   echo "CLI in a second terminal (run \`review\` from inside $SCRATCH):"
   echo
-  echo "    export DEV_REVIEW_HOME=\"$HOME_DIR\" DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_FAST_REVIEW_TELEMETRY_DISABLED=1"
+  echo "    export DEV_WHITEBOARD_HOME=\"$HOME_DIR\" DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1"
   echo "    alias review='pnpm --filter @dev.fast/review review'"
   echo
   echo "Inventory (state before the Desktop lists Home):"

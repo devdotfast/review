@@ -464,7 +464,7 @@ describe("runTraceHook with hosted storage", () => {
     await runGit(repo, ["add", "README.md"]);
     await runGit(repo, ["commit", "-m", "initial"]);
     const devHome = path.join(repo, ".dev");
-    const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
+    const env: NodeJS.ProcessEnv = { DEV_WHITEBOARD_HOME: devHome };
     const configPath = traceConfigPath({ devHome });
     await mkdir(path.dirname(configPath), { recursive: true });
 

@@ -89,7 +89,7 @@ describe("hosted trace commands", () => {
     home = mkdtempSync(path.join(tmpdir(), "trace-hosted-cli-"));
     repo = path.join(home, "repo");
     devHome = path.join(home, ".dev");
-    env = { DEV_REVIEW_HOME: devHome };
+    env = { DEV_WHITEBOARD_HOME: devHome };
     execFileSync("git", ["init", "--quiet", repo]);
     execFileSync(
       "git",

@@ -66,9 +66,9 @@ const extension = path.join(root, "probe");
 
 const env = {
   ...process.env,
-  DEV_REVIEW_HOME: home,
-  DEV_REVIEW_IMPORT_FROM: "none",
-  DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
+  DEV_WHITEBOARD_HOME: home,
+  DEV_WHITEBOARD_IMPORT_FROM: "none",
+  DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: "1",
   REVIEW_LSP_E2E_ROOT: root,
 };
 
@@ -76,8 +76,8 @@ for (const key of [
   "NODE_OPTIONS",
   "DEV_FAST_AGENT_SESSION",
   "CODEX_THREAD_ID",
-  "DEV_FAST_REVIEW_TOOLING_ROOT",
-  "DEV_FAST_REVIEW_SERVER_ENTRY",
+  "DEV_FAST_WHITEBOARD_TOOLING_ROOT",
+  "DEV_FAST_WHITEBOARD_SERVER_ENTRY",
 ])
   delete env[key];
 
@@ -314,11 +314,11 @@ async function launch() {
         NODE_ENV: "development",
         VSCODE_DEV: "1",
         VSCODE_CLI: "1",
-        DEV_FAST_REVIEW_SERVER_ENTRY: path.join(
+        DEV_FAST_WHITEBOARD_SERVER_ENTRY: path.join(
           workspace,
           "packages/review/dist/server/desktop-host.js",
         ),
-        DEV_FAST_REVIEW_TOOLING_ROOT: workspace,
+        DEV_FAST_WHITEBOARD_TOOLING_ROOT: workspace,
       };
 
   app = spawn(

@@ -91,7 +91,7 @@ describe("hosted trace storage", () => {
       mkdirSync(dir, { recursive: true });
     }
 
-    vi.stubEnv("DEV_REVIEW_HOME", devHome);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
     vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", corpusRoot);
     execFileSync("git", ["init", "--quiet"], { cwd: repoDir });

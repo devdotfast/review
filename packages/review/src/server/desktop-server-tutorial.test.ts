@@ -30,7 +30,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("Review Desktop tutorial preparation", () => {
   it("serves native reviews while removed session and publishing routes return 404", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-native-routes-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
     const local = openLocalSessionStore(path.join(home, "review-api.db"));
 
     const server = tutorialServer(home, {
@@ -98,7 +98,7 @@ describe("Review Desktop tutorial preparation", () => {
 
   it("opens a prepared native tutorial into the JSON canvas with interactive content, pins and resources", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-json-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
 
     const local = openLocalSessionStore(path.join(home, "review-api.db"));
 

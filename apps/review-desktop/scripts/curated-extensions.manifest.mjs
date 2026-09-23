@@ -13,7 +13,7 @@
 // and paste the emitted sha256 values back in here.
 
 /**
- * `group` drives the DEV_REVIEW_EXTENSIONS materialization filter in run.sh.
+ * `group` drives the DEV_WHITEBOARD_EXTENSIONS materialization filter in run.sh.
  * Which of the materialized extensions are enabled is a separate, persisted
  * choice made through the in-app "Manage Extensions" picker.
  *
@@ -274,7 +274,7 @@ export const curatedExtensions = Object.freeze([
 /** Build targets Review knows how to materialize platform-specific VSIXes for. */
 export const supportedTargets = Object.freeze(["darwin-arm64", "linux-x64"]);
 
-/** Group tokens accepted by DEV_REVIEW_EXTENSIONS, in display order. */
+/** Group tokens accepted by DEV_WHITEBOARD_EXTENSIONS, in display order. */
 export const curatedGroups = Object.freeze([
   "rust",
   "swift",
@@ -352,7 +352,7 @@ export function targetKeyFor(extension, target) {
   return extension.targets[target] ? target : undefined;
 }
 
-/** Parses a DEV_REVIEW_EXTENSIONS value into the set of groups to materialize. */
+/** Parses a DEV_WHITEBOARD_EXTENSIONS value into the set of groups to materialize. */
 export function parseGroupSelection(raw) {
   const value = (raw ?? "all").trim();
 

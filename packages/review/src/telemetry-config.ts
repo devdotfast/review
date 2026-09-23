@@ -5,7 +5,7 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { findReviewPackageRoot } from "./package-paths";
-import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
+import { DEV_WHITEBOARD_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export interface ReviewTelemetryInstallConfig {
   installationId: string;
@@ -45,7 +45,7 @@ export function isTelemetryOptedOut(
   config?: Pick<ReviewTelemetryInstallConfig, "enabled">,
 ): boolean {
   // Test runners must never emit real telemetry: every vitest/node-test run
-  // with a temp DEV_REVIEW_HOME mints a fresh installation id and floods the
+  // with a temp DEV_WHITEBOARD_HOME mints a fresh installation id and floods the
   // installation and command metrics. Telemetry's own unit tests inject fake
   // capture clients, so they are unaffected by this guard.
   if (isEnabledEnvValue(env.VITEST) || env.NODE_ENV === "test") return true;
@@ -57,10 +57,10 @@ export function isTelemetryOptedOut(
   return [
     env.DO_NOT_TRACK,
     env.DNT,
-    env.PROGRESSIVE_REVIEW_TELEMETRY_DISABLED,
+    env.PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED,
     env.DEV_FAST_TELEMETRY_DISABLED,
-    env.DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED,
-    env.DEV_FAST_REVIEW_TELEMETRY_DISABLED,
+    env.DEV_FAST_PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED,
+    env.DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED,
   ].some(isEnabledEnvValue);
 }
 
@@ -161,9 +161,9 @@ export function isInternalTelemetry(
   env: NodeJS.ProcessEnv,
   config?: Pick<ReviewTelemetryInstallConfig, "internal">,
 ): boolean {
-  if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "1") return true;
+  if (env.PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL === "1") return true;
 
-  if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "0") return false;
+  if (env.PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL === "0") return false;
 
   if (config?.internal === true) return true;
 

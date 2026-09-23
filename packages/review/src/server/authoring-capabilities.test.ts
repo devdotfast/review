@@ -17,9 +17,9 @@ it("discovers the live Desktop map preference without opening a review", async (
 
   const env = {
     ...process.env,
-    DEV_REVIEW_HOME: home,
-    DEV_REVIEW_SERVER_DIR: "",
-    DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
+    DEV_WHITEBOARD_HOME: home,
+    DEV_WHITEBOARD_SERVER_DIR: "",
+    DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: "1",
   };
 
   const local = openLocalSessionStore(path.join(home, "review-api.db"));
@@ -81,7 +81,7 @@ it("discovers the live Desktop map preference without opening a review", async (
     });
     expect(opened).toBe(false);
     await expect(
-      connectSessionApi({ ...env, DEV_REVIEW_SERVER_DIR: home }),
+      connectSessionApi({ ...env, DEV_WHITEBOARD_SERVER_DIR: home }),
     ).rejects.toThrow(/review server start/);
     relay.close();
     expect(await client.read("/capabilities")).toMatchObject({
@@ -91,7 +91,7 @@ it("discovers the live Desktop map preference without opening a review", async (
     await expect(
       connectSessionApi({
         ...env,
-        DEV_REVIEW_SERVER_DIR: path.join(home, "missing"),
+        DEV_WHITEBOARD_SERVER_DIR: path.join(home, "missing"),
       }),
     ).rejects.toThrow(/review server start/);
   } finally {

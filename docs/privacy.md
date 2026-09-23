@@ -178,7 +178,7 @@ DO_NOT_TRACK=1 review info
 Set the debug sink before launching Review Desktop:
 
 ```sh
-DEV_FAST_REVIEW_TELEMETRY_DEBUG=1 review app launch
+DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG=1 review app launch
 ```
 
 Review prints each event to stderr instead of sending it to PostHog. See

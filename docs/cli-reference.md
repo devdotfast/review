@@ -95,21 +95,21 @@ Desktop installation. `review server status --json` checks readiness. Stop the
 server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
 and shared `dev-review` skill as Desktop.
 
-Set `DEV_REVIEW_SERVER_DIR` for the server and clients to select a job's saved
+Set `DEV_WHITEBOARD_SERVER_DIR` for the server and clients to select a job's saved
 state, or use `review --state-dir <path> server start` and
 `review --state-dir <path> api …`. The default is
-`$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
+`$DEV_WHITEBOARD_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Each accepted edit is saved as a version immediately; the author holds a
 `review_activity` lease while writing, exactly as with Desktop.
 
-For local testing, open Desktop on the same `DEV_REVIEW_HOME` and select the
+For local testing, open Desktop on the same `DEV_WHITEBOARD_HOME` and select the
 review from Home. Both hosts use `review-api.db`; edits appear live with the same
 review ID, history, and resources. The headless server may be stopped after
-authoring. For a custom `--state-dir` or `DEV_REVIEW_SERVER_DIR`, launch Desktop
-with `DEV_REVIEW_HOME` set to that directory. From this checkout, use `pnpm dev`
+authoring. For a custom `--state-dir` or `DEV_WHITEBOARD_SERVER_DIR`, launch Desktop
+with `DEV_WHITEBOARD_HOME` set to that directory. From this checkout, use `pnpm dev`
 to launch the matching Desktop build. `review server open` has been removed.
 
 ## Desktop and discovery
@@ -255,8 +255,8 @@ edits do not change a published snapshot.
 
 `review server start` supports publishing without Desktop. The CLI selects the
 same server/profile as `review api`, including `--state-dir`. CI can supply
-`DEV_REVIEW_SHARE_TOKEN` instead of a saved `review login`; optional
-`DEV_REVIEW_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
+`DEV_WHITEBOARD_SHARE_TOKEN` instead of a saved `review login`; optional
+`DEV_WHITEBOARD_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
 credentials are not written to the profile. Git credentials are still needed
 for the verification fetch.
 
@@ -266,7 +266,7 @@ The exporter, importer and hosted client remain available from
 Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at
 `https://app.dev.fast`. The configuration lives in
-`$DEV_REVIEW_HOME/trace/config.json`:
+`$DEV_WHITEBOARD_HOME/trace/config.json`:
 
 ```json
 {
@@ -347,7 +347,7 @@ Use a Desktop release that supports v2 configuration before migration. `--keep-l
 does not prevent older apps from uploading to their saved bucket.
 
 `review version --verbose [--json]` reports CLI paths, delegation, and build
-identity. Set `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
+identity. Set `DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
 
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
@@ -413,18 +413,18 @@ and telemetry administration:
 | `TRACE_ENV_FILE`                                 | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists.  |
 | `TRACE_SETTINGS_FILE`                            | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
 | `TRACE_HOME_DIR`                                 | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home.                                             |
-| `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`.                                                                                                                 |
-| `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT`             | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
-| `DEV_FAST_REVIEW_DESKTOP_BACKGROUND` | Set to `1` by `review app` launches without `--focus`. Review Desktop then shows its first window without taking focus and ignores focus requests until you click it or run `review app launch --focus`. |
-| `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
-| `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
-| `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |
+| `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_WHITEBOARD_HOME/opencode-traces`.                                                                                                                 |
+| `DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT`             | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
+| `DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND` | Set to `1` by `review app` launches without `--focus`. Review Desktop then shows its first window without taking focus and ignores focus requests until you click it or run `review app launch --focus`. |
+| `PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
+| `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_WHITEBOARD_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
+| `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_WHITEBOARD_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |
 | `DO_NOT_TRACK`                                   | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 | `DNT`                                            | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED`          | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED`          | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 | `DEV_FAST_TELEMETRY_DISABLED`                    | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `DEV_FAST_REVIEW_TELEMETRY_DISABLED`             | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED`             | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 
 See [Telemetry and privacy](telemetry.md) for the complete telemetry controls
 and data policy.

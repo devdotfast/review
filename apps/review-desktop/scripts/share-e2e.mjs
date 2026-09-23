@@ -104,13 +104,13 @@ await new Promise((resolve) => server.close(resolve));
 
 const env = {
   ...process.env,
-  DEV_REVIEW_HOME: fixture.home,
+  DEV_WHITEBOARD_HOME: fixture.home,
   REVIEW_LSP_E2E_ROOT: root,
-  DEV_REVIEW_EXTENSIONS: "none",
-  DEV_FAST_REVIEW_SHARED_DATA_DIR: path.join(root, "shared-data"),
-  DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(port),
-  DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
-  DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
+  DEV_WHITEBOARD_EXTENSIONS: "none",
+  DEV_FAST_WHITEBOARD_SHARED_DATA_DIR: path.join(root, "shared-data"),
+  DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT: String(port),
+  DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: "1",
+  DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1",
 };
 
 const app = spawn("bash", [path.join(appRoot, "scripts/run.sh")], {

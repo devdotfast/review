@@ -29,7 +29,7 @@ for (const [controls, theme, scale] of [["native", "Review Dark", 1], ["custom",
     "window.confirmBeforeClose": "never",
     "update.mode": "none",
   }));
-  const env = { ...process.env, DEV_REVIEW_HOME: path.join(profile, "review-home"), DEV_REVIEW_IMPORT_FROM: "none" };
+  const env = { ...process.env, DEV_WHITEBOARD_HOME: path.join(profile, "review-home"), DEV_WHITEBOARD_IMPORT_FROM: "none" };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.VSCODE_DEV;
   delete env.VSCODE_CLI;

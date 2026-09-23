@@ -59,7 +59,7 @@ export async function gitRepository(
 
 export async function reviewHome(): Promise<string> {
   const home = await tempDir("review-test-home-");
-  vi.stubEnv("DEV_REVIEW_HOME", home);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", home);
 
   return home;
 }

@@ -75,22 +75,22 @@ export function createReviewServerEnvironment(options: {
   return {
     ...options.applicationEnvironment,
     ...options.resolvedEnvironment,
-    DEV_FAST_REVIEW_SERVER_ENTRY: options.serverEntry,
-    DEV_FAST_REVIEW_SERVER_PORT: String(options.port),
-    DEV_FAST_REVIEW_SERVER_TOKEN: options.token,
-    DEV_FAST_REVIEW_INSTANCE_ID: options.instanceId,
-    DEV_FAST_REVIEW_APP_PID: String(options.appPid),
-    DEV_FAST_REVIEW_APP_VERSION: options.appVersion,
-    DEV_FAST_REVIEW_APP_URL_PROTOCOL: options.appUrlProtocol,
-    DEV_FAST_REVIEW_DESKTOP_HOST_AUTOSTART: "1",
-    DEV_FAST_REVIEW_TELEMETRY_DISABLED: options.telemetryEnabled
+    DEV_FAST_WHITEBOARD_SERVER_ENTRY: options.serverEntry,
+    DEV_FAST_WHITEBOARD_SERVER_PORT: String(options.port),
+    DEV_FAST_WHITEBOARD_SERVER_TOKEN: options.token,
+    DEV_FAST_WHITEBOARD_INSTANCE_ID: options.instanceId,
+    DEV_FAST_WHITEBOARD_APP_PID: String(options.appPid),
+    DEV_FAST_WHITEBOARD_APP_VERSION: options.appVersion,
+    DEV_FAST_WHITEBOARD_APP_URL_PROTOCOL: options.appUrlProtocol,
+    DEV_FAST_WHITEBOARD_DESKTOP_HOST_AUTOSTART: "1",
+    DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: options.telemetryEnabled
       ? undefined
       : "1",
     // The app's own Electron binary doubles as the CLI's Node runtime
     // (ELECTRON_RUN_AS_NODE), so an installed `review` command never
     // depends on a system Node.
-    DEV_FAST_REVIEW_CLI_RUNTIME: process.execPath,
-    DEV_FAST_REVIEW_RUST_ANALYZER: options.rustAnalyzerSource,
+    DEV_FAST_WHITEBOARD_CLI_RUNTIME: process.execPath,
+    DEV_FAST_WHITEBOARD_RUST_ANALYZER: options.rustAnalyzerSource,
   };
 }
 

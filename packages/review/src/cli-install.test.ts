@@ -107,7 +107,7 @@ describe("trace capture installation", () => {
     const status = await resolveCliInstallStatus({
       packageRoot,
       homeDir,
-      env: { DEV_REVIEW_HOME: path.join(homeDir, ".dev") },
+      env: { DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev") },
     });
 
     expect(status.trace).toMatchObject({
@@ -129,7 +129,7 @@ describe("trace capture installation", () => {
     const homeDir = await temporaryHome("review-fresh-trace-");
 
     const env: NodeJS.ProcessEnv = {
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
       TRACE_R2_MODE: "mock",
     };
 
@@ -194,7 +194,7 @@ describe("trace capture installation", () => {
     temporaryDirectories.push(homeDir);
 
     const env: NodeJS.ProcessEnv = {
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
       TRACE_ENV_FILE: path.join(homeDir, "trace.env"),
       TRACE_SETTINGS_FILE: path.join(homeDir, "trace-settings.json"),
       TRACE_R2_MODE: "mock",
@@ -584,7 +584,7 @@ describe("resolveInstalledReviewAgentStatus", () => {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       AGENT_PROBE_LOG: probeLog,
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
       PATH: binDir,
     };
 
@@ -608,7 +608,7 @@ async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-cli-install-"));
   temporaryDirectories.push(directory);
 
-  return { DEV_REVIEW_HOME: directory };
+  return { DEV_WHITEBOARD_HOME: directory };
 }
 
 async function temporaryHome(prefix: string): Promise<string> {
@@ -620,7 +620,7 @@ async function temporaryHome(prefix: string): Promise<string> {
 
 function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
   return {
-    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
     PATH: "/usr/bin:/bin",
     SHELL: shell,
   };
@@ -634,7 +634,7 @@ describe("installed launcher runtime selection", () => {
     await writeFile(oldCli, 'console.log("old-build")');
     await writeFile(
       cliPath,
-      'console.log(JSON.stringify({build:"current",home:process.env.DEV_REVIEW_HOME}))',
+      'console.log(JSON.stringify({build:"current",home:process.env.DEV_WHITEBOARD_HOME}))',
     );
     const shim = path.join(homeDir, ".local", "bin", "whiteboard");
     await writePathShim(
@@ -652,12 +652,12 @@ describe("installed launcher runtime selection", () => {
     });
 
     const { stdout } = await promisify(execFile)(shim, [], {
-      env: { PATH: "/usr/bin:/bin", DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1" },
+      env: { PATH: "/usr/bin:/bin", DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1" },
     });
 
     expect(JSON.parse(stdout)).toEqual({
       build: "current",
-      home: env.DEV_REVIEW_HOME,
+      home: env.DEV_WHITEBOARD_HOME,
     });
   });
 
@@ -666,10 +666,10 @@ describe("installed launcher runtime selection", () => {
     const profile = path.join(home, "a profile");
     const cli = path.join(home, "cli.cjs");
     const shim = path.join(home, "review");
-    await writeFile(cli, "console.log(process.env.DEV_REVIEW_HOME)");
+    await writeFile(cli, "console.log(process.env.DEV_WHITEBOARD_HOME)");
     await writePathShim(shim, cli, process.execPath, profile);
     const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
-    delete env.DEV_REVIEW_HOME;
+    delete env.DEV_WHITEBOARD_HOME;
 
     const result = await promisify(execFile)(shim, ["trace", "status"], {
       env,
@@ -695,7 +695,7 @@ describe("installed launcher runtime selection", () => {
       await writeFile(fallbackCli, "// CLI fixture\n");
       await writeFile(
         fallbackRuntime,
-        '#!/bin/sh\nprintf "%s\\n" "fallback" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
+        '#!/bin/sh\nprintf "%s\\n" "fallback" "guard=$DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE" "delegated=$DEV_FAST_WHITEBOARD_CLI_DELEGATED" "$@"\n',
         { mode: 0o755 },
       );
 
@@ -704,7 +704,7 @@ describe("installed launcher runtime selection", () => {
       if (runtimeExists)
         await writeFile(
           discoveredRuntime,
-          '#!/bin/sh\nprintf "%s\\n" "discovered" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
+          '#!/bin/sh\nprintf "%s\\n" "discovered" "guard=$DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE" "delegated=$DEV_FAST_WHITEBOARD_CLI_DELEGATED" "$@"\n',
           { mode: 0o755 },
         );
       const discoveryDir = path.join(home, "review-desktop");
@@ -721,8 +721,8 @@ describe("installed launcher runtime selection", () => {
       const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
         env: {
           ...process.env,
-          DEV_REVIEW_HOME: home,
-          DEV_FAST_REVIEW_CLI_NO_DELEGATE: noDelegate ? "1" : "",
+          DEV_WHITEBOARD_HOME: home,
+          DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: noDelegate ? "1" : "",
         },
       });
 
@@ -767,7 +767,7 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
   const homeDir = await temporaryHome("review-uninstall-coexist-");
 
   const env = {
-    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
     TRACE_R2_MODE: "mock",
   };
 
@@ -831,9 +831,9 @@ it("upgrades enabled repository hooks during a command-only install", async () =
 
   const env = {
     ...process.env,
-    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
     TRACE_SETTINGS_FILE: settings,
-    DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
+    DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1",
   };
 
   const oldCommand = path.join(homeDir, ".local", "bin", "review");

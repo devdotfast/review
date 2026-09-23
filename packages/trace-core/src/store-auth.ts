@@ -1,7 +1,7 @@
 // Login, logout, and identity for the hosted trace store.
 //
 // A device-flow login (ported from the dev CLI's auth/device.ts) stores a
-// bearer token under $DEV_REVIEW_HOME/auth.json. Every store-bound command
+// bearer token under $DEV_WHITEBOARD_HOME/auth.json. Every store-bound command
 // reads that file back through requireStoreClient.
 
 import { readFile, rm } from "node:fs/promises";

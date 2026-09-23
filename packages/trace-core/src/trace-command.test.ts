@@ -89,7 +89,7 @@ describe("traceScope", () => {
       devHome: path.join("/h", ".dev"),
     });
     expect(
-      traceScope({ homeDir: "/h", env: { DEV_REVIEW_HOME: "/d" } }).devHome,
+      traceScope({ homeDir: "/h", env: { DEV_WHITEBOARD_HOME: "/d" } }).devHome,
     ).toBe(path.resolve("/d"));
     expect(traceScope().homeDir).toBe(os.homedir());
   });

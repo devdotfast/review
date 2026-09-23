@@ -65,8 +65,8 @@ const writeLens = <Edit>(sessionId: string, value: Edit, leaseId?: string) =>
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-lean-"));
-  database = path.join(directory, "reviews.db");
-  vi.stubEnv("DEV_REVIEW_HOME", directory);
+  database = path.join(directory, "sessions.db");
+  vi.stubEnv("DEV_WHITEBOARD_HOME", directory);
   providers = {
     validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
     validateSource: vi.fn<SessionProviders["validateSource"]>(async () => {}),

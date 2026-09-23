@@ -107,7 +107,7 @@ class CodeMain {
 		// Graphical DevBoxes run without a desktop screen-reader daemon. Keep
 		// the native Linux accessibility provider enabled when Review Desktop
 		// explicitly opts into the generic Computer Use backend.
-		if (process.env['DEV_FAST_REVIEW_FORCE_ACCESSIBILITY'] === '1') {
+		if (process.env['DEV_FAST_WHITEBOARD_FORCE_ACCESSIBILITY'] === '1') {
 			app.setAccessibilitySupportEnabled(true);
 		}
 

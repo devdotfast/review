@@ -70,7 +70,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 - **Journey:** `first-run` · **Found:** 2026-09-17 · **Status:** fix-pr #351
 - **Repro:** launch Desktop on a fresh profile with telemetry live
-  (`DEV_FAST_REVIEW_TELEMETRY_DISABLED` unset). The notification "Review sends
+  (`DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED` unset). The notification "Review sends
   anonymous usage data. You can change this in Settings." appears behind the
   modal "Join the Review community" dialog; dismiss the dialog and look for the
   notification.
@@ -233,7 +233,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   silent 90 s hang and a user without it gets a second Desktop. The journey
   asserts no pointer error reached the output, and that the command either
   reached a Desktop after the replacement or reported that it could not launch
-  one; it kills whatever it started, identified by `DEV_REVIEW_HOME` in the
+  one; it kills whatever it started, identified by `DEV_WHITEBOARD_HOME` in the
   process environment so a Desktop belonging to another session is never
   touched.
 - **Notes:** `review-app.ts:49-50` calls `runtime.launch()` before it reads the
@@ -246,7 +246,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   rethrowing anything but `null` from `runReviewAppPick` would fix it. Two
   consequences beyond the message: the launched app inherits the caller's
   environment (`open`(1) propagates it), so it attaches to whichever
-  `DEV_REVIEW_HOME` the CLI had; and the "Review Desktop is not ready. Run
+  `DEV_WHITEBOARD_HOME` the CLI had; and the "Review Desktop is not ready. Run
   `review app launch` and retry `review app pick`." throw at `review-app.ts:52-55`
   is unreachable, because a null pointer read means the launcher already gave up.
 
@@ -258,8 +258,8 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   `<home>/reviews/11111111-1111-4111-8111-111111111111/review.json` holding
   `{"schemaVersion":1,"uuid":"11111111-1111-4111-8111-111111111111"}` — then
   start the Desktop's server host against that home
-  (`node <runtime>/dist/server/desktop-host.js` with `DEV_REVIEW_HOME=<home>`,
-  `DEV_FAST_REVIEW_SERVER_PORT=0`, `DEV_FAST_REVIEW_APP_PID=<a live pid>`).
+  (`node <runtime>/dist/server/desktop-host.js` with `DEV_WHITEBOARD_HOME=<home>`,
+  `DEV_FAST_WHITEBOARD_SERVER_PORT=0`, `DEV_FAST_WHITEBOARD_APP_PID=<a live pid>`).
 - **Expected:** the host starts, the reviews it can read are available, and the
   one it cannot is reported to the reader with the command its own error text
   names: "Invalid review.json; run `review migrate apply`"
@@ -332,7 +332,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 - **Journey:** `lsp-go` · **Found:** 2026-09-17 · **Status:** fix-pr #354
 - **Repro:** launch Desktop with the curated `go` group materialized
-  (`DEV_REVIEW_EXTENSIONS=go`) on a machine whose PATH and GOPATH have no
+  (`DEV_WHITEBOARD_EXTENSIONS=go`) on a machine whose PATH and GOPATH have no
   `gopls`, then open a review with a `code_peek` over a `.go` file.
 - **Expected:** Review asks before it downloads and builds a language server,
   the way it asks before downloading an optional extension

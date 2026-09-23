@@ -57,7 +57,7 @@ or ask for an architecture review of a repository.
 
 You can add optional guidance for generated Review documents:
 
-- User-level guidance: `$DEV_REVIEW_HOME/DEV-REVIEW.md`. Review uses
+- User-level guidance: `$DEV_WHITEBOARD_HOME/DEV-REVIEW.md`. Review uses
   `~/.dev/DEV-REVIEW.md` by default.
 - Repository guidance: `DEV-REVIEW.md` at the source repository root.
 

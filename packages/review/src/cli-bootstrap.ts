@@ -10,11 +10,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
-import { whiteboardEnvironment } from "./whiteboard-environment.js";
-
 export async function runCliBootstrap(entryUrl: string): Promise<number> {
-  Object.assign(process.env, whiteboardEnvironment(process.env));
-
   // A standalone build (npx/global install) defers to the CLI bundled with a
   // running Review Desktop so the CLI can never skew from the server it talks
   // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
@@ -65,8 +61,8 @@ export async function runCliBootstrap(entryUrl: string): Promise<number> {
     const env = process.env;
 
     if (
-      env.DEV_FAST_REVIEW_CLI_NO_DELEGATE ||
-      env.DEV_FAST_REVIEW_CLI_DELEGATED
+      env.DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE ||
+      env.DEV_FAST_WHITEBOARD_CLI_DELEGATED
     )
       return null;
 
@@ -79,7 +75,7 @@ export async function runCliBootstrap(entryUrl: string): Promise<number> {
           ["api", "mcp", "server"].includes(argument) ||
           /^--state-dir(?:=|$)/.test(argument),
       ) ||
-      env.DEV_REVIEW_SERVER_DIR?.trim()
+      env.DEV_WHITEBOARD_SERVER_DIR?.trim()
     )
       return null;
     const ownPath = fileURLToPath(entryUrl);
@@ -89,8 +85,8 @@ export async function runCliBootstrap(entryUrl: string): Promise<number> {
     // This bootstrap runs before the Node floor check, so it cannot import
     // devReviewHome() from @dev.fast/trace-core: that module graph needs a modern
     // Node. Keep this copy in step with devReviewHome().
-    const devHome = env.DEV_REVIEW_HOME?.trim()
-      ? path.resolve(env.DEV_REVIEW_HOME.trim())
+    const devHome = env.DEV_WHITEBOARD_HOME?.trim()
+      ? path.resolve(env.DEV_WHITEBOARD_HOME.trim())
       : path.join(os.homedir(), ".dev");
 
     let cliPath: string;
@@ -131,7 +127,7 @@ export async function runCliBootstrap(entryUrl: string): Promise<number> {
     // and works even when this process runs on an older system Node.
     const childEnv: NodeJS.ProcessEnv = {
       ...env,
-      DEV_FAST_REVIEW_CLI_DELEGATED: "1",
+      DEV_FAST_WHITEBOARD_CLI_DELEGATED: "1",
     };
 
     // The current parser owns verbose diagnostics, including usage errors and

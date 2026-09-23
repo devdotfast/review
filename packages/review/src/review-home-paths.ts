@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { devReviewHome } from "@dev.fast/trace-core";
 
-export { DEV_REVIEW_HOME_ENV, devReviewHome } from "@dev.fast/trace-core";
+export { DEV_WHITEBOARD_HOME_ENV, devReviewHome } from "@dev.fast/trace-core";
 
 /** Return the repository-specific storage root under the shared Review home. */
 export function reviewRepoStorageRoot(rootPath: string): string {

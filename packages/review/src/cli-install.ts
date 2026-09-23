@@ -820,13 +820,13 @@ export async function writePathShim(
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DEFAULT_HOME=${shSingleQuote(devHome)}
-export DEV_REVIEW_HOME="\${DEV_WHITEBOARD_HOME:-\${DEV_REVIEW_HOME:-$DEFAULT_HOME}}"
-DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
+export DEV_WHITEBOARD_HOME="\${DEV_WHITEBOARD_HOME:-$DEFAULT_HOME}"
+DISCOVERY="$DEV_WHITEBOARD_HOME/review-desktop/server.json"
 
 cli=""
 runtime=""
 delegated=""
-if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
+if [ -z "\${DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
   case "$FALLBACK_CLI" in
     */whiteboard-cli.js) cli="\${cli%/*}/whiteboard-cli.js" ;;
@@ -846,8 +846,8 @@ if [ ! -f "$cli" ]; then
 fi
 
 # Prevent bootstrap from overriding this selection.
-export DEV_FAST_REVIEW_CLI_NO_DELEGATE=1
-export DEV_FAST_REVIEW_CLI_DELEGATED="$delegated"
+export DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1
+export DEV_FAST_WHITEBOARD_CLI_DELEGATED="$delegated"
 
 # The app's Electron binary runs as plain Node.js and matches the server's
 # runtime exactly; no system Node is required on this path.

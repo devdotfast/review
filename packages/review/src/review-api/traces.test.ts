@@ -24,7 +24,7 @@ const session = "72b3d130-2e72-41b6-8686-527a93d16647";
 beforeEach(async () => {
   root = mkdtempSync(path.join(tmpdir(), "json-review-traces-"));
   vi.stubEnv("HOME", root);
-  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", root);
   vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", path.join(root, "search"));
   vi.stubEnv("TRACE_R2_MODE", "mock");
   vi.stubEnv("TRACE_R2_MOCK_DIR", path.join(root, "bucket"));

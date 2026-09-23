@@ -50,7 +50,7 @@ describe("review migrate apply", () => {
 
     const code = await runReviewMigration({
       homeDir: reviewHome,
-      env: { DEV_REVIEW_HOME: reviewHome },
+      env: { DEV_WHITEBOARD_HOME: reviewHome },
       json: true,
       stdout: io.stdout,
       stderr: io.stderr,
@@ -112,7 +112,7 @@ describe("review migrate apply", () => {
 
     const code = await runReviewMigration({
       homeDir: reviewHome,
-      env: { DEV_REVIEW_HOME: reviewHome },
+      env: { DEV_WHITEBOARD_HOME: reviewHome },
       stdout: io.stdout,
       stderr: io.stderr,
       runtime: {
@@ -164,7 +164,7 @@ describe("review migrate apply", () => {
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
-      env: { DEV_REVIEW_HOME: "/review-home" },
+      env: { DEV_WHITEBOARD_HOME: "/review-home" },
       stdout: io.stdout,
       stderr: io.stderr,
       runtime: {
@@ -204,7 +204,7 @@ describe("review migrate apply", () => {
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
-      env: { DEV_REVIEW_HOME: "/review-home" },
+      env: { DEV_WHITEBOARD_HOME: "/review-home" },
       stdout: io.stdout,
       stderr: io.stderr,
       runtime: {
@@ -260,7 +260,7 @@ describe("review migrate apply", () => {
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
-      env: { DEV_REVIEW_HOME: "/review-home" },
+      env: { DEV_WHITEBOARD_HOME: "/review-home" },
       stdout: io.stdout,
       stderr: io.stderr,
       runtime: {
@@ -300,7 +300,7 @@ describe("review migrate apply", () => {
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
-      env: { DEV_REVIEW_HOME: "/review-home" },
+      env: { DEV_WHITEBOARD_HOME: "/review-home" },
       stdout: io.stdout,
       stderr: io.stderr,
       runtime: {

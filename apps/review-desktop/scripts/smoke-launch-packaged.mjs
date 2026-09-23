@@ -128,7 +128,7 @@ export async function smokeLaunch({
   // A launch that finds a running instance hands its arguments over and exits 0
   // without opening anything. The throwaway user-data-dir is what keeps this a
   // real boot rather than a silent no-op.
-  const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1", DEV_REVIEW_HOME: path.join(userDataDir, "review-home"), DEV_REVIEW_IMPORT_FROM: "none" };
+  const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1", DEV_WHITEBOARD_HOME: path.join(userDataDir, "review-home"), DEV_WHITEBOARD_IMPORT_FROM: "none" };
   delete env.ELECTRON_RUN_AS_NODE;
 
   const child = spawn(binary, [`--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(userDataDir, "extensions")}`], {

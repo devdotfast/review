@@ -119,7 +119,7 @@ function extensionDirectoryForOverride(userDir: string, homeDir: string): string
 function discoverSource(options: ReviewUserConfigImportOptions): SourceCandidate | 'disabled' | undefined {
 	const env = options.env ?? process.env;
 	const homeDir = options.homeDir ?? os.homedir();
-	const override = env['DEV_REVIEW_IMPORT_FROM'];
+	const override = env['DEV_WHITEBOARD_IMPORT_FROM'];
 
 	if (override?.toLowerCase() === 'none') {
 		return 'disabled';

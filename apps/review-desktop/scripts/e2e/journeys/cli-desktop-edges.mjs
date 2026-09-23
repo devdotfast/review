@@ -95,7 +95,7 @@ async function installedDesktopPids(home) {
   const owned = new Set();
 
   const belongs = new RegExp(
-    `DEV_REVIEW_HOME=${home.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(\\s|$)`,
+    `DEV_WHITEBOARD_HOME=${home.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(\\s|$)`,
   );
 
   for (const line of environments.split("\n")) {
@@ -269,9 +269,9 @@ export async function run(ctx) {
       timeout: 25000,
       env: {
         HOME: probeHome,
-        DEV_REVIEW_HOME: probeHome,
+        DEV_WHITEBOARD_HOME: probeHome,
         // The journey's Desktop already holds this port, so a second one would die of the collision, not of the CLI.
-        DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: "",
+        DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT: "",
       },
     },
   );

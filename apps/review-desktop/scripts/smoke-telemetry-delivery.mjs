@@ -5,13 +5,13 @@
  *   node scripts/smoke-telemetry-delivery.mjs [--timeout-ms 120000]
  *
  * Why this is separate from smoke-error-telemetry.mjs. That one runs with
- * DEV_FAST_REVIEW_TELEMETRY_DEBUG=1, and the debug sink PRINTS events instead of
+ * DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG=1, and the debug sink PRINTS events instead of
  * sending them. So it proves everything up to the sink and nothing after it: a
  * report could be shaped perfectly and still never leave, or leave with a
  * different payload than the sink displayed.
  *
  * This one sends for real, to a local endpoint standing in for the vendor
- * (PROGRESSIVE_REVIEW_POSTHOG_HOST), and asserts on the exact bytes of the
+ * (PROGRESSIVE_WHITEBOARD_POSTHOG_HOST), and asserts on the exact bytes of the
  * batch request. Nothing reaches the real project.
  *
  * What only this can catch: an event that the queue rejects as unserializable,
@@ -113,14 +113,14 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
       env: {
         ...process.env,
         FORCE_COLOR: "0",
-        DEV_REVIEW_HOME: reviewHome,
-        DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
-        DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),
+        DEV_WHITEBOARD_HOME: reviewHome,
+        DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: stateRoot,
+        DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT: String(debugPort),
         // Send for real, but to us. Note there is deliberately NO
-        // DEV_FAST_REVIEW_TELEMETRY_DEBUG here: the sink would suppress the
+        // DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG here: the sink would suppress the
         // send and this smoke would prove nothing.
-        PROGRESSIVE_REVIEW_POSTHOG_HOST: capture.origin,
-        PROGRESSIVE_REVIEW_POSTHOG_KEY: "phc_smoke_local_only",
+        PROGRESSIVE_WHITEBOARD_POSTHOG_HOST: capture.origin,
+        PROGRESSIVE_WHITEBOARD_POSTHOG_KEY: "phc_smoke_local_only",
         // The opt-out rules treat a test environment as opted out, and this
         // script may well be run from one.
         NODE_ENV: "development",

@@ -110,7 +110,7 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
       await mkdtemp(path.join(os.tmpdir(), "legacy-corpus-")),
     );
 
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
     const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
     const source = path.resolve(corpus!);
     const clones = new Map<string, string>();

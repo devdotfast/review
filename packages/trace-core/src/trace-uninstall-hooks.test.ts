@@ -34,7 +34,7 @@ it("releases Review hooks across registered repositories while preserving login 
 
   const scope = traceScope({
     homeDir: home,
-    env: { DEV_REVIEW_HOME: devHome },
+    env: { DEV_WHITEBOARD_HOME: devHome },
   });
 
   const review = path.join(home, ".local/bin/review");

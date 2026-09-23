@@ -21,7 +21,7 @@ const alias = {
 export default defineConfig({
   test: {
     env: {
-      DEV_REVIEW_HOME: path.join(
+      DEV_WHITEBOARD_HOME: path.join(
         os.tmpdir(),
         `review-canvas-tests-${process.pid}`,
       ),

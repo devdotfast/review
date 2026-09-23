@@ -115,8 +115,6 @@ interface ReviewCliRuntime {
   runStoreWhoami: typeof runStoreWhoami;
 }
 
-import { whiteboardEnvironment } from "./whiteboard-environment.js";
-
 export interface WhiteboardCliInput {
   argv: string[];
   cliVersion?: string;
@@ -148,7 +146,7 @@ interface CliRunState {
 export async function runWhiteboardCli(
   input: WhiteboardCliInput,
 ): Promise<number> {
-  const env = whiteboardEnvironment(input.env ?? process.env);
+  const env = input.env ?? process.env;
 
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
@@ -239,7 +237,7 @@ export async function runWhiteboardCli(
     stateDir = program.opts<{ stateDir?: string }>().stateDir,
   ) =>
     stateDir
-      ? { ...env, DEV_REVIEW_SERVER_DIR: path.resolve(cwd, stateDir) }
+      ? { ...env, DEV_WHITEBOARD_SERVER_DIR: path.resolve(cwd, stateDir) }
       : env;
 
   const serverCommand = configureOutput(

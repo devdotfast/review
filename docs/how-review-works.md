@@ -105,7 +105,7 @@ show “This older revision is unavailable in this version of Review” with
 Authored Reviews are stored under:
 
 ```text
-${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
+${DEV_WHITEBOARD_HOME:-~/.dev}/reviews/<uuid>/
 ```
 
 The directory contains the document, supporting TypeScript, pinned state,

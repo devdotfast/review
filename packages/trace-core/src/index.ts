@@ -127,7 +127,7 @@ export {
   humanStream,
 } from "./cli-output";
 
-export { DEV_REVIEW_HOME_ENV, devReviewHome } from "./trace-home";
+export { DEV_WHITEBOARD_HOME_ENV, devReviewHome } from "./trace-home";
 
 export {
   selectTraceStorage,

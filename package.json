@@ -5,8 +5,8 @@
   "description": "Review Desktop monorepo",
   "license": "MIT",
   "scripts": {
-    "dev": "REVIEW_DESKTOP_DEV_FAST=1 pnpm desktop:build && pnpm desktop:run",
-    "dev:background": "DEV_FAST_REVIEW_DESKTOP_BACKGROUND=1 pnpm dev",
+    "dev": "WHITEBOARD_DESKTOP_DEV_FAST=1 pnpm desktop:build && pnpm desktop:run",
+    "dev:background": "DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND=1 pnpm dev",
     "clean": "node scripts/clean-review-desktop.mjs",
     "desktop:build": "pnpm --filter @dev.fast/review-desktop app:build",
     "desktop:run": "pnpm --filter @dev.fast/review-desktop app:run",

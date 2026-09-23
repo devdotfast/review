@@ -33,10 +33,10 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
     fixture.repository,
   );
 
-  vi.stubEnv("DEV_REVIEW_SHARE_TOKEN", "ci-publish-token");
-  vi.stubEnv("DEV_REVIEW_SHARE_ORIGIN", "https://sharing.test");
-  vi.stubEnv("DEV_REVIEW_HOME", stateDir);
-  vi.stubEnv("DEV_FAST_REVIEW_TELEMETRY_DISABLED", "1");
+  vi.stubEnv("DEV_WHITEBOARD_SHARE_TOKEN", "ci-publish-token");
+  vi.stubEnv("DEV_WHITEBOARD_SHARE_ORIGIN", "https://sharing.test");
+  vi.stubEnv("DEV_WHITEBOARD_HOME", stateDir);
+  vi.stubEnv("DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED", "1");
   const realFetch = globalThis.fetch;
   const requests: { url: string; headers: Headers; body?: string }[] = [];
   const blobs = new Map<string, Buffer>();
@@ -193,7 +193,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
         ],
         env: {
           ...process.env,
-          DEV_REVIEW_SERVER_DIR: path.join(root, "wrong-server"),
+          DEV_WHITEBOARD_SERVER_DIR: path.join(root, "wrong-server"),
         },
         stdout,
         stderr,

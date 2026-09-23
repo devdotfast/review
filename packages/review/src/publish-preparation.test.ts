@@ -31,7 +31,7 @@ describe("resolvePublishReview", () => {
     );
 
     cleanupPaths.push(home);
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
 
     const healthy = await createReviewDir({
       worktreePath: repo.rootPath,

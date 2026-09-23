@@ -512,7 +512,7 @@ describe("runInstall", () => {
     const homeDir = await makeTempDir();
     const devHome = await makeTempDir();
     const skill = path.join(homeDir, ".claude", "skills", "scratchpad");
-    const env = { DEV_REVIEW_HOME: devHome };
+    const env = { DEV_WHITEBOARD_HOME: devHome };
 
     const install = async () => {
       const streams = silentStreams();

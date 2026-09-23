@@ -45,14 +45,14 @@ const install = (autoUpdate = false) =>
 beforeEach(async () => {
   homeDir = await mkdtemp(path.join(tmpdir(), "review-mcp-install-"));
   env = {
-    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
     PATH: "/usr/bin:/bin",
     SHELL: "/bin/sh",
   };
   cliPath = path.join(homeDir, "cli.cjs");
   await writeFile(
     cliPath,
-    "console.log(JSON.stringify({args:process.argv.slice(2),home:process.env.DEV_REVIEW_HOME,serverDir:process.env.DEV_REVIEW_SERVER_DIR,build:1}));",
+    "console.log(JSON.stringify({args:process.argv.slice(2),home:process.env.DEV_WHITEBOARD_HOME,serverDir:process.env.DEV_WHITEBOARD_SERVER_DIR,build:1}));",
   );
 });
 
@@ -99,7 +99,7 @@ it("installs both agents without their CLIs, preserves other settings, and launc
     {
       env: {
         ...env,
-        DEV_REVIEW_SERVER_DIR: path.join(homeDir, "other-headless-server"),
+        DEV_WHITEBOARD_SERVER_DIR: path.join(homeDir, "other-headless-server"),
         ...registration.env,
       },
     },
@@ -107,7 +107,7 @@ it("installs both agents without their CLIs, preserves other settings, and launc
 
   expect(JSON.parse(stdout)).toEqual({
     args: ["mcp"],
-    home: env.DEV_REVIEW_HOME,
+    home: env.DEV_WHITEBOARD_HOME,
     serverDir: "",
     build: 1,
   });
@@ -431,7 +431,7 @@ for (const target of targets) {
       ...desired,
       name: undefined,
       command: path.join(homeDir, "review-mcp"),
-      env: { DEV_REVIEW_HOME: env.DEV_REVIEW_HOME! },
+      env: { DEV_WHITEBOARD_HOME: env.DEV_WHITEBOARD_HOME! },
     };
 
     await writeReviewMcpRegistration(legacy);
@@ -454,7 +454,7 @@ for (const target of targets) {
       { env: { ...env, ...servers.whiteboard.env } },
     );
 
-    expect(JSON.parse(stdout).home).toBe(env.DEV_REVIEW_HOME);
+    expect(JSON.parse(stdout).home).toBe(env.DEV_WHITEBOARD_HOME);
   });
 
   it(`preserves a conflicting ${target} Whiteboard server during legacy migration`, async () => {

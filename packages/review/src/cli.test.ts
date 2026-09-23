@@ -54,7 +54,7 @@ describe("Review CLI", () => {
         HOME: homeDir,
         PATH: "/usr/bin:/bin",
         SHELL: "/bin/zsh",
-        DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+        DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
       };
 
       try {
@@ -149,7 +149,7 @@ describe("Review CLI", () => {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
+      DEV_WHITEBOARD_HOME: path.join(rootPath, ".dev"),
     };
 
     await mkdir(discoveryDir, { recursive: true });

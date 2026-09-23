@@ -5,7 +5,7 @@
 > below is in git history.
 
 Desktop and the foreground headless server share `review-api.db` under the same
-profile directory, defaulting to `DEV_REVIEW_HOME`. This makes locally authored
+profile directory, defaulting to `DEV_WHITEBOARD_HOME`. This makes locally authored
 reviews visible in Desktop without copying content or assigning new review IDs.
 Independent CI jobs can select separate profiles.
 

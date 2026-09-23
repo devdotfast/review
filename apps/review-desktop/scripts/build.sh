@@ -18,7 +18,7 @@ source "$APP_DIR/scripts/code-oss-dependencies.sh"
 source "$APP_DIR/scripts/freshness.sh"
 
 DEV_FAST_ACTIVE=0
-if [[ "${REVIEW_DESKTOP_CI_FAST:-0}" != "1" && "${REVIEW_DESKTOP_DEV_FAST:-0}" == "1" ]]; then
+if [[ "${REVIEW_DESKTOP_CI_FAST:-0}" != "1" && "${WHITEBOARD_DESKTOP_DEV_FAST:-0}" == "1" ]]; then
   DEV_FAST_ACTIVE=1
 fi
 
@@ -38,7 +38,7 @@ if [[ -n "${REVIEW_DESKTOP_CURATED_EXTENSION_TARGET:-}" ]]; then
   node "$APP_DIR/scripts/curated-extensions.mjs" \
     "--target=$REVIEW_DESKTOP_CURATED_EXTENSION_TARGET"
 elif [[ "$DEV_FAST_ACTIVE" == "1" ]]; then
-  DEV_FAST_EXTENSIONS_SELECTION="${DEV_REVIEW_EXTENSIONS:-all}"
+  DEV_FAST_EXTENSIONS_SELECTION="${DEV_WHITEBOARD_EXTENSIONS:-all}"
   node "$APP_DIR/scripts/curated-extensions.mjs" \
     "--only=$DEV_FAST_EXTENSIONS_SELECTION"
   # run.sh follows this script in `pnpm dev`; leave the selection it

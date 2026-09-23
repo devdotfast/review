@@ -105,7 +105,7 @@ export async function ensureBundledRustAnalyzer(
 
   return await ensureBundledTool({
     tool: "rust-analyzer",
-    sourcePath: env.DEV_FAST_REVIEW_RUST_ANALYZER,
+    sourcePath: env.DEV_FAST_WHITEBOARD_RUST_ANALYZER,
     env,
   });
 }

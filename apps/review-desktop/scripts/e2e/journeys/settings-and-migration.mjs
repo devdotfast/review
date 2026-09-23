@@ -63,9 +63,9 @@ async function runDesktopHost(ctx, home) {
   const env = {
     ...ctx.env,
     HOME: home,
-    DEV_REVIEW_HOME: home,
-    DEV_FAST_REVIEW_SERVER_PORT: "0",
-    DEV_FAST_REVIEW_APP_PID: String(process.pid),
+    DEV_WHITEBOARD_HOME: home,
+    DEV_FAST_WHITEBOARD_SERVER_PORT: "0",
+    DEV_FAST_WHITEBOARD_APP_PID: String(process.pid),
   };
 
   try {

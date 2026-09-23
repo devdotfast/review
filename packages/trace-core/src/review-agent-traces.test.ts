@@ -87,7 +87,7 @@ describe("review-agent-traces", () => {
       { mode: 0o755 },
     );
     vi.stubEnv("PATH", `${binDir}${path.delimiter}${process.env.PATH}`);
-    vi.stubEnv("DEV_REVIEW_HOME", path.join(tempDir, "review-home"));
+    vi.stubEnv("DEV_WHITEBOARD_HOME", path.join(tempDir, "review-home"));
 
     try {
       const synced = await syncReviewTrace({

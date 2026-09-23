@@ -15,7 +15,7 @@ const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 
 /** "1" on launches without --focus; Desktop opens inactive. */
 export const REVIEW_DESKTOP_BACKGROUND_ENV =
-  "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
+  "DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND";
 
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
 
@@ -229,7 +229,7 @@ export function launchDesktopApplication(
   if (directLaunch) {
     // The Fedora CLI wrappers name their own channel's launcher.
     command =
-      env.DEV_FAST_REVIEW_DESKTOP_COMMAND?.trim() || "/usr/bin/review-desktop";
+      env.DEV_FAST_WHITEBOARD_DESKTOP_COMMAND?.trim() || "/usr/bin/review-desktop";
     method = `the installed Linux launcher at "${command}"`;
 
     if (electron) {
@@ -238,7 +238,7 @@ export function launchDesktopApplication(
     }
 
     args = [];
-    const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
+    const stateRoot = env.DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT?.trim();
 
     if (stateRoot) {
       args = [

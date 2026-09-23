@@ -9,7 +9,6 @@ import {
   reviewServerStateDir,
   serverNotReady,
 } from "../server-discovery.js";
-import { whiteboardEnvironment } from "../whiteboard-environment.js";
 import { SessionApiClient } from "./client.js";
 
 export interface AuthoringTool {
@@ -22,11 +21,9 @@ export interface AuthoringTool {
 }
 
 export async function connectSessionApi(env = process.env) {
-  env = whiteboardEnvironment(env);
-
   const apiPath = "/sessions-api";
 
-  if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
+  if (env.DEV_WHITEBOARD_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
     const server = await readReviewServerDiscovery(stateDir);
 
@@ -47,7 +44,7 @@ export async function connectSessionApi(env = process.env) {
 
   if (!discovery)
     throw new Error(
-      "No Review Desktop server is ready. Run review app launch, or select a running headless server with --state-dir or DEV_REVIEW_SERVER_DIR, then retry.",
+      "No Review Desktop server is ready. Run review app launch, or select a running headless server with --state-dir or DEV_WHITEBOARD_SERVER_DIR, then retry.",
     );
 
   return new SessionApiClient({

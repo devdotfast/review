@@ -31,10 +31,16 @@ bundled runtime, so it does not need the `review` command on `PATH`. No separate
 Node installation, agent CLI, port, or token configuration is needed. The
 desktop server remains the owner of every review.
 
-App updates refresh the launcher and repair missing MCP entries. Review leaves
-customized MCP entries alone and explains how to replace them if desired;
-uninstall removes only unchanged entries it created. Restart the agent or
-reconnect its MCP server after setup.
+App updates refresh the launcher and repair missing MCP entries. For Codex,
+Review replaces any existing `review` server entry with its own and marks
+Review's tools as approved, so Codex does not ask before each one; setting
+`enabled = false` on that entry turns Review off in Codex, and Review leaves it
+alone. For other agents Review leaves customized entries alone and explains how
+to replace them. Uninstall removes only entries Review created. Restart the
+agent or reconnect its MCP server after setup.
+
+Review and Review Preview share one `review` MCP entry. It connects to whichever
+app is running; when both run, it uses Review.
 
 Pi has no MCP connection. It gets a small `dev-review` pointer skill and uses the
 `review` command. Settings has a separate **Command line** row to install or
@@ -43,7 +49,8 @@ use the command; MCP agents do not need it. Other agents can use the installed
 `review api` command.
 
 Earlier versions of Review installed authoring skills for each agent. Review
-removes the copies it installed automatically.
+Desktop removes the copies it installed each time it starts, whether or not you
+set up agents from it. Skills you wrote are left alone.
 
 ## Review instructions
 

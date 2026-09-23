@@ -47,7 +47,7 @@ import {
 import { devReviewHome } from "./review-home-paths";
 
 /**
- * `review trace storage use` and `review trace config migrate`: the explicit
+ * `whiteboard trace storage use` and `review trace config migrate`: the explicit
  * selection and configuration commands. Both write only
  * `$DEV_REVIEW_HOME/trace/config.json`; the legacy files, environment, and
  * every remote object stay as they are.
@@ -245,7 +245,7 @@ async function useHosted(
 
     if (selectTraceStorage(scope).s3?.credentials) {
       human.write(
-        "Bucket credentials stay saved and inactive; `review trace storage use s3` switches back.\n",
+        "Bucket credentials stay saved and inactive; `whiteboard trace storage use s3` switches back.\n",
       );
     }
 
@@ -340,7 +340,7 @@ export async function runTraceConfigMigrate(
 
     if (currentStore(current) === "hosted") {
       throw new TraceConfigurationError(
-        `Hosted storage is selected in ${configFile.path}. Run \`review trace storage use s3\` first; migration never switches destinations.`,
+        `Hosted storage is selected in ${configFile.path}. Run \`whiteboard trace storage use s3\` first; migration never switches destinations.`,
       );
     }
 
@@ -351,7 +351,7 @@ export async function runTraceConfigMigrate(
 
     if (existingProfile && !unchanged) {
       throw new TraceConfigurationError(
-        `${configFile.path} already holds a different s3 store. Remove it or update it with \`review trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
+        `${configFile.path} already holds a different s3 store. Remove it or update it with \`whiteboard trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
       );
     }
 

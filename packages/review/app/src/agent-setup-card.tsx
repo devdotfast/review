@@ -146,12 +146,8 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installs the Review skills and <code>review</code> command. For Codex,
-        Claude Code, Cursor, and OpenCode, it also connects the Review MCP
-        tools. App updates refresh this setup automatically. Generated skills
-        are replaced; custom MCP settings are left alone. Restart your agent or
-        reconnect its MCP server after setup, and start a new session to load
-        updated skills.
+        Installs Review skills, the <code>review</code> command, and MCP tools
+        where supported.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>

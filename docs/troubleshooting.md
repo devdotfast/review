@@ -53,6 +53,25 @@ whiteboard app launch --json
 server. If launch reports success but those commands still cannot connect,
 quit all Review windows, reopen the app, and retry the launch command.
 
+## The command or MCP talks to the wrong Whiteboard Desktop
+
+Stable, Preview, and dev builds can run at the same time. See which one
+commands use:
+
+```sh
+whiteboard instances
+whiteboard version --verbose
+```
+
+The row marked `*` is the one selected. To change it, run
+`whiteboard instances use <key>` for the whole machine, or
+`export DEV_REVIEW_INSTANCE=<key>` in the shell you start your agent from.
+Reconnect the `whiteboard` MCP server afterwards, because an MCP session stays
+on the instance it first reached. If the error says the selected instance is
+not running, start it (`whiteboard app launch`, or `pnpm dev` in the named
+checkout) or pick one of the running instances it lists. For the full
+selection order, see the [CLI reference](cli-reference.md#several-whiteboard-desktops-on-one-machine).
+
 ## No Review appears for the checkout
 
 Run `whiteboard info` from the source repository. An empty `reviews` list means the

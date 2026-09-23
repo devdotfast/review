@@ -78,6 +78,7 @@ $ review version --json
 | `whiteboard app launch`    | Start Whiteboard Desktop, or activate a running one with `--focus`.   |
 | `whiteboard app pick`      | Select a published Review and optionally choose its opened view.  |
 | `whiteboard info`          | List Reviews associated with the current checkout.                |
+| `whiteboard instances`     | List running Whiteboard Desktops and choose the one commands use. |
 | `whiteboard api`           | Call a JSON Review authoring tool; `whiteboard api tools` lists them. |
 | `whiteboard mcp`           | Serve the same authoring tools over stdio MCP.                    |
 | `whiteboard server start`  | Run the foreground authoring server without Desktop.              |
@@ -132,6 +133,40 @@ The legacy `whiteboard app --review <uuid>` form remains a compatibility alias f
 
 `whiteboard app pick` accepts `--view` with one of `review`, `commits`, `diff`,
 `map`, or `trace`.
+
+## Several Whiteboard Desktops on one machine
+
+Stable, Preview, and any `pnpm dev` checkout can run at the same time. They
+share one `DEV_REVIEW_HOME`, so every instance sees the same Reviews, sign-in,
+and trace settings. Each running Desktop records itself under
+`$DEV_REVIEW_HOME/review-desktop/instances/<key>.json`. The key is `stable`,
+`preview`, or `dev-<checkout>-<hash>` for a source checkout.
+
+Every command that talks to Desktop, including `whiteboard mcp` and
+`whiteboard api`, picks one instance in this order:
+
+1. `DEV_REVIEW_INSTANCE=<key>`, for the current shell and anything started
+   from it.
+2. The machine default that `whiteboard instances use <key>` writes.
+3. The only running instance, when exactly one is running.
+4. `stable`.
+
+If the selected instance is not running, the command fails and names the
+instances that are running. It never switches to a different one.
+
+```sh
+whiteboard instances               # key, channel, state, version, url, checkout
+whiteboard instances --json
+whiteboard instances use preview   # machine default
+whiteboard instances clear
+export DEV_REVIEW_INSTANCE=dev-review-8b4e5a7fdb4a   # this shell only
+```
+
+`whiteboard app launch` starts the selected stable or Preview app. A dev
+instance is started with `pnpm dev` in its checkout. An MCP session keeps the
+instance it first reached; if that Desktop exits, reconnect the `whiteboard` MCP
+server. Agents can call `whiteboard_status` to see which instance they are
+using. `whiteboard version --verbose` prints the selected key and its record.
 
 ## Authoring
 
@@ -414,6 +449,7 @@ and telemetry administration:
 
 | Variable                                         | Meaning, precedence, and default                                                                                                                                                                                               |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DEV_REVIEW_INSTANCE`                            | Selects which running Whiteboard Desktop commands and MCP sessions use in this shell: `stable`, `preview`, or a `dev-…` key. It overrides the machine default from `whiteboard instances use`. |
 | `TRACE_ENV_FILE`                                 | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `whiteboard trace setup` update the legacy files unless an S3 profile already exists.  |
 | `TRACE_SETTINGS_FILE`                            | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `whiteboard trace setup` update the legacy files unless an S3 profile already exists. |
 | `TRACE_HOME_DIR`                                 | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home.                                             |

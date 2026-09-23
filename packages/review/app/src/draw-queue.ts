@@ -81,6 +81,8 @@ const MAX_STROKES = 16;
 
 /** The timeline one arrival plays, from the whiteboard motion boards. */
 export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
+  if (cursor.source === "standing") return [];
+
   if (cursor.source === "focus") return [{ phase: "attention", ms: HOLD }];
   const edit = cursor.edit;
 
@@ -219,13 +221,16 @@ function promote(state: DrawState, now: number): DrawState {
   };
 }
 
-/** A cursor arrived. A held focus gives way to it at once. */
+/** A cursor arrived. A held focus gives way to it at once; one that is
+ * already drawn only moves where the courier rests once the queue is empty. */
 export function arrive(
   state: DrawState,
   cursor: AuthoringCursor,
   now: number,
   reduced = false,
 ): DrawState {
+  if (cursor.source === "standing") return { ...state, standing: cursor };
+
   const steps = stepsFor(cursor).map((step) =>
     reduced && step.ms !== HOLD ? { ...step, ms: 0 } : step,
   );

@@ -57,7 +57,8 @@ import { isDirectory, isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
-  hasRetiredManagedSkills,
+  hasManagedSkillsToRemove,
+  keptSkillNames,
   removeInstalledSkills,
   resolveInstalledSkills,
   runInstall,
@@ -173,7 +174,11 @@ async function resolveAgentState(homeDir: string, env: NodeJS.ProcessEnv) {
 
         if (
           !managedTargets.includes(target) &&
-          (await hasRetiredManagedSkills(homeDir, [target]))
+          (await hasManagedSkillsToRemove(
+            homeDir,
+            [target],
+            managedTargets.includes("pi"),
+          ))
         )
           managedTargets.push(target);
       }
@@ -252,7 +257,7 @@ async function resolveCliInstallState(input: {
       stamp?.consent === "granted" &&
       (stamp.fingerprint !== fingerprint ||
         skills.some((skill) => skill.stale) ||
-        (await hasRetiredManagedSkills(homeDir, managedTargets)) ||
+        (await hasManagedSkillsToRemove(homeDir, managedTargets)) ||
         ((await isFile(cliPath)) &&
           mcp.some(
             (item) =>
@@ -637,15 +642,16 @@ async function removeCliInstallUnlocked(
   }
 
   for (const target of input.targets) {
-    const keepPi =
-      previous?.consent === "granted" &&
-      previous.targets?.includes("pi") &&
-      !input.targets.includes("pi");
-
     const { kept } = await removeInstalledSkills(
       target,
       homeDir,
-      target === "codex" && keepPi ? ["dev-review"] : [],
+      keptSkillNames(
+        skillsDestRoot(homeDir, target),
+        homeDir,
+        previous?.consent === "granted" &&
+          Boolean(previous.targets?.includes("pi")) &&
+          !input.targets.includes("pi"),
+      ),
     );
 
     for (const dest of kept)

@@ -122,6 +122,49 @@ describe("runInstall", () => {
     expect(streams.out.join("")).toContain("not created by Review");
   });
 
+  it("removes unstamped copies from older Review releases but not look-alikes", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const claude = path.join(homeDir, ".claude");
+
+    await writeSkill(
+      claude,
+      "dev-review",
+      "---\nname: dev-review\ndescription: old\n---\n\n# dev.fast Review\n",
+    );
+    await writeSkill(
+      claude,
+      "pr-review",
+      "---\nname: pr-review\ndescription: old\n---\n\nInstall @dev.fast/review.\n",
+    );
+    await writeSkill(claude, "review");
+    await mkdir(path.join(homeDir, "elsewhere"), { recursive: true });
+    await writeSkill(
+      path.join(homeDir, "elsewhere"),
+      "scratchpad",
+      "---\nname: scratchpad\ndescription: x\n---\n\n# dev.fast Review\n",
+    );
+    await symlink(
+      path.join(homeDir, "elsewhere/skills/scratchpad"),
+      path.join(claude, "skills/scratchpad"),
+    );
+
+    expect(
+      await runInstall({
+        targets: ["claude"],
+        homeDir,
+        packageRoot,
+        ...silentStreams(),
+      }),
+    ).toBe(0);
+
+    for (const name of ["dev-review", "pr-review"])
+      expect(existsSync(path.join(claude, "skills", name))).toBe(false);
+
+    for (const name of ["review", "scratchpad"])
+      expect(existsSync(path.join(claude, "skills", name))).toBe(true);
+  });
+
   it("does not require a skill bundle or create skills roots for MCP targets", async () => {
     const packageRoot = await makePackageRoot();
     await rm(path.join(packageRoot, "skills"), { recursive: true });

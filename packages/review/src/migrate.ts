@@ -29,7 +29,11 @@ import {
 } from "@dev.fast/trace-core";
 
 import { readDirectory } from "./fs-utils";
-import { defaultPackageRoot } from "./install";
+import {
+  RETIRED_SKILL_NAMES,
+  defaultPackageRoot,
+  isReviewOwnedSkill,
+} from "./install";
 import {
   ensureReviewPinnedCheckout,
   removeLegacyReviewCheckouts,
@@ -48,16 +52,7 @@ const PACKAGE_NAME = "@dev.fast/review";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const LEGACY_SKILL_NAMES = [
-  "dev-review-map",
-  "review",
-  "review-map",
-  "review-stop",
-  "progressive-review",
-  "pr-review",
-] as const;
-
-const CURRENT_SKILL_NAMES = ["dev-review", "trace-archaeology"] as const;
+const CURRENT_SKILL_NAMES = ["dev-review"] as const;
 
 const execFilePromise = promisify(execFile);
 
@@ -596,13 +591,13 @@ export async function removeLegacyReviewSkills(input: {
   const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
 
   for (const root of roots) {
-    for (const name of LEGACY_SKILL_NAMES) {
+    for (const name of RETIRED_SKILL_NAMES) {
       const skillDir = path.join(root, name);
 
       if (!(await pathExists(skillDir))) continue;
       result.checked += 1;
 
-      if (!(await isOwnedLegacySkill(skillDir, name))) {
+      if (!(await isReviewOwnedSkill(skillDir, name))) {
         result.blockers.push(
           `${skillDir} is not a positively identified Review-owned skill.`,
         );
@@ -636,27 +631,6 @@ export async function removeLegacyReviewSkills(input: {
   }
 
   return result;
-}
-
-async function isOwnedLegacySkill(
-  skillDir: string,
-  expectedName: string,
-): Promise<boolean> {
-  try {
-    const metadata = await lstat(skillDir);
-
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
-    const source = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
-    const name = frontmatter?.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1];
-
-    return (
-      name === expectedName &&
-      /@dev\.fast\/review|dev\.fast Review|progressive Review/i.test(source)
-    );
-  } catch {
-    return false;
-  }
 }
 
 async function readSkillSource(skillDir: string): Promise<string | undefined> {

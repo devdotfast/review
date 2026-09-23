@@ -67,7 +67,19 @@ import {
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
 import { budgetPatches } from "./numbered-patch.js";
-import { ReviewStore, type Snapshot } from "./store.js";
+import {
+  type PullRequestDeps,
+  defaultPullRequestDeps,
+  fetchPullRequest,
+  githubRemotes,
+  pullRequestAddress,
+  readPullRequest,
+} from "./pull-request.js";
+import {
+  type ResolvedPullRequest,
+  ReviewStore,
+  type Snapshot,
+} from "./store.js";
 import { traceSchema } from "./trace-schema.js";
 import { ReviewWorkspaces } from "./workspaces.js";
 import {
@@ -351,6 +363,8 @@ export class LocalReviewData {
       workspaceDatabase?: string;
       manageWorkspaces?: boolean;
       watch?: typeof watch;
+      /** gh, git and GitHub API access for pull request targets. */
+      pullRequests?: PullRequestDeps;
     } = {},
   ) {
     if (options.manageWorkspaces !== false)
@@ -724,6 +738,79 @@ export class LocalReviewData {
         worktreeRevision: revision,
       },
     };
+  }
+  /** The PR's current comparison, fetched into a registered checkout of its repository. */
+  async resolvePullRequest(
+    url: string,
+    repository: { id?: string; preferred?: string },
+  ): Promise<ResolvedPullRequest> {
+    const deps = this.options.pullRequests ?? defaultPullRequestDeps;
+    const { slug, number } = pullRequestAddress(url);
+    const record = readPullRequest(url, deps);
+
+    record.catch(() => {});
+
+    const checkout = await this.pullRequestCheckout(slug, repository, deps);
+    const pullRequest = await record;
+
+    const { head, base } = await fetchPullRequest(
+      { ...checkout, pullRequest },
+      deps,
+    );
+
+    const repositoryId = checkout.repositoryId;
+
+    return {
+      target: { kind: "commits", repositoryId, head, base },
+      pins: { repositoryId, base, head },
+      title: pullRequest.title.trim() || `PR #${number}`,
+    };
+  }
+  /** A registered checkout with a remote for owner/repo, and that remote. */
+  private async pullRequestCheckout(
+    slug: string,
+    repository: { id?: string; preferred?: string },
+    deps: PullRequestDeps,
+  ) {
+    const registered = this.store.repositories();
+
+    const candidates = repository.id
+      ? registered.filter((entry) => entry.id === repository.id)
+      : [
+          ...registered.filter((entry) => entry.id === repository.preferred),
+          ...registered.filter((entry) => entry.id !== repository.preferred),
+        ];
+
+    if (repository.id && candidates.length === 0)
+      throw new ReviewInputError("Repository is not registered.", 404);
+
+    for (const { id } of candidates) {
+      if (!existsSync(this.store.repositoryPath(id))) continue;
+      const vcs = await this.vcs(id);
+      const gitDir = vcs && (await gitCommonDir(vcs.rootPath));
+
+      if (!vcs || !gitDir) continue;
+
+      const remote = (await githubRemotes(gitDir, deps)).find(
+        (entry) => entry.slug.toLowerCase() === slug.toLowerCase(),
+      );
+
+      if (remote)
+        return {
+          repositoryId: id,
+          rootPath: vcs.rootPath,
+          gitDir,
+          kind: vcs.kind,
+          remote: remote.name,
+        };
+    }
+
+    throw new ReviewInputError(
+      repository.id
+        ? `That checkout has no GitHub remote for ${slug}. Add one, or omit repositoryId.`
+        : `No registered checkout has a GitHub remote for ${slug}. Register a checkout of ${slug} with review_register_repository first, or pass a target.`,
+      404,
+    );
   }
   async resolvePins(
     repositoryId: string,
@@ -1429,11 +1516,14 @@ export function openLocalReviewStore(
     blobReaderIdleTimeoutMs?: number;
     manageWorkspaces?: boolean;
     watch?: typeof watch;
+    pullRequests?: PullRequestDeps;
   } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
     resolveTarget: (target) => data.resolveTarget(target),
+    resolvePullRequest: (url, repository) =>
+      data.resolvePullRequest(url, repository),
     headBranch: (pins, headRef) => data.headBranch(pins, headRef),
     sourcePins: (snapshot) => data.sourcePins(snapshot),
     unavailableAnchors: (snapshot) => data.unavailableAnchors(snapshot),

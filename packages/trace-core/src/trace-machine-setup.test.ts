@@ -24,7 +24,7 @@ describe("trace machine capture switch", () => {
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), "trace-machine-"));
-    env = { DEV_REVIEW_HOME: path.join(home, ".dev") };
+    env = { DEV_WHITEBOARD_HOME: path.join(home, ".dev") };
     clearTraceEnvCache();
   });
 

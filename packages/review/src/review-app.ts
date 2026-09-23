@@ -72,7 +72,12 @@ export async function runReviewAppPick(
   );
 
   const client = new SessionApiClient(
-    { serverUrl: discovery.url, token: discovery.token },
+    {
+      serverUrl: discovery.url,
+      apiPath: "/sessions-api",
+
+      token: discovery.token,
+    },
     runtime.fetch,
   );
 

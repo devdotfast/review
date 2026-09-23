@@ -37,7 +37,7 @@ INHERITED_SESSION_ENV = (
     "DEV_FAST_AGENT_SESSION",
     "CODEX_THREAD_ID",
     "PI_SESSION_ID",
-    "DEV_FAST_REVIEW_TRACE",
+    "DEV_FAST_WHITEBOARD_TRACE",
 )
 
 
@@ -64,14 +64,14 @@ def desktop_request(method: str, route: str, home: Path) -> dict | None:
     return json.loads(body) if body else None
 
 
-# Each run gets its own review app: DEV_REVIEW_HOME (reviews store + desktop
+# Each run gets its own review app: DEV_WHITEBOARD_HOME (reviews store + desktop
 # discovery) under the run dir, and the desktop's Electron state under a short
 # /tmp path — the user-data dir carries a unix socket capped at 103 chars.
 PACKAGED_DESKTOP = Path("/Applications/dev.fast Review.app/Contents/MacOS/Review")
 # Development desktop from this checkout: the Code OSS shell built by
 # `pnpm --filter @dev-fast/review-desktop app:build`, serving this checkout's
 # review server, so desktop-side instrumentation is measurable. run.sh honors
-# DEV_REVIEW_HOME and DEV_FAST_REVIEW_DESKTOP_STATE_ROOT and execs the binary.
+# DEV_WHITEBOARD_HOME and DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT and execs the binary.
 DEV_DESKTOP_RUN = REPO_ROOT / "apps" / "review-desktop" / "scripts" / "run.sh"
 STATE_ROOTS = Path("/tmp/review-latency")
 
@@ -104,8 +104,8 @@ def launch_desktop(home: Path, state: Path, mode: str, log) -> subprocess.Popen:
         cwd=REPO_ROOT,
         env=os.environ
         | {
-            "DEV_REVIEW_HOME": str(home),
-            "DEV_FAST_REVIEW_DESKTOP_STATE_ROOT": str(state),
+            "DEV_WHITEBOARD_HOME": str(home),
+            "DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT": str(state),
         },
         stdout=desktop_log,
         stderr=subprocess.STDOUT,
@@ -154,7 +154,7 @@ def write_review_shim(bin_dir: Path, calls_log: Path) -> Path:
     shim.write_text(
         "#!/bin/sh\n"
         "# review-latency harness shim: instrumented source CLI, no desktop delegation.\n"
-        "export DEV_FAST_REVIEW_CLI_NO_DELEGATE=1\n"
+        "export DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1\n"
         f'printf \'%s start %s\\n\' "$(date +%s)" "$*" >> "{calls_log}"\n'
         f'errlog="{calls_log.parent / "review-shim-stderr.log"}"\n'
         'tmp="$(mktemp)"\n'
@@ -254,14 +254,14 @@ def published_in(calls_log: Path, offset: int) -> bool:
 
 def build_env(run_dir: Path, spec: RunSpec, home: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in INHERITED_SESSION_ENV}
-    env["DEV_FAST_REVIEW_TRACE_DIR"] = str(run_dir / "cli-traces")
-    env["DEV_REVIEW_HOME"] = str(home)
+    env["DEV_FAST_WHITEBOARD_TRACE_DIR"] = str(run_dir / "cli-traces")
+    env["DEV_WHITEBOARD_HOME"] = str(home)
     # Trace storage is part of the experiment: "on" gets a fresh per-run corpus
     # (so every run pulls, like a first review of a PR would), "off" removes
     # trace storage end to end (see reviewTracesDisabled in the CLI).
     env["REVIEW_TEST_TRACE_SEARCH_DIR"] = str(run_dir / "profile" / "trace-search")
     if not spec.traces:
-        env["DEV_FAST_REVIEW_TRACES"] = "off"
+        env["DEV_FAST_WHITEBOARD_TRACES"] = "off"
     if spec.review_cli == "source":
         bin_dir = run_dir / "bin"
         write_review_shim(bin_dir, run_dir / "review-calls.log")

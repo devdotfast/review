@@ -31,12 +31,12 @@ export interface TraceCommand {
 
 /** The executable name used in trace hooks. */
 export function traceCliName(): string {
-  return "review";
+  return "whiteboard";
 }
 
 /** The command prefix used in trace instructions. */
 export function traceCommandPrefix(): string {
-  return "review trace";
+  return "whiteboard trace";
 }
 
 /** Returns the configured trace home, then the operating-system home. */
@@ -61,13 +61,16 @@ export function resolveTraceCommand(
 
   const env = input.env ?? process.env;
 
-  if (env.REVIEW_TRACE_COMMAND) return { file: env.REVIEW_TRACE_COMMAND };
+  const commandName = "whiteboard";
+
+  if (env.WHITEBOARD_TRACE_COMMAND)
+    return { file: env.WHITEBOARD_TRACE_COMMAND };
 
   const installed = path.join(
     input.homeDir ?? traceHomeDir(env),
     ".local",
     "bin",
-    "review",
+    commandName,
   );
 
   if (existsSync(installed)) return { file: installed };
@@ -75,10 +78,10 @@ export function resolveTraceCommand(
   const onPath = (env.PATH ?? "")
     .split(path.delimiter)
     .filter((directory) => path.isAbsolute(directory))
-    .map((directory) => path.join(directory, "review"))
+    .map((directory) => path.join(directory, commandName))
     .find(isLiveTraceExecutable);
 
-  return { file: onPath ?? "review" };
+  return { file: onPath ?? commandName };
 }
 
 /** Quotes one value for a POSIX shell command. */
@@ -109,6 +112,15 @@ export function keepTraceExecutable(
   existing: string | undefined,
   wanted: string,
 ): boolean {
+  // Rename hooks within the same installation; never take over another live installation.
+  if (
+    existing &&
+    path.basename(existing) === "review" &&
+    path.basename(wanted) === "whiteboard" &&
+    path.dirname(existing) === path.dirname(wanted)
+  )
+    return false;
+
   return existing !== wanted && isLiveTraceExecutable(existing);
 }
 

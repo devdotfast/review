@@ -31,8 +31,8 @@ const stops: (() => Promise<void>)[] = [];
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "review-headless-"));
-  vi.stubEnv("DEV_REVIEW_HOME", root);
-  vi.stubEnv("DEV_FAST_REVIEW_TELEMETRY_DISABLED", "1");
+  vi.stubEnv("DEV_WHITEBOARD_HOME", root);
+  vi.stubEnv("DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED", "1");
 });
 
 afterEach(async () => {
@@ -69,7 +69,7 @@ async function start(
     }),
   ]);
 
-  const env = { ...process.env, DEV_REVIEW_SERVER_DIR: stateDir };
+  const env = { ...process.env, DEV_WHITEBOARD_SERVER_DIR: stateDir };
 
   const client = new SessionApiClient({
     serverUrl: discovery.url,

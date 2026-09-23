@@ -28,6 +28,7 @@ import {
   disableAllTraceRepositories,
   disableTraceMachine,
   removeAgentTraceHook,
+  traceMachineEnabled,
   traceMachineStatus,
   traceScope,
   withFileLock,
@@ -77,9 +78,18 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   pi: ".pi",
 };
 
-const SHIM_MARKER = "Managed by Review Desktop";
+const SHIM_MARKER = "Managed by Whiteboard";
+
+const LEGACY_SHIM_MARKER = "Managed by Review Desktop";
+
+function hasManagedShimMarker(source: string): boolean {
+  return source.includes(SHIM_MARKER) || source.includes(LEGACY_SHIM_MARKER);
+}
 
 const PROFILE_MARKER =
+  "# Managed by Whiteboard: whiteboard command PATH. Do not edit.";
+
+const LEGACY_PROFILE_MARKER =
   "# Managed by Review Desktop: review command PATH. Do not edit.";
 
 const PROFILE_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
@@ -89,7 +99,7 @@ const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
 const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
 
 const SHADOWING_HELP_URL =
-  "https://github.com/devdotfast/review/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
+  "https://github.com/devdotfast/whiteboard/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
 
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,
@@ -98,7 +108,7 @@ export function cliInstallStampPath(
 }
 
 export function pathShimPath(homeDir = os.homedir()): string {
-  return path.join(homeDir, ".local", "bin", "review");
+  return path.join(homeDir, ".local", "bin", "whiteboard");
 }
 
 /** Reads only the filesystem-backed agent state needed to choose a harness. */
@@ -176,7 +186,7 @@ export async function resolveCliInstallStatus(input: {
   );
 
   const shimPath = pathShimPath(homeDir);
-  const cliPath = path.join(input.packageRoot, "dist", "cli.js");
+  const cliPath = path.join(input.packageRoot, "dist", "whiteboard-cli.js");
   const fffBinary = fffBinaryPath(homeDir);
   const fffCorpus = fffCorpusRoot(homeDir);
 
@@ -260,6 +270,12 @@ export async function applyCliInstall(
   input: ApplyCliInstallInput,
 ): Promise<{ code: number; output: string; shimPath?: string }> {
   const homeDir = input.homeDir ?? os.homedir();
+
+  if (input.cliPath && path.basename(input.cliPath) === "cli.js")
+    input = {
+      ...input,
+      cliPath: path.join(path.dirname(input.cliPath), "whiteboard-cli.js"),
+    };
 
   try {
     const result = await withDesktopInstallLock(input.env, async () => {
@@ -345,7 +361,11 @@ async function applyCliInstallUnlocked(
     ),
   );
 
-  if (input.targets.length > 0 || input.trace !== undefined) {
+  if (
+    input.targets.length > 0 ||
+    input.trace !== undefined ||
+    (wantShim && (await traceMachineEnabled({ homeDir, env })))
+  ) {
     const installInput: Parameters<typeof runInstall>[0] = {
       targets: input.targets,
       homeDir,
@@ -356,7 +376,7 @@ async function applyCliInstallUnlocked(
       reviewCommand:
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
-          : "review",
+          : "whiteboard",
       stdout: sink,
       stderr: sink,
     };
@@ -483,7 +503,7 @@ async function applyCliInstallUnlocked(
 
       if (!installed) {
         chunks.push(
-          `The ${target} Review MCP entry was customized; left unchanged.\n`,
+          `The ${target} Whiteboard MCP entry was customized; left unchanged.\n`,
         );
         continue;
       }
@@ -494,7 +514,7 @@ async function applyCliInstallUnlocked(
       ];
       await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
       chunks.push(
-        `[ok] Review MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
+        `[ok] Whiteboard MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
       );
     }
   }
@@ -587,7 +607,7 @@ async function removeCliInstallUnlocked(
     chunks.push(
       removed
         ? `[ok] removed ${registration.target} Review MCP\n`
-        : `The ${registration.target} Review MCP entry changed after installation; left in place.\n`,
+        : `The ${registration.target} Whiteboard MCP entry changed after installation; left in place.\n`,
     );
   }
 
@@ -607,12 +627,12 @@ async function removeCliInstallUnlocked(
     // the same path stays untouched.
     const contents = await readTextIfExists(shimPath);
 
-    if (contents.includes(SHIM_MARKER)) {
+    if (hasManagedShimMarker(contents)) {
       await rm(shimPath, { force: true });
-      chunks.push(`[ok] removed review command ${shimPath}\n`);
+      chunks.push(`[ok] removed whiteboard command ${shimPath}\n`);
     } else if (contents) {
       chunks.push(
-        `${shimPath} was not installed by Review Desktop; left in place.\n`,
+        `${shimPath} was not installed by Whiteboard; left in place.\n`,
       );
     }
 
@@ -744,7 +764,7 @@ async function removeCliInstallUnlocked(
 export async function installFingerprint(packageRoot: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await readTextIfExists(path.join(packageRoot, "package.json")));
-  const cliPath = path.join(packageRoot, "dist", "cli.js");
+  const cliPath = path.join(packageRoot, "dist", "whiteboard-cli.js");
   hash.update("dist/cli.js\0");
   hash.update(await readTextIfExists(cliPath));
 
@@ -805,18 +825,21 @@ export async function writePathShim(
   devHome: string,
 ): Promise<void> {
   const source = `#!/bin/sh
-# Managed by Review Desktop ("Review: Install CLI in PATH"). Do not edit.
+# Managed by Whiteboard ("Whiteboard: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DEFAULT_HOME=${shSingleQuote(devHome)}
-export DEV_REVIEW_HOME="\${DEV_REVIEW_HOME:-$DEFAULT_HOME}"
-DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
+export DEV_WHITEBOARD_HOME="\${DEV_WHITEBOARD_HOME:-$DEFAULT_HOME}"
+DISCOVERY="$DEV_WHITEBOARD_HOME/review-desktop/server.json"
 
 cli=""
 runtime=""
 delegated=""
-if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
+if [ -z "\${DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
+  case "$FALLBACK_CLI" in
+    */whiteboard-cli.js) cli="\${cli%/*}/whiteboard-cli.js" ;;
+  esac
   delegated="1"
   runtime=$(sed -n 's/.*"cliRuntimePath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
 fi
@@ -827,13 +850,13 @@ if [ -z "$cli" ] || [ ! -f "$cli" ] || { [ -n "$runtime" ] && [ ! -x "$runtime" 
 fi
 
 if [ ! -f "$cli" ]; then
-  echo "Review CLI not found at $cli. Start Review Desktop, or run npx @dev.fast/review instead." >&2
+  echo "Whiteboard CLI not found at $cli. Start Whiteboard, or run npx @dev.fast/whiteboard instead." >&2
   exit 1
 fi
 
 # Prevent bootstrap from overriding this selection.
-export DEV_FAST_REVIEW_CLI_NO_DELEGATE=1
-export DEV_FAST_REVIEW_CLI_DELEGATED="$delegated"
+export DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1
+export DEV_FAST_WHITEBOARD_CLI_DELEGATED="$delegated"
 
 # The app's Electron binary runs as plain Node.js and matches the server's
 # runtime exactly; no system Node is required on this path.
@@ -843,13 +866,13 @@ if [ -n "$runtime" ] && [ -x "$runtime" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Review needs Node.js 24 or newer and none was found. Install Node 24, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer and none was found. Install Node 24, or install Review Desktop." >&2
   exit 1
 fi
 major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 case "$major" in *[!0-9]*) major=0;; esac
 if [ "$major" -lt 24 ]; then
-  echo "Review needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Review Desktop." >&2
   exit 1
 fi
 exec node "$cli" "$@"
@@ -876,15 +899,21 @@ export async function installReviewCommand(input: {
   if ((await isFile(shimPath)) && !(await isOwnedShim(shimPath))) {
     return {
       shimPath,
-      output: `[skip] kept the existing review command at ${shimPath}\n`,
+      output: `[skip] kept the existing whiteboard command at ${shimPath}\n`,
     };
   }
 
-  const shadowingCommand = await resolvePathCommand("review", shimPath, env);
+  const shadowingCommand = await resolvePathCommand(
+    "whiteboard",
+    shimPath,
+    env,
+  );
 
   await writePathShim(
     shimPath,
-    input.cliPath,
+    path.basename(input.cliPath) === "cli.js"
+      ? path.join(path.dirname(input.cliPath), "whiteboard-cli.js")
+      : input.cliPath,
     input.cliRuntimePath,
     devReviewHome(env, homeDir),
   );
@@ -896,7 +925,7 @@ export async function installReviewCommand(input: {
 
   return {
     shimPath,
-    output: `[ok] review command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
+    output: `[ok] whiteboard command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
   };
 }
 
@@ -921,11 +950,20 @@ export async function ensureShellProfilePath(input: {
   }
 
   if (!profileName) {
-    return "Review did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
+    return "Whiteboard did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
   }
 
   const profilePath = path.join(input.homeDir, profileName);
   const source = await readTextIfExists(profilePath);
+
+  if (source.includes(LEGACY_PROFILE_MARKER)) {
+    await writeTextAtomic(
+      profilePath,
+      source.replaceAll(LEGACY_PROFILE_MARKER, PROFILE_MARKER),
+    );
+
+    return "";
+  }
 
   if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
     return "";
@@ -945,8 +983,16 @@ export async function removeShellProfilePath(
     const profilePath = path.join(homeDir, profileName);
     const source = await readTextIfExists(profilePath);
 
-    if (!source.includes(PROFILE_BLOCK)) continue;
-    await writeTextAtomic(profilePath, source.replaceAll(PROFILE_BLOCK, ""));
+    const oldBlock = PROFILE_BLOCK.replace(
+      PROFILE_MARKER,
+      LEGACY_PROFILE_MARKER,
+    );
+
+    if (!source.includes(PROFILE_BLOCK) && !source.includes(oldBlock)) continue;
+    await writeTextAtomic(
+      profilePath,
+      source.replaceAll(PROFILE_BLOCK, "").replaceAll(oldBlock, ""),
+    );
     removed.push(profilePath);
   }
 
@@ -974,7 +1020,7 @@ async function resolvePathCommand(
 
     if (!(await isExecutableFile(candidate))) continue;
 
-    if ((await readTextIfExists(candidate)).includes(SHIM_MARKER)) {
+    if (hasManagedShimMarker(await readTextIfExists(candidate))) {
       return undefined;
     }
 
@@ -999,7 +1045,7 @@ function pathContainsDirectory(
 }
 
 async function isOwnedShim(shimPath: string): Promise<boolean> {
-  return (await readTextIfExists(shimPath)).includes(SHIM_MARKER);
+  return hasManagedShimMarker(await readTextIfExists(shimPath));
 }
 
 async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
@@ -1009,7 +1055,10 @@ async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
     ),
   );
 
-  return profiles.some((source) => source.includes(PROFILE_MARKER));
+  return profiles.some(
+    (source) =>
+      source.includes(PROFILE_MARKER) || source.includes(LEGACY_PROFILE_MARKER),
+  );
 }
 
 async function writeTextAtomic(

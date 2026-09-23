@@ -187,11 +187,11 @@ export async function smokeErrorTelemetry({
         // Isolate completely: a shared review home would publish into the
         // developer's real store, and a shared state root hands the launch to
         // an already-running Review instead of booting one.
-        DEV_REVIEW_HOME: path.join(root, "home"),
-        DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
+        DEV_WHITEBOARD_HOME: path.join(root, "home"),
+        DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: stateRoot,
         // Print events instead of sending them to the vendor.
-        DEV_FAST_REVIEW_TELEMETRY_DEBUG: "1",
-        DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),
+        DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG: "1",
+        DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT: String(debugPort),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -65,7 +65,7 @@ describe("ReviewTelemetry", () => {
 
   it("adds package version and internal status to common properties", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
-      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
+      env: { PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL: "1" },
     });
 
     cleanupPaths.push(rootPath);
@@ -79,7 +79,7 @@ describe("ReviewTelemetry", () => {
     expect(events).toHaveLength(1);
     expect(events[0].properties).toMatchObject({
       product: "review-cli",
-      package: "@dev.fast/review",
+      package: "@dev.fast/whiteboard",
       version: await reviewPackageVersion(),
       internal: true,
     });
@@ -154,7 +154,7 @@ describe("ReviewTelemetry", () => {
 
   it("lets an environment zero override a true stored marker", async () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry({
-      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "0" },
+      env: { PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL: "0" },
     });
 
     cleanupPaths.push(rootPath);
@@ -171,7 +171,7 @@ describe("ReviewTelemetry", () => {
 
   it("lets an environment one override a false stored marker", async () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry({
-      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
+      env: { PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL: "1" },
     });
 
     cleanupPaths.push(rootPath);

@@ -270,7 +270,7 @@ describe("Review Desktop launcher", () => {
       [],
       expect.objectContaining({
         detached: true,
-        env: { KEEP: "yes", DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1" },
+        env: { KEEP: "yes", DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "1" },
         stdio: "ignore",
       }),
     );
@@ -290,7 +290,7 @@ describe("Review Desktop launcher", () => {
       execPath: "/tmp/Review.app/Contents/MacOS/Review",
       env: {
         ELECTRON_RUN_AS_NODE: "1",
-        DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/review-state",
+        DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: "/tmp/review-state",
       },
       spawn,
     });
@@ -302,8 +302,8 @@ describe("Review Desktop launcher", () => {
       ],
       expect.objectContaining({
         env: {
-          DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/review-state",
-          DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1",
+          DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: "/tmp/review-state",
+          DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "1",
         },
       }),
     );
@@ -317,7 +317,7 @@ describe("Review Desktop launcher", () => {
         "-b",
         "dev.fast.review",
         "--env",
-        "DEV_FAST_REVIEW_DESKTOP_BACKGROUND=1",
+        "DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND=1",
       ],
     ],
     [true, ["-b", "dev.fast.review"]],
@@ -358,7 +358,7 @@ describe("Review Desktop launcher", () => {
 
       const environment = {
         ELECTRON_RUN_AS_NODE: "1",
-        DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
+        DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
         VSCODE_DEV: "1",
         VSCODE_CLI: "1",
       };
@@ -379,8 +379,8 @@ describe("Review Desktop launcher", () => {
         ],
         expect.objectContaining({
           env: {
-            DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
-            DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1",
+            DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
+            DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "1",
           },
           detached: true,
         }),
@@ -401,7 +401,7 @@ describe("Review Desktop launcher", () => {
       platform: "linux",
       electron: false,
       env: {
-        DEV_FAST_REVIEW_DESKTOP_COMMAND: "/usr/bin/review-preview-desktop",
+        DEV_FAST_WHITEBOARD_DESKTOP_COMMAND: "/usr/bin/review-preview-desktop",
       },
       spawn,
     });
@@ -425,12 +425,12 @@ describe("Review Desktop launcher", () => {
       platform: "linux",
       electron: false,
       focus: true,
-      env: { DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1" },
+      env: { DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "1" },
       spawn,
     });
     const options = spawn.mock.calls[0]?.[2];
     expect(options?.env).not.toHaveProperty(
-      "DEV_FAST_REVIEW_DESKTOP_BACKGROUND",
+      "DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND",
     );
   });
 

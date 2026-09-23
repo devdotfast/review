@@ -239,7 +239,7 @@ export function resolveS3Credentials(
   return resolveS3Setup(scope).credentials;
 }
 
-/** What `review trace status` prints about the direct bucket setup. */
+/** What `whiteboard trace status` prints about the direct bucket setup. */
 export interface S3SetupReport {
   /** The file the values came from: the version-2 profile, else the env file. */
   envPath: string;

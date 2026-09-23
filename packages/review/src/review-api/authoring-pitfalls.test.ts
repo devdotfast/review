@@ -82,7 +82,7 @@ async function expectRejected(
 beforeEach(async () => {
   directory = mkdtempSync(path.join(tmpdir(), "review-pitfalls-"));
   repository = path.join(directory, "repository");
-  vi.stubEnv("DEV_REVIEW_HOME", directory);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", directory);
   mkdirSync(path.join(repository, "src"), { recursive: true });
   mkdirSync(path.join(repository, "assets"));
   git("init", "-q");

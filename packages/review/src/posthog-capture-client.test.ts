@@ -60,9 +60,9 @@ describe("PostHogCaptureClient", () => {
 
     const client = PostHogCaptureClient.fromEnv(
       {
-        DEV_REVIEW_HOME: root,
-        PROGRESSIVE_REVIEW_POSTHOG_KEY: "env-key",
-        PROGRESSIVE_REVIEW_POSTHOG_HOST: "https://posthog.example.com/",
+        DEV_WHITEBOARD_HOME: root,
+        PROGRESSIVE_WHITEBOARD_POSTHOG_KEY: "env-key",
+        PROGRESSIVE_WHITEBOARD_POSTHOG_HOST: "https://posthog.example.com/",
       },
       { fetch: fetchMock },
     );
@@ -84,7 +84,7 @@ describe("PostHogCaptureClient", () => {
     );
 
     const client = PostHogCaptureClient.fromEnv(
-      { DEV_REVIEW_HOME: root },
+      { DEV_WHITEBOARD_HOME: root },
       { fetch: fetchMock },
     );
 

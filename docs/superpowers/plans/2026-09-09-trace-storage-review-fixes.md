@@ -404,7 +404,7 @@ describe("agent trace routes", () => {
   beforeEach(async () => {
     home = await mkdtemp(path.join(os.tmpdir(), "review-api-traces-home-"));
     root = await mkdtemp(path.join(os.tmpdir(), "review-api-traces-repo-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
     vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", path.join(home, "trace-search"));
     await git(root, ["init", "-b", "main"]);
     await git(root, ["config", "user.email", "review@example.test"]);
@@ -971,7 +971,7 @@ describe("runReviewTraceGitHook", () => {
     repo = await mkdtemp(path.join(os.tmpdir(), "trace-git-hook-"));
     devHome = path.join(repo, ".dev");
     stderrText = "";
-    vi.stubEnv("DEV_REVIEW_HOME", devHome);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
     vi.stubEnv("HOME", repo);
     await git(repo, ["init", "-b", "main"]);
     await git(repo, ["config", "user.name", "Test"]);
@@ -1833,7 +1833,7 @@ describe("hosted trace commands", () => {
     home = mkdtempSync(path.join(tmpdir(), "trace-hosted-cli-"));
     repo = path.join(home, "repo");
     devHome = path.join(home, ".dev");
-    env = { DEV_REVIEW_HOME: devHome };
+    env = { DEV_WHITEBOARD_HOME: devHome };
     execFileSync("git", ["init", "--quiet", repo]);
     execFileSync(
       "git",
@@ -2161,7 +2161,7 @@ Expected: every suite green (the Review suite previously reported 174 files, 131
 
 - [ ] **Step 2: Rerun the real-install read check**
 
-With Review Desktop possibly running: `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 node packages/progressive-review/dist/cli.js trace status` from a checkout that uses the user's real bucket setup (`/Users/aiansiti/workable/review`), then `... trace config migrate --dry-run`. Both must succeed and print `Storage: S3/R2 bucket`. Do not run `config migrate` without `--dry-run`.
+With Review Desktop possibly running: `DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 node packages/progressive-review/dist/cli.js trace status` from a checkout that uses the user's real bucket setup (`/Users/aiansiti/workable/review`), then `... trace config migrate --dry-run`. Both must succeed and print `Storage: S3/R2 bucket`. Do not run `config migrate` without `--dry-run`.
 
 - [ ] **Step 3: Pack the contract for Part B**
 

@@ -131,6 +131,7 @@ export interface WhiteboardCliInput {
 interface ReviewInfoOptions {
   all?: boolean;
   review?: string;
+  session?: string;
 }
 
 type OutputSurface = ReviewCliCommand | "plain";
@@ -146,6 +147,7 @@ export async function runWhiteboardCli(
   input: WhiteboardCliInput,
 ): Promise<number> {
   const env = input.env ?? process.env;
+
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
   // The command every installed hook re-enters. The Review CLI resolves it
@@ -214,10 +216,10 @@ export async function runWhiteboardCli(
     );
 
   const program = configureOutput(new Command(), "review")
-    .name("review")
+    .name("whiteboard")
     .enablePositionalOptions()
     .version(cliVersion)
-    .description("Create, publish, and open dev.fast Reviews.")
+    .description(`Create, share, and open Whiteboard sessions.`)
     .addHelpText("after", reviewTopLevelHelp());
 
   // Tolerate the leading form (`review --json scaffold`) as well as the usual
@@ -234,13 +236,13 @@ export async function runWhiteboardCli(
     stateDir = program.opts<{ stateDir?: string }>().stateDir,
   ) =>
     stateDir
-      ? { ...env, DEV_REVIEW_SERVER_DIR: path.resolve(cwd, stateDir) }
+      ? { ...env, DEV_WHITEBOARD_SERVER_DIR: path.resolve(cwd, stateDir) }
       : env;
 
   const serverCommand = configureOutput(
     program
       .command("server")
-      .description("Run Review authoring without Desktop"),
+      .description("Run Whiteboard authoring without Desktop"),
     "plain",
   );
 
@@ -341,7 +343,7 @@ export async function runWhiteboardCli(
   configureJsonOutput(
     program
       .command("version")
-      .description("Print Review package version")
+      .description("Print Whiteboard package version")
       .option("--verbose", "Show executing CLI paths and build identity"),
     "plain",
   ).action((options: { verbose?: boolean }, command: Command) => {
@@ -379,18 +381,19 @@ export async function runWhiteboardCli(
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
-          ? "Review Desktop is already running.\n"
+          ? `Whiteboard is already running.\n`
           : options.focus
-            ? "Review Desktop is ready.\n"
-            : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
+            ? `Whiteboard is ready.\n`
+            : `Whiteboard is ready in the background. Pass --focus to bring it forward.\n`,
       );
     } else {
-      input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
+      input.stdout.write(`Whiteboard is showing "${event.title}".\n`);
     }
   };
 
   const pickReview = async (options: {
     review?: string;
+    session?: string;
     focus?: boolean;
     json?: boolean;
   }) => {
@@ -398,7 +401,7 @@ export async function runWhiteboardCli(
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
-      sessionId: options.review,
+      sessionId: options.session,
       focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
@@ -426,40 +429,40 @@ export async function runWhiteboardCli(
   const app = configureJsonOutput(
     program
       .command("app")
-      .description("Start Review Desktop in the background")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Start Whiteboard in the background")
+      .option("--focus", "bring Whiteboard to the foreground"),
     "plain",
   ).action(launchApp);
 
   configureJsonOutput(
     app
       .command("launch")
-      .description("Start Review Desktop in the background")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Start Whiteboard in the background")
+      .option("--focus", "bring Whiteboard to the foreground"),
     "plain",
   ).action(launchApp);
   configureJsonOutput(
     app
       .command("pick")
-      .description("Select a Review (interactive picker without --review)")
-      .option("--review <uuid>", "review UUID")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Select a session (interactive picker without --session)")
+      .option(`--session <uuid>`, `session UUID`)
+      .option("--focus", "bring Whiteboard to the foreground"),
     "plain",
   ).action(pickReview);
 
   configureJsonOutput(
-    program.command("info").description("Print Review information"),
+    program.command("info").description("Print Whiteboard information"),
     "plain",
   )
-    .option("--all", "list active reviews for every worktree in this repo")
+    .option("--all", "list active sessions for every worktree in this repo")
     .addOption(
-      new Option("--review <uuid>", "select a Review").conflicts("all"),
+      new Option(`--session <uuid>`, `select a session`).conflicts("all"),
     )
     .action(async (options: ReviewInfoOptions) => {
       const event = await runtime.runReviewInfo({
         cwd,
         all: options.all,
-        sessionId: options.review,
+        sessionId: options.session,
       });
 
       input.stdout.write(`${JSON.stringify(event)}\n`);
@@ -469,7 +472,7 @@ export async function runWhiteboardCli(
   const install = configureJsonOutput(
     program
       .command("install")
-      .description("Install the bundled Review skills")
+      .description("Install the bundled Whiteboard skills")
       .addArgument(
         new Argument("[target...]", "coding agent target").choices([
           "claude",
@@ -571,7 +574,7 @@ export async function runWhiteboardCli(
 
       if (!cliSource) {
         human.write(
-          "Review did not install the review command because no built CLI was found. The skills were installed.\n",
+          `Whiteboard did not install the whiteboard command because no built CLI was found. The skills were installed.\n`,
         );
 
         return;
@@ -587,14 +590,14 @@ export async function runWhiteboardCli(
   );
 
   const migrate = configureOutput(
-    program.command("migrate").description("Migrate legacy Review data"),
+    program.command("migrate").description("Migrate legacy Whiteboard data"),
     "plain",
   );
 
   configureJsonOutput(
     migrate
       .command("apply")
-      .description("Apply the legacy Review migration")
+      .description("Apply the legacy Whiteboard migration")
       .option("--force", "restart an interrupted migration"),
     "plain",
   ).action(async (options: { force?: boolean; json?: boolean }) => {
@@ -611,13 +614,16 @@ export async function runWhiteboardCli(
     program
       .command("share")
       .description(
-        "Upload an immutable review snapshot and return its share link",
+        "Upload an immutable session snapshot and return its share link",
       ),
     "plain",
   )
-    .option("--review <id>", "Review ID")
+    .option(`--session <id>`, `session ID`)
     .option("--version <number>", "Saved version to share")
-    .option("--preview", "Open the share link in Review Preview by default")
+    .option(
+      "--preview",
+      "Open the share link in Whiteboard Pwhiteboard by default",
+    )
     .option(
       "--request-id <uuid>",
       "Reuse this ID when retrying the same immutable upload",
@@ -625,6 +631,7 @@ export async function runWhiteboardCli(
     .action(
       async (options: {
         review?: string;
+        session?: string;
         version?: string;
         requestId?: string;
         preview?: boolean;
@@ -634,6 +641,7 @@ export async function runWhiteboardCli(
         state.exitCode = await runShareCli({
           ...input,
           ...options,
+          review: options.session,
           env: authoringEnv(),
         });
       },
@@ -657,10 +665,10 @@ export async function runWhiteboardCli(
   // Hosted trace store login. Logging in authenticates a user; it selects
   // no storage by itself.
   configureJsonOutput(
-    program.command("login").description("Log in to Review with GitHub"),
+    program.command("login").description("Log in to Whiteboard with GitHub"),
     "plain",
   )
-    .option("--origin <url>", "Review service origin", DEFAULT_STORE_ORIGIN)
+    .option("--origin <url>", "Whiteboard service origin", DEFAULT_STORE_ORIGIN)
     .option("--traces", "Also authorize GitHub repositories for hosted traces")
     .option("--no-browser", "Print the URL instead of opening a browser")
     .action(
@@ -715,7 +723,7 @@ export async function runWhiteboardCli(
     stderr: input.stderr,
     configureOutput: (command) => configureOutput(command, "plain"),
     configureJsonOutput: (command) => configureJsonOutput(command, "plain"),
-    verifyCommand: "review trace status",
+    verifyCommand: `whiteboard trace status`,
     setExitCode: (code) => {
       state.exitCode = code;
     },
@@ -777,9 +785,9 @@ export async function runWhiteboardCli(
     traceConfig
       .command("migrate")
       .description(
-        "Copy the legacy S3/R2 setup into $DEV_REVIEW_HOME/trace/config.json",
+        "Copy the legacy S3/R2 setup into $DEV_WHITEBOARD_HOME/trace/config.json",
       )
-      .option("--dry-run", "preview without writing")
+      .option("--dry-run", "pwhiteboard without writing")
       .option(
         "--keep-legacy",
         "leave the legacy env and settings files in place instead of renaming them to legacy_*",
@@ -984,7 +992,7 @@ export async function runWhiteboardCli(
         error.code === "repository_authorization_required"
       ) {
         serialized.code = error.code;
-        serialized.remedy = "review login --traces";
+        serialized.remedy = `whiteboard login --traces`;
       }
 
       emitReviewEvent(input.stdout, { event: "error", error: serialized });
@@ -1071,10 +1079,16 @@ async function resolveInstallCliSource(
       reviewDesktopDiscoveryPath(env),
     );
 
-    if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      const source: InstallCliSource = { cliPath: discovery.cliPath };
+    const cliPath =
+      discovery?.cliPath &&
+      (path.basename(discovery.cliPath) === "cli.js"
+        ? path.join(path.dirname(discovery.cliPath), "whiteboard-cli.js")
+        : discovery.cliPath);
 
-      if (discovery.cliRuntimePath) {
+    if (cliPath && (await isFile(cliPath))) {
+      const source: InstallCliSource = { cliPath };
+
+      if (discovery?.cliRuntimePath) {
         source.cliRuntimePath = discovery.cliRuntimePath;
       }
 
@@ -1084,7 +1098,11 @@ async function resolveInstallCliSource(
     // A packaged CLI remains a valid fallback when discovery is stale.
   }
 
-  const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
+  const packageCliPath = path.join(
+    defaultPackageRoot(),
+    "dist",
+    "whiteboard-cli.js",
+  );
 
   return (await isFile(packageCliPath))
     ? { cliPath: packageCliPath }
@@ -1094,18 +1112,17 @@ async function resolveInstallCliSource(
 function reviewTopLevelHelp(): string {
   return [
     "",
-    "Use `review info` to discover Review documents for this checkout.",
-    "Reviews are authored through the JSON API: `review api tools` lists the tools, and `review mcp` serves the same catalog to an agent.",
-    "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` to open one.",
-    "Use `review server start` for headless authoring, and `review server status --json` to check readiness.",
-    "Use `--view <review|commits|diff|map|trace>` with `review app pick` to choose the opened tab.",
+    "Use `whiteboard info` to discover sessions for this checkout.",
+    "Sessions are authored through the JSON API: `whiteboard api tools` lists the tools, and `whiteboard mcp` serves the same catalog to an agent.",
+    "Use `whiteboard app launch` to start Whiteboard. Use `whiteboard app pick --session <uuid>` to open one.",
+    "Use `whiteboard server start` for headless authoring, and `whiteboard server status --json` to check readiness.",
     "",
     "Every command accepts --json. Stdout then carries only JSON events, one per line,",
     "human progress moves to stderr, and a failure prints a JSON error event too.",
     "",
     "Example agent prompt (for a repository that provides a CI/CD system):",
     "",
-    "  Can you use $dev-review to explain this repository's CI/CD system to me?",
+    "  Can you use $whiteboard to explain this repository's CI/CD system to me?",
     "",
     "  My current understanding:",
     "",
@@ -1145,9 +1162,9 @@ function traceCredentialsRequested(options: {
 function reviewInstallHelp(): string {
   return [
     "",
-    "When no target is provided, Review installs for every supported agent.",
+    "When no target is provided, Whiteboard installs for every supported agent.",
     "",
-    "Review Desktop is the primary install path: on startup it offers to",
+    "Whiteboard is the primary install path: on startup it offers to",
     "install the CLI and skills for detected agents, and keeps them in sync",
     "with the app. This command remains for headless environments.",
     "",
@@ -1160,12 +1177,12 @@ function reviewInstallHelp(): string {
     "  all      Every supported agent (default)",
     "",
     "Examples:",
-    "  review install codex",
-    "  review install claude cursor",
-    "  review install all",
+    "  whiteboard install codex",
+    "  whiteboard install claude cursor",
+    "  whiteboard install all",
     "",
     "Trace capture (experimental) is off unless S3/R2 credentials are given:",
-    "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
+    "  whiteboard install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
   ].join("\n");
 }
 

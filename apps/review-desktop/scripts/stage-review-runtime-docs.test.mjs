@@ -35,10 +35,10 @@ async function temporaryRoot(prefix) {
   return root;
 }
 
-test("stages the complete Review documentation tree inside dev-review", async () => {
+test("stages the complete Review documentation tree inside whiteboard", async () => {
   const root = await temporaryRoot("review-runtime-docs-");
   const runtimeRoot = path.join(root, "review-runtime");
-  const skillRoot = path.join(runtimeRoot, "skills", "dev-review");
+  const skillRoot = path.join(runtimeRoot, "skills", "whiteboard");
   const docsRoot = path.join(root, "source-docs");
   await mkdir(path.join(skillRoot, "docs"), { recursive: true });
   await mkdir(path.join(docsRoot, "assets"), { recursive: true });

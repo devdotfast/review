@@ -36,6 +36,7 @@ export default defineConfig({
   entry: {
     "sharing/index": "src/sharing/index.ts",
     cli: "src/cli.ts",
+    "whiteboard-cli": "src/whiteboard-cli.ts",
     runtime: "src/runtime.ts",
     "server/desktop-host": "src/server/desktop-host.ts",
     "software-map-model": "src/software-map-model.ts",
@@ -85,7 +86,11 @@ export default defineConfig({
       }) + "\n",
     );
     await Promise.all(
-      [cliPath, desktopHostPath].map(async (executablePath) => {
+      [
+        cliPath,
+        resolve(packageRoot, "dist", "whiteboard-cli.js"),
+        desktopHostPath,
+      ].map(async (executablePath) => {
         await normalizeExecutable(executablePath);
         await chmod(executablePath, 0o755);
       }),

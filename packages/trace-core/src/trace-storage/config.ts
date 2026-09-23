@@ -12,7 +12,7 @@ import { devReviewHome } from "../trace-home";
 import { withFileLock } from "../with-file-lock";
 
 /**
- * The shared trace configuration at `$DEV_REVIEW_HOME/trace/config.json`.
+ * The shared trace configuration at `$DEV_WHITEBOARD_HOME/trace/config.json`.
  *
  * Version 2 names the machine's current store, holds one entry per store
  * under `stores`, and lists hosted publication consent under

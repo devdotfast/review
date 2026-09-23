@@ -20,10 +20,7 @@ const appRoot = path.resolve(
   "..",
 );
 
-const sourceSkills = path.resolve(
-  appRoot,
-  "../../packages/review/skills",
-);
+const sourceSkills = path.resolve(appRoot, "../../packages/review/skills");
 
 test("stamps all packaged skills with the Desktop release, preserving source hardlinks", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-stamp-skills-"));
@@ -49,8 +46,8 @@ test("stamps all packaged skills with the Desktop release, preserving source har
         "utf8",
       );
 
-      assert.ok(output.includes(`review-version: "${version}"`));
-      assert.ok(output.includes('review-managed-by: "Review Desktop"'));
+      assert.ok(output.includes(`whiteboard-version: "${version}"`));
+
       assert.ok(output.includes("Do not edit."));
     }
 
@@ -58,7 +55,7 @@ test("stamps all packaged skills with the Desktop release, preserving source har
     await stampReviewSkills(runtime, "2.0.0-preview.1");
     assert.ok(
       (await readFile(generated, "utf8")).includes(
-        'review-version: "2.0.0-preview.1"',
+        'whiteboard-version: "2.0.0-preview.1"',
       ),
     );
   } finally {

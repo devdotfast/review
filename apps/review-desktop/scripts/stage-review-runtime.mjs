@@ -48,8 +48,9 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
   "bin/diffr",
-  "skills/dev-review/SKILL.md",
-  "skills/dev-review/docs/README.md",
+  "dist/whiteboard-cli.js",
+  "skills/whiteboard/SKILL.md",
+  "skills/whiteboard/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
@@ -163,16 +164,22 @@ export async function stampReviewSkills(runtimeRoot, version) {
     const source = await readFile(skillPath, "utf8");
     const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source);
 
+    const versionKey = source.includes("  whiteboard-version:")
+      ? "whiteboard-version"
+      : "review-version";
+
+    const versionPattern = new RegExp(`^  ${versionKey}: "[^"\\n]+"$`, "m");
+
     if (
       !frontmatter ||
-      !/^  review-version: "[^"\n]+"$/m.test(frontmatter[1])
+      !/^  (?:whiteboard|review)-version: "[^"\n]+"$/m.test(frontmatter[1])
     ) {
       throw new Error(`Missing generated skill metadata: ${skillPath}`);
     }
 
     const stamped = frontmatter[0].replace(
-      /^  review-version: "[^"\n]+"$/m,
-      `  review-version: ${JSON.stringify(releaseVersion)}`,
+      versionPattern,
+      `  ${versionKey}: ${JSON.stringify(releaseVersion)}`,
     );
 
     // pnpm deploy may hardlink files from its store. Never modify that inode.
@@ -185,11 +192,11 @@ export async function stageReviewDocs(
   runtimeRoot,
   sourceDocsRoot = path.join(monorepoRoot, "docs"),
 ) {
-  const skillRoot = path.join(runtimeRoot, "skills", "dev-review");
+  const skillRoot = path.join(runtimeRoot, "skills", "whiteboard");
 
   if (!(await isDirectory(skillRoot))) {
     throw new Error(
-      `Cannot stage Review documentation without the dev-review skill: ${skillRoot}`,
+      `Cannot stage Review documentation without the whiteboard skill: ${skillRoot}`,
     );
   }
 

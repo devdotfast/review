@@ -208,7 +208,7 @@ export function mountSharingPublisher(
 
     if (!account)
       throw new SessionInputError(
-        "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login before sharing.",
+        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run review login before sharing.",
         409,
       );
 
@@ -245,7 +245,7 @@ export function mountSharingPublisher(
       const url = new URL(result.url);
 
       if (
-        process.env.DEV_FAST_REVIEW_APP_URL_PROTOCOL ===
+        process.env.DEV_FAST_WHITEBOARD_APP_URL_PROTOCOL ===
         "dev-fast-review-preview"
       )
         url.searchParams.set("app", "preview");
@@ -261,7 +261,7 @@ export function mountSharingPublisher(
 
       if (error instanceof ShareAuthError) {
         // A CI token lives in the environment; only the saved login can go stale.
-        if (process.env.DEV_REVIEW_SHARE_TOKEN === undefined)
+        if (process.env.DEV_WHITEBOARD_SHARE_TOKEN === undefined)
           await clearStoreAuth();
         throw new SessionInputError(
           "Your sign-in has expired. Sign in again to share.",
@@ -284,7 +284,7 @@ export function mountSharingPublisher(
 
     if (!account)
       throw new SessionInputError(
-        "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login first.",
+        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run review login first.",
         409,
       );
     await new ShareClient(account.origin, account.token).revoke(shareId);

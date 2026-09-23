@@ -6,8 +6,8 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
-import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
+import { EMBEDDED_PROGRESSIVE_WHITEBOARD_POSTHOG_KEY } from "./embedded-posthog-key";
+import { DEV_WHITEBOARD_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export type PostHogCaptureProperties = Record<
   string,
@@ -31,11 +31,11 @@ export interface PostHogCaptureClientOptions {
   idFactory?: () => string;
 }
 
-export const PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV =
-  "PROGRESSIVE_REVIEW_POSTHOG_KEY";
+export const PROGRESSIVE_WHITEBOARD_POSTHOG_KEY_ENV =
+  "PROGRESSIVE_WHITEBOARD_POSTHOG_KEY";
 
-export const PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV =
-  "PROGRESSIVE_REVIEW_POSTHOG_HOST";
+export const PROGRESSIVE_WHITEBOARD_POSTHOG_HOST_ENV =
+  "PROGRESSIVE_WHITEBOARD_POSTHOG_HOST";
 
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 
@@ -116,12 +116,12 @@ export class PostHogCaptureClient {
     return new PostHogCaptureClient({
       ...options,
       apiKey:
-        nonEmpty(env[PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV]) ??
+        nonEmpty(env[PROGRESSIVE_WHITEBOARD_POSTHOG_KEY_ENV]) ??
         nonEmpty(env.DEV_FAST_POSTHOG_KEY) ??
         nonEmpty(env.POSTHOG_KEY) ??
-        EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY,
+        EMBEDDED_PROGRESSIVE_WHITEBOARD_POSTHOG_KEY,
       host:
-        nonEmpty(env[PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV]) ??
+        nonEmpty(env[PROGRESSIVE_WHITEBOARD_POSTHOG_HOST_ENV]) ??
         nonEmpty(env.DEV_FAST_POSTHOG_HOST) ??
         nonEmpty(env.POSTHOG_HOST),
       queueDir: path.join(reviewHome, "telemetry", "events"),

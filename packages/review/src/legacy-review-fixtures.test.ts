@@ -42,7 +42,7 @@ afterEach(async () => {
 async function extract(name: string) {
   const extracted = await extractLegacyReviewFixture(name);
   tempRoots.push(extracted.home);
-  vi.stubEnv("DEV_REVIEW_HOME", extracted.home);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", extracted.home);
 
   return extracted;
 }

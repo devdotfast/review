@@ -50,7 +50,7 @@ describe("trace-cli", () => {
     mkdirSync(mockR2Dir, { recursive: true });
     mkdirSync(localTraceRoot, { recursive: true });
     process.env.TRACE_ENV_FILE = envFile;
-    vi.stubEnv("DEV_REVIEW_HOME", path.join(tempDir, ".dev"));
+    vi.stubEnv("DEV_WHITEBOARD_HOME", path.join(tempDir, ".dev"));
     process.env.TRACE_SETTINGS_FILE = path.join(tempDir, "settings.json");
     process.env.TRACE_R2_MODE = "mock";
     process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
@@ -385,7 +385,7 @@ describe("trace-cli", () => {
     );
     const searchDir = path.join(tempDir, "trace-search");
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
-    process.env.DEV_REVIEW_HOME = path.join(tempDir, "dev-home");
+    process.env.DEV_WHITEBOARD_HOME = path.join(tempDir, "dev-home");
 
     try {
       const out: string[] = [];
@@ -418,7 +418,7 @@ describe("trace-cli", () => {
       ).rejects.toThrow(/Hosted trace storage is not configured/);
     } finally {
       delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
-      delete process.env.DEV_REVIEW_HOME;
+      delete process.env.DEV_WHITEBOARD_HOME;
     }
   });
 
@@ -450,7 +450,7 @@ describe("trace-cli", () => {
   it("shows failed background syncs for the s3 store and clears them on success", async () => {
     const sessionId = "11111111-aaaa-bbbb-cccc-000000000011";
     const devHome = path.join(tempDir, "dev-home");
-    process.env.DEV_REVIEW_HOME = devHome;
+    process.env.DEV_WHITEBOARD_HOME = devHome;
 
     try {
       await recordTraceSyncFailure({
@@ -486,7 +486,7 @@ describe("trace-cli", () => {
       expect(code).toBe(0);
       expect(await listTraceSyncFailures(devHome)).toEqual([]);
     } finally {
-      delete process.env.DEV_REVIEW_HOME;
+      delete process.env.DEV_WHITEBOARD_HOME;
     }
   });
 
@@ -497,7 +497,7 @@ describe("trace-cli", () => {
       JSON.stringify({ type: "session", id: sessionId }) + "\n",
     );
     const devHome = path.join(tempDir, "dev-home");
-    process.env.DEV_REVIEW_HOME = devHome;
+    process.env.DEV_WHITEBOARD_HOME = devHome;
 
     try {
       await expect(
@@ -517,11 +517,11 @@ describe("trace-cli", () => {
       expect(failures).toEqual([
         expect.objectContaining({
           session: sessionId,
-          retry: `review trace sync ${sessionId}`,
+          retry: `whiteboard trace sync ${sessionId}`,
         }),
       ]);
     } finally {
-      delete process.env.DEV_REVIEW_HOME;
+      delete process.env.DEV_WHITEBOARD_HOME;
     }
   });
 

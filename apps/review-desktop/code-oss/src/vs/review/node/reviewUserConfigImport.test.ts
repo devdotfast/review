@@ -56,7 +56,7 @@ describe('ReviewUserConfigImport', () => {
 
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 			now: () => new Date('2026-07-29T12:00:00.000Z'),
 		});
@@ -89,7 +89,7 @@ describe('ReviewUserConfigImport', () => {
 		writeFileSync(path.join(fixture.sourceUser, 'keybindings.json'), '[]\n');
 		const options = {
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		};
 		assert.strictEqual(importReviewUserConfig(options).status, 'imported');
@@ -109,7 +109,7 @@ describe('ReviewUserConfigImport', () => {
 
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		});
 
@@ -130,7 +130,7 @@ describe('ReviewUserConfigImport', () => {
 
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		});
 
@@ -152,7 +152,7 @@ describe('ReviewUserConfigImport', () => {
 
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: insidersUser },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: insidersUser },
 			homeDir: fixture.root,
 		});
 
@@ -171,7 +171,7 @@ describe('ReviewUserConfigImport', () => {
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
 			mode: 'preview',
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		});
 
@@ -182,7 +182,7 @@ describe('ReviewUserConfigImport', () => {
 		const applied = importReviewUserConfig({
 			userDataPath: fixture.target,
 			mode: 'apply',
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		});
 		assert.strictEqual(applied.status, 'imported');
@@ -237,7 +237,7 @@ describe('ReviewUserConfigImport', () => {
 
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: fixture.sourceRoot },
 			homeDir: fixture.root,
 		});
 
@@ -257,7 +257,7 @@ describe('ReviewUserConfigImport', () => {
 		const fixture = createFixture();
 		const result = importReviewUserConfig({
 			userDataPath: fixture.target,
-			env: { DEV_REVIEW_IMPORT_FROM: 'none' },
+			env: { DEV_WHITEBOARD_IMPORT_FROM: 'none' },
 			homeDir: fixture.root,
 		});
 		assert.strictEqual(result.status, 'disabled');

@@ -73,7 +73,7 @@ Expected: mount ≈ first commit only (well under 1s); publish desktop half
 
 - **Traces on/off** is a first-class axis: `review-latency run --traces both`
   runs each spec with trace storage present and absent. Off =
-  `DEV_FAST_REVIEW_TRACES=off` in the agent env, which the CLI honors end to
+  `DEV_FAST_WHITEBOARD_TRACES=off` in the agent env, which the CLI honors end to
   end (no R2, no local corpus, no local transcripts, `review info` lists no
   sessions). Off variants carry the id suffix `-notrace`.
 - **Per-run trace corpus**: every run gets `REVIEW_TEST_TRACE_SEARCH_DIR`
@@ -179,7 +179,7 @@ judge a fix on the change in medians.
 - Codex executes tools via `zsh -lc`; the login shell reset PATH and bypassed
   the review shim (journal empty → no stop-at-publish). Fixed with a
   harness-owned `ZDOTDIR` that re-prepends the shim (2026-09-03).
-- Desktop-side edits need `REVIEW_DESKTOP_DEV_FAST=1 pnpm --filter
+- Desktop-side edits need `WHITEBOARD_DESKTOP_DEV_FAST=1 pnpm --filter
   @dev-fast/review-desktop app:build` (renderer; a bare `npm run compile`
   leaves `out/vs/review/common/reviewProtocol.js` importing `zod/v4` and the
   window fails to start) and `pnpm run build` in `packages/review`

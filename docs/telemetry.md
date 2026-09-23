@@ -47,10 +47,10 @@ Review also honors these variables when their value is `1` or `true`:
 
 - `DO_NOT_TRACK`
 - `DNT`
-- `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED`
+- `PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED`
 - `DEV_FAST_TELEMETRY_DISABLED`
-- `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED`
-- `DEV_FAST_REVIEW_TELEMETRY_DISABLED`
+- `DEV_FAST_PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED`
+- `DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED`
 
 Tests also turn telemetry off with `VITEST=1` or `NODE_ENV=test`.
 
@@ -75,11 +75,11 @@ The full event-by-event list begins at [Event reference](#event-reference).
 ## Identity and storage
 
 On first use, Review creates a random installation UUID and stores it at
-`${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
+`${DEV_WHITEBOARD_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
 PostHog's `identify()` API or associate that ID with a person profile.
 
 Pending events are kept in a local queue under
-`${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
+`${DEV_WHITEBOARD_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
 events, retries temporary failures, and deletes events after seven days.
 Telemetry is best-effort and never blocks Review from working.
 
@@ -120,7 +120,7 @@ Review ─→ local Review server ─→ bug.dev.fast ─→ private Cloudflare 
 
 ## Inspect events during development
 
-Set `DEV_FAST_REVIEW_TELEMETRY_DEBUG` to `1` or `true` to see the events that
+Set `DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG` to `1` or `true` to see the events that
 Review emits. Review then prints one line for each event to stderr:
 
 ```

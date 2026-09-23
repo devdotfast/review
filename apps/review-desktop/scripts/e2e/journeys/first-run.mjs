@@ -12,8 +12,8 @@ export const options = {
   seedRepo: false,
   // Restore the real first-run telemetry notice, but point capture at a closed local port.
   env: {
-    DEV_FAST_REVIEW_TELEMETRY_DISABLED: "",
-    PROGRESSIVE_REVIEW_POSTHOG_HOST: "http://127.0.0.1:9",
+    DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: "",
+    PROGRESSIVE_WHITEBOARD_POSTHOG_HOST: "http://127.0.0.1:9",
   },
   disableCommunityHandler: true,
 };

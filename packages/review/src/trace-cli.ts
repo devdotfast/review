@@ -142,7 +142,7 @@ async function resolveTraceReview(
   cwd: string,
   sessionId: string | undefined,
 ): Promise<SessionSummary> {
-  const candidates = (await runReviewInfo({ cwd, sessionId })).reviews;
+  const candidates = (await runReviewInfo({ cwd, sessionId })).sessions;
 
   if (candidates.length === 0) {
     throw new Error("No review found for this worktree.");

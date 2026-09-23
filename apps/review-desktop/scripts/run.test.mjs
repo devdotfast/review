@@ -10,10 +10,10 @@ test("Review Desktop can opt into Chromium renderer accessibility", async () => 
     "utf8",
   );
 
-  assert.match(source, /DEV_FAST_REVIEW_FORCE_ACCESSIBILITY/u);
+  assert.match(source, /DEV_FAST_WHITEBOARD_FORCE_ACCESSIBILITY/u);
   assert.match(source, /--force-renderer-accessibility/u);
   assert.match(
     mainSource,
-    /DEV_FAST_REVIEW_FORCE_ACCESSIBILITY[\s\S]*setAccessibilitySupportEnabled\(true\)/u,
+    /DEV_FAST_WHITEBOARD_FORCE_ACCESSIBILITY[\s\S]*setAccessibilitySupportEnabled\(true\)/u,
   );
 });

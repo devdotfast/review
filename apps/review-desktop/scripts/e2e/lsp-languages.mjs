@@ -76,7 +76,7 @@ export const LANGUAGES = {
     hoverText: /save_order\(order: OrderRecord\)/,
   },
   go: {
-    // Not a DEV_REVIEW_EXTENSIONS group: the Go extension installs gopls on activation, so it is downloaded only after consent.
+    // Not a DEV_WHITEBOARD_EXTENSIONS group: the Go extension installs gopls on activation, so it is downloaded only after consent.
     extensions: "none",
     peekFile: "orders.go",
     symbol: "SaveOrder",
@@ -104,7 +104,7 @@ export const LANGUAGES = {
     },
   },
   rust: {
-    // Not a DEV_REVIEW_EXTENSIONS group: rust-analyzer is tier "optional", downloaded only after consent in the picker.
+    // Not a DEV_WHITEBOARD_EXTENSIONS group: rust-analyzer is tier "optional", downloaded only after consent in the picker.
     extensions: "none",
     peekFile: "src/lib.rs",
     symbol: "save_order",

@@ -9,7 +9,7 @@ import test from "node:test";
 import { FocusMode } from "../../platform/native/common/native.js";
 import { ReviewBackgroundLaunch } from "./reviewBackgroundLaunch.js";
 
-const background = { DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "1" };
+const background = { DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "1" };
 
 function fakeWindow() {
 	const calls: string[] = [];
@@ -72,6 +72,6 @@ test("a forced focus releases the gate", () => {
 });
 
 test("only the value 1 marks a background launch", () => {
-	assert.equal(new ReviewBackgroundLaunch({ DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "0" }).suppressesFocus, false);
-	assert.equal(new ReviewBackgroundLaunch({ DEV_FAST_REVIEW_DESKTOP_BACKGROUND: "" }).suppressesFocus, false);
+	assert.equal(new ReviewBackgroundLaunch({ DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "0" }).suppressesFocus, false);
+	assert.equal(new ReviewBackgroundLaunch({ DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND: "" }).suppressesFocus, false);
 });

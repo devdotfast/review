@@ -29,9 +29,9 @@ export async function runTraceUninstallHooks(
   });
   const output = humanStream(input);
   output.write(
-    `Removed review trace hooks. Kept the CLI, login, consent and captured traces.\n`,
+    `Removed whiteboard trace hooks. Kept the CLI, login, consent and captured traces.\n`,
   );
-  output.write("Run `review trace install` to restore trace hooks.\n");
+  output.write("Run `whiteboard trace install` to restore trace hooks.\n");
 
   return 0;
 }

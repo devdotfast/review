@@ -71,6 +71,7 @@ export interface TraceCommandRuntime {
 }
 
 export interface RegisterTraceCommandsOptions {
+  /** Whiteboard sessions and agent conversations use distinct selectors. */
   runtime: TraceCommandRuntime;
   traceCommand: TraceCommand;
   scope: TraceScope;
@@ -85,7 +86,7 @@ export interface RegisterTraceCommandsOptions {
   /** Receives every action's exit code. */
   setExitCode: (code: number) => void;
   /**
-   * The command `allow` names on its last line, such as `review trace status`.
+   * The command `allow` names on its last line, such as `whiteboard trace status`.
    * `<prefix> status` when absent.
    */
   verifyCommand?: string;

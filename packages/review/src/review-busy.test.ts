@@ -20,7 +20,7 @@ afterEach(async () => {
 it("reports loader and open contention as busy and allows migration after release", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "review-busy-read-"));
   roots.push(home);
-  vi.stubEnv("DEV_REVIEW_HOME", home);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", home);
   await writeFile(
     path.join(home, "preferences.json"),
     JSON.stringify({ dismissedRetentionDays: null }),

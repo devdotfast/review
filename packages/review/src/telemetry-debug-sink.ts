@@ -1,4 +1,4 @@
-// Developer-only telemetry sink. When DEV_FAST_REVIEW_TELEMETRY_DEBUG is `1`
+// Developer-only telemetry sink. When DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG is `1`
 // or `true`, Review prints each event to stderr and sends nothing to PostHog.
 // The switch is an environment variable, not a CLI flag, because the CLI, the
 // local server, and the Desktop server host each build their own telemetry
@@ -14,7 +14,8 @@ export function createTelemetryDebugSink(
   env: NodeJS.ProcessEnv,
   output: NodeJS.WritableStream = process.stderr,
 ): ReviewTelemetryCaptureClient | undefined {
-  if (!isEnabledEnvValue(env.DEV_FAST_REVIEW_TELEMETRY_DEBUG)) return undefined;
+  if (!isEnabledEnvValue(env.DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG))
+    return undefined;
 
   return {
     enabled: true,

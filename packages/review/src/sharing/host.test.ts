@@ -18,7 +18,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 it("exposes the device URL while login is pending and allows retry after failure", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "share-login-"));
-  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", root);
   const fixture = await createShareFixture(root);
   const api = new Hono();
   const login = vi.fn<typeof runStoreLogin>();
@@ -80,7 +80,7 @@ it("exposes the device URL while login is pending and allows retry after failure
 
 it("reports download and checkout preparation without starting duplicate imports", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "share-progress-"));
-  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", root);
   const fixture = await createShareFixture(root);
   const bundle = await exportShare(fixture);
   let download!: (bundle: Awaited<ReturnType<typeof exportShare>>) => void;

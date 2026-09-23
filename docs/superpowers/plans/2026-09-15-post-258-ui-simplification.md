@@ -69,7 +69,7 @@ ls /tmp/rh/reviews | head
 ```js
 // <scratchpad>/ui-snapshot.mjs
 // Usage: node ui-snapshot.mjs <config.json> <out.json>
-// Requires the dev app running with DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT=<port>.
+// Requires the dev app running with DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT=<port>.
 import fs from "node:fs";
 import { createRequire } from "node:module";
 const require = createRequire("/Users/aiansiti/workable/review-remove-comments-tui/apps/review-desktop/code-oss/package.json");
@@ -185,7 +185,7 @@ Three selectors in this script are guesses you must confirm once against the run
 
 Terminal 1:
 ```bash
-cd apps/review-desktop && DEV_REVIEW_HOME=/tmp/rh DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT=9333 pnpm app:run
+cd apps/review-desktop && DEV_WHITEBOARD_HOME=/tmp/rh DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT=9333 pnpm app:run
 ```
 Terminal 2, once the window is up:
 ```bash
@@ -201,7 +201,7 @@ In `<scratchpad>/snapshots/README.md`, note per review: editor count, editor kin
 
 ```bash
 # after the phase's code is complete and Gate 1 passes:
-cd apps/review-desktop && DEV_REVIEW_HOME=/tmp/rh DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT=9333 pnpm app:run   # terminal 1
+cd apps/review-desktop && DEV_WHITEBOARD_HOME=/tmp/rh DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT=9333 pnpm app:run   # terminal 1
 node <scratchpad>/ui-snapshot.mjs <scratchpad>/ui-snapshot-config.json <scratchpad>/snapshots/phase-<X>.json  # terminal 2
 diff <(jq -S 'del(.. | .openMs?)' <scratchpad>/snapshots/phase-<prev>.json) <(jq -S 'del(.. | .openMs?)' <scratchpad>/snapshots/phase-<X>.json)
 ```

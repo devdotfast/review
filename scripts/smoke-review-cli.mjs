@@ -83,9 +83,9 @@ try {
   const env = {
     ...process.env,
     PATH: `${path.join(prefix, "node_modules/.bin")}${path.delimiter}${process.env.PATH ?? ""}`,
-    DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
-    DEV_REVIEW_HOME: path.join(root, "profile"),
-    DEV_REVIEW_SERVER_DIR: path.join(root, "server"),
+    DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1",
+    DEV_WHITEBOARD_HOME: path.join(root, "profile"),
+    DEV_WHITEBOARD_SERVER_DIR: path.join(root, "server"),
     TRACE_HOME_DIR: path.join(root, "home"),
   };
 

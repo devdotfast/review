@@ -237,7 +237,7 @@ describe("Welcome agent installation", () => {
           )?.textContent;
 
           expect(prompt).toContain(
-            target === "cursor" ? "/dev-review" : "dev-review",
+            target === "cursor" ? "/whiteboard" : "whiteboard",
           );
           expect(prompt).not.toContain("review scaffold");
           expect(prompt).not.toContain("review publish");

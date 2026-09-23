@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough, Readable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 
 import {
   StoreClient,
@@ -34,7 +34,10 @@ import {
   type ReviewCommandTelemetry,
   ReviewTelemetry,
 } from "./review-telemetry";
-import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
+import {
+  runTracePull as runTracePullActual,
+  runTraceStatus as runTraceStatusActual,
+} from "./trace-cli";
 
 describe("Review CLI", () => {
   it.each([[], ["codex"]])(
@@ -44,14 +47,14 @@ describe("Review CLI", () => {
         path.join(os.tmpdir(), "review-no-agents-"),
       );
 
-      const cliPath = path.join(homeDir, "cli.js");
+      const cliPath = path.join(homeDir, "whiteboard-cli.js");
       const discoveryDir = path.join(homeDir, ".dev", "review-desktop");
 
       const env = {
         HOME: homeDir,
         PATH: "/usr/bin:/bin",
         SHELL: "/bin/zsh",
-        DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+        DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
       };
 
       try {
@@ -113,7 +116,7 @@ describe("Review CLI", () => {
       argv: [
         "trace",
         "status",
-        "--session",
+        "--agent-session",
         "my-upload-session",
         "--limit",
         "5",
@@ -141,12 +144,12 @@ describe("Review CLI", () => {
     );
 
     const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
-    const cliPath = path.join(rootPath, "cli.js");
+    const cliPath = path.join(rootPath, "whiteboard-cli.js");
     const cliRuntimePath = path.join(rootPath, "runtime");
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
+      DEV_WHITEBOARD_HOME: path.join(rootPath, ".dev"),
     };
 
     await mkdir(discoveryDir, { recursive: true });
@@ -306,17 +309,17 @@ describe("Review CLI", () => {
 
     const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
       event: "info" as const,
-      reviews: [],
+      sessions: [],
     }));
 
     await runWhiteboardCli({
-      argv: ["app", "pick", "--review", "review-uuid"],
+      argv: ["app", "pick", "--session", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewAppPick: runReviewApp },
     });
     await runWhiteboardCli({
-      argv: ["info", "--review", "review-uuid"],
+      argv: ["info", "--session", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewInfo },
@@ -371,42 +374,6 @@ describe("Review CLI", () => {
     },
   );
 
-  it.each([
-    [
-      [],
-      "Review Desktop is ready in the background. Pass --focus to bring it forward.",
-    ],
-    [["--focus"], "Review Desktop is ready."],
-  ] as const)(
-    "describes a fresh launch according to the flag: %j",
-    async (flags, line) => {
-      const runReviewAppLaunch = vi.fn<typeof runReviewAppLaunchActual>(
-        async () => ({
-          event: "app",
-          action: "launch",
-          state: "launched",
-          instanceId: "desktop-1",
-        }),
-      );
-
-      const stdout = outputStream();
-      let output = "";
-      stdout.on("data", (chunk) => (output += String(chunk)));
-
-      await expect(
-        runWhiteboardCli({
-          argv: ["app", "launch", ...flags],
-          cwd: "/outside-a-repository",
-          stdin: Readable.from([]),
-          stdout,
-          stderr: outputStream(),
-          runtime: { runReviewAppLaunch },
-        }),
-      ).resolves.toBe(0);
-      expect(output).toBe(`${line}\n`);
-    },
-  );
-
   it("passes --focus through app pick", async () => {
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
@@ -417,7 +384,7 @@ describe("Review CLI", () => {
 
     await expect(
       runWhiteboardCli({
-        argv: ["app", "pick", "--review", "review-uuid", "--focus", "--json"],
+        argv: ["app", "pick", "--session", "review-uuid", "--focus", "--json"],
         cwd: "/outside-a-repository",
         stdin: Readable.from([]),
         stdout: outputStream(),
@@ -433,7 +400,7 @@ describe("Review CLI", () => {
   it.each([
     ["app launch", ["app", "launch"], "app.launch"],
     ["bare app", ["app"], "app.launch"],
-    ["app pick", ["app", "pick", "--review", "review-uuid"], "app.pick"],
+    ["app pick", ["app", "pick", "--session", "review-uuid"], "app.pick"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -555,7 +522,7 @@ describe("Review CLI", () => {
         ]),
       );
 
-      release({ event: "info", reviews: [] });
+      release({ event: "info", sessions: [] });
       await expect(running).resolves.toBe(0);
 
       const sent = fetchMock.mock.calls.flatMap(
@@ -634,7 +601,7 @@ describe("Review CLI", () => {
   });
 
   it("supports the app pick subcommand", async () => {
-    const argv = ["app", "pick", "--review", "review-uuid"];
+    const argv = ["app", "pick", "--session", "review-uuid"];
 
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
@@ -668,7 +635,7 @@ describe("Review CLI", () => {
   it("rejects an invalid --view for app pick", async () => {
     await expect(
       runWhiteboardCli({
-        argv: ["app", "pick", "--review", "review-uuid", "--view", "files"],
+        argv: ["app", "pick", "--session", "review-uuid", "--view", "files"],
         stdout: outputStream(),
         stderr: outputStream(),
       }),
@@ -777,7 +744,7 @@ describe("Review CLI", () => {
     ["scaffold"],
     ["publish"],
     ["present"],
-    ["repair", "--review", "11111111-1111-4111-8111-111111111111"],
+    ["repair", "--session", "11111111-1111-4111-8111-111111111111"],
     ["rebind", "feature"],
     ["internal-test"],
     ["prepare-worktree", "/tmp/checkout", "--commit", "a".repeat(40)],
@@ -844,7 +811,109 @@ it("emits one JSON error when a trace command needs repository authorization", a
     error: {
       message: "Run review login --traces.",
       code: "repository_authorization_required",
-      remedy: "review login --traces",
+      remedy: "whiteboard login --traces",
     },
   });
+});
+
+it("keeps Whiteboard sessions and agent conversations distinct with a single command interface", async () => {
+  const runTracePull = vi.fn<typeof runTracePullActual>(async () => 0);
+  const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
+
+  const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
+    event: "info",
+    sessions: [],
+  }));
+
+  const invoke = (argv: string[]) =>
+    runWhiteboardCli({
+      argv,
+      stdout: outputStream(),
+      stderr: outputStream(),
+      runtime: { runTracePull, runTraceStatus, runReviewInfo },
+    });
+
+  expect(await invoke(["trace", "pull", "--session", "board"])).toBe(0);
+  expect(runTracePull).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sessionId: "board", session: undefined }),
+  );
+  expect(await invoke(["trace", "pull", "--agent-session", "agent"])).toBe(0);
+  expect(runTracePull).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sessionId: undefined, session: "agent" }),
+  );
+  expect(
+    await invoke([
+      "trace",
+      "pull",
+      "--session",
+      "board",
+      "--agent-session",
+      "agent",
+    ]),
+  ).toBe(1);
+  expect(runTracePull).toHaveBeenCalledTimes(2);
+  expect(await invoke(["trace", "status", "--agent-session", "agent"])).toBe(0);
+  expect(runTraceStatus).toHaveBeenLastCalledWith(
+    expect.objectContaining({ session: "agent" }),
+  );
+  expect(await invoke(["info", "--session", "board"])).toBe(0);
+  expect(runReviewInfo).toHaveBeenLastCalledWith(
+    expect.objectContaining({ sessionId: "board" }),
+  );
+});
+
+it("uses session identifiers in Whiteboard discovery and picker output", async () => {
+  const summary = {
+    sessionId: "saved-id",
+    version: 4,
+    title: "Review my sessionId field",
+    viewedAt: null,
+    dismissedAt: null,
+    pins: { repositoryId: "repo", base: "base", head: "head" },
+    createdAt: "2026-09-21T00:00:00Z",
+    repositoryName: "repo",
+  };
+
+  const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
+    event: "info",
+    sessions: [summary],
+  }));
+
+  const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
+    event: "app",
+    action: "pick",
+    sessionId: summary.sessionId,
+    title: summary.title,
+  }));
+
+  for (const argv of [
+    ["info", "--session", "saved-id"],
+    ["app", "pick", "--session", "saved-id", "--json"],
+  ]) {
+    let output = "";
+
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk;
+        callback();
+      },
+    });
+
+    expect(
+      await runWhiteboardCli({
+        argv,
+        stdout,
+        stderr: outputStream(),
+        runtime: { runReviewInfo, runReviewAppPick },
+      }),
+    ).toBe(0);
+    const result = JSON.parse(output);
+    const session = result.sessions?.[0] ?? result;
+    expect(session).toMatchObject({
+      sessionId: "saved-id",
+      title: summary.title,
+    });
+    expect(session).not.toHaveProperty("reviewId");
+    expect(session).not.toHaveProperty("reviewUuid");
+  }
 });

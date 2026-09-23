@@ -78,10 +78,10 @@ export async function createHarness({
   const env = {
     ...process.env,
     HOME: home,
-    DEV_REVIEW_HOME: home,
-    DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
-    DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
-    DEV_REVIEW_EXTENSIONS: extensions,
+    DEV_WHITEBOARD_HOME: home,
+    DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1",
+    DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED: "1",
+    DEV_WHITEBOARD_EXTENSIONS: extensions,
   };
 
   for (const key of [
@@ -90,7 +90,7 @@ export async function createHarness({
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_SESSION_ID",
     "PI_SESSION_ID",
-    "DEV_FAST_REVIEW_TOOLING_ROOT",
+    "DEV_FAST_WHITEBOARD_TOOLING_ROOT",
     "NODE_OPTIONS",
   ])
     delete env[key];
@@ -251,7 +251,7 @@ export async function createHarness({
 
   await new Promise((resolve) => portServer.close(resolve));
 
-  env.DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT = String(port);
+  env.DEV_FAST_WHITEBOARD_REMOTE_DEBUGGING_PORT = String(port);
 
   function spawnDesktop() {
     const launchArgs = packagedApp

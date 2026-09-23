@@ -5,9 +5,9 @@
 
 import { pathToFileURL } from "node:url";
 
-const serverEntry = process.env["DEV_FAST_REVIEW_SERVER_ENTRY"];
+const serverEntry = process.env["DEV_FAST_WHITEBOARD_SERVER_ENTRY"];
 if (!serverEntry) {
-  throw new Error("DEV_FAST_REVIEW_SERVER_ENTRY is required.");
+  throw new Error("DEV_FAST_WHITEBOARD_SERVER_ENTRY is required.");
 }
 
 await import(pathToFileURL(serverEntry).href);

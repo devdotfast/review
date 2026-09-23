@@ -48,7 +48,7 @@ describe("runTraceGitHook", () => {
     repo = await mkdtemp(path.join(os.tmpdir(), "trace-git-hook-"));
     devHome = path.join(repo, ".dev");
     stderrText = "";
-    vi.stubEnv("DEV_REVIEW_HOME", devHome);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
     vi.stubEnv("HOME", repo);
     await git(repo, ["init", "-b", "main"]);
     await git(repo, ["config", "user.name", "Test"]);

@@ -46,7 +46,7 @@ async function fixture() {
   await mkdir(homeDir);
 
   const env = {
-    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
     PATH: "",
     TRACE_R2_MODE: "mock",
   };
@@ -246,7 +246,7 @@ describe("packaged skill updates", () => {
     const f = await fixture();
 
     const code = `import { applyCliInstall } from "./packages/review/src/cli-install.ts";
-      const result = await applyCliInstall({ homeDir: process.argv[1], packageRoot: process.argv[2], env: { DEV_REVIEW_HOME: process.argv[3], PATH: "" }, targets: [process.argv[4]], shim: false });
+      const result = await applyCliInstall({ homeDir: process.argv[1], packageRoot: process.argv[2], env: { DEV_WHITEBOARD_HOME: process.argv[3], PATH: "" }, targets: [process.argv[4]], shim: false });
       if (result.code !== 0) throw new Error(result.output);`;
 
     await Promise.all(
@@ -261,7 +261,7 @@ describe("packaged skill updates", () => {
             code,
             f.homeDir,
             f.packageRoot,
-            f.env.DEV_REVIEW_HOME,
+            f.env.DEV_WHITEBOARD_HOME,
             target,
           ],
           {
@@ -290,8 +290,8 @@ describe("packaged skill updates", () => {
     await writeFile(
       source,
       (await readFile(source, "utf8")).replace(
-        'review-version: "1.0.0"',
-        'review-version: "broken"',
+        'whiteboard-version: "1.0.0"',
+        'whiteboard-version: "broken"',
       ),
     );
     expect((await f.launch())?.code).toBe(1);

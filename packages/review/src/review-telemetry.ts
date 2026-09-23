@@ -11,11 +11,11 @@ import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
-import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
+import { EMBEDDED_PROGRESSIVE_WHITEBOARD_POSTHOG_KEY } from "./embedded-posthog-key";
 import { findReviewPackageRoot } from "./package-paths";
 import {
-  PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
-  PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV,
+  PROGRESSIVE_WHITEBOARD_POSTHOG_HOST_ENV,
+  PROGRESSIVE_WHITEBOARD_POSTHOG_KEY_ENV,
   PostHogCaptureClient,
   type PostHogCaptureInput,
   type PostHogCaptureProperties,
@@ -31,7 +31,7 @@ import {
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
 
-export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
+export const REVIEW_APP_VERSION_ENV = "DEV_FAST_WHITEBOARD_APP_VERSION";
 
 export type ReviewCliCommand = "review" | "map" | "status";
 
@@ -594,7 +594,7 @@ export class ReviewTelemetry {
 
     const properties: PostHogCaptureProperties = {
       product: "review-cli",
-      package: "@dev.fast/review",
+      package: "@dev.fast/whiteboard",
       version: await this.readPackageVersion(),
       node_major: Number(process.versions.node.split(".", 1)[0]),
       platform: process.platform,
@@ -707,12 +707,12 @@ function directCaptureClient(
 ): PostHogCaptureClient {
   return new PostHogCaptureClient({
     apiKey:
-      nonEmpty(env[PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV]) ??
+      nonEmpty(env[PROGRESSIVE_WHITEBOARD_POSTHOG_KEY_ENV]) ??
       nonEmpty(env.DEV_FAST_POSTHOG_KEY) ??
       nonEmpty(env.POSTHOG_KEY) ??
-      EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY,
+      EMBEDDED_PROGRESSIVE_WHITEBOARD_POSTHOG_KEY,
     host:
-      nonEmpty(env[PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV]) ??
+      nonEmpty(env[PROGRESSIVE_WHITEBOARD_POSTHOG_HOST_ENV]) ??
       nonEmpty(env.DEV_FAST_POSTHOG_HOST) ??
       nonEmpty(env.POSTHOG_HOST),
     fetch: fetchImpl,

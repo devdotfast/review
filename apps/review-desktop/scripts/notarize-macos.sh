@@ -7,7 +7,7 @@ CHECKOUT="$APP_DIR/code-oss"
 PRODUCT_NAME="$(node -p "require('$CHECKOUT/product.json').nameShort")"
 PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/$PRODUCT_NAME.app"
 VERSION="$(node -p "require('$APP_DIR/package.json').version")"
-ARTIFACT_DIR="${DEV_FAST_REVIEW_ARTIFACT_DIR:-$APP_DIR/dist}"
+ARTIFACT_DIR="${DEV_FAST_WHITEBOARD_ARTIFACT_DIR:-$APP_DIR/dist}"
 UPDATE_ZIP="$ARTIFACT_DIR/Review-darwin-arm64-$VERSION.zip"
 DMG="$ARTIFACT_DIR/Review-darwin-arm64-$VERSION.dmg"
 

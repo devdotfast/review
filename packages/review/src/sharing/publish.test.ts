@@ -21,8 +21,8 @@ it.each([
   async ({ verified, protocol }) => {
     const root = await mkdtemp(path.join(tmpdir(), "sharing-publish-"));
     const fixture = await createShareFixture(root);
-    vi.stubEnv("DEV_REVIEW_HOME", root);
-    vi.stubEnv("DEV_FAST_REVIEW_APP_URL_PROTOCOL", protocol);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", root);
+    vi.stubEnv("DEV_FAST_WHITEBOARD_APP_URL_PROTOCOL", protocol);
     const check = Promise.withResolvers<typeof fixture.repository>();
     const registered = Promise.withResolvers<void>();
     const shareId = randomUUID();
@@ -149,7 +149,7 @@ it.each([
 it("signs the user out when the share service rejects the stored token", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "sharing-publish-"));
   const fixture = await createShareFixture(root);
-  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", root);
 
   try {
     await writeStoreAuth({

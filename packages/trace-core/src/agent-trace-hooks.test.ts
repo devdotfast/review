@@ -46,13 +46,13 @@ describe("agent-trace-hooks", () => {
 
     const content = JSON.parse(await readFile(first.path, "utf8"));
     expect(content.hooks.SessionStart[0].hooks[0].command).toBe(
-      "review trace hook SessionStart",
+      "whiteboard trace hook SessionStart",
     );
     expect(content.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
-      "review trace hook UserPromptSubmit",
+      "whiteboard trace hook UserPromptSubmit",
     );
     expect(content.hooks.SessionEnd[0].hooks[0].command).toBe(
-      "review trace hook SessionEnd",
+      "whiteboard trace hook SessionEnd",
     );
 
     const second = await installClaudeTraceHook(homeDir);
@@ -83,11 +83,11 @@ describe("agent-trace-hooks", () => {
 
     const content = await readFile(first.path, "utf8");
     expect(content).toContain("[[hooks.SessionStart]]");
-    expect(content).toContain("review trace hook SessionStart");
+    expect(content).toContain("whiteboard trace hook SessionStart");
     expect(content).toContain("[[hooks.UserPromptSubmit]]");
-    expect(content).toContain("review trace hook UserPromptSubmit");
+    expect(content).toContain("whiteboard trace hook UserPromptSubmit");
     expect(content).toContain("[[hooks.SessionEnd]]");
-    expect(content).toContain("review trace hook SessionEnd");
+    expect(content).toContain("whiteboard trace hook SessionEnd");
 
     const second = await installCodexTraceHook(homeDir);
     expect(second.modified).toBe(false);
@@ -120,16 +120,20 @@ command = "review trace hook SessionEnd"
 
     expect((await installCodexTraceHook(homeDir)).modified).toBe(true);
     const installed = await readFile(configPath, "utf8");
-    expect(installed).toContain("review trace hook UserPromptSubmit");
-    expect(installed.match(/review trace hook SessionStart/g)).toHaveLength(1);
-    expect(installed.match(/review trace hook SessionEnd/g)).toHaveLength(1);
+    expect(installed).toContain("whiteboard trace hook UserPromptSubmit");
+    expect(installed.match(/whiteboard trace hook SessionStart/g)).toHaveLength(
+      1,
+    );
+    expect(installed.match(/whiteboard trace hook SessionEnd/g)).toHaveLength(
+      1,
+    );
     expect((await installCodexTraceHook(homeDir)).modified).toBe(false);
 
     expect(await removeAgentTraceHook("codex", homeDir)).toBe(true);
     const removed = await readFile(configPath, "utf8");
     expect(removed).toContain('model = "gpt-5"');
     expect(removed).toContain('keep = "yes"');
-    expect(removed).not.toContain("review trace hook");
+    expect(removed).not.toContain("whiteboard trace hook");
   });
 
   it("installs Pi trace extension in ~/.pi/agent/extensions/review-trace.ts idempotently", async () => {

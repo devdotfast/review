@@ -38,8 +38,8 @@ describe("bundled Review tools", () => {
 
     const env = {
       ...process.env,
-      DEV_REVIEW_HOME: devHome,
-      DEV_FAST_REVIEW_RUST_ANALYZER: rustAnalyzer,
+      DEV_WHITEBOARD_HOME: devHome,
+      DEV_FAST_WHITEBOARD_RUST_ANALYZER: rustAnalyzer,
     };
 
     await expect(ensureBundledRustAnalyzer({ env })).resolves.toBe("staged");

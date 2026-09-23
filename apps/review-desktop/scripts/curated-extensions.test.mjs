@@ -258,7 +258,7 @@ test("resolves a target key for every extension on every supported target", () =
   }
 });
 
-test("parses DEV_REVIEW_EXTENSIONS selections", () => {
+test("parses DEV_WHITEBOARD_EXTENSIONS selections", () => {
   assert.deepEqual([...bundledGroups], ["python", "vim", "emacs"]);
   assert.deepEqual([...optionalGroups], ["rust", "swift", "csharp", "go"]);
   assert.deepEqual(
@@ -358,7 +358,7 @@ test("ignores every materialized curated extension directory", () => {
 });
 
 test("materializes the selected groups from run.sh", () => {
-  assert.match(runScript, /DEV_REVIEW_EXTENSIONS/);
+  assert.match(runScript, /DEV_WHITEBOARD_EXTENSIONS/);
   assert.match(runScript, /curated-extensions\.mjs/);
 });
 

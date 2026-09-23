@@ -109,7 +109,7 @@ describe("publish revision stage", () => {
       path.join(os.tmpdir(), "review-publish-source-"),
     );
 
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("DEV_WHITEBOARD_HOME", home);
 
     try {
       const review = await createReviewDir({

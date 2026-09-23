@@ -88,7 +88,7 @@ export async function prepareReviewRpmPackage(codeRoot: string, arch: string): P
 	// The CLI launches this channel's desktop app, not the stable one.
 	await write(`usr/bin/${app}`, `#!/bin/sh
 export ELECTRON_RUN_AS_NODE=1
-export DEV_FAST_REVIEW_DESKTOP_COMMAND=/usr/bin/${app}-desktop
+export DEV_FAST_WHITEBOARD_DESKTOP_COMMAND=/usr/bin/${app}-desktop
 exec ${share}/${app} ${share}/resources/app/review-runtime/dist/cli.js "$@"
 `, 0o755);
 	await write(`usr/bin/${app}-desktop`, `#!/bin/sh

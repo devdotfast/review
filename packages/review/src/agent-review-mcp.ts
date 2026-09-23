@@ -24,7 +24,7 @@ export const REVIEW_MCP_TARGETS = [
 ] as const;
 
 export function reviewMcpLauncher(env: NodeJS.ProcessEnv) {
-  return path.join(reviewDesktopStateDir(env), "review-mcp");
+  return path.join(reviewDesktopStateDir(env), "whiteboard-mcp");
 }
 
 export async function reviewMcpRegistration(
@@ -33,15 +33,16 @@ export async function reviewMcpRegistration(
   env: NodeJS.ProcessEnv,
 ): Promise<ReviewMcpRegistration> {
   return {
+    name: "whiteboard",
     target,
     configPath: await configPath(target, homeDir, env),
     command: reviewMcpLauncher(env),
     args: ["mcp"],
     env: {
-      DEV_REVIEW_HOME: devReviewHome(env, homeDir),
+      DEV_WHITEBOARD_HOME: devReviewHome(env, homeDir),
       // Desktop integrations must not inherit a shell's headless selection.
-      DEV_REVIEW_SERVER_DIR: "",
-      DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
+      DEV_WHITEBOARD_SERVER_DIR: "",
+      DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE: "1",
     },
   };
 }
@@ -76,7 +77,8 @@ async function configPath(
         existing ??= file;
         const servers = object.parse(jsonConfiguration(source).mcp ?? {});
 
-        if (servers.review !== undefined) return file;
+        if (servers.whiteboard !== undefined || servers.review !== undefined)
+          return file;
       } catch (error) {
         // Let status/install report malformed or unreadable settings normally.
         if (!isMissingFileError(error)) return file;
@@ -107,11 +109,20 @@ function configuration(registration: ReviewMcpRegistration) {
     : { command, args, env };
 }
 
+function serverName(registration: ReviewMcpRegistration) {
+  return registration.name ?? "review";
+}
+
 function tomlBlock(registration: ReviewMcpRegistration) {
+  const owner =
+    serverName(registration) === "review" ? "Review Desktop" : "Whiteboard";
+
   return (
-    "# BEGIN Review Desktop MCP\n" +
-    stringify({ mcp_servers: { review: configuration(registration) } }) +
-    "\n# END Review Desktop MCP\n"
+    `# BEGIN ${owner} MCP\n` +
+    stringify({
+      mcp_servers: { [serverName(registration)]: configuration(registration) },
+    }) +
+    `\n# END ${owner} MCP\n`
   );
 }
 
@@ -153,7 +164,13 @@ async function readConfig(registration: ReviewMcpRegistration) {
 
   const servers = object.parse(parsed[key] ?? {});
 
-  return { source, parsed, key, servers, current: servers.review };
+  return {
+    source,
+    parsed,
+    key,
+    servers,
+    current: servers[serverName(registration)],
+  };
 }
 
 function matches(
@@ -161,7 +178,10 @@ function matches(
   registration: ReviewMcpRegistration,
 ) {
   return (
-    isDeepStrictEqual(config.current, configuration(registration)) &&
+    isDeepStrictEqual(
+      config.servers[serverName(registration)],
+      configuration(registration),
+    ) &&
     (registration.target !== "codex" ||
       config.source.includes(tomlBlock(registration)))
   );
@@ -179,7 +199,8 @@ export async function reviewMcpStatus(
 
     const state = matches(config, desired)
       ? "ready"
-      : config.current === undefined || managed
+      : config.current === undefined ||
+          (managed && previous && serverName(previous) === serverName(desired))
         ? "missing"
         : "custom";
 
@@ -188,7 +209,7 @@ export async function reviewMcpStatus(
     return {
       target: desired.target,
       state: "error",
-      error: `Cannot read ${desired.configPath}. Fix its configuration, then reinstall the Review integration.`,
+      error: `Cannot read ${desired.configPath}. Fix its configuration, then reinstall the Whiteboard integration.`,
     } as const;
   }
 }
@@ -204,12 +225,19 @@ export async function writeReviewMcpRegistration(
   const managed =
     previous?.configPath === desired.configPath && matches(config, previous);
 
-  if (config.current !== undefined && !managed && !matches(config, desired))
+  const sameName = previous && serverName(previous) === serverName(desired);
+
+  if (
+    config.current !== undefined &&
+    !(managed && sameName) &&
+    !matches(config, desired)
+  )
     return false;
 
   if (remove && !managed) return false;
 
-  if (!remove && matches(config, desired)) return true;
+  if (!remove && matches(config, desired) && (!managed || sameName))
+    return true;
 
   let next: string;
 
@@ -217,15 +245,17 @@ export async function writeReviewMcpRegistration(
     next = config.source;
 
     if (managed) next = next.replace(tomlBlock(previous), "");
-    else if (matches(config, desired))
+
+    if (matches(config, desired) && (!managed || !sameName))
       next = next.replace(tomlBlock(desired), "");
 
     if (!remove) next += `\n${tomlBlock(desired)}`;
     // Reject conflicting inline/dotted declarations before touching the file.
     parse(next);
   } else if (desired.target === "claude") {
-    if (remove) delete config.servers.review;
-    else config.servers.review = configuration(desired);
+    if (managed) delete config.servers[serverName(previous)];
+
+    if (!remove) config.servers[serverName(desired)] = configuration(desired);
     config.parsed[config.key] = config.servers;
     next = JSON.stringify(config.parsed, null, 2) + "\n";
   } else {
@@ -234,11 +264,19 @@ export async function writeReviewMcpRegistration(
       (desired.target === "opencode"
         ? '{\n  "$schema": "https://opencode.ai/config.json"\n}\n'
         : "{}\n");
+
+    if (managed && !sameName)
+      next = applyEdits(
+        next,
+        modify(next, [config.key, serverName(previous)], undefined, {
+          formattingOptions: { insertSpaces: true, tabSize: 2 },
+        }),
+      );
     next = applyEdits(
       next,
       modify(
         next,
-        [config.key, "review"],
+        [config.key, serverName(desired)],
         remove ? undefined : configuration(desired),
         { formattingOptions: { insertSpaces: true, tabSize: 2 } },
       ),
@@ -251,7 +289,7 @@ export async function writeReviewMcpRegistration(
     const latest = await readConfig(desired);
 
     if (latest.source !== config.source)
-      throw new Error("Agent settings changed during Review setup. Retry.");
+      throw new Error("Agent settings changed during Whiteboard setup. Retry.");
     await writeFileAtomicAsync(desired.configPath, next, { mode: 0o600 });
   }
 

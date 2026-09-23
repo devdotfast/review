@@ -49,7 +49,7 @@ import { devReviewHome } from "./review-home-paths";
 /**
  * `review trace storage use` and `review trace config migrate`: the explicit
  * selection and configuration commands. Both write only
- * `$DEV_REVIEW_HOME/trace/config.json`; the legacy files, environment, and
+ * `$DEV_WHITEBOARD_HOME/trace/config.json`; the legacy files, environment, and
  * every remote object stay as they are.
  */
 
@@ -183,7 +183,7 @@ async function useHosted(
 
     if (!auth || auth.origin !== origin) {
       throw new TraceConfigurationError(
-        `Log in to ${origin} first: \`review login --origin ${origin}\`.`,
+        `Log in to ${origin} first: \`whiteboard login --origin ${origin}\`.`,
       );
     }
 

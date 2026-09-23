@@ -63,7 +63,7 @@ it("binds the legacy authoring session as the source session", async () => {
 async function fixture(broken = false) {
   const home = await mkdtemp(path.join(tmpdir(), "review-source-migration-"));
   roots.push(home);
-  vi.stubEnv("DEV_REVIEW_HOME", home);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", home);
   const source = path.join(home, "source");
   await mkdir(source);
 

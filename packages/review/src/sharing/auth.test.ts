@@ -9,7 +9,7 @@ import { readSharingAuth } from "./auth.js";
 
 it("uses explicit CI credentials without altering saved login and never silently falls back from invalid env", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "review-sharing-auth-"));
-  const env = { DEV_REVIEW_HOME: home };
+  const env = { DEV_WHITEBOARD_HOME: home };
 
   try {
     const saved = {
@@ -24,24 +24,27 @@ it("uses explicit CI credentials without altering saved login and never silently
     expect(
       await readSharingAuth({
         ...env,
-        DEV_REVIEW_SHARE_TOKEN: "ci-token",
-        DEV_REVIEW_SHARE_ORIGIN: "https://ci.test",
+        DEV_WHITEBOARD_SHARE_TOKEN: "ci-token",
+        DEV_WHITEBOARD_SHARE_ORIGIN: "https://ci.test",
       }),
     ).toEqual({ origin: "https://ci.test", token: "ci-token" });
     expect(
       JSON.parse(await readFile(path.join(home, "auth.json"), "utf8")),
     ).toEqual(saved);
     await expect(
-      readSharingAuth({ ...env, DEV_REVIEW_SHARE_TOKEN: "" }),
+      readSharingAuth({ ...env, DEV_WHITEBOARD_SHARE_TOKEN: "" }),
     ).rejects.toThrow(/empty/);
     await expect(
-      readSharingAuth({ ...env, DEV_REVIEW_SHARE_ORIGIN: "https://ci.test" }),
+      readSharingAuth({
+        ...env,
+        DEV_WHITEBOARD_SHARE_ORIGIN: "https://ci.test",
+      }),
     ).rejects.toThrow(/requires/);
     await expect(
       readSharingAuth({
         ...env,
-        DEV_REVIEW_SHARE_TOKEN: "ci-token",
-        DEV_REVIEW_SHARE_ORIGIN: "https://user:password@ci.test/path",
+        DEV_WHITEBOARD_SHARE_TOKEN: "ci-token",
+        DEV_WHITEBOARD_SHARE_ORIGIN: "https://user:password@ci.test/path",
       }),
     ).rejects.toThrow(/bare HTTPS origin/);
   } finally {

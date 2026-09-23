@@ -25,7 +25,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
   const home = path.join(root, "home");
   const devHome = path.join(root, "dev-review");
   const packageRoot = path.join(root, "package");
-  vi.stubEnv("DEV_REVIEW_HOME", devHome);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
   // syncScratchpadSkills resolves agents under the user's home.
   vi.stubEnv("HOME", home);
 

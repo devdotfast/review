@@ -461,7 +461,7 @@ it.each([false, true])(
           content: inline
             ? {
                 type: "markdown",
-                markdown: `- Before [source remains pinned](review-trace:${traceId}#answer) after.`,
+                markdown: `- Before [source remains pinned](whiteboard-trace:${traceId}#answer) after.`,
               }
             : {
                 type: "trace_quote",

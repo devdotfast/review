@@ -823,15 +823,15 @@ it("validates Markdown source links against the pinned files before saving", asy
   await insert(sessionId, {
     type: "markdown",
     markdown:
-      "[base](review-source:base/example.ts#L1) and [head](review-source:head/example.ts#L1-L2)",
+      "[base](whiteboard-source:base/example.ts#L1) and [head](whiteboard-source:head/example.ts#L1-L2)",
   });
   const saved = local.store.read(sessionId);
 
   for (const href of [
-    "review-source:base/example.ts#L3",
-    "review-source:head/missing.ts#L1",
-    "review-source:head/../secret.ts#L1",
-    "review-source:head/%2Fetc%2Fpasswd#L1",
+    "whiteboard-source:base/example.ts#L3",
+    "whiteboard-source:head/missing.ts#L1",
+    "whiteboard-source:head/../secret.ts#L1",
+    "whiteboard-source:head/%2Fetc%2Fpasswd#L1",
   ]) {
     await expect(
       insert(sessionId, { type: "markdown", markdown: `[bad](${href})` }),
@@ -1733,12 +1733,12 @@ it("decodes images and checks trace/map evidence before accepting components", a
   ).rejects.toThrow(/does not match/);
   await insert(review.sessionId, {
     type: "markdown",
-    markdown: `A quote: [old components](review-trace:${trace.id}#answer).`,
+    markdown: `A quote: [old components](whiteboard-trace:${trace.id}#answer).`,
   });
   await expect(
     insert(review.sessionId, {
       type: "markdown",
-      markdown: `[Redesign everything](review-trace:${trace.id}#answer)`,
+      markdown: `[Redesign everything](whiteboard-trace:${trace.id}#answer)`,
     }),
   ).rejects.toThrow(/does not match/);
 
@@ -2876,14 +2876,14 @@ it("leaves authored Markdown destinations unchanged when source lines move", asy
   await insert(created.sessionId, {
     type: "markdown",
     markdown:
-      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
+      "[one](whiteboard-source:head/links.ts#L1) [ten](whiteboard-source:head/links.ts#L10-L20)",
   });
   writeFileSync(path.join(repository, "links.ts"), "inserted\n" + original);
   await new Promise((resolve) => setTimeout(resolve, 50));
   await local.store.refreshWorktrees();
   expect(local.store.read(created.sessionId).document[0]).toMatchObject({
     markdown:
-      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
+      "[one](whiteboard-source:head/links.ts#L1) [ten](whiteboard-source:head/links.ts#L10-L20)",
   });
 });
 

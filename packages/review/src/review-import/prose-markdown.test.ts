@@ -66,10 +66,10 @@ describe("proseToMarkdown", () => {
           } as ReviewNode,
         ]),
       ]),
-    ).toBe("See [the queue](review-source:head/src/order.ts#L3-L9)\n");
+    ).toBe("See [the queue](whiteboard-source:head/src/order.ts#L3-L9)\n");
     expect(
       sourceLink({ side: "base", file: "a b.ts", fromLine: 1, toLine: 1 }),
-    ).toBe("review-source:base/a%20b.ts#L1-L1");
+    ).toBe("whiteboard-source:base/a%20b.ts#L1-L1");
   });
 
   it("renders task lists, nested lists and ordered lists", () => {
@@ -249,7 +249,7 @@ describe("proseToMarkdown", () => {
     );
 
     expect(markdown).toBe(
-      "- [Peek](review-source:head/src/a.ts#L4-L6)\n\nSaid: quoted\n",
+      "- [Peek](whiteboard-source:head/src/a.ts#L4-L6)\n\nSaid: quoted\n",
     );
     expect(warnings).toEqual([
       "CodePeek inside prose became a source link (Peek)",
@@ -264,11 +264,11 @@ describe("proseToMarkdown", () => {
       [footnoteTraceQuoteSection("1")],
       warnings,
       (node) =>
-        node.name === "TraceQuote" ? "[said so](review-trace:t1#2)" : undefined,
+        node.name === "TraceQuote" ? "[said so](whiteboard-trace:t1#2)" : undefined,
     );
 
     expect([...footnotes]).toEqual([
-      ["1", "The agent [said so](review-trace:t1#2)."],
+      ["1", "The agent [said so](whiteboard-trace:t1#2)."],
     ]);
     expect(warnings).toEqual([]);
   });

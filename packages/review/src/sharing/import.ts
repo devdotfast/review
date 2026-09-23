@@ -44,6 +44,7 @@ import {
   normalizedSoftwareElementSchema,
   normalizedSoftwareRelationshipSchema,
 } from "../software-map-model.js";
+import { migrateDocumentLinks } from "../source-link-migration.js";
 import {
   liftFileLenses,
   migrateStoredDocument,
@@ -146,7 +147,10 @@ export function validateShareBundle(bundle: ShareBundle) {
   // shared as document blocks read as the snapshot's lenses.
   const snapshot = sharedSnapshotSchema.parse(
     isJsonObject(stored) && "document" in stored
-      ? liftSharedLenses(stored, migrateStoredDocument(stored.document))
+      ? liftSharedLenses(
+          stored,
+          migrateDocumentLinks(migrateStoredDocument(stored.document)),
+        )
       : stored,
   );
 

@@ -371,7 +371,7 @@ describe("source rules in every peek position", () => {
   it("accepts a prose link to the same blank lines", async () => {
     const result = await insert({
       type: "markdown",
-      markdown: "See [the gap](review-source:head/src/blank.ts#L2-L3).",
+      markdown: "See [the gap](whiteboard-source:head/src/blank.ts#L2-L3).",
     });
 
     expect(result.status).toBe(200);
@@ -424,12 +424,12 @@ describe("source rules in every peek position", () => {
   it("rejects relative file links without saving and accepts the corrected source link", async () => {
     await expectRejected(
       () => insert({ type: "markdown", markdown: "[store](src/store.ts#L1)" }),
-      /Unsupported Markdown link "src\/store.ts#L1".*Use \[label\]\(review-source:head\/path#L10-L24\)/,
+      /Unsupported Markdown link "src\/store.ts#L1".*Use \[label\]\(whiteboard-source:head\/path#L10-L24\)/,
     );
 
     const result = await insert({
       type: "markdown",
-      markdown: "[store](review-source:head/src/store.ts#L1)",
+      markdown: "[store](whiteboard-source:head/src/store.ts#L1)",
     });
 
     expect(result.status).toBe(200);
@@ -440,15 +440,15 @@ describe("source rules in every peek position", () => {
       () =>
         insert({
           type: "markdown",
-          markdown: "[x](review-source:head/src/store.ts)",
+          markdown: "[x](whiteboard-source:head/src/store.ts)",
         }),
-      "Use review-source:head/path#L10-L24 (or base) for a source link.",
+      "Use whiteboard-source:head/path#L10-L24 (or base) for a source link.",
     );
     await expectRejected(
       () =>
         insert({
           type: "markdown",
-          markdown: "[x](review-source:head/src/%E0%A4%A.ts#L1)",
+          markdown: "[x](whiteboard-source:head/src/%E0%A4%A.ts#L1)",
         }),
       "Invalid URL encoding in source link.",
     );

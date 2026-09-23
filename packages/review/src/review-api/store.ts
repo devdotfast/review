@@ -11,6 +11,7 @@ import {
 import { z } from "zod";
 
 import { sourceAnchors } from "../lens-selection.js";
+import { migrateStoredSourceLinks } from "../source-link-migration.js";
 import {
   liftFileLenses,
   migrateStoredDocument,
@@ -422,6 +423,7 @@ export class SessionStore {
 
     try {
       migrateSessionStorage(this.db);
+      migrateStoredSourceLinks(this.db);
     } catch (error) {
       this.db.close();
       throw error;

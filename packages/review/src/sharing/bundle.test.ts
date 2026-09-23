@@ -134,3 +134,43 @@ it("checks every quote in a reused trace and rejects duplicate event IDs", async
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("imports old published source links once without modifying the sealed bundle", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sharing-old-links-"));
+  const fixture = await createShareFixture(root);
+
+  try {
+    const bundle = await exportShare(fixture);
+
+    const snapshot = JSON.parse(
+      Buffer.from(bundle.objects.get(bundle.manifest.snapshot)!).toString(),
+    );
+
+    snapshot.document.push({
+      type: "markdown",
+      id: "old-link",
+      markdown: "[answer](review-source:head/answer.ts#L2)",
+    });
+    const bytes = Buffer.from(JSON.stringify(snapshot));
+    const id = digestBytes(bytes);
+    const old = bundle.manifest.snapshot;
+    bundle.objects.delete(old);
+    bundle.objects.set(id, bytes);
+    bundle.manifest.snapshot = id;
+    bundle.manifest.objects = bundle.manifest.objects.map((object) =>
+      object.id === old ? { id, sha256: id, size: bytes.length } : object,
+    );
+    const imported = validateShareBundle(bundle);
+    expect(imported.snapshot.document.at(-1)).toMatchObject({
+      markdown: "[answer](whiteboard-source:head/answer.ts#L2)",
+    });
+    expect(Buffer.from(bundle.objects.get(id)!).toString()).toContain(
+      "review-source:",
+    );
+    expect(validateShareBundle(bundle).snapshot).toEqual(imported.snapshot);
+  } finally {
+    await fixture.data.close();
+    await fixture.store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

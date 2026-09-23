@@ -139,7 +139,7 @@ export const isUnit = (element: Element): element is Unit =>
 export function traceQuoteLink(
   href: string,
 ): { traceId: string; eventId: string } | undefined {
-  const match = /^review-trace:([^#]+)#(.+)$/.exec(href);
+  const match = /^whiteboard-trace:([^#]+)#(.+)$/.exec(href);
 
   return match
     ? {
@@ -175,7 +175,7 @@ export function resourceReferences(document: Block[]): Block[] {
 
     return [...markdownNodes(parseMarkdown(block.markdown))].flatMap(
       (node): Block[] => {
-        if (node.type !== "link" || !node.url?.startsWith("review-trace:"))
+        if (node.type !== "link" || !node.url?.startsWith("whiteboard-trace:"))
           return [];
         const quote = traceQuoteLink(node.url);
 
@@ -218,25 +218,25 @@ function documentReferences(
           if (node.type !== "link") return [];
           const href = node.url ?? "";
 
-          if (!/^review-source:/i.test(href)) {
+          if (!/^whiteboard-source:/i.test(href)) {
             // Trace links are checked by resourceReferences.
-            if (href.startsWith("review-trace:")) return [];
+            if (href.startsWith("whiteboard-trace:")) return [];
 
             if (/^(?:https?:\/\/|mailto:|#)/i.test(href)) return [];
 
             return reject(
-              `Unsupported Markdown link ${JSON.stringify(href)} in block ${element.id}. Use [label](review-source:head/path#L10-L24) or review-source:base/path#L10-L24 for repository files, with a repository-relative path and verified line numbers. External links must use https://, http://, or mailto:; document anchors use #heading.`,
+              `Unsupported Markdown link ${JSON.stringify(href)} in block ${element.id}. Use [label](whiteboard-source:head/path#L10-L24) or whiteboard-source:base/path#L10-L24 for repository files, with a repository-relative path and verified line numbers. External links must use https://, http://, or mailto:; document anchors use #heading.`,
             );
           }
 
           const match =
-            /^review-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(
+            /^whiteboard-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(
               node.url!,
             );
 
           if (!match)
             return reject(
-              "Use review-source:head/path#L10-L24 (or base) for a source link.",
+              "Use whiteboard-source:head/path#L10-L24 (or base) for a source link.",
             );
           let file: string;
 

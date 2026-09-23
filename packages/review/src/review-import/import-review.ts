@@ -851,12 +851,12 @@ function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
       return {
         ...block,
         markdown: block.markdown.replace(
-          /\[((?:\\[\s\S]|[^\]\\])*)\]\(review-trace:(trace-placeholder-\d+)#[^)]+\)/g,
+          /\[((?:\\[\s\S]|[^\]\\])*)\]\(whiteboard-trace:(trace-placeholder-\d+)#[^)]+\)/g,
           (link, label: string, id: string) => {
             const quote = replacements.get(id);
 
             return quote?.type === "trace_quote"
-              ? `[${label}](review-trace:${quote.traceId}#${encodeURIComponent(quote.eventId)})`
+              ? `[${label}](whiteboard-trace:${quote.traceId}#${encodeURIComponent(quote.eventId)})`
               : `“${label}”`;
           },
         ),

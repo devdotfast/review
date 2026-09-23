@@ -34,7 +34,7 @@ const snapshot: Snapshot = {
           id: "markdown-2",
           type: "markdown",
           markdown:
-            "First paragraph.\n\nThe complete explanation, including [source](review-source:head/src/save.ts#L10-L20).",
+            "First paragraph.\n\nThe complete explanation, including [source](whiteboard-source:head/src/save.ts#L10-L20).",
         },
         {
           id: "callout-3",
@@ -164,7 +164,7 @@ it("reads all component kinds without losing prose, relationships or source loca
 
   for (const content of [
     "complete explanation",
-    "review-source:head/src/save.ts#L10-L20",
+    "whiteboard-source:head/src/save.ts#L10-L20",
     "save();",
     "notify();",
     "client → server: Submit",

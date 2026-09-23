@@ -210,7 +210,7 @@ describe("importLegacyReview", () => {
     expect(store.read(record.uuid).document.at(-1)).toMatchObject({
       type: "markdown",
       markdown: expect.stringMatching(
-        /\[\^1\]: The agent \[agent said so\]\(review-trace:[\da-f-]{36}#2\)\.\n$/,
+        /\[\^1\]: The agent \[agent said so\]\(whiteboard-trace:[\da-f-]{36}#2\)\.\n$/,
       ),
     });
   });

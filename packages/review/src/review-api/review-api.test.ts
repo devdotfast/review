@@ -1226,7 +1226,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       content: {
         type: "markdown",
-        markdown: `[save](review-source:${source.side}/${source.file}#L${source.fromLine}-L${source.toLine})`,
+        markdown: `[save](whiteboard-source:${source.side}/${source.file}#L${source.fromLine}-L${source.toLine})`,
       },
     });
 
@@ -1259,7 +1259,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       content: {
         type: "markdown",
-        markdown: "[keep](review-source:head/src/store.ts#L1-L5)",
+        markdown: "[keep](whiteboard-source:head/src/store.ts#L1-L5)",
       },
     });
 
@@ -1332,7 +1332,7 @@ describe("snapshot authoring", () => {
       type: "insert",
       content: {
         type: "markdown",
-        markdown: "[store](review-source:head/src/store.ts#L1)",
+        markdown: "[store](whiteboard-source:head/src/store.ts#L1)",
         pins: own,
       },
     });

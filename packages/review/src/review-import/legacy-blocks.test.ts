@@ -87,7 +87,7 @@ describe("legacyDocumentToBlocks", () => {
     ).toBe(true);
     expect(blocks.filter((block) => block.type === "section")).toHaveLength(4);
     expect(JSON.stringify(blocks)).toContain('"type":"sequence"');
-    expect(JSON.stringify(blocks)).toContain("review-source:head/");
+    expect(JSON.stringify(blocks)).toContain("whiteboard-source:head/");
 
     for (const block of blocks) blockSchema.parse(block);
     checkReferences(blocks);
@@ -314,7 +314,7 @@ describe("legacyDocumentToBlocks", () => {
     );
 
     const definition =
-      "[^1]: The agent [agent said so](review-trace:trace-placeholder-1#2).";
+      "[^1]: The agent [agent said so](whiteboard-trace:trace-placeholder-1#2).";
 
     expect(traces).toHaveLength(1);
     expect(warnings).toEqual([]);

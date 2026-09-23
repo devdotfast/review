@@ -122,7 +122,7 @@ const rendered: Record<
 > = {
   markdown: (c) =>
     c.querySelector("h1")?.textContent === "Order status" &&
-    has(c, "a[href*='review-source:']"),
+    has(c, "a[href*='whiteboard-source:']"),
   code: (c) =>
     (c.querySelector("pre")?.textContent ?? "").includes(
       'export const status = "queued";',

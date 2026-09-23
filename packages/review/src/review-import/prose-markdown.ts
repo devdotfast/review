@@ -18,7 +18,7 @@ type ElementNode = Extract<ReviewNode, { type: "element" }>;
 export function sourceLink(source: FileLineRange): string {
   const file = source.file.split("/").map(encodeURIComponent).join("/");
 
-  return `review-source:${source.side}/${file}#L${source.fromLine}-L${source.toLine}`;
+  return `whiteboard-source:${source.side}/${file}#L${source.fromLine}-L${source.toLine}`;
 }
 
 /** Prose is text, HTML-ish elements, and the one inline component. */

@@ -200,7 +200,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			method: "PUT",
 			headers: { ...this.authHeaders(), "content-type": "application/json" },
 			body: JSON.stringify({ enabled }),
-			// Also installs or removes the scratchpad skill for every agent.
 			signal: AbortSignal.timeout(120_000),
 		});
 		await this.requireOk(response, "scratchpad preference");

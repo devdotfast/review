@@ -24,7 +24,7 @@ export interface ReviewPreferences {
   dismissedRetentionDays: DismissedRetentionDays;
   /**
    * Whether the scratchpad exists on this machine. Off, the server neither
-   * makes nor lists it and the scratchpad skill is not installed for agents.
+   * makes nor lists it and Review's instructions do not offer it to agents.
    */
   scratchpadEnabled: boolean;
 }

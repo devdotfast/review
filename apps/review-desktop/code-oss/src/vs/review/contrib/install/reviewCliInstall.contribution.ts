@@ -132,7 +132,7 @@ registerAction2(InstallReviewCliInPathAction);
 
 /**
  * Removes everything the app installed on this machine: the tutorial, the
- * agent skills, the review terminal command, and the consent stamp. It then
+ * agent connections, the review terminal command, and the consent stamp. It then
  * points at the app bundle so the user can move it to the Trash. Other Review
  * data stays untouched. Resetting the stamp makes a later reinstall start as
  * a first run.
@@ -161,10 +161,10 @@ class UninstallReviewDesktopAction extends Action2 {
 			targets.length > 0
 				? localize(
 						"review.uninstall.skills",
-						"Removes the Review skills and unchanged app-managed MCP connections for {0}.",
+						"Removes the app-managed Review MCP connections and Pi skill for {0}.",
 						formatTargets(targets),
 					)
-				: localize("review.uninstall.noSkills", "No agent skills are installed."),
+				: localize("review.uninstall.noSkills", "No agents are connected to Review."),
 			status.stamp?.shimPath
 				? localize("review.uninstall.shim", "Removes the review terminal command at {0}.", status.stamp.shimPath)
 				: localize("review.uninstall.noShim", "The review terminal command is not installed."),
@@ -193,7 +193,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		}
 
 		// The tutorial is disposable state: a failed delete must not stop
-		// the shim and skills removal the user just confirmed.
+		// the shim and agent removal the user just confirmed.
 		let tutorialError: unknown;
 		try {
 			await desktopConnection.deleteTutorial();
@@ -217,7 +217,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize("review.uninstall.failed", "Review could not remove the installed skills and command."),
+				localize("review.uninstall.failed", "Review could not remove its agent setup and command."),
 				String(error),
 			);
 			return;
@@ -237,7 +237,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		const bundlePath = macAppBundlePath(environmentService.appRoot);
 		if (bundlePath) {
 			const { confirmed: reveal } = await dialogService.confirm({
-				message: localize("review.uninstall.done", "The installed skills and command were removed."),
+				message: localize("review.uninstall.done", "Review's agent setup and command were removed."),
 				detail: localize(
 					"review.uninstall.finish",
 					"To finish, quit Review Desktop and move {0} to the Trash.",
@@ -251,7 +251,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			}
 		} else {
 			await dialogService.info(
-				localize("review.uninstall.done", "The installed skills and command were removed."),
+				localize("review.uninstall.done", "Review's agent setup and command were removed."),
 				localize("review.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
 			);
 		}
@@ -267,7 +267,7 @@ registerAction2(UninstallReviewDesktopAction);
  * - no stamp: open no tab; empty Home renders the Welcome rail, and
  *   Preferences > Getting Started reaches the same pane when Home has
  *   reviews to list instead;
- * - granted + stale CLI fingerprint or skill version: re-sync silently after an app update;
+ * - granted + stale CLI fingerprint or agent setup: re-sync silently after an app update;
  * - declined or skipped: never open automatically (the menu action stays available).
  *
  * Dev sessions (`pnpm dev`, isBuilt false) never auto-open.
@@ -285,7 +285,7 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 			this.notificationService.warn(
 				localize(
 					"review.cliInstall.updateFailed",
-					"Review could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Review.",
+					"Review could not update its agent setup or CLI: {0}. Retry from Getting Started, or restart Review.",
 					String(error),
 				),
 			);
@@ -322,11 +322,11 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 				: request.shim
 					? localize(
 							"review.cliInstall.resynced",
-							"Review updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.",
+							"Review updated the CLI and agent MCP connections. Restart your agent or reconnect MCP to load the changes.",
 						)
 					: localize(
 							"review.cliInstall.resyncedSkills",
-							"Review updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.",
+							"Review updated the agent MCP connections. Restart your agent or reconnect MCP to load the changes.",
 						);
 		this.notificationService.status(message, { hideAfter: 10_000 });
 	}

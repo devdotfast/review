@@ -245,8 +245,8 @@ export function ReviewHome({
 
 /**
  * One-line callout shown only when the install needs attention: setup was
- * never finished, the installed skills are stale, or a detected agent has no
- * skills. Declined consent means the user opted out — no banner.
+ * never finished, the agent setup is out of date, or a detected agent is not
+ * connected. Declined consent means the user opted out — no banner.
  */
 function SetupBanner({ setup }: { setup: ReviewCanvasHomeSetup }) {
   const message = setupBannerMessage(setup.status);
@@ -278,7 +278,7 @@ export function setupBannerMessage(
   }
 
   if (status.stale) {
-    return "The installed Review skills are older than this app.";
+    return "Review's agent setup needs an update.";
   }
 
   const missing = status.agents.filter(
@@ -286,7 +286,7 @@ export function setupBannerMessage(
   );
 
   if (missing.length > 0) {
-    return `The Review skills are not installed for ${missing
+    return `Review is not connected to ${missing
       .map((agent) => TARGET_LABELS[agent.target])
       .join(", ")}.`;
   }

@@ -24,7 +24,7 @@ describe("AgentSetupCard", () => {
     vi.restoreAllMocks();
   });
 
-  it("reports the refreshed status after a per-agent install", async () => {
+  it("connects an MCP agent and reports it configured", async () => {
     const onStatusChange = vi.fn<(status: ReviewCliInstallStatus) => void>();
 
     const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
@@ -53,13 +53,16 @@ describe("AgentSetupCard", () => {
         ),
       ];
 
-      buttons.find((button) => button.textContent === "Install")?.click();
+      buttons.find((button) => button.textContent === "Connect")?.click();
     });
 
     expect(apply).toHaveBeenCalledExactlyOnceWith({
       targets: ["codex"],
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
+    expect(
+      container.querySelector(".review-agent-setup-state")?.textContent,
+    ).toBe("configured");
   });
 });
 
@@ -88,11 +91,13 @@ const status: ReviewCliInstallStatus = {
     settingsPath: "/tmp/trace-settings.json",
   },
   cli: { path: "/tmp/cli.js", version: "0.0.1" },
+  mcp: [{ target: "codex", state: "missing" }],
 };
 
 const grantedStatus: ReviewCliInstallStatus = {
   ...status,
   agents: [{ target: "codex", present: true, installed: true }],
+  mcp: [{ target: "codex", state: "ready" }],
   stamp: {
     consent: "granted",
     updatedAt: "2026-08-09T00:00:00.000Z",

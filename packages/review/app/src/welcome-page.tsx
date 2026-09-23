@@ -8,7 +8,7 @@ import { type ReactNode, useState } from "react";
 
 import { AgentSetupCard, TARGET_LABELS } from "./agent-setup-card";
 import { DisclosureChevron, RefreshIcon } from "./icons";
-import { PromptCard, promptAgent } from "./prompt-card";
+import { PromptCard } from "./prompt-card";
 
 /**
  * The Welcome pane: the whole first-run experience in one place. It opens
@@ -178,7 +178,7 @@ export function WelcomePage({
       title: "Create your first review",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
-      body: <PromptCard agent={promptAgent(status)} />,
+      body: <PromptCard />,
     },
   ];
 

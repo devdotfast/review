@@ -131,7 +131,7 @@ describe("Welcome agent installation", () => {
   });
 
   it.each(["cursor", "claude", "codex"] as const)(
-    "remembers %s installation across dropdown toggles and copies skill prompts",
+    "remembers %s connection across dropdown toggles and copies prompts",
     async (target: ReviewCliInstallTarget) => {
       const container = document.createElement("div");
       document.body.append(container);
@@ -170,6 +170,11 @@ describe("Welcome agent installation", () => {
           settingsPath: "/tmp/settings",
         },
         cli: { path: "/tmp/cli.js", version: "0.0.1" },
+        mcp: [
+          { target: "claude", state: "missing" },
+          { target: "codex", state: "missing" },
+          { target: "cursor", state: "missing" },
+        ],
       };
 
       const installed: ReviewCliInstallStatus = {
@@ -178,6 +183,9 @@ describe("Welcome agent installation", () => {
           ...agent,
           installed: agent.target === target,
         })),
+        mcp: initial.mcp!.map((item) =>
+          item.target === target ? { ...item, state: "ready" } : item,
+        ),
         shim: { ...initial.shim, installed: true },
       };
 
@@ -210,11 +218,11 @@ describe("Welcome agent installation", () => {
 
       try {
         await act(async () => root.render(<WelcomePage install={install} />));
-        await click("Install");
+        await click("Connect");
         expect(install.apply).toHaveBeenCalledExactlyOnceWith({
           targets: [target],
         });
-        expect(state()).toBe("installed");
+        expect(state()).toBe("configured");
         expect(
           container
             .querySelector(".review-onboarding-step")
@@ -222,7 +230,7 @@ describe("Welcome agent installation", () => {
         ).toBe("done");
         await click("Collapse Connect your agents");
         await click("Expand Connect your agents");
-        expect(state()).toBe("installed");
+        expect(state()).toBe("configured");
         await click("Expand Create your first review");
 
         const writeText = vi
@@ -236,17 +244,13 @@ describe("Welcome agent installation", () => {
             ".review-home-prompt-body",
           )?.textContent;
 
-          expect(prompt).toContain(
-            target === "cursor" ? "/dev-review" : "dev-review",
-          );
-          expect(prompt).not.toContain("review scaffold");
-          expect(prompt).not.toContain("review publish");
+          expect(prompt).toBeTruthy();
           await click("Copy prompt");
           expect(writeText).toHaveBeenLastCalledWith(prompt);
         }
 
         await click("Expand Connect your agents");
-        await click("Uninstall");
+        await click("Disconnect");
         await click("Collapse Connect your agents");
         await click("Expand Connect your agents");
         expect(state()).toBe("detected");

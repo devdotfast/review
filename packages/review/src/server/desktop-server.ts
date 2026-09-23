@@ -220,8 +220,6 @@ export function createGlobalReviewServer(
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );
-  // Turning the pad on or off also installs or removes its skill for every
-  // agent already set up, as trace capture does with its own skill.
   app.put("/preferences/scratchpad", async (context) => {
     const request = z
       .object({ enabled: z.boolean() })

@@ -21,7 +21,8 @@ type InstallRequest = Pick<
 >;
 
 /**
- * Lets the reviewer install or reinstall skills per agent. The card keeps the
+ * Lets the reviewer connect each agent to Review: an MCP entry for agents
+ * that support one, and the pointer skill for Pi. The card keeps the
  * latest action result so its parent can advance without a host re-render.
  */
 export function AgentSetupCard({
@@ -67,6 +68,10 @@ export function AgentSetupCard({
 
           const mcp = status.mcp?.find((item) => item.target === agent.target);
 
+          const labels = mcp
+            ? { idle: "Connect", again: "Reconnect", busy: "Connecting…" }
+            : { idle: "Install", again: "Reinstall", busy: "Installing…" };
+
           const needsUpdate =
             skills.some((skill) => skill.stale) ||
             (agent.installed && mcp?.state === "missing");
@@ -107,7 +112,9 @@ export function AgentSetupCard({
                     : needsUpdate
                       ? "update needed"
                       : agent.installed
-                        ? "installed"
+                        ? mcp
+                          ? "configured"
+                          : "installed"
                         : agent.present
                           ? "detected"
                           : "not detected"}
@@ -125,7 +132,9 @@ export function AgentSetupCard({
                 >
                   {busy === `remove-${agent.target}`
                     ? "Removing…"
-                    : "Uninstall"}
+                    : mcp
+                      ? "Disconnect"
+                      : "Uninstall"}
                 </button>
               ) : null}
               <button
@@ -136,18 +145,18 @@ export function AgentSetupCard({
                 }
               >
                 {busy === agent.target
-                  ? "Installing…"
+                  ? labels.busy
                   : agent.installed
-                    ? "Reinstall"
-                    : "Install"}
+                    ? labels.again
+                    : labels.idle}
               </button>
             </li>
           );
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installs Review skills, the <code>review</code> command, and MCP tools
-        where supported.
+        Connects your agents to Review&apos;s MCP tools; Pi gets a small skill
+        that uses the <code>review</code> command.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>
@@ -167,7 +176,7 @@ export function AgentSetupCard({
         .map((item) => (
           <p className="review-agent-setup-error" key={item.target}>
             {item.error ??
-              `${TARGET_LABELS[item.target]} already has custom Review MCP settings. Remove that entry in your agent's settings, then reinstall here to let Review manage it.`}
+              `${TARGET_LABELS[item.target]} already has custom Review MCP settings. Remove that entry in your agent's settings, then choose Connect here to let Review manage it.`}
           </p>
         ))}
     </section>

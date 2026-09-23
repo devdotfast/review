@@ -241,6 +241,47 @@ describe("ConnectCard", () => {
     expect(copyButton(container)?.disabled).toBe(false);
   });
 
+  it("collapses a long prompt until the reader expands it, and copies all of it", async () => {
+    const long = Array.from({ length: 8 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
+
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+
+    const container = await mount(
+      <ConnectCard
+        install={content({
+          connect: {
+            ...status.connect,
+            prompts: { ...status.connect.prompts, claude: long },
+          },
+        })}
+      />,
+    );
+
+    const body = container.querySelector("pre");
+    expect(body?.dataset.collapsed).toBe("true");
+
+    const toggle = container.querySelector("[aria-expanded]");
+    expect(toggle?.textContent).toBe("Show more…");
+    await act(async () => (toggle as HTMLButtonElement).click());
+    expect(body?.dataset.collapsed).toBe("false");
+    expect(toggle?.textContent).toBe("Show less");
+
+    const copy = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === "Copy prompt",
+    );
+
+    await act(async () => copy?.click());
+    expect(writeText).toHaveBeenCalledWith(long);
+
+    const short = await mount(<ConnectCard install={content()} />);
+    expect(short.querySelector("pre")?.dataset.collapsed).toBe("false");
+    expect(short.querySelector("[aria-expanded]")).toBeNull();
+  });
+
   it("shows the setup error from the status", async () => {
     const container = await mount(
       <ConnectCard install={content({ error: "boom" })} />,

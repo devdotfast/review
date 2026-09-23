@@ -5908,6 +5908,26 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   height: 14px;
 }
 
+.whiteboard-connect-body[data-collapsed="true"] {
+  max-height: calc(22px * 4);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+}
+
+.whiteboard-home-prompt-actions .whiteboard-connect-expand {
+  margin-right: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--whiteboard-home-ink-soft, var(--ink-soft));
+  font: 12px/22px var(--font-mono);
+  cursor: pointer;
+}
+
+.whiteboard-home-prompt-actions .whiteboard-connect-expand:hover {
+  color: var(--ink);
+}
+
 .whiteboard-connect-modes button {
   padding: 2px 8px;
   font-size: 11px;

@@ -23,6 +23,9 @@ export const WHITEBOARD_CONNECT_TARGET_STORAGE_KEY =
 
 const COPIED_RESET_MS = 2000;
 
+/** Lines of a prompt shown before the reader expands it. */
+const COLLAPSED_LINES = 4;
+
 type Mode = "prompt" | "plugin";
 
 const MODES: ReadonlyArray<{ mode: Mode; label: string }> = [
@@ -48,6 +51,7 @@ export function ConnectCard({
 
   const [mode, setMode] = useState<Mode>("prompt");
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -63,6 +67,7 @@ export function ConnectCard({
   const selectTarget = (next: WhiteboardCliInstallTarget) => {
     setTarget(next);
     clearCopied();
+    setExpanded(false);
 
     try {
       globalThis.localStorage?.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, next);
@@ -74,6 +79,7 @@ export function ConnectCard({
   const selectMode = (next: Mode) => {
     setMode(next);
     clearCopied();
+    setExpanded(false);
   };
 
   const agent = TARGET_LABELS[target];
@@ -97,6 +103,12 @@ export function ConnectCard({
   };
 
   const noun = mode === "prompt" ? "prompt" : "install command";
+
+  // Prompts run to a dozen lines; show the opening and let the reader expand.
+  const collapsible =
+    Boolean(text) && text.split("\n").length > COLLAPSED_LINES;
+
+  const collapsed = collapsible && !expanded;
 
   return (
     <section className="whiteboard-connect" aria-label="Connect your agents">
@@ -150,8 +162,23 @@ export function ConnectCard({
       </div>
       {text ? (
         <>
-          <pre className="whiteboard-home-prompt-body">{text}</pre>
+          <pre
+            className="whiteboard-home-prompt-body whiteboard-connect-body"
+            data-collapsed={collapsed}
+          >
+            {text}
+          </pre>
           <div className="whiteboard-home-prompt-actions">
+            {collapsible ? (
+              <button
+                type="button"
+                className="whiteboard-connect-expand"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((open) => !open)}
+              >
+                {expanded ? "Show less" : "Show more…"}
+              </button>
+            ) : null}
             <button
               type="button"
               className="whiteboard-home-prompt-copy"

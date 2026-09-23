@@ -77,7 +77,9 @@ describe("Welcome agent installation", () => {
 
     const click = async (label: string) => {
       const button = [...container.querySelectorAll("button")].find(
-        (button) => button.textContent === label,
+        (button) =>
+          button.textContent === label ||
+          button.getAttribute("aria-label") === label,
       );
 
       expect(button).toBeDefined();
@@ -101,6 +103,22 @@ describe("Welcome agent installation", () => {
       expect(container.textContent).toContain("review command installed.");
       await click("Refresh agents");
       expect(container.textContent).not.toContain("No coding agents detected.");
+      expect(
+        container.querySelector('[title="Refresh agents"]')?.textContent,
+      ).toBe("");
+      setupActions.load.mockRejectedValueOnce(new Error("Detection failed"));
+      await click("Refresh agents");
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Detection failed",
+      );
+      expect(
+        container.querySelector('[title="Refresh agents"]')?.textContent,
+      ).toBe("Refresh agents");
+      await click("Refresh agents");
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(
+        container.querySelector('[title="Refresh agents"]')?.textContent,
+      ).toBe("");
       await click("Install");
       expect(install.apply).toHaveBeenCalledWith({ targets: ["codex"] });
       expect(

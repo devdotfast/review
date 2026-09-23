@@ -635,7 +635,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 
 	private setupActions(): ReviewCanvasSetupActions {
 		return {
-			load: () => this.loadInstallContent(true),
+			load: () => this.loadInstallContent(),
 			installCli: async () => { await this.commandService.executeCommand("review.installCliInPath"); },
 		};
 	}
@@ -649,8 +649,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		}
 	}
 
-	private async loadInstallContent(refresh = false): Promise<ReviewCanvasInstallContent> {
-		const status = await this.desktopConnection.getCliInstallStatus(refresh);
+	private async loadInstallContent(): Promise<ReviewCanvasInstallContent> {
+		const status = await this.desktopConnection.getCliInstallStatus();
 		return {
 			status,
 			apply: async (request) => {

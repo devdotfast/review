@@ -6335,29 +6335,6 @@ button.review-stack-row:disabled .review-stack-relation {
   line-height: 21px;
 }
 
-.review-onboarding-terminal {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.review-onboarding-terminal-label {
-  color: var(--review-home-meta);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.review-onboarding-terminal code {
-  padding: 9px 12px;
-  border: 1px solid var(--review-home-rule);
-  border-radius: 8px;
-  color: var(--review-home-meta);
-  background: var(--tray);
-  font-size: 12px;
-}
-
 .review-onboarding-steps {
   display: flex;
   flex: 1;
@@ -6447,6 +6424,23 @@ button.review-stack-row:disabled .review-stack-relation {
   background: var(--transparent);
   cursor: pointer;
   font-size: 12px;
+}
+
+.review-onboarding-step-body > .review-onboarding-refresh {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  color: var(--ink-muted);
+  border: none;
+}
+
+.review-onboarding-step-body > .review-onboarding-refresh:hover {
+  color: var(--ink);
+  background: var(--surface-raised);
 }
 
 .review-onboarding-step-body > button + button {

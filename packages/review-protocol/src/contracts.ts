@@ -204,10 +204,17 @@ export interface ReviewDiffLens {
   }[];
 }
 
+/** "folded": nothing left to read and nothing marked; diffr folds all of it by default. */
+export type ReviewDiffProgressState =
+  | "unread"
+  | "partial"
+  | "viewed"
+  | "folded";
+
 /** Reader progress is supplied independently of the immutable comparison. */
 export interface ReviewDiffProgressFile {
   path: string;
-  state: "unread" | "partial" | "viewed";
+  state: ReviewDiffProgressState;
   remaining: { additions: number; deletions: number };
   total: { additions: number; deletions: number };
   viewedRanges: ReviewDiffLens["ranges"];
@@ -220,7 +227,7 @@ export interface ReviewDiffSection {
   id: string;
   label: string;
   sources: ReviewDiffLens["ranges"];
-  state: "unread" | "partial" | "viewed";
+  state: ReviewDiffProgressState;
   total: { additions: number; deletions: number };
   remaining: { additions: number; deletions: number };
 }

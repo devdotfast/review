@@ -107,6 +107,8 @@ export function CallTree({
                   >
                     {stats.state === "viewed" ? (
                       "✓"
+                    ) : stats.state === "folded" ? (
+                      "Folded"
                     ) : (
                       <>
                         <span className="diff-count-added">

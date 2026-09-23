@@ -36,11 +36,13 @@ import {
 export function DiffCounts({ progress }: { progress: CoverageProgress }) {
   return (
     <span
-      className={`diff-counts ${progress.state === "viewed" ? "is-viewed" : ""}`}
-      title={`Remaining +${progress.remaining.additions} −${progress.remaining.deletions} · Total +${progress.total.additions} −${progress.total.deletions}`}
+      className={`diff-counts ${progress.state === "viewed" || progress.state === "folded" ? "is-viewed" : ""}`}
+      title={`Remaining +${progress.remaining.additions} −${progress.remaining.deletions} · Total +${progress.total.additions} −${progress.total.deletions}${progress.folded.additions + progress.folded.deletions ? ` · Folded +${progress.folded.additions} −${progress.folded.deletions}` : ""}`}
     >
       {progress.state === "viewed" ? (
         "✓"
+      ) : progress.state === "folded" ? (
+        "Folded"
       ) : (
         <>
           <span className="diff-count-added">
@@ -191,7 +193,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
               aria-valuenow={percent}
               aria-valuemin={0}
               aria-valuemax={100}
-              title={`${total - remaining} of ${total} changed lines viewed`}
+              title={`${total - remaining} of ${total} changed lines viewed or folded`}
             >
               <svg width="18" height="18" viewBox="0 0 20 20">
                 <circle cx="10" cy="10" r="7" />

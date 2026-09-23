@@ -1,13 +1,23 @@
 import { createHash } from "node:crypto";
 
-import { structuralRows } from "@dev.fast/review-protocol";
+import {
+  type StructuralDiff,
+  type StructuralRegion,
+  type StructuralSource,
+  type StructuralVisibility,
+  structuralRows,
+} from "@dev.fast/review-protocol";
 
 import type { AlignmentRow } from "../lens-selection.js";
 import type { FileLineRange } from "../source.js";
 import { parseUnifiedPatch } from "../unified-diff.js";
 import {
+  type Coverage,
   type CoverageFile,
+  type LineInterval,
   emptyCoverage,
+  intersectIntervals,
+  subtractIntervals,
   unionIntervals,
 } from "../viewed-coverage.js";
 import type { Pins } from "./document.js";
@@ -202,6 +212,7 @@ export async function comparisonCoverage(
         fingerprint,
         changed:
           diff.type === "text" ? diff.structural_changes : emptyCoverage(),
+        folded: foldedChanges(event.visibility, diff),
         viewed: emptyCoverage(),
       });
       publish?.({
@@ -217,4 +228,72 @@ export async function comparisonCoverage(
   }
 
   return { files, fileSources, alignments };
+}
+
+/**
+ * The changed lines diffr folds by default. A file it hides (lockfiles,
+ * generated, vendored and test files, per its plugins) folds all of them.
+ * Otherwise they are the changed lines under regions that start collapsed
+ * and in no visible leaf: `structural_changes` less what diffr counts in
+ * `stats.visible`, recomputed the way diffr's `change_coverage` does so that
+ * the lines, not just the counts, are known. A paired leaf contributes its
+ * changed spans' lines; an unpaired leaf, all of its lines.
+ */
+export function foldedChanges(
+  visibility: StructuralVisibility | undefined,
+  diff: StructuralDiff,
+): Coverage {
+  if (diff.type !== "text") return emptyCoverage();
+  const all = diff.structural_changes;
+
+  if (visibility?.collapsed)
+    return { base: unionIntervals(all.base), head: unionIntervals(all.head) };
+
+  const side = (
+    changed: readonly LineInterval[],
+    source: StructuralSource | undefined,
+    other: StructuralSource | undefined,
+  ): LineInterval[] => {
+    const paired = new Set<number>();
+
+    const pair = (region: StructuralRegion) => {
+      if (region.kind === "leaf") paired.add(region.alignment_id);
+      else region.children.forEach(pair);
+    };
+
+    other?.regions?.forEach(pair);
+
+    const hidden: LineInterval[] = [],
+      visible: LineInterval[] = [];
+
+    const collect = (region: StructuralRegion, folded: boolean) => {
+      folded ||= region.visibility?.collapsed === true;
+
+      if (region.kind === "fold") {
+        for (const child of region.children) collect(child, folded);
+
+        return;
+      }
+
+      const lines = folded ? hidden : visible;
+
+      if (paired.has(region.alignment_id))
+        for (const span of region.changed ?? [])
+          lines.push([span.line, span.line + 1]);
+      else
+        lines.push([
+          region.start.line,
+          region.end.column === 0 ? region.end.line : region.end.line + 1,
+        ]);
+    };
+
+    for (const region of source?.regions ?? []) collect(region, false);
+
+    return subtractIntervals(intersectIntervals(changed, hidden), visible);
+  };
+
+  return {
+    base: side(all.base, diff.lhs, diff.rhs),
+    head: side(all.head, diff.rhs, diff.lhs),
+  };
 }

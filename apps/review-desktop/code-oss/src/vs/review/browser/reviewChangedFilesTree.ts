@@ -89,7 +89,7 @@ class ChangedFilesTreeDelegate
   }
 }
 
-class ChangedFilesTreeRenderer
+export class ChangedFilesTreeRenderer
   implements
     ICompressibleTreeRenderer<
       ChangedTreeElement,
@@ -100,7 +100,7 @@ class ChangedFilesTreeRenderer
   static readonly TEMPLATE_ID = "review.changedFiles.entry";
   readonly templateId = ChangedFilesTreeRenderer.TEMPLATE_ID;
 
-	constructor(private readonly counts: Map<string, StructuralLineCounts>, private readonly progress: Map<string, ReviewDiffProgressFile>, private readonly viewed: Set<string>, private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) { }
+	constructor(private readonly counts: Map<string, StructuralLineCounts>, private readonly progress: Map<string, ReviewDiffProgressFile>, private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) { }
 
   renderTemplate(container: HTMLElement): ChangedFilesTreeTemplate {
     const row = append(container, $(".review-changed-files-row"));
@@ -137,7 +137,10 @@ class ChangedFilesTreeRenderer
     const isFile = element.kind === "file";
 
     template.row.classList.toggle("review-changed-files-folder", !isFile);
-		template.row.classList.toggle("review-file-viewed", isFile && this.viewed.has(element.file.path));
+		const done = isFile ? this.progress.get(element.file.path)?.state : undefined;
+		// Folded files read as done, like viewed ones: greyed, with the reason in place of counts.
+		template.row.classList.toggle("review-file-viewed", done === "viewed");
+		template.row.classList.toggle("review-file-folded", done === "folded");
     template.icon.hidden = !isFile;
     template.icon.className = isFile
       ? `review-changed-files-icon review-changed-files-icon-${element.file.status} ${ThemeIcon.asClassName(fileStatusIcon(element.file.status))}`
@@ -151,12 +154,13 @@ class ChangedFilesTreeRenderer
 			const additions = progress?.remaining.additions ?? this.counts.get(element.file.path)?.added;
 			const deletions = progress?.remaining.deletions ?? this.counts.get(element.file.path)?.removed;
 			if (element.file.status === 'unchanged') template.counts.textContent = 'Unchanged';
-			else if (progress?.state === 'viewed') template.counts.textContent = '✓';
+			else if (progress?.state === 'viewed') template.counts.textContent = 'Viewed';
+			else if (progress?.state === 'folded') template.counts.textContent = 'Folded';
 			else if (additions !== undefined && deletions !== undefined) {
 				const added = append(template.counts, $('span.review-tree-added')); added.textContent = `+${compact(additions)}`;
 				const removed = append(template.counts, $('span.review-tree-removed')); removed.textContent = `−${compact(deletions)}`;
 			}
-			template.counts.title = additions === undefined ? "Waiting for structural coverage" : element.file.status === "unchanged" ? "Referenced context; no changed lines" : `Remaining +${additions} −${deletions} · Total +${progress?.total.additions ?? this.counts.get(element.file.path)?.added} −${progress?.total.deletions ?? this.counts.get(element.file.path)?.removed}`;
+			template.counts.title = additions === undefined ? "Waiting for structural coverage" : element.file.status === "unchanged" ? "Referenced context; no changed lines" : progress?.state === "folded" ? `Folded by default; counted as done · Total +${progress.total.additions} −${progress.total.deletions}` : `Remaining +${additions} −${deletions} · Total +${progress?.total.additions ?? this.counts.get(element.file.path)?.added} −${progress?.total.deletions ?? this.counts.get(element.file.path)?.removed}`;
 		}
 		const state = isFile ? this.states.get(element.file.path) : undefined;
 		if (state) template.icon.className = `review-changed-files-icon codicon codicon-${state.status === "loading" ? "loading codicon-modifier-spin" : "error"}`;
@@ -184,7 +188,6 @@ export class ReviewChangedFilesTree extends Disposable {
   private files: readonly ReviewDiffFileWire[] = [];
 	private readonly states = new Map<string, { status: "loading" | "error"; message?: string }>();
   private activePath: string | undefined;
-	private readonly viewed = new Set<string>();
 	private readonly counts = new Map<string, StructuralLineCounts>();
 	setCounts(path: string, counts: StructuralLineCounts): void {
 		const previous = this.counts.get(path);
@@ -195,11 +198,7 @@ export class ReviewChangedFilesTree extends Disposable {
 	setProgressFiles(files: readonly ReviewDiffProgressFile[]): void {
 		const previous = new Map(this.progress);
 		this.progress.clear();
-		this.viewed.clear();
-		for (const file of files) {
-			this.progress.set(file.path, file);
-			if (file.state === "viewed") this.viewed.add(file.path);
-		}
+		for (const file of files) this.progress.set(file.path, file);
 		for (const path of new Set([...previous.keys(), ...this.progress.keys()])) {
 			const before = previous.get(path), after = this.progress.get(path);
 			if (before?.state !== after?.state ||
@@ -228,7 +227,7 @@ export class ReviewChangedFilesTree extends Disposable {
       container,
       $(".review-changed-files-tree"),
     );
-		const renderer = new ChangedFilesTreeRenderer(this.counts, this.progress, this.viewed, this.states);
+		const renderer = new ChangedFilesTreeRenderer(this.counts, this.progress, this.states);
     this.tree = this._register(
       instantiationService.createInstance(
         WorkbenchCompressibleObjectTree<ChangedTreeElement, void>,

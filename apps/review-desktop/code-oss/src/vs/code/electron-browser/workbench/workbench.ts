@@ -397,11 +397,18 @@
 
 		// ESM Import
 		try {
+			const entryPoint = 'workspace' in configuration && configuration.workspace
+				? 'navigator.desktop.main'
+				: 'review.desktop.main';
+			const stylesheet = document.querySelector<HTMLLinkElement>('link[href$="review.desktop.main.css"]');
+			if (stylesheet) {
+				stylesheet.href = new URL(`vs/review/${entryPoint}.css`, baseUrl).href;
+			}
 			let workbenchUrl: string;
 			if (!!safeProcess.env['VSCODE_DEV'] && globalThis._VSCODE_USE_RELATIVE_IMPORTS) {
-				workbenchUrl = '../../../review/review.desktop.main.js'; // Review Desktop fork
+				workbenchUrl = `../../../review/${entryPoint}.js`;
 			} else {
-				workbenchUrl = new URL(`vs/review/review.desktop.main.js`, baseUrl).href;
+				workbenchUrl = new URL(`vs/review/${entryPoint}.js`, baseUrl).href;
 			}
 
 			const result = await import(workbenchUrl);

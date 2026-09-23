@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -27,9 +28,12 @@ import type {
   ReviewSourceEntry,
   StructuralDiffEvent,
 } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
+import { isMissingFileError } from "../fs-utils.js";
+import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import { StructuralComparisons } from "../server/structural-comparisons.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
@@ -298,6 +302,124 @@ export class LocalReviewData {
       : await this.comparison(await this.documentPins(snapshot), commit);
 
     return { snapshot, pins };
+  }
+
+  /** Resolve a native workspace without replacing the selected source with today's HEAD. */
+  async navigatorWorkspace(
+    snapshot: Snapshot,
+    source: {
+      side?: "base" | "head";
+      file?: string;
+      empty?: boolean;
+      commit?: string;
+      anchor?: SourcePins;
+    } = {},
+  ): Promise<{ workspacePath: string; filePath?: string }> {
+    const { pins } = await this.resolveSource(
+      snapshot,
+      source.commit,
+      source.anchor,
+    );
+
+    const repository = this.store.repositoryPath(pins.repositoryId);
+    const side = source.side ?? "head";
+
+    const live =
+      !!pins.worktreeRevision &&
+      (side === "head" || (source.empty && pins[side] === EMPTY_SOURCE));
+
+    const ref =
+      pins[side] === EMPTY_SOURCE && source.empty ? pins.head : pins[side];
+
+    if (source.file) checkRelativePath(source.file);
+
+    // Keep navigation separate from language preparation, which may modify
+    // tracked files. Retain these checkouts across window closes and restarts.
+    const rootPath = live
+      ? await realpath(repository)
+      : await ensureReviewPinnedCheckout({
+          rootPath: repository,
+          ref,
+          reviewUuid: snapshot.reviewId,
+          role: "navigator",
+        });
+
+    const commonDir = await gitCommonDir(repository);
+
+    if (!rootPath || !commonDir)
+      throw new ReviewInputError(
+        "Could not open the selected source checkout.",
+        409,
+      );
+
+    if (!live) {
+      const { stdout } = await promisify(execFile)("git", [
+        "-C",
+        rootPath,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]);
+
+      if (stdout.trim())
+        throw new ReviewInputError(
+          "The navigator checkout has local changes. Restore those files before browsing this pinned revision.",
+          409,
+        );
+    }
+
+    const workspacePath = path.join(
+      reviewManagedCheckoutRoot(commonDir, snapshot.reviewId),
+      "navigator",
+      "workspaces",
+      live ? "worktree" : ref,
+      `${path.basename(repository)}.code-workspace`,
+    );
+
+    // A native workspace gives VS Code stable restoration, search scope and
+    // editor read-only behavior without changing files in the source checkout.
+    // Leave subsequent workspace preferences to VS Code and the user.
+    if (!existsSync(workspacePath))
+      await writePrivateJsonAtomic(workspacePath, {
+        folders: [
+          {
+            path: rootPath,
+            name: path.basename(repository),
+          },
+        ],
+        settings: {
+          "files.readonlyInclude": { "**/*": true },
+          "window.title": `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Review`,
+        },
+      });
+
+    let filePath: string | undefined;
+
+    if (source.file) {
+      if (source.empty) {
+        // Native diffs need a real empty file for an added/deleted side.
+        filePath = path.join(
+          path.dirname(workspacePath),
+          "empty",
+          path.basename(source.file),
+        );
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, "", { mode: 0o600 });
+      } else {
+        try {
+          filePath = await localSourcePath(rootPath, source.file);
+        } catch (error) {
+          if (isMissingFileError(error))
+            throw new ReviewInputError(
+              "File is unavailable at the selected revision.",
+              404,
+            );
+          throw error;
+        }
+      }
+    }
+
+    return { workspacePath, filePath };
   }
 
   /** A document read that needs default pins; 409 when the document has none. */

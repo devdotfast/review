@@ -268,7 +268,7 @@ export async function reviewUuidForManagedCheckout(
 
   if (!reviewUuid || !isReviewUuid(reviewUuid)) return null;
 
-  if (role !== "head" && role !== "base") return null;
+  if (role !== "head" && role !== "base" && role !== "navigator") return null;
 
   if (!commit) return null;
 

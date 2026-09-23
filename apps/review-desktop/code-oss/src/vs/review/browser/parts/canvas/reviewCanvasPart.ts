@@ -86,7 +86,6 @@ import { IReviewTelemetryService } from "../../../services/reviewTelemetryServic
 
 import "../../media/review.css";
 import { applyReviewThemeChoice, currentReviewThemeChoice } from "../../reviewThemeChoice.js";
-import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
@@ -166,8 +165,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
-		@IReviewExplorerPartsService
-		private readonly explorerParts: IReviewExplorerPartsService,
 		@IInstantiationService
 		reviewInstantiationService: IInstantiationService,
 		@IHostService private readonly hostService: IHostService,
@@ -401,7 +398,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							post: async (request) => {
 								if (request.name === "openSourceTree") {
 									await this.tabsService.openApiSource(sourceSelection, input.getName());
-									this.explorerParts.show();
 									return { ok: true };
 								}
 								if (request.name === "reveal") {
@@ -470,7 +466,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						openSourceTree: (uuid) => {
 							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
 							if (api) {
-								void this.tabsService.openApiSource({ reviewId: api.reviewId, kind: "current" }, api.title).then(() => this.explorerParts.show());
+								void this.tabsService.openApiSource({ reviewId: api.reviewId, kind: "current" }, api.title).catch(error => this.notificationService.error(error));
 								return;
 							}
 						},

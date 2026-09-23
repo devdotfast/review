@@ -4,17 +4,23 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from "../../base/common/lifecycle.js";
+import { URI } from "../../base/common/uri.js";
+import type { ITextEditorOptions } from "../../platform/editor/common/editor.js";
 import { createDecorator, IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
+import { isResourceDiffEditorInput, isResourceEditorInput, type IUntypedEditorInput } from "../../workbench/common/editor.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
+import { IHostService } from "../../workbench/services/host/browser/host.js";
 import {
 	ReviewCanvasEditorInput,
 	type ReviewCanvasEditorTarget,
 } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 
-import type { ReviewSourceSelection } from "../common/reviewProtocol.js";
-import { sourceSelectionIdentity } from "../common/reviewSourceView.js";
+import { reviewSourceQuery, type ReviewSourceSelection } from "../common/reviewProtocol.js";
+import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
+import { sourceLocation, sourceSelectionIdentity, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
+import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
 
 export const IReviewCanvasEditorTabsService = createDecorator<IReviewCanvasEditorTabsService>(
 	"reviewCanvasEditorTabsService",
@@ -24,7 +30,8 @@ export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
 	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput;
 	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
-	openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput>;
+	openApiSource(selection: ReviewSourceSelection, title: string): Promise<void>;
+	openSourceEditor(editor: IUntypedEditorInput): Promise<boolean>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -44,6 +51,9 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService
 		private readonly editorGroupsService: IEditorGroupsService,
+		@IReviewDesktopConnectionService
+		private readonly desktopConnection: IReviewDesktopConnectionService,
+		@IHostService private readonly host: IHostService,
 	) {
 		super();
 		this._register(
@@ -87,10 +97,50 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		return this.openSingleton({ kind: "welcome" }, active);
 	}
 
-	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput> {
-		const input = this.inputFor({ kind: "api-source", reviewId: selection.reviewId, selection, title });
-		await this.openReviewInput(input, true);
-		return input;
+	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<void> {
+		const result = await this.navigatorWorkspace(selection.reviewId, selection.kind === "version" ? { version: selection.version } : {});
+		await this.host.openWindow([{ workspaceUri: URI.file(result.workspacePath), label: title }], { forceNewWindow: true });
+	}
+
+	/** Hand source opens to the native workspace before Review creates an editor group. */
+	async openSourceEditor(editor: IUntypedEditorInput): Promise<boolean> {
+		const diff = isResourceDiffEditorInput(editor);
+		const resources = diff ? [editor.original.resource, editor.modified.resource] : [isResourceEditorInput(editor) ? editor.resource : undefined];
+		if (!resources.every((resource): resource is URI => !!resource && [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(resource.scheme))) return false;
+		const destinations = await Promise.all(resources.map(async resource => {
+			const target = sourceLocation(resource);
+			const local = resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME;
+			const result = await this.navigatorWorkspace(target.view.reviewId, {
+				...reviewSourceQuery(target.view),
+				side: target.side,
+				file: local ? undefined : target.file,
+				empty: new URLSearchParams(resource.query).has("empty") ? "true" : undefined,
+			});
+			const filePath = local ? resource.fsPath : result.filePath;
+			if (!filePath) throw new Error("The navigator did not resolve the source file.");
+			const selection = !diff ? (editor.options as ITextEditorOptions | undefined)?.selection : undefined;
+			return {
+				workspaceUri: URI.file(result.workspacePath),
+				fileUri: URI.file(selection ? `${filePath}:${selection.startLineNumber}:${selection.startColumn ?? 1}` : filePath),
+			};
+		}));
+		await this.host.openWindow([
+			{ workspaceUri: destinations[destinations.length - 1].workspaceUri },
+			...destinations.map(({ fileUri }) => ({ fileUri })),
+		], { forceNewWindow: true, gotoLineMode: true, diffMode: diff });
+		return true;
+	}
+
+	private async navigatorWorkspace(reviewId: string, values: Record<string, string | number | undefined>): Promise<{ workspacePath: string; filePath?: string }> {
+		const { serverUrl, token } = await this.desktopConnection.getConnection();
+		const query = new URLSearchParams(Object.entries(values).filter(([key, value]) => key !== "reviewId" && value !== undefined).map(([key, value]) => [key, String(value)]));
+		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(reviewId)}/navigator${query.size ? `?${query}` : ""}`, {
+			method: "POST",
+			headers: { "x-review-token": token },
+			signal: AbortSignal.timeout(60_000),
+		});
+		if (!response.ok) throw await reviewResponseError(response, "Could not open the code navigator.");
+		return response.json();
 	}
 
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput> {

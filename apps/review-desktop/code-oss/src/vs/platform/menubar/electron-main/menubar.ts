@@ -69,7 +69,7 @@ export class Menubar extends Disposable {
 	constructor(
 		@IUpdateService private readonly updateService: IUpdateService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IWindowsMainService private readonly windowsMainService: IWindowsMainService,
+		@IWindowsMainService protected readonly windowsMainService: IWindowsMainService,
 		@IEnvironmentMainService private readonly environmentMainService: IEnvironmentMainService,
 		@ITelemetryService private readonly telemetryService: ITelemetryService,
 		@IWorkspacesHistoryMainService private readonly workspacesHistoryMainService: IWorkspacesHistoryMainService,
@@ -260,7 +260,7 @@ export class Menubar extends Disposable {
 		this.scheduleUpdateMenu();
 	}
 
-	private install(): void {
+	protected install(): void {
 		// Store old menu in our array to avoid GC to collect the menu and crash. See #55347
 		// TODO@sbatten Remove this when fixed upstream by Electron
 		const oldMenu = Menu.getApplicationMenu();

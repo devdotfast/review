@@ -16,6 +16,8 @@ import {
 import { ILogService } from "../../platform/log/common/log.js";
 import type { IMenubarData } from "../../platform/menubar/common/menubar.js";
 import type { IMenubarMainService } from "../../platform/menubar/electron-main/menubarMainService.js";
+import { Menubar } from "../../platform/menubar/electron-main/menubar.js";
+import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { INativeHostMainService } from "../../platform/native/electron-main/nativeHostMainService.js";
 import { IProductService } from "../../platform/product/common/productService.js";
 import type { INativeRunActionInWindowRequest } from "../../platform/window/common/window.js";
@@ -39,6 +41,14 @@ function labelsOf(menu: Menu): string {
     .join(" | ");
 }
 
+/** Keep the upstream menu implementation scoped to native workspace windows. */
+class NavigatorMenubar extends Menubar {
+  protected override install(): void {
+    const window = this.windowsMainService.getFocusedWindow() ?? this.windowsMainService.getLastActiveWindow();
+    if (window?.openedWorkspace) super.install();
+  }
+}
+
 /**
  * Review's native macOS menu bar.
  *
@@ -57,6 +67,7 @@ export class ReviewMenubarMainService
   implements IMenubarMainService
 {
   declare readonly _serviceBrand: undefined;
+  private readonly nativeMenu: Promise<NavigatorMenubar>;
 
   private readonly scheduler = this._register(
     new RunOnceScheduler(() => this.install(), 0),
@@ -71,8 +82,12 @@ export class ReviewMenubarMainService
     @IWindowsMainService
     private readonly windowsMainService: IWindowsMainService,
     @ILogService private readonly logService: ILogService,
+    @IInstantiationService instantiationService: IInstantiationService,
   ) {
     super();
+    this.nativeMenu = lifecycleMainService.when(LifecycleMainPhase.AfterWindowOpen).then(() =>
+      this._register(instantiationService.createInstance(NavigatorMenubar)),
+    );
 
     lifecycleMainService.when(LifecycleMainPhase.AfterWindowOpen).then(() => {
       if (this._store.isDisposed) return;
@@ -83,6 +98,8 @@ export class ReviewMenubarMainService
       // The update item's label is the update state in disguise, so every
       // state change reinstalls the menu.
       this._register(this.updateService.onStateChange(() => this.schedule()));
+      this._register(this.nativeHostMainService.onDidFocusMainWindow(() => this.schedule()));
+      this._register(this.windowsMainService.onDidChangeWindowsCount(() => this.schedule()));
     });
   }
 
@@ -108,14 +125,12 @@ export class ReviewMenubarMainService
     });
   }
 
-  /**
-   * No-op. The renderer keeps `menubarService` registered, so the channel must
-   * stay answerable, but Review never sends menu data.
-   */
   async updateMenubar(
-    _windowId: number,
-    _menus: IMenubarData,
-  ): Promise<void> {}
+    windowId: number,
+    menus: IMenubarData,
+  ): Promise<void> {
+    (await this.nativeMenu).updateMenu(menus, windowId);
+  }
 
   private schedule(): void {
     // Electron cannot mutate a live menu, so every change reinstalls the whole
@@ -126,6 +141,8 @@ export class ReviewMenubarMainService
   }
 
   private install(): void {
+    const window = this.windowsMainService.getFocusedWindow() ?? this.windowsMainService.getLastActiveWindow();
+    if (window?.openedWorkspace) return;
     if (!isMacintosh) {
       // Review hides the menu bar on Windows and Linux
       // (`window.menuBarVisibility`), so there is nothing to install there.

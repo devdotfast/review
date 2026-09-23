@@ -11,6 +11,7 @@ import type { IInstantiationService } from '../../platform/instantiation/common/
 import { type IBannerItem, IBannerService } from '../../workbench/services/banner/browser/bannerService.js';
 import type { IAuxiliaryStatusbarPart, IStatusbarEntryContainer } from '../../workbench/browser/parts/statusbar/statusbarPart.js';
 import { IExtensionsWorkbenchService } from '../../workbench/contrib/extensions/common/extensions.js';
+import { IQuickChatService } from '../../workbench/contrib/chat/browser/chat.js';
 import {
 	IMultiDiffSourceResolverService,
 	MultiDiffSourceResolverService,
@@ -133,6 +134,20 @@ class ReviewExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 	}
 }
 
+/** Native Quick Open can offer chat, which this product does not ship. */
+class ReviewQuickChatService implements IQuickChatService {
+	declare readonly _serviceBrand: undefined;
+	readonly onDidClose = Event.None;
+	readonly enabled = false;
+	readonly focused = false;
+	toggle(): void { }
+	focus(): void { }
+	open(): void { }
+	close(): void { }
+	openInChatView(): void { }
+}
+
+registerSingleton(IQuickChatService, ReviewQuickChatService, InstantiationType.Delayed);
 registerSingleton(IStatusbarService, ReviewStatusbarService, InstantiationType.Eager);
 registerSingleton(IBannerService, ReviewBannerService, InstantiationType.Eager);
 registerSingleton(IExtensionsWorkbenchService, ReviewExtensionsWorkbenchService, InstantiationType.Eager);

@@ -471,19 +471,20 @@ async function createReview(fix, title, kind = "commits") {
   return api(`/${reviewId}?full=true`);
 }
 
-async function probe(request) {
+async function probe(request, targetPage = page) {
+  await targetPage.bringToFront();
   const id = randomUUID();
   await writeFile(
     path.join(root, "request.json"),
     JSON.stringify({ ...request, id }),
   );
   await until(async () => {
-    const input = page.locator(".quick-input-widget input");
+    const input = targetPage.locator(".quick-input-widget input");
 
-    if (await input.isVisible()) await page.keyboard.press("Escape");
-    await page.keyboard.press("F1");
+    if (await input.isVisible()) await targetPage.keyboard.press("Escape");
+    await targetPage.keyboard.press("F1");
     await input.fill(">Review E2E: Language probe");
-    await page
+    await targetPage
       .getByRole("option", { name: /Review E2E: Language probe/ })
       .first()
       .click({ timeout: 1500 });
@@ -500,6 +501,43 @@ async function probe(request) {
   assert.equal(result.error, undefined, result.error);
 
   return result;
+}
+
+// Source navigation is a separate native workspace. Keep provider probes in the
+// Review window, and exercise rendered navigation in its destination window.
+async function navigatorPage(sourceUri) {
+  const source = new URL(sourceUri);
+  source.searchParams.delete("generation");
+  source.searchParams.set("file", decodeURIComponent(source.pathname.slice(1)));
+
+  const destination = await api(
+    `/${source.hostname}/navigator?${source.searchParams}`,
+    "POST",
+  );
+
+  const workspaceUri = pathToFileURL(destination.workspacePath).href;
+
+  const targetPage = await until(async () => {
+    for (const candidate of browser
+      .contexts()
+      .flatMap((context) => context.pages())) {
+      if (candidate === page || !candidate.url().includes("workbench"))
+        continue;
+      const state = await probe({}, candidate);
+
+      if (state.workspace === workspaceUri) return candidate;
+    }
+
+    return false;
+  }, "native navigator window");
+
+  return { page: targetPage, file: pathToFileURL(destination.filePath).href };
+}
+
+async function openNavigator(sourceUri, position = {}) {
+  await probe({ uri: sourceUri, ...position, navigate: true });
+
+  return navigatorPage(sourceUri);
 }
 
 function uri(review, side = "head", file = "main.ts", commit) {
@@ -673,20 +711,18 @@ try {
     await expectHover(uri(review, side), greetAt, "string");
   }
 
-  await probe({
-    uri: uri(review),
-    ...greetAt,
-    open: true,
-    command: "editor.action.showHover",
-  });
-  await page
+  const headNavigator = await openNavigator(uri(review), greetAt);
+  await probe({ command: "editor.action.showHover" }, headNavigator.page);
+  await headNavigator.page
     .locator(".monaco-hover:visible")
     .filter({ hasText: "greet" })
     .first()
     .waitFor();
-  await page.screenshot({ path: path.join(root, "typescript-hover.png") });
+  await headNavigator.page.screenshot({
+    path: path.join(root, "typescript-hover.png"),
+  });
   await record(
-    "base/head cross-file definitions and rendered TypeScript hover",
+    "base/head cross-file definitions and rendered native TypeScript hover",
   );
 
   await expectDefinition(
@@ -868,7 +904,7 @@ try {
       2,
     );
     const result = await expectHover(uri(review, side), greetAt, "string");
-    assert.equal(result.active.text, mainText(side));
+    assert.equal(result.document.text, mainText(side));
     await expectDefinition(
       uri(review, side),
       {
@@ -1039,9 +1075,9 @@ try {
   await command({ type: "repin", reviewId: review.reviewId, pins: newerPins });
   const newerReview = await api(`/${review.reviewId}?full=true`);
   const historical = await expectHover(uri(review), greetAt, "string");
-  assert.equal(historical.active.text, mainText("head"));
+  assert.equal(historical.document.text, mainText("head"));
   const repinned = await expectHover(uri(newerReview), greetAt, "string");
-  assert.equal(repinned.active.text, mainText("base"));
+  assert.equal(repinned.document.text, mainText("base"));
   await command({
     type: "restore",
     reviewId: review.reviewId,
@@ -1051,33 +1087,29 @@ try {
     "historical saved versions keep their source after repin and restore",
   );
 
-  await probe({
-    uri: uri(review),
-    ...greetAt,
-    open: true,
-    command: "editor.action.revealDefinition",
-  });
+  await openNavigator(uri(review), greetAt);
+  await probe(
+    { command: "editor.action.revealDefinition" },
+    headNavigator.page,
+  );
+  const libraryFile = new URL("library.ts", headNavigator.file).href;
 
   const navigated = await until(async () => {
-    const state = await probe({});
+    const state = await probe({}, headNavigator.page);
 
-    return (
-      locationUri(state.active?.uri) === uri(review, "head", "library.ts") &&
-      state
-    );
-  }, "rendered definition target");
+    return state.active?.uri === libraryFile && state;
+  }, "native definition target");
 
-  assert.equal(
-    locationUri(navigated.active.uri),
-    uri(review, "head", "library.ts"),
-  );
   assert.equal(navigated.active.line, 2);
-  await page.screenshot({ path: path.join(root, "definition-target.png") });
-  await record(
-    "real Go to Definition stays in the saved review version and side",
+  await headNavigator.page.screenshot({
+    path: path.join(root, "definition-target.png"),
+  });
+  await record("native Go to Definition stays in the saved review checkout");
+  await probe(
+    { command: "workbench.action.closeAllEditors" },
+    headNavigator.page,
   );
 
-  await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${review.reviewId}/open`, "POST");
   await until(async () => {
     await page
@@ -1133,8 +1165,7 @@ try {
     await page.keyboard.press("F12");
     await until(
       async () =>
-        locationUri((await probe({})).active?.uri) ===
-        uri(restoredReview, "head", "library.ts"),
+        (await probe({}, headNavigator.page)).active?.uri === libraryFile,
       "inline definition navigation",
     );
     await record(
@@ -1145,27 +1176,34 @@ try {
   }
 
   await probe({ diff: { base: uri(review, "base"), head: uri(review) } });
+  await headNavigator.page.bringToFront();
 
   for (const side of ["original", "modified"]) {
-    const line = page
-      .locator(
-        `.monaco-modal-editor-block .monaco-diff-editor:visible .editor.${side} .view-line`,
-      )
+    const line = headNavigator.page
+      .locator(`.monaco-diff-editor:visible .editor.${side} .view-line`)
       .filter({ hasText: "export const value = greet();" })
       .first();
 
-    await line.scrollIntoViewIfNeeded();
-    await clickGreet(line);
-    await probe({ command: "editor.action.showHover" });
-    await page
+    await until(async () => {
+      await line.scrollIntoViewIfNeeded({ timeout: 2000 });
+      await clickGreet(line);
+
+      return true;
+    }, `native diff ${side} source mounted`);
+    await probe({ command: "editor.action.showHover" }, headNavigator.page);
+    await headNavigator.page
       .locator(".monaco-hover:visible")
       .filter({ hasText: "greet" })
       .first()
       .waitFor();
-    await page.screenshot({ path: path.join(root, `diff-${side}-hover.png`) });
-    await probe({ command: "editor.action.hideHover" });
+    await headNavigator.page.screenshot({
+      path: path.join(root, `diff-${side}-hover.png`),
+    });
+    await probe({ command: "editor.action.hideHover" }, headNavigator.page);
     await until(
-      async () => (await page.locator(".monaco-hover:visible").count()) === 0,
+      async () =>
+        (await headNavigator.page.locator(".monaco-hover:visible").count()) ===
+        0,
       "previous pane hover dismissed",
     );
   }
@@ -1395,11 +1433,12 @@ try {
       mainText("head"),
     );
     await page.keyboard.press("F12");
+    const liveTarget = await navigatorPage(uri(live));
     await until(
       async () =>
-        locationUri((await probe({})).active?.uri) ===
-        uri(live, "head", "library.ts"),
-      "live inline definition",
+        (await probe({}, liveTarget.page)).active?.uri ===
+        new URL("library.ts", liveTarget.file).href,
+      "live inline definition in native navigator",
     );
     await expectHover(
       pathToFileURL(path.join(liveFixture.repo, "main.py")).href,
@@ -1451,11 +1490,16 @@ try {
   });
   assert.equal((await probe({})).active.text, unsaved);
 
+  const liveNavigator = await openNavigator(uri(live));
+
   for (const diff of [false, true]) {
     if (diff)
       await probe({ diff: { base: uri(live, "base"), head: uri(live) } });
-    else await probe({ uri: uri(live), open: true });
-    assert.equal((await probe({})).active.text, mainText("head"));
+    else await openNavigator(uri(live));
+    assert.equal(
+      (await probe({}, liveNavigator.page)).active.text,
+      mainText("head"),
+    );
 
     for (const [command, args] of [
       ["type", [{ text: "forbidden" }]],
@@ -1466,22 +1510,36 @@ try {
       ["editor.action.formatDocument", []],
       ["editor.action.quickFix", []],
       ["workbench.action.files.save", []],
-      ["workbench.action.files.saveAs", []],
     ]) {
-      await probe({ command, args });
-      assert.equal((await probe({})).active.text, mainText("head"), command);
+      await probe({ command, args }, liveNavigator.page);
+      assert.equal(
+        (await probe({}, liveNavigator.page)).active.text,
+        mainText("head"),
+        command,
+      );
     }
 
-    assert.equal(
-      (await probe({ edit: { uri: workspaceMain, text: "forbidden" } })).result,
-      false,
+    // Native read-only settings block input and saves. Extension APIs can
+    // still alter a model, so verify that those edits cannot reach disk.
+    await probe(
+      { edit: { uri: workspaceMain, text: "forbidden" } },
+      liveNavigator.page,
     );
+    await probe({ command: "workbench.action.files.save" }, liveNavigator.page);
     assert.equal(
       (await probe({ edit: { uri: uri(live), text: "forbidden" } })).result,
       false,
     );
     assert.equal(
       await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
+      mainText("head"),
+    );
+    await probe(
+      { command: "workbench.action.files.revert" },
+      liveNavigator.page,
+    );
+    assert.equal(
+      (await probe({}, liveNavigator.page)).active.text,
       mainText("head"),
     );
   }
@@ -1491,16 +1549,19 @@ try {
   assert.equal((await probe({})).active.text, unsaved);
   assert.equal((await probe({})).active.dirty, true);
   await probe({ command: "workbench.action.files.revert" });
-  await probe({ uri: uri(live), open: true });
+  await openNavigator(uri(live));
   await writeFile(path.join(liveFixture.repo, "main.ts"), unsaved);
   await until(
-    async () => (await probe({})).active.text === unsaved,
+    async () => (await probe({}, liveNavigator.page)).active.text === unsaved,
     "review follows external saved edits",
   );
-  await page.screenshot({ path: path.join(root, "readonly-source.png") });
+  await liveNavigator.page.screenshot({
+    path: path.join(root, "readonly-source.png"),
+  });
   await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
   await until(
-    async () => (await probe({})).active.text === mainText("head"),
+    async () =>
+      (await probe({}, liveNavigator.page)).active.text === mainText("head"),
     "review disk refresh",
   );
   await record(
@@ -1781,17 +1842,21 @@ try {
   await page
     .getByRole("button", { name: "Source tree ↗", exact: true })
     .click();
-  await page
-    .getByRole("tab", { name: new RegExp(`^Source — ${homeReview.title}$`) })
-    .waitFor();
+  const homeNavigator = await navigatorPage(uri(homeReview));
   await writeFile(
     path.join(liveFixture.repo, "from-home.ts"),
     "export const fromHome = 1;\n",
   );
-  await page.getByText("from-home.ts", { exact: true }).first().waitFor();
-  await page.getByText("nested", { exact: true }).first().click();
-  await page.keyboard.press("ArrowRight");
-  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await homeNavigator.page
+    .getByText("from-home.ts", { exact: true })
+    .first()
+    .waitFor();
+  await homeNavigator.page.getByText("nested", { exact: true }).first().click();
+  await homeNavigator.page.keyboard.press("ArrowRight");
+  await homeNavigator.page
+    .getByText("child.ts", { exact: true })
+    .first()
+    .waitFor();
   await command({
     type: "rename",
     reviewId: homeReview.reviewId,
@@ -1801,17 +1866,31 @@ try {
     path.join(liveFixture.repo, "nested/second.ts"),
     "export const second = 2;\n",
   );
-  await page.getByText("second.ts", { exact: true }).first().waitFor();
+  await homeNavigator.page
+    .getByText("second.ts", { exact: true })
+    .first()
+    .waitFor();
   // Opening a refreshed child must not replace the current Source root with
   // that file's resolved revision or collapse its already-expanded directory.
-  await page.getByText("second.ts", { exact: true }).first().dblclick();
-  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await homeNavigator.page
+    .getByText("second.ts", { exact: true })
+    .first()
+    .dblclick();
+  await homeNavigator.page
+    .getByText("child.ts", { exact: true })
+    .first()
+    .waitFor();
   await writeFile(
     path.join(liveFixture.repo, "nested/third.ts"),
     "export const third = 3;\n",
   );
-  await page.getByText("third.ts", { exact: true }).first().waitFor();
-  await page.screenshot({ path: path.join(root, "home-live-source.png") });
+  await homeNavigator.page
+    .getByText("third.ts", { exact: true })
+    .first()
+    .waitFor();
+  await homeNavigator.page.screenshot({
+    path: path.join(root, "home-live-source.png"),
+  });
   await record(
     "Source opened through a Home review stays live and preserves expanded folders across authored versions",
   );

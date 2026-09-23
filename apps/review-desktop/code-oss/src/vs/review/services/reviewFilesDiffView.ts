@@ -14,7 +14,7 @@ import { autorun } from "../../base/common/observable.js";
 import { isEqual } from "../../base/common/resources.js";
 import { URI } from "../../base/common/uri.js";
 import { ElementSizeObserver } from "../../editor/browser/config/elementSizeObserver.js";
-import type { IDiffEditor } from "../../editor/browser/editorBrowser.js";
+import { isDiffEditor, type IDiffEditor } from "../../editor/browser/editorBrowser.js";
 import { MultiDiffEditorViewModel } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorViewModel.js";
 import { MultiDiffEditorWidget } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.js";
 import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js";
@@ -237,10 +237,14 @@ export class ReviewFilesDiffView extends Disposable {
 						note: entry.file.status === "unchanged" ? "Unchanged" : this.hiddenFiles.get(entry.file.path),
 							onDidOpen: () => {
 								if (document?.onDidOpen) { document.onDidOpen(); return; }
+								const target = this.widget.tryGetCodeEditor(entry.goToFileResource);
+								const change = isDiffEditor(target?.diffEditor) ? target.diffEditor.getDiffComputationResult()?.changes2[0] : undefined;
+								const line = change && (entry.modified ? change.modified : change.original).startLineNumber;
+								const selection = line === undefined ? undefined : target?.editor.getModel()?.validateRange(new Range(line, 1, line, 1));
 								void this.editorService.openEditor(
 									{
 										resource: entry.goToFileResource,
-										options: { pinned: true, revealIfVisible: true },
+										options: { pinned: true, revealIfVisible: true, selection },
 									},
 									this.editorGroupService.mainPart.activeGroup,
 								);

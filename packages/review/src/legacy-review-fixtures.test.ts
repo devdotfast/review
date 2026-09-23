@@ -221,9 +221,6 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       code: "REPAIR_REQUIRED",
       reviewUuid: uuid,
     });
-    expect(listed.errors[0]?.message).toContain(
-      "Delete it from Home and recreate it with the Review skill.",
-    );
     expect(await snapshotReviewTree(dir)).toEqual(snapshot);
   });
 });

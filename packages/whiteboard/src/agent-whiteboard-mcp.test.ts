@@ -61,6 +61,7 @@ afterEach(() => rm(homeDir, { recursive: true, force: true }));
 async function config(target: (typeof targets)[number]) {
   const file = (await whiteboardMcpRegistration(target, homeDir, env))
     .configPath;
+
   const text = await readFile(file, "utf8");
 
   return target === "codex" ? parse(text) : JSON.parse(text);
@@ -368,6 +369,7 @@ it("keeps OpenCode ownership when a JSONC config is added later", async () => {
     });
 
   await apply();
+
   const registration = await whiteboardMcpRegistration(
     "opencode",
     homeDir,
@@ -451,7 +453,7 @@ for (const target of targets) {
       target === "codex" ? "mcp_servers" : "mcpServers"
     ];
 
-    expect(servers.whiteboard).toBeUndefined();
+    expect(servers.review).toBeUndefined();
     expect(servers.whiteboard.command).toBe(desired.command);
 
     const { stdout } = await promisify(execFile)(

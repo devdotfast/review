@@ -207,7 +207,7 @@ let directory: string, store: SessionStore;
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "whiteboard-folded-"));
-  vi.stubEnv("DEV_REVIEW_HOME", directory);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", directory);
 
   const providers: SessionProviders = {
     validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
@@ -289,7 +289,7 @@ async function progressApi() {
   const app = createSessionApi(store, data);
 
   const client = new SessionApiClient(
-    { serverUrl: "http://review", token: "token" },
+    { serverUrl: "http://whiteboard", token: "token" },
     async (url, init) =>
       app.request(
         String(url).replace("http://whiteboard/sessions-api", ""),
@@ -302,6 +302,7 @@ async function progressApi() {
 
 it("progress counts folded changes as done, overall, per lens and uncategorized", async () => {
   const { sessionId, client } = await progressApi();
+
   const progress = await client.read<WhiteboardProgress>(
     `/${sessionId}/progress`,
   );

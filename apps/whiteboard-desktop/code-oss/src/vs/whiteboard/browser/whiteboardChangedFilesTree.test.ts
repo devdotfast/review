@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createRequire, registerHooks } from 'node:module';
 import test from 'node:test';
 
-import type { WhiteboardDiffFileWire, WhiteboardDiffProgressFile, StructuralLineCounts } from '../common/reviewProtocol.js';
+import type { WhiteboardDiffFileWire, WhiteboardDiffProgressFile, StructuralLineCounts } from '../common/whiteboardProtocol.js';
 
 // jsdom ships no types here; the DOM globals below are all this test reads from it.
 const { JSDOM } = createRequire(import.meta.url)('jsdom');

@@ -344,7 +344,7 @@ describe("snapshot authoring", () => {
           label: "Database",
           storage: "relational",
           collections: {
-            whiteboards: {
+            reviews: {
               label: "Whiteboards",
               fields: { id: { label: "ID", dataType: "text" } },
             },
@@ -2714,7 +2714,7 @@ it("rejects document lenses, unsafe patterns and missing range sources", async (
     },
   ])
     expect(() => edit(sessionId, { type: "insert", content })).toThrow(
-      /no longer a document block.*whiteboard_lens_edit/,
+      /no longer a document block.*session_lens_edit/,
     );
 
   await expect(

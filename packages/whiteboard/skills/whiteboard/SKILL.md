@@ -12,7 +12,8 @@ you are writing an interactive rfc-style review, for consumption by a staff engi
 **flow**
 - register the repository
 - create the whiteboard session, pinned to the commits/pr the user describes (TODO: working tree?)
-- begin session_activity before editing, end it when done."
+- trigger a subagent with this exact instruction: "Use the dev-file-lenses skill on session <sessionId>."
+- begin `session_activity` with `scope: "document"` before editing, end it when done.
 - read the diff with `session_diff`
     - immediately after reading the diff, without any other tool calls - put down a first pass at the what/why section.
 - whiteboard session structure - each of these should be written as a top-level `section`, in this order:

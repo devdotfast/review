@@ -770,7 +770,7 @@ function upgradeSharedId(value: JsonValue): JsonValue {
 
   if ("sessionId" in value)
     throw new Error("Shared data has conflicting session identifiers.");
-  const { whiteboardId, ...rest } = value;
+  const { reviewId, ...rest } = value;
 
-  return { ...rest, sessionId: whiteboardId };
+  return { ...rest, sessionId: reviewId };
 }

@@ -377,6 +377,7 @@ function WhiteboardLayoutContent({
     scrollRegionRef,
     panelStore,
   });
+
   const hasChangeRange = range.baseCommit !== range.headCommit;
 
   const [activeView, setActiveView] = useState<WhiteboardView>(() =>
@@ -409,6 +410,7 @@ function WhiteboardLayoutContent({
   const [diffScope, setDiffScope] = useState<WhiteboardCommitSummary | null>(
     null,
   );
+
   const selectForAgent = useAgentSelection();
   useEffect(() => {
     selectForAgent(null);

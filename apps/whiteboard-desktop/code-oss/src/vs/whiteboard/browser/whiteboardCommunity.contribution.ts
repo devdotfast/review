@@ -10,7 +10,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../platform/sto
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../workbench/common/contributions.js';
 import { isFirstRunReloadPending } from '../common/whiteboardFirstRunReload.js';
 import { WHITEBOARD_DISCORD_URL } from '../common/whiteboardProtocol.js';
-import { IWhiteboardApiCatalogService } from '../services/reviewApiCatalogService.js';
+import { IWhiteboardApiCatalogService } from '../services/whiteboardApiCatalogService.js';
 
 export const DISMISSED_KEY = 'review.community.dontShowAgain';
 

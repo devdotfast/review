@@ -220,6 +220,7 @@ describe("WhiteboardHome", () => {
     const { repositoryPath: _, ...whiteboard } = summary({
       title: "API review",
     });
+
     const item = { ...whiteboard, repositoryName: "Review repository" };
     const onOpen = vi.fn<(whiteboard: typeof item) => void>();
     await act(async () =>

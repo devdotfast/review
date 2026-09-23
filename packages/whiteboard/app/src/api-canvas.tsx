@@ -290,7 +290,7 @@ export function ApiCanvas({
 
     return {
       ...baseSession,
-      whiteboard: {
+      review: {
         kind: snapshot.kind,
         pins: snapshot.pins
           ? { base: snapshot.pins.base, head: snapshot.pins.head }

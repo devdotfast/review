@@ -34,6 +34,7 @@ export function AgentSetupCard({
   const [status, setStatus] = useState<WhiteboardCliInstallStatus>(
     install.status,
   );
+
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

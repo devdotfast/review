@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { IConfirmation, IConfirmationResult } from '../../platform/dialogs/common/dialogs.js';
-import { WHITEBOARD_DISCORD_URL } from '../common/reviewProtocol.js';
+import { WHITEBOARD_DISCORD_URL } from '../common/whiteboardProtocol.js';
 import { setFirstRunReloadPending } from '../common/whiteboardFirstRunReload.js';
 import { DISMISSED_KEY, WhiteboardCommunityContribution } from './whiteboardCommunity.contribution.js';
 

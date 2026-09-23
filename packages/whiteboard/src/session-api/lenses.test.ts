@@ -24,7 +24,7 @@ let providers: SessionProviders;
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "whiteboard-lenses-"));
   database = path.join(directory, "reviews.db");
-  vi.stubEnv("DEV_REVIEW_HOME", directory);
+  vi.stubEnv("DEV_WHITEBOARD_HOME", directory);
   providers = {
     validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
     validateSource: vi.fn<SessionProviders["validateSource"]>(async () => {}),
@@ -440,7 +440,7 @@ it("reports the changed lines no lens selects after each lens write", async () =
   const app = createSessionApi(store, data);
 
   const client = new SessionApiClient(
-    { serverUrl: "http://review", token: "token" },
+    { serverUrl: "http://whiteboard", token: "token" },
     async (url, init) =>
       app.request(
         String(url).replace("http://whiteboard/sessions-api", ""),

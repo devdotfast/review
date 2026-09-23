@@ -381,25 +381,6 @@ function ReviewLayoutContent({
     ),
   );
 
-  // A fresh pinned review opens on the diff: the document is still empty
-  // while the agent writes it, and the change is the thing there is to read.
-  // Decided once, when the first document arrives, and only when no view is
-  // remembered for this review. Not persisted: the reader has chosen nothing.
-  const defaultViewDecided = useRef(false);
-
-  useEffect(() => {
-    if (defaultViewDecided.current || documentState.state !== "ready") return;
-    defaultViewDecided.current = true;
-
-    if (
-      viewStateSync.initialActiveView === undefined &&
-      hasChangeRange &&
-      documentState.document.empty
-    ) {
-      setActiveView("diff");
-    }
-  }, [documentState, hasChangeRange, viewStateSync.initialActiveView]);
-
   const [diffScope, setDiffScope] = useState<ReviewCommitSummary | null>(null);
   const selectForAgent = useAgentSelection();
   useEffect(() => {

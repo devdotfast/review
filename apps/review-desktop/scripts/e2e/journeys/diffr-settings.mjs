@@ -78,7 +78,7 @@ export async function run(ctx) {
         ctx.discovery.url,
       ),
       {
-        headers: { "x-review-token": ctx.discovery.token },
+        headers: { "x-whiteboard-token": ctx.discovery.token },
       },
     );
 

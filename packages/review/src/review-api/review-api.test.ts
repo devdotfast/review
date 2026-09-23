@@ -1802,7 +1802,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     const headers = {
       "content-type": "application/json",
-      "x-review-token": "test-token",
+      "x-whiteboard-token": "test-token",
     };
 
     const post = <Operation>(operation: Operation) =>

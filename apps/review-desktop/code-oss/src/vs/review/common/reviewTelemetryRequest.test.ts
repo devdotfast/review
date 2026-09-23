@@ -16,7 +16,7 @@ test("builds an authenticated JSON POST for a telemetry event", () => {
 	assert.equal(request.method, "POST");
 	assert.deepEqual(request.headers, {
 		"content-type": "application/json",
-		"x-review-token": "secret",
+		"x-whiteboard-token": "secret",
 		"x-review-app-session-id": "app-1",
 	});
 	assert.deepEqual(JSON.parse(String(request.body)), { name: "review_presented" });

@@ -58,7 +58,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     });
 
   const headers = {
-    "x-review-token": token,
+    "x-whiteboard-token": token,
     "content-type": "application/json",
   };
 

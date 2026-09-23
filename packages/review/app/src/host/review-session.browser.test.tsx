@@ -36,7 +36,7 @@ describe("ReviewSessionProvider", () => {
       }),
     );
     const requestHeaders = new Headers(request.mock.calls[0]?.[1]?.headers);
-    expect(requestHeaders.get("x-review-token")).toBe("secret-token");
+    expect(requestHeaders.get("x-whiteboard-token")).toBe("secret-token");
   });
 
   it("keeps mounted sessions independent when a sibling session unmounts", async () => {
@@ -122,7 +122,7 @@ describe("ReviewSessionProvider", () => {
       }),
     );
     const requestHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
-    expect(requestHeaders.get("x-review-token")).toBe("token-b");
+    expect(requestHeaders.get("x-whiteboard-token")).toBe("token-b");
   });
 });
 

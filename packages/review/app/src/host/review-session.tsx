@@ -54,7 +54,7 @@ export function createReviewSession(
   const request = (url: string | URL, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
 
-    if (config.token) headers.set("x-review-token", config.token);
+    if (config.token) headers.set("x-whiteboard-token", config.token);
 
     return bridge.request(String(url), { ...init, headers });
   };

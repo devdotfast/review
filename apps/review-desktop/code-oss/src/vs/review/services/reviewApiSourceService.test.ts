@@ -69,7 +69,7 @@ test("a document diff retains its pinned comparison even if the review advances 
 	t.after(() => service.dispose());
 	t.mock.method(globalThis, "fetch", async (value: string, init: RequestInit) => {
 		const url = new URL(value);
-		assert.equal(new Headers(init.headers).get("x-review-token"), "secret");
+		assert.equal(new Headers(init.headers).get("x-whiteboard-token"), "secret");
 		assert.equal(url.searchParams.get("version"), "3");
 		if (url.pathname.endsWith("/diff")) return Response.json([]);
 		assert.equal(url.searchParams.get("side"), "base");

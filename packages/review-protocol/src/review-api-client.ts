@@ -85,7 +85,7 @@ export class SessionApiClient {
   ) {}
   async response(route: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
-    headers.set("x-review-token", this.connection.token);
+    headers.set("x-whiteboard-token", this.connection.token);
 
     if (init?.body) headers.set("content-type", "application/json");
 

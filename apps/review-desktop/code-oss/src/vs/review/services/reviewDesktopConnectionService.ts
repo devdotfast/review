@@ -541,7 +541,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 	}
 
 	private authHeaders(): Record<string, string> {
-		return { "x-review-token": this.token };
+		return { "x-whiteboard-token": this.token };
 	}
 }
 

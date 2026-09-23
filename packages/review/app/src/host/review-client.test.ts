@@ -49,7 +49,7 @@ describe("review host client", () => {
       jsonReviewApiUrl(injectedConfig, "review", "/telemetry/event"),
     );
 
-    expect(new Headers(requestInit?.headers).get("x-review-token")).toBe(
+    expect(new Headers(requestInit?.headers).get("x-whiteboard-token")).toBe(
       "secret-token",
     );
   });

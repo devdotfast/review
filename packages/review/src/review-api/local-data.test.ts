@@ -1951,7 +1951,7 @@ it("exposes real source and resource operations through the authenticated deskto
 
     const headers = {
       "content-type": "application/json",
-      "x-review-token": "test-token",
+      "x-whiteboard-token": "test-token",
     };
 
     const post = <Payload>(route: string, value: Payload) =>

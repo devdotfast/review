@@ -42,7 +42,7 @@ describe("Review Desktop tutorial preparation", () => {
       await server.listen();
 
       const headers = {
-        "x-review-token": token,
+        "x-whiteboard-token": token,
         "content-type": "application/json",
       };
 
@@ -187,7 +187,7 @@ function tutorialRequest(
 ): Promise<Response> {
   return fetch(`${serverUrl}${route}`, {
     method,
-    headers: { "x-review-token": token },
+    headers: { "x-whiteboard-token": token },
   });
 }
 

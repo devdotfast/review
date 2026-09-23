@@ -63,7 +63,7 @@ describe("Review Desktop launcher", () => {
         fetch.mock.calls.map(([url, init]) => [
           String(url),
           init?.method ?? "GET",
-          new Headers(init?.headers).get("x-review-token"),
+          new Headers(init?.headers).get("x-whiteboard-token"),
         ]),
       ).toEqual(requests);
       expect(launchDesktop).not.toHaveBeenCalled();

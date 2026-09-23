@@ -177,7 +177,7 @@ it("shares review identity, resources, sessions and live changes with Desktop in
       {
         method: "POST",
         headers: {
-          "x-review-token": server.discovery.token,
+          "x-whiteboard-token": server.discovery.token,
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -568,7 +568,7 @@ it("authenticates clients, reports capabilities and readiness without exposing t
   const sessionCapabilities = await fetch(
     `${server.discovery.url}/sessions-api/capabilities`,
     {
-      headers: { "x-review-token": server.discovery.token },
+      headers: { "x-whiteboard-token": server.discovery.token },
     },
   );
 

@@ -369,7 +369,7 @@ export async function createHarness({
     const response = await fetch(new URL(route, discovery.url), {
       method,
       headers: {
-        "x-review-token": discovery.token,
+        "x-whiteboard-token": discovery.token,
         "content-type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),

@@ -49,7 +49,7 @@ describe("native Review picker", () => {
       "http://127.0.0.1:5570/sessions-api/review/open",
     ]);
     expect(
-      new Headers(fetch.mock.calls[2]?.[1]?.headers).get("x-review-token"),
+      new Headers(fetch.mock.calls[2]?.[1]?.headers).get("x-whiteboard-token"),
     ).toBe("secret");
   });
   it("asks for the snapshot the id lookup needs, not the block index", async () => {
@@ -226,7 +226,7 @@ describe("native Review picker", () => {
       "http://127.0.0.1:5570/app/focus",
     ]);
     expect(
-      new Headers(fetch.mock.calls[3]?.[1]?.headers).get("x-review-token"),
+      new Headers(fetch.mock.calls[3]?.[1]?.headers).get("x-whiteboard-token"),
     ).toBe("secret");
   });
 

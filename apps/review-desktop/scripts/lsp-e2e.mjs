@@ -401,7 +401,7 @@ async function api(route, method = "GET", body) {
   const response = await fetch(`${discovery.url}/sessions-api${route}`, {
     method,
     headers: {
-      "x-review-token": discovery.token,
+      "x-whiteboard-token": discovery.token,
       "content-type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),

@@ -15,7 +15,7 @@ export class StructuralDiffClient implements StructuralDiffStream {
 		signal.throwIfAborted();
 		const query = new URLSearchParams(Object.entries(reviewSourceQuery(this.comparison)).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
 		const response = await fetch(`${serverUrl}/sessions-api/${encodeURIComponent(this.comparison.sessionId)}/structural-diff?${query}`, {
-			headers: { "x-review-token": token }, signal,
+			headers: { "x-whiteboard-token": token }, signal,
 		});
 		if (!response.ok) throw new Error((await response.json()).error ?? "Structural diff request failed.");
 		if (!response.body || !response.headers.get("content-type")?.includes("ndjson")) {

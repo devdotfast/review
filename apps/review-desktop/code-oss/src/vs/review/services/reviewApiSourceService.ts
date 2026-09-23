@@ -166,7 +166,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 				.map(([key, value]) => [key, String(value)]),
 		);
 		const response = await fetch(`${serverUrl}/sessions-api/${encodeURIComponent(sessionId)}${route}?${params}`, {
-			headers: { "x-review-token": token },
+			headers: { "x-whiteboard-token": token },
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) throw await reviewResponseError(response, `Could not read pinned source (${response.status}).`);

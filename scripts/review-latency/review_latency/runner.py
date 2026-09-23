@@ -57,7 +57,7 @@ def desktop_request(method: str, route: str, home: Path) -> dict | None:
     request = urllib.request.Request(
         f"{discovery['url']}{route}",
         method=method,
-        headers={"x-review-token": discovery["token"]},
+        headers={"x-whiteboard-token": discovery["token"]},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         body = response.read()

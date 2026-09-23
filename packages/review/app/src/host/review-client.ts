@@ -34,7 +34,7 @@ export async function reviewFetchUrl(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
 
-  if (config.token) headers.set("x-review-token", config.token);
+  if (config.token) headers.set("x-whiteboard-token", config.token);
 
   return fetch(url, { ...init, headers });
 }

@@ -2688,8 +2688,7 @@ button:focus-visible > .review-chevron {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-bottom: 36px;
-  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 28px;
   font: 13px/18px var(--font-mono);
   color: var(--ink-faint);
 }
@@ -2741,8 +2740,16 @@ button:focus-visible > .review-chevron {
   letter-spacing: -0.015em;
 }
 .review-header-details {
-  gap: 12px 20px;
+  gap: 8px 10px;
   padding-top: 12px;
+}
+/* Facts in the details row are divided by small ink-faint dots. */
+.review-header-dot {
+  flex: 0 0 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink-faint);
 }
 .review-document-header .review-doc-meta-branch {
   display: inline-flex;
@@ -2763,16 +2770,6 @@ button:focus-visible > .review-chevron {
 .review-doc-meta-branch > span {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.review-document-header .review-branch-range {
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.review-document-header .review-branch-ref {
-  gap: 8px;
-}
-.review-document-header .review-branch-copy {
-  padding: 0;
 }
 .review-header-stats {
   gap: 10px;
@@ -2799,20 +2796,6 @@ button:focus-visible > .review-chevron {
 .review-document:has(.review-document-header) {
   --review-prose-max-width: 760px;
   max-width: 900px;
-}
-
-.review-header-comparison {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--ink-faint);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.review-header-comparison .review-branch-name {
-  color: var(--ink-muted);
 }
 
 .review-document-header + .api-document-node .review-section-header {

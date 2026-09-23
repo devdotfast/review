@@ -6,7 +6,7 @@ This plan records a side conversation with the user on 2026-09-18. The user requ
 
 Provide an explicitly selected batch authoring workflow for headless/CI use. The model works on a draft and commits one finished review version, without creating a version for every edit or maintaining UI progress messages. Retain the existing review document format, components, source validation, and resource support.
 
-CI continues to supply the agent harness, model credentials, prepared checkout, and explicit base/head revisions. Review supplies authoring tools and instructions.
+CI continues to supply the agent harness, model credentials, prepared checkout, and explicit base/head revisions. Review supplies authoring tools and skill instructions.
 
 ## Agreed behavior
 
@@ -14,8 +14,8 @@ CI continues to supply the agent harness, model credentials, prepared checkout, 
 2. **Explicit mode selection.** Batch authoring is chosen deliberately. Do not infer it solely from Desktop being unavailable. Desktop availability and authoring workflow are separate capabilities.
 3. **Creation and updates.** A new review can be authored this way. For an existing review, readers continue to see its last committed version while the draft is being authored. Commit creates the next version.
 4. **Discard abandoned work by default.** The user explicitly preferred simplicity over recovery features. There is no resume/rebase/merge workflow in this scope. A new run starts from the last committed review, or an empty document for a new review, after the previous owner has stopped or explicitly aborted. Do not discard an active owner's draft or steal its lock.
-5. **Commit validates and completes.** Validate the document and its references, then automatically set every section's status to `complete`, including nested sections. The model does not need to generate pending/in-progress/complete transitions. The authoring instructions are responsible for checking the substance before committing; status normalization is not proof of content quality.
-6. **Separate batch instructions.** The model reads short dedicated instructions when batch mode is selected. Share the existing document/component reference rather than duplicating it. Keep interactive authoring instructions separate.
+5. **Commit validates and completes.** Validate the document and its references, then automatically set every section's status to `complete`, including nested sections. The model does not need to generate pending/in-progress/complete transitions. The skill is responsible for checking the substance before committing; status normalization is not proof of content quality.
+6. **Separate batch skill.** The model reads a short dedicated skill when batch mode is selected. Share the existing document/component reference rather than duplicating it. Keep interactive authoring instructions separate.
 7. **Server-owned exclusive authoring session.** The headless server owns the review's lock for the draft's lifetime. Release on successful commit, explicit abort, or server shutdown. The model does not renew leases or send activity/focus messages. If the agent dies but the server remains running, the draft remains locked until abort or server shutdown. CI is responsible for stopping its server during teardown.
 
 The temporary draft is persisted for the active run, but it is not a recoverable historical version. After an unclean server exit, abandoned scratch state is discarded as part of safe orphan cleanup, rather than offered for resumption.
@@ -24,7 +24,7 @@ The temporary draft is persisted for the active run, but it is not a recoverable
 
 The workflow above is agreed. Exact names and argument shapes below are implementation suggestions, not existing commands or separately approved API requirements.
 
-Expose an explicit startup option such as `review server start --authoring-mode batch`. Report `authoringMode` through capabilities. Tool descriptions and the instructions must agree about whether writes target a draft or a committed review.
+Expose an explicit startup option such as `review server start --authoring-mode batch`. Report `authoringMode` through capabilities. Tool descriptions and the skill must agree about whether writes target a draft or a committed review.
 
 The model-facing path should be:
 
@@ -63,11 +63,11 @@ Recheck ownership and the expected starting version at the transaction boundary.
 
 After success, use the normal committed-review notification path. Automatic commit on timeout, shutdown, or disconnect is out of scope.
 
-### 4. Add mode-aware tools and the batch instructions
+### 4. Add mode-aware tools and the batch skill
 
-Expose the mode through capabilities and publish truthful tool descriptions. The batch instructions should tell the model to begin a draft, investigate the pinned source, author substantial chunks, inspect/validate, and commit. It should return the committed review ID/version and abort on an intentional failure path.
+Expose the mode through capabilities and publish truthful tool descriptions. The batch skill should instruct the model to begin a draft, investigate the pinned source, author substantial chunks, inspect/validate, and commit. It should return the committed review ID/version and abort on an intentional failure path.
 
-`review_get_instructions` returns the batch instructions when the selected mode requires it. Reuse shared component documentation. Remove interactive outline-status choreography and activity/focus updates from the batch path. Do not remove investigation, evidence checking, or document-quality checks.
+The entry skill can route to the batch skill when the selected mode requires it. Reuse shared component documentation. Remove interactive outline-status choreography and activity/focus updates from the batch path. Do not remove investigation, evidence checking, or document-quality checks.
 
 Add a short local example and a CI example showing explicit mode selection, agent invocation, and server teardown. Update documentation that currently says every accepted edit becomes a saved version to distinguish interactive edits from draft writes.
 
@@ -99,7 +99,7 @@ Whether Desktop and headless hosts share a default database/directory remains a 
 - `packages/review/src/review-api/local-data.ts`: source and resource validation.
 - `packages/review/src/review-api/http.ts`, `authoring-tools.ts`, and `agent-client.ts`: API and agent tool surface.
 - `packages/review/src/server/headless-host.ts` and `packages/review/src/cli-runner.ts`: server lifetime and mode selection.
-- `packages/review/instructions/`: served authoring instructions and shared references.
+- `packages/review/skills/dev-review/`: current entry skill and shared authoring references.
 - `docs/headless-authoring.md` and `docs/adr/`: existing scope and architecture documentation to reconcile with the new workflow.
 
 Implementation is not performed by this handoff. The main agent should check its current in-progress changes against this plan before proceeding.

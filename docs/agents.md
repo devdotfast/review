@@ -6,66 +6,46 @@ Outline: Built-in setup -> Review instructions -> Change review -> Architecture 
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app
-connects each agent to a Review MCP server, and the running Review server tells
-the agent how to create, author, validate, and update a Review through the
-Review API and MCP tools.
+connects each agent to Review's MCP tools; the running Review server supplies
+the authoring instructions.
 
 ## Built-in setup
 
-Review Desktop provides setup shortcuts for these agents:
-
 | Agent | Install target | Connection |
 | --- | --- | --- |
-| Claude Code | `claude` or `claude-code` | Review MCP server in `~/.claude.json` |
-| Codex | `codex` | Review MCP server in `~/.codex/config.toml` |
-| Cursor | `cursor` | Review MCP server in `~/.cursor/mcp.json` |
-| OpenCode | `opencode` | Review MCP server in `~/.config/opencode/opencode.json` |
-| Pi | `pi` | `dev-review` pointer skill in `~/.agents/skills` |
+| Claude Code | `claude` or `claude-code` | MCP entry in `~/.claude.json` |
+| Codex | `codex` | MCP entry in `~/.codex/config.toml` |
+| Cursor | `cursor` | MCP entry in `~/.cursor/mcp.json` |
+| OpenCode | `opencode` | MCP entry in `~/.config/opencode/opencode.json` |
+| Pi | `pi` | `dev-review` skill in `~/.agents/skills` |
 
-Review Desktop is the recommended installation path. On first launch it detects
-installed agents and offers to connect them to the Review MCP server; after that,
-app updates keep those connections current. You can connect an agent later with
-its **Connect** button in **Settings → Agents**.
-The MCP entry runs a small launcher in Desktop's state directory using Review's
-bundled runtime, so it does not need the `review` command on `PATH`. No separate
-Node installation, agent CLI, port, or token configuration is needed. The
-desktop server remains the owner of every review.
+Review Desktop is the recommended installation path. On first launch it offers
+to connect detected agents, and app updates keep them connected. Connect agents
+later from **Settings → Agents**. The MCP entry uses Review's bundled runtime;
+it needs no `review` command on `PATH`, separate Node installation, port, or
+token.
 
-App updates refresh the launcher and repair missing MCP entries. For Codex,
-Review replaces any existing `review` server entry with its own; setting
-`enabled = false` on that entry turns Review off in Codex, and Review leaves it
-alone. For other agents Review leaves customized entries alone and explains how
-to replace them. Uninstall removes only entries Review created. Restart the
-agent or reconnect its MCP server after setup.
+Review replaces an existing Codex `review` entry unless it sets
+`enabled = false`. For other agents it leaves customized entries alone.
+Uninstall removes only entries Review created. Restart the agent or reconnect
+its MCP server after setup.
 
-Review and Review Preview share one `review` MCP entry. It connects to whichever
-app is running; when both run, it uses Review.
+Review and Review Preview share one entry, which connects to Review when both
+are running.
 
-Pi has no MCP connection. It gets a small `dev-review` pointer skill and uses the
-`review` command. Settings has a separate **Command line** row to install or
-remove the `review` command; removal sticks across updates. Trace capture and Pi
-use the command; MCP agents do not need it. Other agents can use the installed
-`review api` command.
+Agents without MCP support get a small `dev-review` skill that uses the
+`review` command. Install or remove the command from **Settings → Command
+line**.
 
-Earlier versions of Review installed authoring skills for each agent. Review
-Desktop removes the copies it installed each time it starts, whether or not you
-set up agents from it. Skills you wrote are left alone.
+Each time it starts, Review Desktop removes skills installed by earlier
+versions. Skills you wrote are left alone.
 
 ## Review instructions
 
-Agents read authoring guidance from the running Review server instead of from
-installed files. With the MCP tools, the agent calls `review_get_instructions`;
-from a terminal, it runs:
-
-```sh
-review api review_get_instructions '{}'
-```
-
-The default topic, `authoring`, returns the live or batch workflow selected by
-the server's authoring mode, together with document-authoring guidance and a
-self-review checklist. Other topics are `headless`, `prepared-worktrees`,
-`scratchpad` (offered only when the scratchpad is on and Desktop is running),
-and `trace-archaeology`. Pass one as `{"topic":"headless"}`.
+Agents call the `review_get_instructions` tool; from a terminal, run
+`review api review_get_instructions '{}'`. The default topic returns the authoring workflow for the
+server's mode. Other topics are `headless`, `prepared-worktrees`, `scratchpad`,
+and `trace-archaeology`.
 
 In normal use, ask your agent for a Review instead of running the lower-level
 CLI commands yourself.
@@ -105,12 +85,9 @@ review install claude cursor
 review install all
 ```
 
-With no target, `review install` installs every supported integration. For
-Claude Code, Codex, Cursor, and OpenCode it writes the same Review MCP
-registration as Desktop; for Pi it installs the pointer skill. When
-`DEV_REVIEW_SERVER_DIR` selects a headless server, it writes no MCP entries;
-agents there use `review api` or `review mcp`. Run `review install --help` for
-the current target list.
+With no target, `review install` installs every supported integration. It
+writes the same entries as Desktop, or none when `DEV_REVIEW_SERVER_DIR` selects
+a headless server. Run `review install --help` for the current target list.
 
 ## Provider boundary
 

@@ -45,9 +45,8 @@ See [review targets](cli-reference.md#review-targets) for the API options.
 
 Authoring goes through the JSON API: `review api` or the Review MCP tools.
 Every accepted edit is saved as soon as it is applied; there is no publish,
-checkpoint, or render-report step. `review_get_instructions` returns the full
-authoring workflow; see `packages/review/src/review-api/README.md` for the
-tool/route list.
+checkpoint, or render-report step. See `packages/review/src/review-api/README.md`
+for the full authoring workflow.
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain

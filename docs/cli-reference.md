@@ -37,9 +37,8 @@ review api tools
 review app pick --review <uuid>
 ```
 
-Most people let a connected coding agent drive this workflow: it authors
-through `review api` or the Review MCP tools, following the instructions from
-`review api review_get_instructions '{}'`. See [Coding agents](agents.md).
+Most people let their coding agent drive this workflow: it authors through
+`review api` or the Review MCP tools. See [Coding agents](agents.md).
 
 ## Machine-readable output
 
@@ -85,7 +84,7 @@ $ review version --json
 `review server start` runs the authoring server in the foreground without a
 Desktop installation. `review server status --json` checks readiness. Stop the
 server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
-and served instructions as Desktop.
+and instructions as Desktop.
 
 Set `DEV_REVIEW_SERVER_DIR` for the server and clients to select a job's saved
 state, or use `review --state-dir <path> server start` and
@@ -93,14 +92,12 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-For headless setup and a GitHub Actions example, run
-`review api review_get_instructions '{"topic":"headless"}'`; see also
-[Headless authoring](headless-authoring.md).
+See [headless setup and a GitHub Actions example](headless-authoring.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Interactive mode (the default) saves each accepted edit as a version. Start with
 `--authoring-mode batch` to select scratch drafts and one atomic commit instead.
-Capabilities report the selected mode, and `review_get_instructions` returns
-the batch workflow when it is selected. Draft ownership lasts until commit,
+Capabilities report the selected mode, and the served instructions switch to
+the batch workflow. Draft ownership lasts until commit,
 abort or server shutdown, without model heartbeats. Uncommitted drafts are
 discarded when their server stops.
 
@@ -135,11 +132,10 @@ The legacy `review app --review <uuid>` form remains a compatibility alias for
 
 ## Authoring
 
-Reviews are created and edited through the JSON API: `review api` or the
-Review MCP tools. `review api review_get_instructions '{}'` returns the
-authoring workflow; see `packages/review/src/review-api/README.md` for the
-full tool/route list. `review api tools`
-prints the current tool catalog.
+Reviews are created and edited through the JSON API: `review api` or the Review
+MCP tools. See `packages/review/src/review-api/README.md` for the authoring
+workflow and the full tool/route list. `review api tools` prints the current
+tool catalog.
 
 ### Review targets
 
@@ -436,9 +432,6 @@ review migrate apply --force
 review version
 ```
 
-The app normally connects agents and keeps their MCP entries up to date. Use
-`review install` for a headless environment: it writes the same Review MCP
-registration for Claude Code, Codex, Cursor, and OpenCode, and the `dev-review`
-pointer skill for Pi. With `DEV_REVIEW_SERVER_DIR` set it writes no MCP entries;
-agents use `review api` or `review mcp` there. Migration is only for legacy Review state; use `--force`
-only to restart an interrupted migration.
+The app normally connects agents and keeps them up to date. Use `review install`
+for a headless environment. Migration is only for legacy Review state; use
+`--force` only to restart an interrupted migration.

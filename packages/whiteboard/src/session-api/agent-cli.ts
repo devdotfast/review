@@ -7,7 +7,7 @@ import {
   toolResultText,
 } from "./agent-client.js";
 import { SessionApiError } from "./client.js";
-import { RECOVERY } from "./mcp.js";
+import { RECOVERY } from "./recovery.js";
 
 interface AgentCliInput {
   argv: string[];

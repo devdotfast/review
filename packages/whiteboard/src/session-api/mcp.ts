@@ -15,13 +15,11 @@ import {
 import type { SessionApiClient } from "./client.js";
 import { SessionApiError } from "./client.js";
 import { authoringTools } from "./authoring-tools.js";
+import { RECOVERY } from "./recovery.js";
 
 const INSTRUCTIONS_TOOL = authoringTools().find(
   (tool) => tool.name === "session_get_instructions",
 )!;
-
-export const RECOVERY =
-  "Whiteboard is not running, so its tools and guidance are unavailable. Start Whiteboard Desktop (or `whiteboard server start` for headless use). If Whiteboard's tools still do not appear, reconnect the Whiteboard MCP server or start a new agent session.";
 
 export async function serveWhiteboardMcp(
   connect: () => Promise<SessionApiClient>,
@@ -29,41 +27,19 @@ export async function serveWhiteboardMcp(
   stdout: Writable,
   stderr: Writable = process.stderr,
 ) {
-  // Initialization is served once. Give a reachable host a short chance to
-  // supply its capability-specific prompt without delaying offline startup.
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const initialTools = await Promise.race([
-    connect()
-      .then((client) =>
-        client.read<AuthoringTool[]>("/authoring", controller.signal),
-      )
-      .catch(() => []),
-    new Promise<AuthoringTool[]>((resolve) => {
-      timer = setTimeout(() => resolve([]), 300);
-    }),
-  ]);
-
-  clearTimeout(timer);
-  controller.abort();
-
-  const initialInstructions =
-    initialTools.find((tool) => tool.name === INSTRUCTIONS_TOOL.name) ??
-    INSTRUCTIONS_TOOL;
-
   const server = new Server(
     { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions: `Author through the running Whiteboard server. Call session_get_instructions before creating or editing a session and follow its guidance. ${initialInstructions.description} Read session_capabilities before authoring; call session_open only for an existing session. Generate software maps only when softwareMapEnabled is true. Never read or write Whiteboard files or SQL.`,
+      instructions:
+        'Whiteboard explains code in sessions the user reads in Whiteboard Desktop. Call session_get_instructions before authoring and follow it. Read session_capabilities before authoring. When the user asks to see how code works or wants a diagram, and session_capabilities reports authoringMode interactive, desktopAvailable true, and scratchpadEnabled true, call session_get_instructions({topic:"scratchpad"}) instead of drawing ASCII in chat. For why code exists or whether an agent solved something before, call session_get_instructions({topic:"trace-archaeology"}). Never read or write Whiteboard files or SQL.',
     },
   );
 
   // Hosts list tools once, right after initialize, often before Desktop is up.
   // Answer from the last catalog (or none) instead of failing, and announce a
   // changed list once the host can be reached.
-  let catalog: AuthoringTool[] = initialTools;
+  let catalog: AuthoringTool[] = [];
   let announceCatalog = false;
 
   const load = async (signal?: AbortSignal) => {

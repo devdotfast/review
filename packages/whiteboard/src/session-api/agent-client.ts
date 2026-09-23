@@ -11,6 +11,8 @@ import {
 import { whiteboardDesktopDiscoveryPath } from "../whiteboard-home-paths.js";
 import { SessionApiClient } from "./client.js";
 
+const TEXT_TOOLS = new Set(["session_get", "session_get_instructions"]);
+
 export interface AuthoringTool {
   name: string;
   description: string;
@@ -124,11 +126,7 @@ export function toolResultText(
 ) {
   if (result instanceof ToolText) return result.text;
 
-  return (
-    (tool.name === "session_get" ||
-      tool.name === "session_get_instructions") &&
-    isStringValue(result)
-  )
+  return TEXT_TOOLS.has(tool.name) && isStringValue(result)
     ? result
     : JSON.stringify(result);
 }

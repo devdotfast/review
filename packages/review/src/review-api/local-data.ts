@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -32,6 +32,7 @@ import type {
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
+import { isMissingFileError } from "../fs-utils.js";
 import { StructuralComparisons } from "../server/structural-comparisons.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
@@ -306,10 +307,31 @@ export class LocalReviewData {
   /** Resolve a native workspace without replacing the selected source with today's HEAD. */
   async navigatorWorkspace(
     snapshot: Snapshot,
-  ): Promise<{ workspacePath: string }> {
-    const pins = await this.documentPins(snapshot);
+    source: {
+      side?: "base" | "head";
+      file?: string;
+      empty?: boolean;
+      commit?: string;
+      anchor?: SourcePins;
+    } = {},
+  ): Promise<{ workspacePath: string; filePath?: string }> {
+    const { pins } = await this.resolveSource(
+      snapshot,
+      source.commit,
+      source.anchor,
+    );
+
     const repository = this.store.repositoryPath(pins.repositoryId);
-    const live = snapshot.target?.kind === "worktree";
+    const side = source.side ?? "head";
+
+    const live =
+      !!pins.worktreeRevision &&
+      (side === "head" || (source.empty && pins[side] === EMPTY_SOURCE));
+
+    const ref =
+      pins[side] === EMPTY_SOURCE && source.empty ? pins.head : pins[side];
+
+    if (source.file) checkRelativePath(source.file);
 
     // Keep navigation separate from language preparation, which may modify
     // tracked files. Retain these checkouts across window closes and restarts.
@@ -317,7 +339,7 @@ export class LocalReviewData {
       ? await realpath(repository)
       : await ensureReviewPinnedCheckout({
           rootPath: repository,
-          ref: pins.head,
+          ref,
           reviewUuid: snapshot.reviewId,
           role: "navigator",
         });
@@ -349,7 +371,7 @@ export class LocalReviewData {
     const workspacePath = path.join(
       reviewManagedCheckoutRoot(commonDir, snapshot.reviewId),
       "navigator",
-      `${live ? "worktree" : pins.head}.code-workspace`,
+      `${live ? "worktree" : ref}.code-workspace`,
     );
 
     // A native workspace gives VS Code stable restoration, search scope and
@@ -360,16 +382,42 @@ export class LocalReviewData {
         folders: [
           {
             path: rootPath,
-            name: `${path.basename(repository)} (${live ? "live" : pins.head.slice(0, 8)})`,
+            name: `${path.basename(repository)} (${live ? "live" : ref.slice(0, 8)})`,
           },
         ],
         settings: {
           "files.readonlyInclude": { "**/*": true },
-          "window.title": `${snapshot.title} — ${live ? "Live source" : pins.head.slice(0, 8)} — Review`,
+          "window.title": `${snapshot.title} — ${live ? "Live source" : ref.slice(0, 8)} — Review`,
         },
       });
 
-    return { workspacePath };
+    let filePath: string | undefined;
+
+    if (source.file) {
+      if (source.empty) {
+        // Native diffs need a real empty file for an added/deleted side.
+        filePath = path.join(
+          path.dirname(workspacePath),
+          "empty",
+          path.basename(source.file),
+        );
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, "", { mode: 0o600 });
+      } else {
+        try {
+          filePath = await localSourcePath(rootPath, source.file);
+        } catch (error) {
+          if (isMissingFileError(error))
+            throw new ReviewInputError(
+              "File is unavailable at the selected revision.",
+              404,
+            );
+          throw error;
+        }
+      }
+    }
+
+    return { workspacePath, filePath };
   }
 
   /** A document read that needs default pins; 409 when the document has none. */

@@ -40,6 +40,10 @@ import {
 } from "./services/reviewDesktopConnectionService.js";
 import { IReviewTelemetryService, ReviewTelemetryService } from "./services/reviewTelemetryService.js";
 import "./services/reviewLocalLanguageFeatures.js";
+import { IEditorResolverService } from "../workbench/services/editor/common/editorResolverService.js";
+import { ReviewEditorResolverService } from "./services/reviewEditorResolverService.js";
+
+registerSingleton(IEditorResolverService, ReviewEditorResolverService, InstantiationType.Delayed);
 
 registerSingleton(IReviewDesktopConnectionService, ReviewDesktopConnectionService, InstantiationType.Eager);
 registerSingleton(IReviewTelemetryService, ReviewTelemetryService, InstantiationType.Delayed);

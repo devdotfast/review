@@ -1067,6 +1067,74 @@ it("opens a stable native workspace at the selected version, separate from prepa
   ).toBe(404);
 });
 
+it("opens navigator files at their base, head, commit and explicit pins", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Navigator files", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+
+  const open = async (query: Record<string, string>) => {
+    const response = await app.request(
+      `/${reviewId}/navigator?${new URLSearchParams(query)}`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  const head = await open({ version: "0", side: "head", file: source.file });
+  const base = await open({ version: "0", side: "base", file: source.file });
+  expect(readFileSync(head.filePath, "utf8")).toContain("value = 2");
+  expect(readFileSync(base.filePath, "utf8")).toContain("value = 1");
+  expect(head.workspacePath).not.toBe(base.workspacePath);
+  expect(
+    (
+      await open({
+        version: "0",
+        commit: pins.head,
+        side: "base",
+        file: source.file,
+      })
+    ).filePath,
+  ).toBe(base.filePath);
+  expect(
+    (
+      await open({
+        version: "0",
+        repositoryId: pins.repositoryId,
+        head: pins.base,
+        file: source.file,
+      })
+    ).filePath,
+  ).toBe(base.filePath);
+
+  const empty = await open({
+    version: "0",
+    side: "base",
+    file: "added.ts",
+    empty: "true",
+  });
+
+  expect(readFileSync(empty.filePath, "utf8")).toBe("");
+  expect(
+    (
+      await app.request(`/${reviewId}/navigator?file=missing.ts`, {
+        method: "POST",
+      })
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await app.request(`/${reviewId}/navigator?file=../outside.ts`, {
+        method: "POST",
+      })
+    ).status,
+  ).toBe(400);
+});
+
 it("keeps a live navigator attached to the live checkout without preparing it", async () => {
   const { reviewId } = await local.store.execute(
     command({
@@ -1096,6 +1164,28 @@ it("keeps a live navigator attached to the live checkout without preparing it", 
   );
   expect(git("worktree", "list", "--porcelain")).toBe(before);
   expect(existsSync(path.join(root, "prepared"))).toBe(false);
+
+  const live = await local.data.navigatorWorkspace(
+    local.store.read(reviewId),
+    { file: source.file },
+  );
+
+  expect(live.filePath).toBe(path.join(root, source.file));
+
+  const base = await local.data.navigatorWorkspace(
+    local.store.read(reviewId),
+    { side: "base", file: source.file },
+  );
+
+  expect(readFileSync(base.filePath!, "utf8")).toContain("value = 1");
+  const outside = path.join(directory, "outside.ts");
+  writeFileSync(outside, "outside source\n");
+  symlinkSync(outside, path.join(repository, "outside-link.ts"));
+  await expect(
+    local.data.navigatorWorkspace(local.store.read(reviewId), {
+      file: "outside-link.ts",
+    }),
+  ).rejects.toThrow("leaves the selected worktree");
 });
 
 it("browses committed directories, including history, without listing untracked files", async () => {

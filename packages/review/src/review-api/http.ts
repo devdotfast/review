@@ -566,11 +566,22 @@ export function createReviewApi(
       return context.json(result);
     });
     app.post("/:id/navigator", async (context) => {
-      const { version } = readQuerySchemas.maps.parse(context.req.query());
+      const input = readQuerySchemas.file
+        .extend({
+          side: z.enum(["base", "head"]).default("head"),
+          file: z.string().min(1).optional(),
+          empty: z.literal("true").optional(),
+        })
+        .parse(context.req.query());
 
       return context.json(
         await data.navigatorWorkspace(
-          readReview(context.req.param("id"), version),
+          readReview(context.req.param("id"), input.version),
+          {
+            ...input,
+            empty: input.empty === "true",
+            anchor: queryAnchor(input),
+          },
         ),
       );
     });

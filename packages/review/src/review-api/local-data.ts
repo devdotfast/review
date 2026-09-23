@@ -20,6 +20,7 @@ import {
   listCommitRange,
   listTrackedFilesAtCommit,
   readFileAtCommit,
+  resolveRepoContext,
   splitGitPatchFiles,
 } from "@dev.fast/local-vcs";
 import { structuralChangeCounts } from "@dev.fast/review-protocol";
@@ -344,9 +345,9 @@ export class LocalReviewData {
           role: "navigator",
         });
 
-    const commonDir = await gitCommonDir(repository);
+    const context = await resolveRepoContext(repository);
 
-    if (!rootPath || !commonDir)
+    if (!rootPath || !context)
       throw new ReviewInputError(
         "Could not open the selected source checkout.",
         409,
@@ -368,30 +369,66 @@ export class LocalReviewData {
         );
     }
 
-    const workspacePath = path.join(
-      reviewManagedCheckoutRoot(commonDir, snapshot.reviewId),
+    // Name the workspace after the repository, not the registered checkout:
+    // a linked worktree's directory is an arbitrary branch slug. This matches
+    // the repository label on Home.
+    const name =
+      context.githubSlug?.split("/").at(-1) ??
+      path.basename(path.dirname(context.commonDir));
+
+    const workspaceDirectory = path.join(
+      reviewManagedCheckoutRoot(context.commonDir, snapshot.reviewId),
       "navigator",
       "workspaces",
       live ? "worktree" : ref,
-      `${path.basename(repository)}.code-workspace`,
+    );
+
+    // VS Code labels a saved workspace by its file name and identifies its
+    // window by the file's path, so the file name is the repository name.
+    const workspacePath = path.join(
+      workspaceDirectory,
+      `${name}.code-workspace`,
     );
 
     // A native workspace gives VS Code stable restoration, search scope and
     // editor read-only behavior without changing files in the source checkout.
-    // Leave subsequent workspace preferences to VS Code and the user.
-    if (!existsSync(workspacePath))
-      await writePrivateJsonAtomic(workspacePath, {
-        folders: [
-          {
-            path: rootPath,
-            name: path.basename(repository),
-          },
-        ],
+    // Keep the preferences VS Code and the user add, carrying them over from a
+    // workspace previously named after the checkout directory. That file stays
+    // in place for any window still open on it.
+    const current = await readWorkspace(workspacePath);
+
+    if (current !== null) {
+      const previous =
+        current ??
+        (await readWorkspace(
+          path.join(
+            workspaceDirectory,
+            `${path.basename(repository)}.code-workspace`,
+          ),
+        ));
+
+      const title = `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Whiteboard`;
+
+      const workspace = previous ?? {
+        settings: { "files.readonlyInclude": { "**/*": true } },
+      };
+
+      const [, ...otherFolders] = Array.isArray(workspace.folders)
+        ? workspace.folders
+        : [];
+
+      const next = {
+        ...workspace,
+        folders: [{ path: rootPath, name }, ...otherFolders],
         settings: {
-          "files.readonlyInclude": { "**/*": true },
-          "window.title": `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Review`,
+          ...(isJsonObject(workspace.settings) ? workspace.settings : {}),
+          "window.title": title,
         },
-      });
+      };
+
+      if (JSON.stringify(next) !== JSON.stringify(current))
+        await writePrivateJsonAtomic(workspacePath, next);
+    }
 
     let filePath: string | undefined;
 
@@ -1683,4 +1720,28 @@ function pathspecMatches(
     (path) =>
       path !== undefined && (path === prefix || path.startsWith(prefix + "/")),
   );
+}
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** A workspace file's contents, undefined when it does not exist, or null when
+ * it is not plain JSON (VS Code accepts comments), which is left untouched. */
+async function readWorkspace(
+  file: string,
+): Promise<Record<string, unknown> | null | undefined> {
+  const text = await readFile(file, "utf8").catch((error) => {
+    if (isMissingFileError(error)) return undefined;
+    throw error;
+  });
+
+  if (text === undefined) return undefined;
+
+  try {
+    const workspace: unknown = JSON.parse(text);
+
+    return isJsonObject(workspace) ? workspace : null;
+  } catch {
+    return null;
+  }
 }

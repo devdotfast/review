@@ -198,7 +198,7 @@ async function withDesktopInstallLock<T>(
 
   if (!outcome.acquired)
     throw new Error(
-      "Another Review setup operation is running. Retry shortly.",
+      "Another Whiteboard setup operation is running. Retry shortly.",
     );
 
   return outcome.result;
@@ -512,11 +512,11 @@ async function removeCliInstallUnlocked(
 
     if (kept.length || Object.values(remaining).some(Boolean)) {
       chunks.push(
-        "[skip] kept trace capture for another Review installation\n",
+        "[skip] kept trace capture for another Whiteboard installation\n",
       );
     } else {
       await disableTraceMachine({ homeDir, env });
-      chunks.push("[ok] disabled Review trace capture\n");
+      chunks.push("[ok] disabled Whiteboard trace capture\n");
     }
   }
 
@@ -610,7 +610,7 @@ if [ -z "$cli" ] || [ ! -f "$cli" ] || { [ -n "$runtime" ] && [ ! -x "$runtime" 
 fi
 
 if [ ! -f "$cli" ]; then
-  echo "Review CLI not found at $cli. Start Whiteboard Desktop, or run npx @dev.fast/review instead." >&2
+  echo "Whiteboard CLI not found at $cli. Start Whiteboard Desktop, or run npx @dev.fast/review instead." >&2
   exit 1
 fi
 
@@ -626,13 +626,13 @@ if [ -n "$runtime" ] && [ -x "$runtime" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Review needs Node.js 24 or newer and none was found. Install Node 24, or install Whiteboard Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer and none was found. Install Node 24, or install Whiteboard Desktop." >&2
   exit 1
 fi
 major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 case "$major" in *[!0-9]*) major=0;; esac
 if [ "$major" -lt 24 ]; then
-  echo "Review needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Whiteboard Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Whiteboard Desktop." >&2
   exit 1
 fi
 exec node "$cli" "$@"
@@ -728,7 +728,7 @@ export async function ensureShellProfilePath(input: {
   }
 
   if (!profileName) {
-    return "Review did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
+    return "Whiteboard did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
   }
 
   const profilePath = path.join(input.homeDir, profileName);

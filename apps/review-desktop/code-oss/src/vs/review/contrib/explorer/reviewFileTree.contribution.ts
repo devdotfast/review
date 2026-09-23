@@ -33,7 +33,7 @@ class ToggleReviewFileTreeAction extends Action2 {
 	constructor() {
 		super({
 			id: 'review.toggleFileTree',
-			title: localize2('review.toggleFileTree', "Review: Toggle File Tree"),
+			title: localize2('review.toggleFileTree', "Whiteboard: Toggle File Tree"),
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib + 1,

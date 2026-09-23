@@ -219,7 +219,7 @@ describe("ReviewDocumentMetaLine", () => {
     );
 
     expect(unavailable?.textContent).toContain("PR #40");
-    expect(unavailable?.textContent).toContain("No Review");
+    expect(unavailable?.textContent).toContain("No session");
 
     const layer = container.querySelector<HTMLButtonElement>(
       '.review-stack-menu button[data-relation="later"]',

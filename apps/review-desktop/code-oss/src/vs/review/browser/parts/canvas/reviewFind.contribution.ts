@@ -23,7 +23,7 @@ class ReviewFindAction extends Action2 {
   constructor() {
     super({
       id: REVIEW_FIND_COMMAND_ID,
-      title: localize2("review.action.find", "Find in Review"),
+      title: localize2("review.action.find", "Find in session"),
       keybinding: {
         weight: KeybindingWeight.WorkbenchContrib,
         primary: KeyMod.CtrlCmd | KeyCode.KeyF,

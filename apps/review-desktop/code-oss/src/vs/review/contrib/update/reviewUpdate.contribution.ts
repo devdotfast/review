@@ -105,7 +105,7 @@ class ReviewUpdateNotifications extends Disposable {
 			StorageScope.APPLICATION,
 			StorageTarget.MACHINE,
 		);
-		this.logService.error(`[ReviewUpdate] update failed (${failure.targetCommit})`);
+		this.logService.error(`[WhiteboardUpdate] update failed (${failure.targetCommit})`);
 		this.notificationService.notify({
 			severity: Severity.Error,
 			message: localize('review.update.installFailed', "Update failed"),
@@ -135,12 +135,12 @@ class ReviewUpdateNotifications extends Disposable {
 
 		// The update landed, so any skip recorded against it is spent.
 		this.storageService.remove(SKIPPED_UPDATE_STORAGE_KEY, StorageScope.APPLICATION);
-		this.logService.info(`[ReviewUpdate] running the staged update (${this.productService.commit})`);
+		this.logService.info(`[WhiteboardUpdate] running the staged update (${this.productService.commit})`);
 		this.notificationService.notify({
 			severity: Severity.Info,
 			message: notice.productVersion
-				? localize('review.update.applied', "Review updated to {0}.", notice.productVersion)
-				: localize('review.update.applied.unknownVersion', "Review has been updated."),
+				? localize('review.update.applied', "Whiteboard updated to {0}.", notice.productVersion)
+				: localize('review.update.applied.unknownVersion', "Whiteboard has been updated."),
 		});
 	}
 
@@ -160,7 +160,7 @@ class ReviewUpdateNotifications extends Disposable {
 			this.readyCommit = state.update.version;
 			this.readyHandle = this.notificationService.notify({
 				severity: Severity.Info,
-				message: localize('review.update.linuxAvailable', "Review {0} is available. Update with your system package manager, then reopen Review.", state.update.productVersion ?? ''),
+				message: localize('review.update.linuxAvailable', "Whiteboard {0} is available. Update with your system package manager, then reopen Whiteboard.", state.update.productVersion ?? ''),
 				actions: { primary: [toAction({
 					id: 'review.update.instructions', label: localize('review.update.instructions', "Update Instructions"),
 					run: () => this.updateService.downloadUpdate(true),
@@ -178,7 +178,7 @@ class ReviewUpdateNotifications extends Disposable {
 
 		const next = stagedUpdateFromReady(state.update);
 		if (!next) {
-			this.logService.warn('[ReviewUpdate] update is ready but carries no commit; nothing to record');
+			this.logService.warn('[WhiteboardUpdate] update is ready but carries no commit; nothing to record');
 			return;
 		}
 
@@ -216,8 +216,8 @@ class ReviewUpdateNotifications extends Disposable {
 			// Waits for a decision rather than expiring unseen.
 			sticky: true,
 			message: next.productVersion
-				? localize('review.update.ready', "Review {0} is ready to install.", next.productVersion)
-				: localize('review.update.ready.unknownVersion', "A Review update is ready to install."),
+				? localize('review.update.ready', "Whiteboard {0} is ready to install.", next.productVersion)
+				: localize('review.update.ready.unknownVersion', "A Whiteboard update is ready to install."),
 			actions: {
 				primary: [
 					toAction({

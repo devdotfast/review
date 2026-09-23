@@ -19,7 +19,7 @@ class SelectReviewThemeAction extends Action2 {
 	constructor() {
 		super({
 			id: 'review.selectTheme',
-			title: localize2('review.selectTheme', "Review: Theme"),
+			title: localize2('review.selectTheme', "Whiteboard: Theme"),
 			f1: true
 		});
 	}
@@ -36,7 +36,7 @@ class SelectReviewThemeAction extends Action2 {
 		];
 
 		const picked = await quickInputService.pick(items, {
-			title: localize('review.theme.title', "Review: Theme"),
+			title: localize('review.theme.title', "Whiteboard: Theme"),
 			placeHolder: localize('review.theme.placeholder', "Select a theme")
 		});
 		if (!picked) {

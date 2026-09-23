@@ -31,10 +31,10 @@ function traceStorageSummary(trace: ReviewCliInstallStatus["trace"]): string {
 /** What capture records and where, for the selected store. */
 function traceDestinationCopy(trace: ReviewCliInstallStatus["trace"]): string {
   if (trace.storageMode === "hosted") {
-    return "Records agent sessions from allowed repositories to the hosted /dev/fast trace store so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
+    return "Records agent sessions from allowed repositories to the hosted /dev/fast trace store so Whiteboard sessions can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
   }
 
-  return "Records agent sessions to your own S3/R2 bucket so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
+  return "Records agent sessions to your own S3/R2 bucket so Whiteboard sessions can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
 }
 
 /**

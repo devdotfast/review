@@ -209,7 +209,7 @@ export function ReviewHome({
       <div className="review-home-scroll">
         <div className="review-home-content">
           <div className="review-home-page-header">
-            <h1>Reviews</h1>
+            <h1>Sessions</h1>
             <div className="review-home-page-header-tools">
               <SearchBox query={query} onChange={setQuery} />
             </div>
@@ -270,8 +270,8 @@ function SearchBox({
         ref={input}
         type="search"
         value={query}
-        placeholder="Search reviews"
-        aria-label="Search reviews"
+        placeholder="Search sessions"
+        aria-label="Search sessions"
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
@@ -302,7 +302,7 @@ function SearchBox({
 
 /**
  * Dismissed reviews, collapsed by default and kept out of the workspace
- * grouping. Reviews stay saved until the reader deletes them.
+ * grouping. Sessions stay saved until the reader deletes them.
  */
 function DismissedSection({
   reviews,
@@ -318,7 +318,7 @@ function DismissedSection({
   onDelete?(review: ReviewApiSummary): Promise<void>;
 }) {
   return (
-    <section className="review-home-dismissed" aria-label="Dismissed reviews">
+    <section className="review-home-dismissed" aria-label="Dismissed sessions">
       <button
         type="button"
         className="review-home-dismissed-toggle"
@@ -416,7 +416,7 @@ function ReviewTable({
   });
 
   return (
-    <section className="review-home-table-section" aria-label="Reviews">
+    <section className="review-home-table-section" aria-label="Sessions">
       <div className="review-home-table-toolbar">
         <span>{countLabel(filtered.length, "review")}</span>
         <div className="review-home-table-controls">
@@ -569,7 +569,7 @@ function ReviewRowActions({ review }: { review: ReviewApiSummary }) {
           ref={popover}
           popover="manual"
           role="menu"
-          aria-label="Review actions"
+          aria-label="Session actions"
           className="review-home-row-menu"
         >
           <DeleteReviewButton review={review} onDelete={onDelete} menu />
@@ -760,7 +760,7 @@ function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
       type="button"
       className="review-home-dismiss"
       aria-label={`Dismiss ${title}`}
-      title="Dismiss review"
+      title="Dismiss session"
       disabled={busy}
       onKeyDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -806,7 +806,7 @@ function DeleteReviewButton({
       }
       role={menu ? "menuitem" : undefined}
       aria-label={armed ? `Confirm delete ${title}` : `Delete ${title}`}
-      title={armed ? "Confirm delete" : "Delete review"}
+      title={armed ? "Confirm delete" : "Delete session"}
       disabled={busy}
       onBlur={() => setArmed(false)}
       onKeyDown={(event) => event.stopPropagation()}
@@ -831,7 +831,7 @@ function DeleteReviewButton({
       {menu ? (
         <>
           <TrashIcon />
-          <span>{armed ? "Confirm delete" : "Delete review"}</span>
+          <span>{armed ? "Confirm delete" : "Delete session"}</span>
         </>
       ) : armed ? (
         "Delete?"
@@ -904,7 +904,7 @@ export function formatRelativeTime(
 }
 
 function reviewTitle(review: ReviewApiSummary): string {
-  return review.title.trim() || "Untitled review";
+  return review.title.trim() || "Untitled session";
 }
 
 function matchesQuery(review: ReviewApiSummary, query: string): boolean {

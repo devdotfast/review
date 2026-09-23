@@ -192,7 +192,7 @@ describe("ConnectCard", () => {
     writeText.mockRestore();
   });
 
-  it("links to Cursor's installer, or asks for the review command without one", async () => {
+  it("links to Cursor's installer, or asks for the whiteboard command without one", async () => {
     localStorage.setItem(REVIEW_CONNECT_TARGET_STORAGE_KEY, "cursor");
 
     const container = await mount(<ConnectCard install={content()} />);
@@ -224,11 +224,11 @@ describe("ConnectCard", () => {
     await act(async () => button(bare, "Install the plugin")?.click());
     expect(bare.querySelector("a")).toBeNull();
     expect(body(bare)).toContain("Install in Cursor");
-    expect(body(bare)).toContain("Install the review command first.");
+    expect(body(bare)).toContain("Install the whiteboard command first.");
     expect(bare.querySelector(".review-connect-note")).toBeNull();
   });
 
-  it("notes the missing review command without disabling copy", async () => {
+  it("notes the missing whiteboard command without disabling copy", async () => {
     const container = await mount(
       <ConnectCard
         install={content({ shim: { ...status.shim, installed: false } })}
@@ -236,7 +236,7 @@ describe("ConnectCard", () => {
     );
 
     expect(container.querySelector(".review-connect-note")?.textContent).toBe(
-      "Install the review command first. The prompt and the plugin both launch it.",
+      "Install the whiteboard command first. The prompt and the plugin both launch it.",
     );
     expect(copyButton(container)?.disabled).toBe(false);
   });
@@ -307,11 +307,11 @@ describe("LegacySkillsRow", () => {
       <LegacySkillsRow install={install} onStatusChange={onStatusChange} />,
     );
 
-    expect(container.textContent).toContain("Review no longer uses them.");
+    expect(container.textContent).toContain("Whiteboard no longer uses them.");
     expect(container.textContent).toContain("/h/.claude/skills/review");
 
     const button = [...container.querySelectorAll("button")].find(
-      (b) => b.textContent === "Remove old Review skills",
+      (b) => b.textContent === "Remove old Whiteboard skills",
     );
 
     await act(async () => button?.click());

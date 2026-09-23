@@ -98,7 +98,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 		if (this.target.kind === "home") return "Home";
 		if (this.target.kind === "welcome") return "Welcome";
 		if (this.target.kind === "settings") return "Settings";
-		return "Review";
+		return "Session";
 	}
 
 	override getIcon(): ThemeIcon | undefined {

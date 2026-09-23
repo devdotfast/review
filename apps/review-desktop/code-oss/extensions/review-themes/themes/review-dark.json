@@ -4,7 +4,7 @@
 	// the include only supplies grammar coverage. Roles: keyword, type, function, ink, string, number,
 	// operator, comment, inserted, deleted. Regenerated from the Whiteboard System — Syntax themes board.
 	"$schema": "vscode://schemas/color-theme",
-	"name": "Review Dark",
+	"name": "Whiteboard Dark",
 	"include": "./../../theme-defaults/themes/dark_plus.json",
 	"semanticHighlighting": true,
 	"tokenColors": [

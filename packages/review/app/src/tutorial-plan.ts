@@ -43,7 +43,7 @@ const tutorialSteps: readonly TutorialStepDefinition[] = [
     chapter: "welcome",
     title: "Choose your keybindings",
     instruction:
-      "Choose the editor keys you want to use while reading Reviews.",
+      "Choose the editor keys you want to use while reading sessions.",
     completion: "external",
     targetSelector: ".tutorial-keymap-picker",
   },
@@ -138,7 +138,7 @@ const tutorialSteps: readonly TutorialStepDefinition[] = [
     chapter: "finish",
     title: "Know where to get help",
     instruction:
-      "Use Settings to manage installed Review skills, or Getting Started to revisit setup and this tour.",
+      "Use Settings to connect your agents, or Getting Started to revisit setup and this tour.",
     completion: "finish",
     targetSelector: '[data-review-section="Get help"] .review-section-body',
   },

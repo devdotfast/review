@@ -72,7 +72,7 @@ function ReviewCanvas({
 
   if (content.kind === "error") {
     return (
-      <CanvasShell title="Review unavailable">
+      <CanvasShell title="Session unavailable">
         <p>{content.message}</p>
       </CanvasShell>
     );
@@ -120,7 +120,7 @@ function CanvasShell({
 }) {
   return (
     <main className="review-canvas-shell">
-      <div className="review-shell-brand">/dev/fast Review</div>
+      <div className="review-shell-brand">/dev/fast Whiteboard</div>
       <h1>{title}</h1>
       {children}
     </main>

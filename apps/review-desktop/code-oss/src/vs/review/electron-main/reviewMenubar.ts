@@ -231,7 +231,7 @@ export class ReviewMenubarMainService
       new MenuItem({
         label: localize(
           "review.menu.uninstall",
-          "Uninstall Review Desktop...",
+          "Uninstall Whiteboard...",
         ),
         click: () => this.runActionInFocusedWindow("review.uninstallApp"),
       }),

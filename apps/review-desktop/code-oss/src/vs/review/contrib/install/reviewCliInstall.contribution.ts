@@ -39,7 +39,7 @@ class OpenWelcomeAction extends Action2 {
 	constructor() {
 		super({
 			id: "review.openWelcome",
-			title: localize2("review.welcome", "Review: Welcome..."),
+			title: localize2("review.welcome", "Whiteboard: Welcome..."),
 			f1: true,
 		});
 	}
@@ -55,7 +55,7 @@ class OpenTutorialAction extends Action2 {
 	constructor() {
 		super({
 			id: "review.openTutorial",
-			title: localize2("review.openTutorial", "Review: Open Tutorial..."),
+			title: localize2("review.openTutorial", "Whiteboard: Open Tutorial..."),
 			f1: true,
 		});
 	}
@@ -69,7 +69,7 @@ class OpenTutorialAction extends Action2 {
 			await tabsService.openApiReview(opened.reviewUuid, opened.title);
 		} catch (error) {
 			notificationService.error(
-				localize("review.tutorial.failed", "Review could not open the tutorial: {0}", String(error)),
+				localize("review.tutorial.failed", "Whiteboard could not open the tutorial: {0}", String(error)),
 			);
 		}
 	}
@@ -81,7 +81,7 @@ class InstallReviewCliInPathAction extends Action2 {
 	constructor() {
 		super({
 			id: "review.installCliInPath",
-			title: localize2("review.installCliInPath", "Review: Install CLI in PATH"),
+			title: localize2("review.installCliInPath", "Whiteboard: Install CLI in PATH"),
 			f1: true,
 		});
 	}
@@ -98,8 +98,8 @@ class InstallReviewCliInPathAction extends Action2 {
 			notificationService.info(
 				localize(
 					"review.cliInstall.installed",
-					"Review installed the CLI at {0}. New terminals can use the review command.",
-					installed.shimPath ?? "~/.local/bin/review",
+					"Whiteboard installed the CLI at {0}. New terminals can use the whiteboard command.",
+					installed.shimPath ?? "~/.local/bin/whiteboard",
 				),
 			);
 		} catch (error) {
@@ -107,7 +107,7 @@ class InstallReviewCliInPathAction extends Action2 {
 				return;
 			}
 			notificationService.error(
-				localize("review.cliInstall.failed", "Review could not install the CLI in PATH: {0}", String(error)),
+				localize("review.cliInstall.failed", "Whiteboard could not install the CLI in PATH: {0}", String(error)),
 			);
 		}
 	}
@@ -117,7 +117,7 @@ registerAction2(InstallReviewCliInPathAction);
 
 /**
  * Removes everything the app installed on this machine: the tutorial, the
- * review terminal command, managed trace capture, and the consent stamp. It then
+ * whiteboard terminal command, managed trace capture, and the consent stamp. It then
  * points at the app bundle so the user can move it to the Trash. Other Review
  * data stays untouched. Resetting the stamp makes a later reinstall start as
  * a first run.
@@ -126,7 +126,7 @@ class UninstallReviewDesktopAction extends Action2 {
 	constructor() {
 		super({
 			id: "review.uninstallApp",
-			title: localize2("review.uninstallApp", "Review: Uninstall Review Desktop..."),
+			title: localize2("review.uninstallApp", "Whiteboard: Uninstall Whiteboard Desktop..."),
 			f1: true,
 		});
 	}
@@ -141,19 +141,19 @@ class UninstallReviewDesktopAction extends Action2 {
 		const status = await desktopConnection.getCliInstallStatus();
 		const detail = [
 			status.stamp?.shimPath
-				? localize("review.uninstall.shim", "Removes the review terminal command at {0}.", status.stamp.shimPath)
-				: localize("review.uninstall.noShim", "The review terminal command is not installed."),
+				? localize("review.uninstall.shim", "Removes the whiteboard terminal command at {0}.", status.stamp.shimPath)
+				: localize("review.uninstall.noShim", "The whiteboard terminal command is not installed."),
 			status.stamp?.traceManaged
 				? localize(
 						"review.uninstall.trace",
 						"Disables trace capture and restores hook paths for known repositories. R2 credentials stay on disk.",
 					)
-				: localize("review.uninstall.noTrace", "Trace capture is not managed by Review."),
-			localize("review.uninstall.tutorial", "Removes the bundled tutorial repository and Review."),
-			localize("review.uninstall.keepsData", "Your reviews and their history stay on disk."),
+				: localize("review.uninstall.noTrace", "Trace capture is not managed by Whiteboard."),
+			localize("review.uninstall.tutorial", "Removes the bundled tutorial repository and session."),
+			localize("review.uninstall.keepsData", "Your sessions and their history stay on disk."),
 		].join("\n");
 		const { confirmed } = await dialogService.confirm({
-			message: localize("review.uninstall.confirm", "Remove everything Review Desktop installed on this machine?"),
+			message: localize("review.uninstall.confirm", "Remove everything Whiteboard Desktop installed on this machine?"),
 			detail,
 			primaryButton: localize("review.uninstall.remove", "&&Remove"),
 		});
@@ -178,13 +178,13 @@ class UninstallReviewDesktopAction extends Action2 {
 			await desktopConnection.resetCliInstallPrompts();
 			if (tutorialError) {
 				await dialogService.error(
-					localize("review.uninstall.tutorialFailed", "Review could not remove the tutorial data at ~/.dev/tutorial."),
+					localize("review.uninstall.tutorialFailed", "Whiteboard could not remove the tutorial data at ~/.dev/tutorial."),
 					String(tutorialError),
 				);
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize("review.uninstall.failed", "Review could not remove its command and trace setup."),
+				localize("review.uninstall.failed", "Whiteboard could not remove its command and trace setup."),
 				String(error),
 			);
 			return;
@@ -192,10 +192,10 @@ class UninstallReviewDesktopAction extends Action2 {
 
 		if (isLinux) {
 			await dialogService.info(
-				localize("review.uninstall.linuxDone", "Review’s user-installed integrations were removed."),
+				localize("review.uninstall.linuxDone", "Whiteboard’s user-installed integrations were removed."),
 				localize(
 					"review.uninstall.linuxFinish",
-					"To remove the app, quit Review and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your reviews and settings stay on disk.",
+					"To remove the app, quit Whiteboard and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your sessions and settings stay on disk.",
 				),
 			);
 			return;
@@ -204,10 +204,10 @@ class UninstallReviewDesktopAction extends Action2 {
 		const bundlePath = macAppBundlePath(environmentService.appRoot);
 		if (bundlePath) {
 			const { confirmed: reveal } = await dialogService.confirm({
-				message: localize("review.uninstall.done", "Review's command and trace setup were removed."),
+				message: localize("review.uninstall.done", "Whiteboard's command and trace setup were removed."),
 				detail: localize(
 					"review.uninstall.finish",
-					"To finish, quit Review Desktop and move {0} to the Trash.",
+					"To finish, quit Whiteboard Desktop and move {0} to the Trash.",
 					bundlePath,
 				),
 				primaryButton: localize("review.uninstall.reveal", "&&Show in Finder"),
@@ -218,7 +218,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			}
 		} else {
 			await dialogService.info(
-				localize("review.uninstall.done", "Review's command and trace setup were removed."),
+				localize("review.uninstall.done", "Whiteboard's command and trace setup were removed."),
 				localize("review.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
 			);
 		}
@@ -256,7 +256,7 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 			this.notificationService.warn(
 				localize(
 					"review.cliInstall.updateFailed",
-					"Review could not update its CLI: {0}. Retry from Getting Started, or restart Review.",
+					"Whiteboard could not update its CLI: {0}. Retry from Getting Started, or restart Whiteboard.",
 					String(error),
 				),
 			);
@@ -280,7 +280,7 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 					autoUpdate: true,
 				});
 				// Review has no status bar; status() messages would be dropped.
-				this.notificationService.info(localize("review.cliInstall.resyncedCli", "Review updated the installed CLI."));
+				this.notificationService.info(localize("review.cliInstall.resyncedCli", "Whiteboard updated the installed CLI."));
 				return;
 			case "none":
 				return;

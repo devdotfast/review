@@ -2818,6 +2818,44 @@ it("reports failed background coverage instead of leaving progress pending", asy
   }
 });
 
+it("logs a provider failure and names its kind without returning its local detail", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins!,
+  }));
+
+  const failure = Object.assign(
+    new Error("EACCES: permission denied, open '/Users/someone/secret.ts'"),
+    { code: "EACCES" },
+  );
+
+  vi.spyOn(data, "changes").mockRejectedValue(failure);
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  const api = createReviewApi(store, data);
+  const route = `/${reviewId}/progress?version=0&mode=textual&wait=false`;
+
+  try {
+    await api.request(route);
+    await vi.waitFor(() => expect(data.coverageRevision).toBeGreaterThan(0));
+    const response = await api.request(route);
+    expect(response.status).toBe(500);
+    const { error } = await response.json();
+    expect(error).toContain("EACCES");
+    expect(error).toContain("main.log");
+    expect(error).not.toContain("/Users/someone");
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining(`/${reviewId}/progress`),
+      failure,
+    );
+  } finally {
+    logged.mockRestore();
+    await data.close();
+  }
+});
+
 it("makes a diagram step's selection usable before an unrelated file finishes counting", async () => {
   const { createReviewApi } = await import("./http.js");
   const { selectionKey } = await import("../lens-selection.js");

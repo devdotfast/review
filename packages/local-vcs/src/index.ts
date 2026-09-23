@@ -1019,23 +1019,33 @@ export function diffFileSummariesWorkingTree(
   return withWorkingTreeIndex(input, readGitDiffFileSummaries);
 }
 
-/** Read one Git patch for the entire checkout, or one changed file. */
+/** Read one Git patch for the entire checkout, or for the named changed files. */
 export function diffWorkingTree(
-  input: WorkingTreeDiffInput & { file?: string },
+  input: WorkingTreeDiffInput & {
+    /** Exact filenames; omit for every change. */
+    paths?: string[];
+    contextLines?: number;
+  },
 ): Promise<string> {
   return withWorkingTreeIndex(input, async (options) => {
-    if (input.file === undefined) return readGitDiff(options);
-    // Include both sides of a rename when selecting its destination.
-    const changes = await readGitDiffFileSummaries(options);
+    const read = { ...options, contextLines: input.contextLines };
 
-    const previous = changes.find(
-      (change) => change.path === input.file,
-    )?.previousPath;
+    if (input.paths === undefined) return readGitDiff(read);
+
+    const requested = new Set(input.paths);
+
+    // Include both sides of a rename when selecting its destination.
+    const previous = (await readGitDiffFileSummaries(options)).flatMap(
+      (change) =>
+        change.previousPath && requested.has(change.path)
+          ? [change.previousPath]
+          : [],
+    );
 
     return readGitDiff({
-      ...options,
+      ...read,
       literalPaths: true,
-      paths: previous ? [previous, input.file] : [input.file],
+      paths: [...new Set([...previous, ...input.paths])],
     });
   });
 }
@@ -2171,12 +2181,19 @@ function parseGitNumStatCount(value: string): number {
   return Number.isSafeInteger(count) && count >= 0 ? count : 0;
 }
 
-function parseGitPatchFileSummaries(output: string): LocalVcsDiffFileSummary[] {
-  return splitGitDiffSections(output).flatMap((section) => {
+/** One entry per file section of a Git-format patch, in patch order. */
+export function splitGitPatchFiles(
+  patch: string,
+): Array<{ file: LocalVcsDiffFileSummary; patch: string }> {
+  return splitGitDiffSections(patch).flatMap((section) => {
     const file = parseGitDiffSectionSummary(section);
 
-    return file ? [file] : [];
+    return file ? [{ file, patch: section }] : [];
   });
+}
+
+function parseGitPatchFileSummaries(output: string): LocalVcsDiffFileSummary[] {
+  return splitGitPatchFiles(output).map((entry) => entry.file);
 }
 
 function filterDiffFileSummaries(

@@ -19,6 +19,7 @@ import {
   listCommitRange,
   listTrackedFilesAtCommit,
   readFileAtCommit,
+  splitGitPatchFiles,
 } from "@dev.fast/local-vcs";
 import { structuralChangeCounts } from "@dev.fast/review-protocol";
 import type {
@@ -65,6 +66,7 @@ import {
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
+import { budgetPatches } from "./numbered-patch.js";
 import { ReviewStore, type Snapshot } from "./store.js";
 import { traceSchema } from "./trace-schema.js";
 import { ReviewWorkspaces } from "./workspaces.js";
@@ -1063,34 +1065,109 @@ export class LocalReviewData {
     file?: string,
   ): Promise<LocalVcsDiffFileSummary[] | string>;
   async changes(pins: Pins, file?: string) {
-    if (file !== undefined) checkRelativePath(file);
+    if (file === undefined) return this.summaries(pins);
+    checkRelativePath(file);
 
+    return this.rawPatch(pins, { paths: [file] });
+  }
+  /** Changed files matching a pathspec: exact files or directories, either side of a rename. */
+  async changedFiles(pins: Pins, paths?: string[]) {
+    const files = await this.summaries(pins);
+
+    if (!paths?.length) return files;
+
+    for (const spec of paths) checkRelativePath(spec.replace(/\/+$/, ""));
+
+    return files.filter((file) =>
+      paths.some((spec) => pathspecMatches(spec, file)),
+    );
+  }
+  /** Numbered plain-text patches for the pathspec, within maxBytes. */
+  async patches(
+    pins: Pins,
+    options: { paths?: string[]; contextLines?: number; maxBytes: number },
+  ) {
+    const files = await this.changedFiles(pins, options.paths);
+
+    const unmatched = (options.paths ?? []).filter(
+      (spec) => !files.some((file) => pathspecMatches(spec, file)),
+    );
+
+    const note = unmatched.length
+      ? `[No changes match paths:${JSON.stringify(unmatched)}.]\n`
+      : "";
+
+    if (files.length === 0) return note || "[No changes.]\n";
+
+    const patch = await this.rawPatch(pins, {
+      // Both sides of a rename, so Git pairs them instead of adding a file.
+      paths: options.paths?.length
+        ? [
+            ...new Set(
+              files.flatMap((file) =>
+                file.previousPath
+                  ? [file.previousPath, file.path]
+                  : [file.path],
+              ),
+            ),
+          ]
+        : undefined,
+      contextLines: options.contextLines,
+    });
+
+    return (
+      budgetPatches(
+        splitGitPatchFiles(patch).map(({ file, patch }) => ({
+          path: file.path,
+          additions: file.additions,
+          deletions: file.deletions,
+          patch,
+        })),
+        options.maxBytes,
+      ) + note
+    );
+  }
+  private async summaries(pins: Pins) {
     if (pins.worktreeRevision) {
-      const vcs = await this.vcs(pins.repositoryId);
-
-      if (!vcs) throw unavailableCheckout();
-
-      const input = {
-        rootPath: vcs.rootPath,
-        kind: vcs.kind,
-        baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
-        headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
-      };
-
-      return file === undefined
-        ? diffFileSummariesWorkingTree(input)
-        : diffWorkingTree({ ...input, file });
+      return diffFileSummariesWorkingTree(await this.worktreeInput(pins));
     }
 
-    const input = {
+    return diffFileSummariesTrees({
       ...(await this.vcsTarget(pins.repositoryId)),
       baseRef: pins.base,
       headRef: pins.head,
-    };
+    });
+  }
+  /** Raw Git patch text for exact filenames, or every change. */
+  private async rawPatch(
+    pins: Pins,
+    options: { paths?: string[]; contextLines?: number },
+  ) {
+    if (pins.worktreeRevision)
+      return diffWorkingTree({
+        ...(await this.worktreeInput(pins)),
+        ...options,
+      });
 
-    return file === undefined
-      ? diffFileSummariesTrees(input)
-      : diffTrees({ ...input, paths: [file], literalPaths: true });
+    return diffTrees({
+      ...(await this.vcsTarget(pins.repositoryId)),
+      baseRef: pins.base,
+      headRef: pins.head,
+      ...options,
+      literalPaths: options.paths !== undefined,
+    });
+  }
+  private async worktreeInput(pins: Pins) {
+    const vcs = await this.vcs(pins.repositoryId);
+
+    if (!vcs) throw unavailableCheckout();
+
+    return {
+      rootPath: vcs.rootPath,
+      kind: vcs.kind,
+      baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
+      headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
+    };
   }
   commits(pins: Pins) {
     if (
@@ -1381,4 +1458,17 @@ export function openLocalReviewStore(
   }
 
   return { store, data };
+}
+
+/** A pathspec entry names a changed file or a directory above it, on either side of a rename. */
+function pathspecMatches(
+  spec: string,
+  file: { path: string; previousPath?: string },
+) {
+  const prefix = spec.replace(/\/+$/, "");
+
+  return [file.path, file.previousPath].some(
+    (path) =>
+      path !== undefined && (path === prefix || path.startsWith(prefix + "/")),
+  );
 }

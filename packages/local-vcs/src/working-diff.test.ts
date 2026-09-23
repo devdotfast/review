@@ -110,18 +110,27 @@ it.each([false, true])(
       expect(changes).not.toEqual(
         expect.arrayContaining([expect.objectContaining({ path: "ignored" })]),
       );
-      expect(await diffWorkingTree({ ...input, file: "new.ts" })).toContain(
+      expect(await diffWorkingTree({ ...input, paths: ["new.ts"] })).toContain(
         "rename from old.ts",
       );
-      expect(await diffWorkingTree({ ...input, file: "mode.sh" })).toContain(
+      expect(await diffWorkingTree({ ...input, paths: ["mode.sh"] })).toContain(
         "new mode 100755",
       );
-      expect(await diffWorkingTree({ ...input, file: "edit.ts" })).toContain(
+      expect(await diffWorkingTree({ ...input, paths: ["edit.ts"] })).toContain(
         "+working",
       );
       expect(
-        await diffWorkingTree({ ...input, file: "new [file].ts" }),
+        await diffWorkingTree({ ...input, paths: ["new [file].ts"] }),
       ).toContain("+new");
+
+      const selected = await diffWorkingTree({
+        ...input,
+        paths: ["new.ts", "edit.ts"],
+      });
+
+      expect(selected).toContain("rename from old.ts");
+      expect(selected).toContain("+working");
+      expect(selected).not.toContain("mode.sh");
       expect(await readFile(path.join(root, ".git/index"))).toEqual(index);
       expect(git("show-ref")).toBe(refs);
       expect(

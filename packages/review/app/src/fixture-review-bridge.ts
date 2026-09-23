@@ -48,7 +48,7 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
         api.progress ??
           ({
             files: [],
-            diagrams: [],
+            lenses: [],
             resolvedSelections: {},
           } satisfies ReviewProgress),
       );

@@ -2474,7 +2474,7 @@ it("resolves file lenses to whole changed files, preserves empty groups, and sha
     text: `${side}\ncontext\nmore context`,
   }));
   const initial = await reviewProgress(store, data, store.read(reviewId));
-  const [docs, guide, tests] = initial.diagrams;
+  const [docs, guide, tests] = initial.lenses;
   expect(docs.fileCount).toBe(1);
   expect(docs.sources).toEqual([
     { side: "base", file: "docs/old.md", fromLine: 1, toLine: 3 },
@@ -2535,6 +2535,20 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     selected,
     expect.anything(),
   );
+  // A diagram's evidence stays in the document: it is not a Diff-view lens
+  // and does not categorize the lines it cites.
+  await edit(reviewId, {
+    type: "insert",
+    content: {
+      ...diagram,
+      steps: [
+        {
+          ...diagram.steps[0],
+          source: selectSource({ ...selected, fromLine: 1, toLine: 1 }),
+        },
+      ],
+    },
+  });
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
@@ -2583,11 +2597,13 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
   }));
   const result = await reviewProgress(store, data, store.read(reviewId));
 
-  const lens = result.diagrams[0],
-    rest = result.diagrams.find(
-      (lens) => lens.id === "automatic-uncategorized",
-    )!;
+  const lens = result.lenses[0],
+    rest = result.lenses.find((lens) => lens.id === "automatic-uncategorized")!;
 
+  expect(result.lenses.map((lens) => lens.title)).toEqual([
+    "One line",
+    "Uncategorized changes",
+  ]);
   expect(lens.sources).toEqual([{ ...selected, side: "base" }, selected]);
   expect(lens.wholeFiles).toBe(false);
   expect(coverageProgress(result.files, lens.sources).total).toEqual({
@@ -2635,9 +2651,9 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     },
   });
   const stale = await reviewProgress(store, data, store.read(reviewId));
-  expect(stale.diagrams[0].unavailable).toBeTruthy();
+  expect(stale.lenses[0].unavailable).toBeTruthy();
   expect(
-    coverageProgress(stale.files, stale.diagrams.at(-1)!.sources).total,
+    coverageProgress(stale.files, stale.lenses.at(-1)!.sources).total,
   ).toEqual({ additions: 3, deletions: 3 });
 });
 
@@ -2704,7 +2720,7 @@ it("returns coverage and lenses after initial files without requesting summary e
   const progress = await reviewProgress(store, data, store.read(reviewId));
   expect(progress.files[0].changed).toEqual({ base: [], head: [[0, 1]] });
   expect(
-    progress.diagrams.find((lens) => lens.id === "automatic-uncategorized")
+    progress.lenses.find((lens) => lens.id === "automatic-uncategorized")
       ?.sources,
   ).toEqual([{ side: "head", file: "a.ts", fromLine: 1, toLine: 1 }]);
   data.close();
@@ -2787,7 +2803,7 @@ it("reports failed background coverage instead of leaving progress pending", asy
   }
 });
 
-it("makes a lens step usable before an unrelated file finishes counting", async () => {
+it("makes a diagram step's selection usable before an unrelated file finishes counting", async () => {
   const { createReviewApi } = await import("./http.js");
   const { selectionKey } = await import("../lens-selection.js");
   const { reviewId } = await create();
@@ -2853,11 +2869,12 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
     );
     const partial = await (await api.request(route)).json();
     expect(partial.complete).toBe(false);
-    expect(partial.diagrams[0]).toMatchObject({ title: "Save", pending: true });
+    // A diagram is not a Diff-view lens: only the automatic lens is listed.
+    expect(partial.lenses).toHaveLength(1);
     expect(partial.resolvedSelections[selectionKey(refs[0])]).toBeDefined();
     expect(partial.resolvedSelections[selectionKey(refs[1])]).toBeUndefined();
     expect(partial.unavailableSelections).toEqual({});
-    expect(partial.diagrams.at(-1)).toMatchObject({
+    expect(partial.lenses.at(-1)).toMatchObject({
       id: "automatic-uncategorized",
       pending: true,
       sources: [],
@@ -2866,7 +2883,7 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
     await data.coverage(reviewId, pins, "textual");
     const complete = await (await api.request(route)).json();
     expect(complete.complete).toBe(true);
-    expect(complete.diagrams[0].pending).toBe(false);
+    expect(complete.lenses[0].pending).toBe(false);
     expect(complete.resolvedSelections[selectionKey(refs[1])]).toBeDefined();
   } finally {
     release();

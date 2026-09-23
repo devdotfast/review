@@ -4,21 +4,16 @@ import type {
   ReviewDiffProgress,
   ReviewDiffViewHandle,
 } from "@dev.fast/review-protocol";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { sourceAnchor } from "../../src/lens-selection";
 import {
   type CoverageProgress,
   coverageProgress,
   coverageSources,
 } from "../../src/viewed-coverage";
 import { compactDiffCount } from "./diff-count";
-import { diffSections } from "./diff-sections";
 import { useReviewSession } from "./host/review-session";
-import { DisclosureChevron } from "./icons";
-import { LensDiagram, lensSteps } from "./lens-diagram";
 import { ViewedButton, useReviewLenses } from "./review-lenses";
-import { activeTargetForScroll } from "./scroll-active-tracking";
 import {
   useBottomSheetResize,
   useRightPanelResize,
@@ -74,91 +69,6 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
   const lens = scope ? undefined : lenses?.active;
   const [fullTree, setFullTree] = useState<HTMLDivElement | null>(null);
   const [lensTree, setLensTree] = useState<HTMLDivElement | null>(null);
-  const activeHandle = useRef<ReviewDiffViewHandle | null>(null);
-  const [handle, setHandle] = useState<ReviewDiffViewHandle | null>(null);
-
-  // The step the diff is scrolled to, and the lens it belongs to. Every
-  // diagram's steps are placed by the editor's own geometry and fed to the
-  // rule the contents rail and the tour feed share, so a click on a step
-  // lands on it without lighting up the steps in between, and the sidebar
-  // answers "which step" the way the file tree already answers "which file".
-  const [current, setCurrent] = useState<{
-    lensId: string;
-    stepId: string;
-  } | null>(null);
-
-  const stepsByLens = useMemo(
-    () =>
-      lenses
-        ? lenses.diagrams.flatMap((item) => {
-            const block = lenses.block(item.id);
-
-            return block
-              ? lensSteps(block).map((step) => ({ lensId: item.id, ...step }))
-              : [];
-          })
-        : [],
-    [lenses],
-  );
-
-  const lastViewport = useRef<{ height: number } | null>(null);
-
-  useEffect(() => {
-    if (!handle?.onDidScroll || !handle.sourceOffset) return;
-
-    let frame: number | null = null;
-
-    const update = (viewport: { height: number }) => {
-      const targets = stepsByLens
-        .flatMap((step) => {
-          const top = handle.sourceOffset?.(sourceAnchor(step.source));
-
-          return top === undefined ? [] : [{ id: step.id, top }];
-        })
-        .sort((a, b) => a.top - b.top);
-
-      const stepId = activeTargetForScroll(targets, 0, viewport.height / 2);
-
-      const step = stepsByLens.find((candidate) => candidate.id === stepId);
-
-      setCurrent((previous) =>
-        step
-          ? previous?.stepId === step.id
-            ? previous
-            : { lensId: step.lensId, stepId: step.id }
-          : null,
-      );
-    };
-
-    const subscription = handle.onDidScroll((viewport) => {
-      lastViewport.current = viewport;
-
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        update(viewport);
-      });
-    });
-
-    // Diagrams can arrive after the last scroll; place them right away.
-    if (lastViewport.current) update(lastViewport.current);
-
-    return () => {
-      if (frame !== null) cancelAnimationFrame(frame);
-      subscription.dispose();
-    };
-  }, [handle, stepsByLens]);
-
-  const sections = useMemo(
-    () =>
-      diffSections(lens ? lenses?.block(lens.id) : undefined).map(
-        (section) => ({
-          ...section,
-          sources: lenses?.resolve(section.sources) ?? [],
-        }),
-      ),
-    [lens?.id, lens?.version, lenses?.progress],
-  );
 
   const fullProgress = useMemo(
     () =>
@@ -201,37 +111,18 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
               ),
             })),
             changedPaths: lenses.changedPaths,
-            sections: sections.map((section) => ({
-              ...section,
-              ...coverageProgress(lenses.progress!.files, section.sources),
-              files: lenses.progress!.files.map((file) => ({
-                path: file.path,
-                ...coverageProgress([file], section.sources),
-                viewedRanges: coverageSources(file),
-                changedRanges: coverageSources(file, file.changed),
-              })),
-            })),
           }
         : undefined,
-    [
-      lenses?.progress,
-      lenses?.changedPaths,
-      lenses?.unfoldRanges,
-      lens,
-      sections,
-    ],
+    [lenses?.progress, lenses?.changedPaths, lenses?.unfoldRanges, lens],
   );
 
-  const markFile = (path: string, scoped: boolean, sectionId?: string) => {
+  const markFile = (path: string, scoped: boolean) => {
     const file = lenses?.progress?.files.find((file) => file.path === path);
 
     if (!file || !lenses) return;
 
     const sources = scoped
-      ? (sectionId
-          ? sections.find((section) => section.id === sectionId)?.sources
-          : lens?.ranges
-        )?.filter(
+      ? lens?.ranges.filter(
           (source) =>
             source.file ===
             (source.side === "base"
@@ -304,11 +195,9 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
             style={{ flexBasis: `${(1 - cabinetsResize.fraction) * 100}%` }}
           >
             <div className="diff-sidebar-heading">Lenses</div>
-            {lenses.diagrams.map((item) => {
+            {lenses.lenses.map((item) => {
               const selected = lens?.id === item.id,
-                stats = lenses.stats(item.sources),
-                block = lenses.block(item.id),
-                fileLens = item.kind === "file_lens";
+                stats = lenses.stats(item.sources);
 
               return (
                 <section
@@ -317,17 +206,15 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                 >
                   <div className="diff-lens-row">
                     <button
-                      className={`diff-lens-toggle ${fileLens && selected ? "is-active" : ""} ${stats.state === "viewed" ? "is-viewed" : ""} ${!selected && current?.lensId === item.id ? "is-current" : ""}`}
-                      aria-expanded={fileLens ? undefined : selected}
-                      aria-pressed={fileLens ? selected : undefined}
+                      className={`diff-lens-toggle ${selected ? "is-active" : ""} ${stats.state === "viewed" ? "is-viewed" : ""}`}
+                      aria-pressed={selected}
                       disabled={!!item.unavailable}
                       title={item.unavailable ?? item.title}
                       onClick={() =>
                         selected ? lenses.clear() : lenses.select(item.id)
                       }
                     >
-                      {!fileLens && <DisclosureChevron expanded={selected} />}
-                      <LensIcon kind={item.kind} />
+                      <LensIcon />
                       <span className="diff-lens-name">{item.title}</span>
                       {item.pending ? (
                         <span
@@ -336,7 +223,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                         >
                           …
                         </span>
-                      ) : fileLens && item.fileCount === 0 ? (
+                      ) : item.fileCount === 0 ? (
                         <span className="diff-counts">0 files</span>
                       ) : (
                         <DiffCounts progress={stats} />
@@ -357,23 +244,9 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                       }
                     />
                   </div>
-                  {selected && block && !fileLens && (
-                    <LensDiagram
-                      block={block}
-                      currentStepId={
-                        current?.lensId === item.id ? current.stepId : null
-                      }
-                      onReveal={(source, sectionId) =>
-                        activeHandle.current?.revealSource?.(source, sectionId)
-                      }
-                    />
-                  )}
                 </section>
               );
             })}
-            {lenses.progress && !lenses.diagrams.length && (
-              <p className="lens-diagram-note">No lenses in this review yet.</p>
-            )}
           </div>
           <div
             {...cabinetsResize.separatorProps}
@@ -430,22 +303,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
             lens={lens}
             treeContainer={lensTree}
             progress={lensProgress}
-            onToggleViewed={(path, sectionId) =>
-              markFile(path, true, sectionId)
-            }
-            onToggleSection={(id) => {
-              const section = sections.find((section) => section.id === id);
-
-              if (section)
-                void lenses.mark(
-                  section.sources,
-                  lenses.stats(section.sources).state !== "viewed",
-                );
-            }}
-            onHandle={(handle) => {
-              activeHandle.current = handle;
-              setHandle(handle);
-            }}
+            onToggleViewed={(path) => markFile(path, true)}
           />
         )}
         {lenses.error && (
@@ -464,17 +322,13 @@ function NativeDiffView({
   treeContainer,
   progress,
   onToggleViewed,
-  onToggleSection,
-  onHandle,
   hidden = false,
 }: {
   scope?: ReviewCommitScope;
   lens?: ReviewDiffLens;
   treeContainer?: HTMLElement;
   progress?: ReviewDiffProgress;
-  onToggleViewed?(path: string, sectionId?: string): void;
-  onToggleSection?(id: string): void;
-  onHandle?(handle: ReviewDiffViewHandle | null): void;
+  onToggleViewed?(path: string): void;
   hidden?: boolean;
 }) {
   const session = useReviewSession();
@@ -482,14 +336,9 @@ function NativeDiffView({
   const [error, setError] = useState<string | null>(null);
   const handle = useRef<ReviewDiffViewHandle | null>(null);
 
-  const current = useRef({
-    progress,
-    onToggleViewed,
-    onToggleSection,
-    onHandle,
-  });
+  const current = useRef({ progress, onToggleViewed });
 
-  current.current = { progress, onToggleViewed, onToggleSection, onHandle };
+  current.current = { progress, onToggleViewed };
   useLayoutEffect(() => {
     if (!container) return;
     setError(null);
@@ -502,19 +351,15 @@ function NativeDiffView({
         fileTreeContainer: treeContainer,
         progress: current.current.progress,
         onToggleViewed: current.current.onToggleViewed
-          ? (path, sectionId) =>
-              current.current.onToggleViewed?.(path, sectionId)
+          ? (path) => current.current.onToggleViewed?.(path)
           : undefined,
-        onToggleSection: (id) => current.current.onToggleSection?.(id),
       });
 
       handle.current = view;
-      current.current.onHandle?.(view);
       const subscription = view.onDidError(setError);
 
       return () => {
         subscription.dispose();
-        current.current.onHandle?.(null);
         view.dispose();
         handle.current = null;
       };
@@ -549,7 +394,7 @@ function NativeDiffView({
   );
 }
 
-function LensIcon({ kind }: { kind: string }) {
+function LensIcon() {
   return (
     <svg
       className="diff-lens-icon"
@@ -561,31 +406,7 @@ function LensIcon({ kind }: { kind: string }) {
       strokeWidth="1.2"
       aria-hidden="true"
     >
-      {kind === "file_lens" ? (
-        <path d="M2 2h5l2 2h5v10H2zM2 6h12" />
-      ) : kind === "sequence" ? (
-        <>
-          <path d="M3 1v14M13 1v14M3 5h10M13 10H3M10 3l3 2-3 2M6 8l-3 2 3 2" />
-        </>
-      ) : kind === "call_stack_diff" ? (
-        <>
-          <rect x="1" y="1" width="8" height="4" rx="1" />
-          <rect x="7" y="11" width="8" height="4" rx="1" />
-          <path d="M5 5v5h6v1" />
-        </>
-      ) : kind === "database_lens" ? (
-        <>
-          <ellipse cx="8" cy="3" rx="6" ry="2" />
-          <path d="M2 3v10c0 3 12 3 12 0V3M2 8c0 3 12 3 12 0" />
-        </>
-      ) : (
-        <>
-          <rect x="5" y="1" width="6" height="4" rx="1" />
-          <rect x="1" y="11" width="5" height="4" rx="1" />
-          <rect x="10" y="11" width="5" height="4" rx="1" />
-          <path d="M8 5v3H3v3M8 8h5v3" />
-        </>
-      )}
+      <path d="M2 2h5l2 2h5v10H2zM2 6h12" />
     </svg>
   );
 }

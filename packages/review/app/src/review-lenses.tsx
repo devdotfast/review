@@ -15,8 +15,7 @@ import {
   selectionKey,
 } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
-import { diagramLenses } from "../../src/review-api/diagram-lenses";
-import { type Block, elements } from "../../src/review-api/document";
+import { documentFileLenses } from "../../src/review-api/diff-lenses";
 import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import type { FileLineRange } from "../../src/source";
@@ -36,12 +35,11 @@ export interface ResolvedRange extends FileLineRange {
 
 interface Lenses {
   progress: ReviewProgress | null;
-  diagrams: ReviewProgress["diagrams"];
+  lenses: ReviewProgress["lenses"];
   availability(
     sources: readonly LensSource[],
   ): "pending" | "ready" | "unavailable";
   active: ReviewDiffLens | undefined;
-  block(id: string): Block | undefined;
   select(id: string, sources?: ReviewDiffLens["ranges"]): void;
   clear(): void;
   resolve(sources: readonly LensSource[]): ResolvedRange[];
@@ -124,22 +122,26 @@ export function ReviewLensesProvider({
   }, [client, route, snapshot.version, mode, coverageRevision]);
 
   const authored = useMemo(
-    () => diagramLenses(snapshot.document),
+    () => documentFileLenses(snapshot.document),
     [snapshot.document],
   );
 
-  const diagrams: ReviewProgress["diagrams"] = progress?.diagrams ?? [
-    ...authored.map((item) => ({ ...item, sources: [], pending: true })),
+  const lenses: ReviewProgress["lenses"] = progress?.lenses ?? [
+    ...authored.map((lens) => ({
+      id: lens.id!,
+      title: lens.title,
+      sources: [],
+      pending: true,
+    })),
     {
       id: "automatic-uncategorized",
       title: "Uncategorized changes",
-      kind: "file_lens",
       sources: [],
       pending: true,
     },
   ];
 
-  const item = diagrams.find((item) => item.id === activeId);
+  const item = lenses.find((item) => item.id === activeId);
   // Scope contains only resolved correspondence; navigation anchors are not coverage.
   const ranges = item?.sources ?? [];
   const scopeKey = JSON.stringify(ranges);
@@ -198,7 +200,7 @@ export function ReviewLensesProvider({
       if (generation.current !== currentGeneration) return;
       setProgress((current) => ({
         ...next,
-        diagrams: current?.diagrams ?? next.diagrams,
+        lenses: current?.lenses ?? next.lenses,
       }));
       setChangedPaths(files.map((file) => file.path));
       setUnfoldRanges(viewed ? [] : files.flatMap((file) => file.sources));
@@ -218,7 +220,7 @@ export function ReviewLensesProvider({
   const value = useMemo<Lenses>(
     () => ({
       progress,
-      diagrams,
+      lenses,
       availability: (sources) => {
         if (
           sources.some(
@@ -242,12 +244,8 @@ export function ReviewLensesProvider({
       unfoldRanges,
       busy,
       error,
-      block: (id) =>
-        elements(snapshot.document).find(
-          (block): block is Block => block.type !== "step" && block.id === id,
-        ),
       select: (id) => {
-        if (diagrams.some((item) => item.id === id && !item.unavailable))
+        if (lenses.some((item) => item.id === id && !item.unavailable))
           setActiveId(id);
       },
       clear: () => setActiveId(undefined),
@@ -292,7 +290,7 @@ export function ReviewLensesProvider({
     }),
     [
       progress,
-      diagrams,
+      lenses,
       active,
       changedPaths,
       unfoldRanges,

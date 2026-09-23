@@ -7730,80 +7730,11 @@ button.review-stack-row:disabled .review-stack-relation {
   padding: 8px 12px;
   color: var(--ink-faint);
 }
-.lens-sequence-scroll,
-.lens-flow-scroll {
-  overflow: auto;
-  padding: 10px 8px 18px;
-}
-.lens-sequence {
-  display: block;
-  font: 10px var(--font-mono);
-}
-.lens-sequence text,
 .lens-flow text {
   fill: var(--ink);
 }
-.lens-sequence rect {
-  fill: var(--surface);
-  stroke: var(--rule-soft);
-}
-.lens-sequence path {
-  stroke: var(--ink-muted);
-  fill: none;
-}
-.lens-sequence .lens-lifeline {
-  stroke: var(--rule-soft);
-  stroke-dasharray: 3 4;
-}
-.lens-sequence .lens-step-hit {
-  fill: transparent;
-  stroke: none;
-}
-.lens-sequence-step[role="button"],
 .lens-flow-node[role="button"] {
   cursor: pointer;
-}
-.lens-sequence-step:hover .lens-step-hit {
-  fill: var(--surface-raised);
-}
-.lens-call-stacks {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 6px 12px 16px;
-}
-.lens-stack-side {
-  color: var(--ink-faint);
-  text-transform: uppercase;
-  font-size: 9px;
-  text-align: center;
-  margin-bottom: 6px;
-}
-.lens-stack-frame button {
-  width: 100%;
-  border: 1px solid var(--rule-soft);
-  border-radius: 4px;
-  background: var(--surface);
-  padding: 8px;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.lens-stack-frame strong {
-  font-size: 10px;
-  font-weight: 500;
-}
-.lens-stack-frame small,
-.lens-database-paths small {
-  display: block;
-  color: var(--ink-faint);
-  font-size: 9px;
-  margin-top: 4px;
-}
-.lens-stack-connector {
-  display: block;
-  text-align: center;
-  color: var(--ink-faint);
-  line-height: 20px;
 }
 .lens-flow {
   width: 100%;
@@ -7816,18 +7747,6 @@ button.review-stack-row:disabled .review-stack-relation {
   paint-order: stroke;
   stroke: var(--tray);
   stroke-width: 4px;
-}
-.lens-database-paths {
-  padding: 8px 12px;
-}
-.lens-database-paths button {
-  display: block;
-  padding: 8px;
-  width: 100%;
-  margin: 6px 0;
-  text-align: left;
-  border: 1px solid var(--rule-soft);
-  border-radius: 4px;
 }
 .diff-lens-name {
   white-space: nowrap;
@@ -7843,10 +7762,7 @@ button.review-stack-row:disabled .review-stack-relation {
 }
 
 /* Call-tree presentation from review-experimental. */
-.review-call-row,
-.review-lens-sequence button,
-.review-lens-commit,
-.review-lens-decisions li {
+.review-call-row {
   position: relative;
 }
 .review-lens-sidebar [aria-current="true"] {
@@ -7958,16 +7874,10 @@ button.review-stack-row:disabled .review-stack-relation {
   gap: 5px;
   font-variant-numeric: tabular-nums;
 }
-
-.lens-element-counts {
-  font-size: 10px;
-}
-.lens-flow .diff-count-added,
-.lens-sequence .diff-count-added {
+.lens-flow .diff-count-added {
   fill: var(--change-added);
 }
-.lens-flow .diff-count-removed,
-.lens-sequence .diff-count-removed {
+.lens-flow .diff-count-removed {
   fill: var(--change-removed);
 }
 

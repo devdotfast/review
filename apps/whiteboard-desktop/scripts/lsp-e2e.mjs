@@ -484,7 +484,7 @@ async function probe(request) {
     await page.keyboard.press("F1");
     await input.fill(">Review E2E: Language probe");
     await page
-      .getByRole("option", { name: /Whiteboard E2E: Language probe/ })
+      .getByRole("option", { name: /Review E2E: Language probe/ })
       .first()
       .click({ timeout: 1500 });
 

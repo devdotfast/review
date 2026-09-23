@@ -827,12 +827,6 @@ describe("legacy records on read", () => {
       code: "REPAIR_REQUIRED",
       reviewUuid: created.review.uuid,
     });
-    expect(listed.errors[0]?.message).toContain(
-      "Delete it from Home and recreate it with the Review skill.",
-    );
-    await expect(findReview(created.review.uuid)).rejects.toThrow(
-      "Delete it from Home and recreate it with the Review skill.",
-    );
     await expect(findReview(created.review.uuid)).rejects.toMatchObject({
       errors: [{ code: "REPAIR_REQUIRED" }],
     });

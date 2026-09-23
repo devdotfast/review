@@ -1,10 +1,8 @@
 import type {
   ReviewApiSummary,
-  ReviewCanvasHomeSetup,
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
   ReviewCanvasSetupActions,
-  ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import {
   Fragment,
@@ -18,7 +16,6 @@ import {
 } from "react";
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
-import { TARGET_LABELS } from "./agent-setup-card";
 import { ArchiveIcon } from "./review-corner-action";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTopbarPopover } from "./use-topbar-popover";
@@ -34,7 +31,6 @@ interface ReviewHomeProps {
   // support them.
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
-  setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
   setupActions?: ReviewCanvasSetupActions;
@@ -87,7 +83,6 @@ export function ReviewHome({
   onDelete,
   onDismiss,
   onRestore,
-  setup,
   install,
   setupActions,
   onboarding,
@@ -213,7 +208,6 @@ export function ReviewHome({
     <main className="review-home">
       <div className="review-home-scroll">
         <div className="review-home-content">
-          {setup ? <SetupBanner setup={setup} /> : null}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
@@ -254,58 +248,6 @@ export function ReviewHome({
       </div>
     </main>
   );
-}
-
-/**
- * One-line callout shown only when the install needs attention: setup was
- * never finished, the installed skills are stale, or a detected agent has no
- * skills. Declined consent means the user opted out — no banner.
- */
-function SetupBanner({ setup }: { setup: ReviewCanvasHomeSetup }) {
-  const message = setupBannerMessage(setup.status);
-
-  if (!message) return null;
-
-  return (
-    <div className="review-home-setup-banner">
-      <span>{message}</span>
-      <button type="button" onClick={setup.open}>
-        Set up
-      </button>
-    </div>
-  );
-}
-
-export function setupBannerMessage(
-  status: ReviewCliInstallStatus,
-): string | null {
-  if (!status.cli || status.stamp?.consent === "declined") return null;
-
-  if (!status.stamp || status.stamp.consent === "skipped") {
-    if (status.agents.some((agent) => agent.installed)) return null;
-    const present = status.agents.filter((agent) => agent.present);
-
-    if (present.length === 0) return null;
-
-    return "Review is not set up for your coding agents yet.";
-  }
-
-  if (status.stale) {
-    return "The installed Review skills are older than this app.";
-  }
-
-  const missing = status.agents.filter(
-    (agent) => agent.present && !agent.installed,
-  );
-
-  if (missing.length > 0) {
-    return `The Review skills are not installed for ${missing
-      .map((agent) => TARGET_LABELS[agent.target])
-      .join(", ")}.`;
-  }
-
-  // Trace capture is experimental and opt-in, so Home never nags about it.
-  return null;
 }
 
 /**

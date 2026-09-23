@@ -69,15 +69,12 @@ try {
 
   for (const file of [
     "dist/cli.js",
-    "skills/dev-review/docs/README.md",
-    "skills/trace-archaeology/SKILL.md",
+    "docs/README.md",
+    "instructions/authoring.md",
   ])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));
-  assert.match(
-    await readFile(path.join(pkgRoot, "skills/dev-review/SKILL.md"), "utf8"),
-    new RegExp(`review-version: "${expectedVersion.replaceAll(".", "\\.")}"`),
-  );
+  await assert.rejects(access(path.join(pkgRoot, "skills")));
   const cli = path.join(prefix, "node_modules/.bin/review");
 
   const env = {
@@ -102,6 +99,8 @@ try {
       })
     ).stdout;
 
+  assert.match(await run(["connect", "codex"]), /MCP server named "review"/);
+
   const api = async (name, value = {}) =>
     JSON.parse(await run(["api", name, JSON.stringify(value)]));
 
@@ -124,11 +123,11 @@ try {
   );
   const removed = JSON.parse(await run(["trace", "uninstall-hooks", "--json"]));
   assert.equal(removed.removed.length, 4);
-  server = spawn(
-    cli,
-    ["server", "start", "--json"],
-    { cwd: root, env, stdio: ["ignore", "ignore", "inherit"] },
-  );
+  server = spawn(cli, ["server", "start", "--json"], {
+    cwd: root,
+    env,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
   exited = new Promise((resolve) => {
     server.once("exit", resolve);
     server.once("error", resolve);
@@ -148,6 +147,8 @@ try {
   }
 
   assert.ok(ready, "Headless server must become ready");
+  const guidance = await run(["api", "review_get_instructions", "{}"]);
+  assert.ok(guidance.includes("review_activity"));
   const repository = path.join(root, "repository");
   await mkdir(repository);
   const git = (...args) => exec("git", args, { cwd: repository });

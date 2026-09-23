@@ -191,16 +191,16 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     ListToolsResultSchema.parse(list.result);
     expect(
       list.result.tools.find(
-        (tool: AuthoringTool) => tool.name === "review_edit",
+        (tool: AuthoringTool) => tool.name === "session_edit",
       ).inputSchema,
     ).toMatchObject({
       type: "object",
-      required: expect.arrayContaining(["reviewId", "commandId", "edit"]),
+      required: expect.arrayContaining(["sessionId", "commandId", "edit"]),
     });
 
     const error = await request(3, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: "missing" },
+      name: "session_get",
+      arguments: { sessionId: "missing" },
     });
 
     expect(error.result).toMatchObject({
@@ -209,7 +209,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     const next = await request(4, "tools/call", {
-      name: "review_list",
+      name: "session_list",
       arguments: {},
     });
 
@@ -225,8 +225,8 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     const read = await request(5, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: created.reviewId },
+      name: "session_get",
+      arguments: { sessionId: created.reviewId },
     });
 
     expect(read.result.content[0].text.startsWith("# Readable review\n")).toBe(
@@ -234,12 +234,12 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     );
 
     const raw = await request(6, "tools/call", {
-      name: "review_get",
-      arguments: { reviewId: created.reviewId, full: true, format: "json" },
+      name: "session_get",
+      arguments: { sessionId: created.reviewId, full: true, format: "json" },
     });
 
     expect(JSON.parse(raw.result.content[0].text)).toMatchObject({
-      reviewId: created.reviewId,
+      sessionId: created.reviewId,
       document: [],
     });
   } finally {
@@ -266,7 +266,7 @@ it("shows CLI help without requiring Desktop or touching review storage", async 
       env: { DEV_REVIEW_HOME: "/does-not-exist" },
     }),
   ).toBe(0);
-  expect(output).toContain("review api <tool-name>");
+  expect(output).toContain("whiteboard api <tool-name>");
 });
 
 it("prints readable CLI output by default and raw objects with --json", async () => {
@@ -298,8 +298,8 @@ it("prints readable CLI output by default and raw objects with --json", async ()
         await runReviewAgentCli({
           argv: [
             "api",
-            "review_get",
-            JSON.stringify({ reviewId: created.reviewId, full: true }),
+            "session_get",
+            JSON.stringify({ sessionId: created.reviewId, full: true }),
             ...flags,
           ],
           stdout,
@@ -312,7 +312,7 @@ it("prints readable CLI output by default and raw objects with --json", async ()
 
     expect((await read([])).startsWith("# CLI reading\n")).toBe(true);
     expect(JSON.parse(await read(["--json"]))).toMatchObject({
-      reviewId: created.reviewId,
+      sessionId: created.reviewId,
       document: [],
     });
   } finally {

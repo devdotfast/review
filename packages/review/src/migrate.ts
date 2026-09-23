@@ -1,7 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import {
   access,
-  lstat,
   mkdir,
   readFile,
   realpath,
@@ -48,17 +47,6 @@ const PACKAGE_NAME = "@dev.fast/review";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const LEGACY_SKILL_NAMES = [
-  "dev-review-map",
-  "review",
-  "review-map",
-  "review-stop",
-  "progressive-review",
-  "pr-review",
-] as const;
-
-const CURRENT_SKILL_NAMES = ["dev-review", "trace-archaeology"] as const;
-
 const execFilePromise = promisify(execFile);
 
 export type ReviewPackageManager = "npm" | "pnpm" | "yarn" | "bun";
@@ -87,7 +75,6 @@ interface RunReviewMigrationRuntime {
   migrateJjReviewRepositories: typeof migrateJjReviewRepositories;
   migrateReviewManagedCheckouts: typeof migrateReviewManagedCheckouts;
   removeLegacyDesktopCatalog: typeof removeLegacyDesktopCatalog;
-  removeLegacyReviewSkills: typeof removeLegacyReviewSkills;
   removeLegacyGlobalReviewInstalls: typeof removeLegacyGlobalReviewInstalls;
 }
 
@@ -112,7 +99,6 @@ export async function runReviewMigration(input: {
     migrateJjReviewRepositories,
     migrateReviewManagedCheckouts,
     removeLegacyDesktopCatalog,
-    removeLegacyReviewSkills,
     removeLegacyGlobalReviewInstalls,
     ...input.runtime,
   };
@@ -168,17 +154,6 @@ export async function runReviewMigration(input: {
     blockers,
   );
 
-  const skills = await runMigrationPhase(
-    "legacy skill cleanup",
-    { checked: 0, removed: 0, blockers: [] },
-    () =>
-      runtime.removeLegacyReviewSkills({
-        homeDir,
-        packageRoot,
-      }),
-    blockers,
-  );
-
   const globalCli = await runMigrationPhase(
     "legacy global CLI cleanup",
     { checked: 0, removed: 0, blockers: [] },
@@ -198,7 +173,6 @@ export async function runReviewMigration(input: {
     ...jj.blockers,
     ...managedCheckouts.blockers,
     ...catalog.blockers,
-    ...skills.blockers,
     ...globalCli.blockers,
   );
 
@@ -211,7 +185,6 @@ export async function runReviewMigration(input: {
       `${count(managedCheckouts.created, "managed checkout")} created;`,
       `${count(stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved, "legacy checkout")} removed;`,
       `${count(catalog.removed, "catalog entry", "catalog entries")} removed;`,
-      `${count(skills.removed, "skill")} removed;`,
       `${count(globalCli.removed, "global CLI installation")} removed;`,
       `${count(blockers.length, "blocker")}.`,
     ].join(" ") + "\n",
@@ -231,7 +204,6 @@ export async function runReviewMigration(input: {
     legacyCheckouts:
       stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved,
     catalogEntries: catalog.removed,
-    skills: skills.removed,
     globalCliInstallations: globalCli.removed,
     issues: [],
     blockers,
@@ -581,94 +553,6 @@ function isLegacyDesktopCatalogRecord(
       record.outcome === "submitted" ||
       record.outcome === "dismissed")
   );
-}
-
-export async function removeLegacyReviewSkills(input: {
-  homeDir: string;
-  packageRoot: string;
-}): Promise<CleanupResult> {
-  const roots = [
-    path.join(input.homeDir, ".claude", "skills"),
-    path.join(input.homeDir, ".agents", "skills"),
-    path.join(input.homeDir, ".cursor", "skills"),
-  ];
-
-  const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
-
-  for (const root of roots) {
-    for (const name of LEGACY_SKILL_NAMES) {
-      const skillDir = path.join(root, name);
-
-      if (!(await pathExists(skillDir))) continue;
-      result.checked += 1;
-
-      if (!(await isOwnedLegacySkill(skillDir, name))) {
-        result.blockers.push(
-          `${skillDir} is not a positively identified Review-owned skill.`,
-        );
-        continue;
-      }
-
-      await rm(skillDir, { recursive: true, force: false });
-      result.removed += 1;
-    }
-
-    for (const name of CURRENT_SKILL_NAMES) {
-      const skillDir = path.join(root, name);
-
-      if (!(await pathExists(skillDir))) continue;
-      const installed = await readSkillSource(skillDir);
-
-      const bundled = await readSkillSource(
-        path.join(input.packageRoot, "skills", name),
-      );
-
-      if (
-        installed === undefined ||
-        bundled === undefined ||
-        installed !== bundled
-      ) {
-        result.blockers.push(
-          `${skillDir} is a current skill with unclear ownership; it was not removed.`,
-        );
-      }
-    }
-  }
-
-  return result;
-}
-
-async function isOwnedLegacySkill(
-  skillDir: string,
-  expectedName: string,
-): Promise<boolean> {
-  try {
-    const metadata = await lstat(skillDir);
-
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
-    const source = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
-    const name = frontmatter?.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1];
-
-    return (
-      name === expectedName &&
-      /@dev\.fast\/review|dev\.fast Review|progressive Review/i.test(source)
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function readSkillSource(skillDir: string): Promise<string | undefined> {
-  try {
-    const metadata = await lstat(skillDir);
-
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return undefined;
-
-    return await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-  } catch {
-    return undefined;
-  }
 }
 
 type RunCommand = (

@@ -18,15 +18,17 @@ This guide takes you from a fresh install to a completed first review.
 [Download the latest disk image](https://install.dev.fast), open it, and launch
 Review. The app updates itself after installation.
 
-On first launch, Review opens the welcome screen. It detects supported coding
-agents and offers to install:
+On first launch, Review opens the welcome screen. Its first step connects your
+coding agents:
 
-- the `review` command in `~/.local/bin`;
-- the `dev-review` skill for authoring reviews and software maps; and
-- the Review MCP connection for Codex and Claude Code.
+1. Choose **Install review in PATH**.
+2. Choose **Copy prompt** next to an agent you use.
+3. Paste the prompt into a session of that agent. The agent registers Review's
+   MCP server and confirms that it can reach Review.
 
-Choose **Install** for the agents you use. Review keeps the app-managed command
-and skills in sync after updates.
+Repeat for each agent. You can copy the prompts again later from
+**Settings → Agents**. See [Coding agents](agents.md#connect-an-agent) for
+what the prompt does.
 
 ## 2. Take the tour
 
@@ -44,13 +46,13 @@ Open the repository you want to review in your coding agent and tell it to
 review it!
 
 ```text
-Use the dev-review skill to review my current branch against up to date main,
-then open it in Review.
+Create a Review of my current branch against up to date main, then open it
+in Review.
 ```
 
 The agent registers the repository, resolves the base and head pins, creates
 the review through the Review API, writes and validates the walkthrough, and
-opens it in Review Desktop. You can also review a specific GitHub pull request
+opens it in Whiteboard Desktop. You can also review a specific GitHub pull request
 or ask for an architecture review of a repository.
 
 ### Add Review guidance
@@ -78,8 +80,8 @@ The app normally manages the CLI. These commands are useful for checking it:
 
 ```sh
 review version
-review app launch
-review info
+whiteboard app launch
+whiteboard info
 ```
 
 If the command is missing or behaves like an older browser-based Review, see

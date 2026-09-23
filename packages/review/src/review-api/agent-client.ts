@@ -20,6 +20,13 @@ export interface AuthoringTool {
   commandType?: string;
 }
 
+const TEXT_TOOLS = new Set([
+  "review_get",
+  "review_get_instructions",
+  "session_get",
+  "session_get_instructions",
+]);
+
 export async function connectReviewApi(env = process.env) {
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
@@ -117,7 +124,7 @@ export function toolResultText(
 ) {
   if (result instanceof ToolText) return result.text;
 
-  return tool.name === "review_get" && isStringValue(result)
+  return TEXT_TOOLS.has(tool.name) && isStringValue(result)
     ? result
     : JSON.stringify(result);
 }

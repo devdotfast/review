@@ -1,11 +1,4 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
@@ -16,12 +9,7 @@ import {
 } from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  installReviewCommand as installReviewCommandActual,
-  pathShimPath,
-} from "./cli-install";
 import { runReviewCli } from "./cli-runner";
-import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import {
   PostHogCaptureClient,
@@ -37,74 +25,36 @@ import {
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Review CLI", () => {
-  it.each([[], ["codex"]])(
-    "installs skills and PATH without agent executables: %j",
-    async (...targets) => {
-      const homeDir = await mkdtemp(
-        path.join(os.tmpdir(), "review-no-agents-"),
-      );
+  it("prints the connect prompt for one harness", async () => {
+    const { code, stdout } = await runConnect(["connect", "codex"]);
 
-      const cliPath = path.join(homeDir, "cli.js");
-      const discoveryDir = path.join(homeDir, ".dev", "review-desktop");
+    expect(code).toBe(0);
+    expect(stdout).toContain('MCP server named "whiteboard"');
+    expect(stdout).toContain("~/.codex/AGENTS.md");
+    expect(stdout).not.toContain("## Codex");
+  });
 
-      const env = {
-        HOME: homeDir,
-        PATH: "/usr/bin:/bin",
-        SHELL: "/bin/zsh",
-        DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
-      };
+  it("prints every prompt with headings by default", async () => {
+    const { code, stdout } = await runConnect(["connect"]);
 
-      try {
-        await mkdir(discoveryDir, { recursive: true });
-        await writeFile(cliPath, "// fixture CLI\n");
-        await writeFile(
-          path.join(discoveryDir, "server.json"),
-          JSON.stringify({
-            version: 3,
-            instanceId: "test-instance",
-            url: "http://127.0.0.1:43819",
-            appPid: 100,
-            serverPid: 101,
-            token: "test-token",
-            startedAt: 1,
-            cliPath,
-            cliRuntimePath: process.execPath,
-          }),
-        );
-        const stderr = outputStream();
+    expect(code).toBe(0);
+    expect(stdout).toContain("## Claude Code");
+    expect(stdout).toContain("## Pi");
+  });
 
-        const code = await runReviewCli({
-          argv: ["install", ...targets],
-          cwd: homeDir,
-          env,
-          stdout: outputStream(),
-          stderr,
-          runtime: {
-            runInstall: (input) =>
-              runInstallActual({ ...input, homeDir, cwd: homeDir }),
-            installReviewCommand: (input) =>
-              installReviewCommandActual({ ...input, homeDir }),
-          },
-        });
+  it("emits the selected prompts as one JSON event", async () => {
+    const { code, stdout } = await runConnect([
+      "connect",
+      "claude-code",
+      "--json",
+    ]);
 
-        expect(code).toBe(0);
-        expect(
-          await readFile(
-            path.join(homeDir, ".agents/skills/dev-review/SKILL.md"),
-            "utf8",
-          ),
-        ).toContain("dev-review");
-        expect(await readFile(pathShimPath(homeDir), "utf8")).toContain(
-          cliPath,
-        );
-        expect(
-          await readFile(path.join(homeDir, ".zprofile"), "utf8"),
-        ).toContain(".local/bin");
-      } finally {
-        await rm(homeDir, { recursive: true, force: true });
-      }
-    },
-  );
+    const event = JSON.parse(stdout);
+
+    expect(code).toBe(0);
+    expect(event.event).toBe("connect");
+    expect(Object.keys(event.prompts)).toEqual(["claude"]);
+  });
 
   it("routes own-upload status filters without requesting trace content", async () => {
     const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
@@ -131,136 +81,6 @@ describe("Review CLI", () => {
         session: "my-upload-session",
         limit: 5,
         cursor: "cursor-value",
-      }),
-    );
-  });
-
-  it("installs the review command with headless skills", async () => {
-    const rootPath = await mkdtemp(
-      path.join(os.tmpdir(), "review-cli-shim-install-"),
-    );
-
-    const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
-    const cliPath = path.join(rootPath, "cli.js");
-    const cliRuntimePath = path.join(rootPath, "runtime");
-
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
-    };
-
-    await mkdir(discoveryDir, { recursive: true });
-    await Promise.all([
-      writeFile(cliPath, "// test CLI\n"),
-      writeFile(
-        path.join(discoveryDir, "server.json"),
-        `${JSON.stringify({
-          version: 3,
-          instanceId: "test-instance",
-          url: "http://127.0.0.1:43819",
-          appPid: 100,
-          serverPid: 101,
-          token: "test-token",
-          startedAt: 1,
-          cliPath,
-          cliRuntimePath,
-        })}\n`,
-      ),
-    ]);
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-
-    const installReviewCommand = vi.fn<typeof installReviewCommandActual>(
-      async () => ({
-        shimPath: pathShimPath(),
-        output: "[ok] installed review command\n",
-      }),
-    );
-
-    try {
-      await expect(
-        runReviewCli({
-          argv: ["install", "codex"],
-          env,
-          stdout: outputStream(),
-          stderr: outputStream(),
-          runtime: { runInstall, installReviewCommand },
-        }),
-      ).resolves.toBe(0);
-
-      expect(runInstall).toHaveBeenCalledWith(
-        expect.objectContaining({
-          targets: ["codex"],
-          reviewCommand: pathShimPath(),
-        }),
-      );
-      expect(installReviewCommand).toHaveBeenCalledExactlyOnceWith({
-        cliPath,
-        cliRuntimePath,
-        env,
-      });
-    } finally {
-      await rm(rootPath, { force: true, recursive: true });
-    }
-  });
-
-  it("supports a headless shim opt-out", async () => {
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-    const installReviewCommand = vi.fn<typeof installReviewCommandActual>();
-
-    await expect(
-      runReviewCli({
-        argv: ["install", "codex", "--no-shim"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runInstall, installReviewCommand },
-      }),
-    ).resolves.toBe(0);
-
-    expect(runInstall).toHaveBeenCalledOnce();
-    expect(runInstall.mock.calls[0]?.[0]).not.toHaveProperty("reviewCommand");
-    expect(installReviewCommand).not.toHaveBeenCalled();
-  });
-
-  it("routes trace configuration through the shared installer", async () => {
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-
-    // install also writes the review command; a stub keeps it out of $HOME.
-    const installReviewCommand = vi.fn<typeof installReviewCommandActual>(
-      async () => ({ shimPath: "", output: "" }),
-    );
-
-    await expect(
-      runReviewCli({
-        argv: [
-          "install",
-          "codex",
-          "--trace-endpoint",
-          "mock://endpoint",
-          "--trace-bucket",
-          "mock-bucket",
-          "--trace-key",
-          "mock-key",
-          "--trace-secret",
-          "mock-value",
-        ],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runInstall, installReviewCommand },
-      }),
-    ).resolves.toBe(0);
-
-    expect(runInstall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targets: ["codex"],
-        fff: true,
-        trace: {
-          credentials: {
-            endpoint: "mock://endpoint",
-            bucket: "mock-bucket",
-            key: "mock-key",
-            secret: "mock-value",
-          },
-        },
       }),
     );
   });
@@ -310,13 +130,13 @@ describe("Review CLI", () => {
     }));
 
     await runReviewCli({
-      argv: ["app", "pick", "--review", "review-uuid"],
+      argv: ["app", "pick", "--session", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewAppPick: runReviewApp },
     });
     await runReviewCli({
-      argv: ["info", "--review", "review-uuid"],
+      argv: ["info", "--session", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewInfo },
@@ -346,7 +166,7 @@ describe("Review CLI", () => {
           stderr: outputStream(),
         }),
       ).resolves.toBe(0);
-      expect(output).toContain("review api tools");
+      expect(output).toContain("whiteboard api tools");
     },
   );
 
@@ -394,9 +214,9 @@ describe("Review CLI", () => {
   it.each([
     [
       [],
-      "Review Desktop is ready in the background. Pass --focus to bring it forward.",
+      "Whiteboard Desktop is ready in the background. Pass --focus to bring it forward.",
     ],
-    [["--focus"], "Review Desktop is ready."],
+    [["--focus"], "Whiteboard Desktop is ready."],
   ] as const)(
     "describes a fresh launch according to the flag: %j",
     async (flags, line) => {
@@ -437,7 +257,7 @@ describe("Review CLI", () => {
 
     await expect(
       runReviewCli({
-        argv: ["app", "pick", "--review", "review-uuid", "--focus", "--json"],
+        argv: ["app", "pick", "--session", "review-uuid", "--focus", "--json"],
         cwd: "/outside-a-repository",
         stdin: Readable.from([]),
         stdout: outputStream(),
@@ -453,7 +273,7 @@ describe("Review CLI", () => {
   it.each([
     ["app launch", ["app", "launch"], "app.launch"],
     ["bare app", ["app"], "app.launch"],
-    ["app pick", ["app", "pick", "--review", "review-uuid"], "app.pick"],
+    ["app pick", ["app", "pick", "--session", "review-uuid"], "app.pick"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -505,6 +325,7 @@ describe("Review CLI", () => {
 
   it("persists command start before an unresolved handler and completes the same run", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-cli-run-"));
+
     const queueDir = path.join(rootPath, "queue");
     let queueId = 0;
 
@@ -654,7 +475,7 @@ describe("Review CLI", () => {
   });
 
   it("supports the app pick subcommand", async () => {
-    const argv = ["app", "pick", "--review", "review-uuid"];
+    const argv = ["app", "pick", "--session", "review-uuid"];
 
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
@@ -688,7 +509,7 @@ describe("Review CLI", () => {
   it("rejects an invalid --view for app pick", async () => {
     await expect(
       runReviewCli({
-        argv: ["app", "pick", "--review", "review-uuid", "--view", "files"],
+        argv: ["app", "pick", "--session", "review-uuid", "--view", "files"],
         stdout: outputStream(),
         stderr: outputStream(),
       }),
@@ -797,7 +618,7 @@ describe("Review CLI", () => {
     ["scaffold"],
     ["publish"],
     ["present"],
-    ["repair", "--review", "11111111-1111-4111-8111-111111111111"],
+    ["repair", "--session", "11111111-1111-4111-8111-111111111111"],
     ["rebind", "feature"],
     ["internal-test"],
     ["prepare-worktree", "/tmp/checkout", "--commit", "a".repeat(40)],
@@ -814,6 +635,39 @@ describe("Review CLI", () => {
 
 function outputStream(): PassThrough {
   return new PassThrough();
+}
+
+async function runConnect(
+  argv: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-connect-"));
+
+  const stdout = outputStream();
+  const stderr = outputStream();
+
+  let stdoutText = "";
+  let stderrText = "";
+
+  stdout.on("data", (chunk) => (stdoutText += String(chunk)));
+  stderr.on("data", (chunk) => (stderrText += String(chunk)));
+
+  try {
+    const code = await runReviewCli({
+      argv,
+      cwd: homeDir,
+      env: {
+        HOME: homeDir,
+        TRACE_HOME_DIR: homeDir,
+        DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      },
+      stdout,
+      stderr,
+    });
+
+    return { code, stdout: stdoutText, stderr: stderrText };
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
 }
 
 it("emits one JSON error when a trace command needs repository authorization", async () => {

@@ -47,7 +47,7 @@ function mockFetch(t: { after(callback: () => void): void }, handler: typeof fet
 	});
 }
 
-test("install status shares concurrent scans and detects agents on subsequent checks", async (t) => {
+test("install status shares concurrent scans and refreshes on subsequent checks", async (t) => {
 	const service = serviceWith();
 	t.after(() => service.dispose());
 	let requests = 0;
@@ -55,12 +55,12 @@ test("install status shares concurrent scans and detects agents on subsequent ch
 		requests += 1;
 		if (requests === 3) return Response.json({ error: "scan failed" }, { status: 500 });
 		return Response.json({
-			agents: [{ target: "codex", present: requests > 1, installed: false }],
-			fingerprint: "test", stamp: null, stale: false,
+			fingerprint: "test", stamp: null, stale: requests > 1, updateNeeded: false,
 			shim: { path: "/tmp/review", installed: false, profileConfigured: false, onPath: false },
-			fff: { serverName: "fff", corpusRoot: "/tmp/traces", binary: { path: "/tmp/fff", installed: false }, registrations: [] },
 			trace: { enabled: false, configured: false, autoActivateRepositories: false, envPath: "/tmp/env", settingsPath: "/tmp/settings" },
 			cli: null,
+			connect: { command: "review", args: ["mcp"], prompts: { claude: "c", codex: "c", cursor: "c", opencode: "c", pi: "c" }, plugins: { claude: { label: "c" }, codex: { label: "c" }, cursor: { label: "c" }, opencode: { label: "c" }, pi: { label: "c" } } },
+			legacySkills: [],
 		});
 	});
 
@@ -68,13 +68,13 @@ test("install status shares concurrent scans and detects agents on subsequent ch
 		service.getCliInstallStatus(),
 		service.getCliInstallStatus(),
 	]);
-	assert.equal(first.agents[0].present, false);
-	assert.equal(second.agents[0].present, false);
+	assert.equal(first.stale, false);
+	assert.equal(second.stale, false);
 	assert.equal(requests, 1);
-	assert.equal((await service.getCliInstallStatus()).agents[0].present, true);
+	assert.equal((await service.getCliInstallStatus()).stale, true);
 	assert.equal(requests, 2);
 	await assert.rejects(service.getCliInstallStatus(), /scan failed/);
-	assert.equal((await service.getCliInstallStatus()).agents[0].present, true);
+	assert.equal((await service.getCliInstallStatus()).stale, true);
 	assert.equal(requests, 4);
 });
 
@@ -145,13 +145,13 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 	restoredService.dispose();
 });
 
-test("passes automatic skill updates to the server without enabling optional integrations", async (t) => {
+test("passes automatic command updates to the server without enabling optional integrations", async (t) => {
 	const service = serviceWith();
 	let requestBody: unknown;
 	mockFetch(t, async (_url, init) => {
 		requestBody = JSON.parse(String(init?.body));
 		return Response.json({ ok: true, output: "updated" });
 	});
-	await service.applyCliInstall({ targets: ["codex"], shim: false, autoUpdate: true });
-	assert.deepEqual(requestBody, { targets: ["codex"], shim: false, autoUpdate: true });
+	await service.applyCliInstall({ shim: false, autoUpdate: true });
+	assert.deepEqual(requestBody, { shim: false, autoUpdate: true });
 });

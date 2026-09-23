@@ -15,6 +15,11 @@ import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
+import {
+  instructionsQuerySchema,
+  renderInstructions,
+  scratchpadAvailable,
+} from "./instructions.js";
 import type { LocalReviewData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -66,6 +71,8 @@ export function createReviewApi(
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
+  // Read per request: capture can change from outside this server.
+  traceEnabled: () => Promise<boolean> = async () => false,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -173,7 +180,32 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) => context.json(authoringTools()));
+
+  // Server-owned state only: asking the Desktop canvas would let a stalled
+  // renderer block tool listing and the first instructions call.
+  const instructionContext = async () => ({
+    desktopAvailable: Boolean(open),
+    scratchpadEnabled: scratchpadEnabled(),
+    traceEnabled: await traceEnabled(),
+  });
+
+  app.get("/authoring", async (context) => {
+    const instructions = await instructionContext();
+
+    return context.json(
+      authoringTools(
+        scratchpadAvailable(instructions),
+        instructions.traceEnabled,
+      ),
+    );
+  });
+  app.get("/instructions", async (context) => {
+    const { topic } = instructionsQuerySchema.parse(context.req.query());
+
+    return context.json(
+      await renderInstructions(topic, await instructionContext()),
+    );
+  });
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 

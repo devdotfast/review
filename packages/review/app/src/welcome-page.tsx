@@ -6,19 +6,27 @@ import type {
 } from "@dev.fast/review-protocol";
 import { type ReactNode, useState } from "react";
 
-import { AgentSetupCard, TARGET_LABELS } from "./agent-setup-card";
-import { DisclosureChevron, RefreshIcon } from "./icons";
-import { PromptCard, promptAgent } from "./prompt-card";
+import { ConnectCard, LegacySkillsRow } from "./connect-card";
+import { DisclosureChevron } from "./icons";
+import { PromptCard } from "./prompt-card";
+
+export const REVIEW_CONNECT_COPIED_STORAGE_KEY =
+  "dev.fast.review.connectCopied";
 
 /**
  * The Welcome pane: the whole first-run experience in one place. It opens
  * automatically on first run (no consent stamp yet) and later from the
  * application menu or the command palette.
  *
- * The three steps are the product's own order — connect an agent, read the
- * bundled tutorial, publish a review of your own repo. Step one embeds the
- * agent install card, so this pane is also where agents are managed later;
- * there is no separate setup surface. `onClose` closes the tab.
+ * The four steps are the product's own order — install the review command,
+ * connect an agent, read the bundled tutorial, publish a review of your own
+ * repo. Step two embeds the connect prompts, so this pane is also where
+ * agents are connected later; there is no separate setup surface. `onClose`
+ * closes the tab.
+ *
+ * An install from before Review connected over MCP opens this pane in update
+ * mode: step two also lists the skills that version installed, and Done
+ * records that the update is finished.
  *
  * Only one step is open at a time, and each one checks off from a real
  * signal rather than a manual checkbox.
@@ -56,20 +64,14 @@ export function WelcomePage({
     }
   };
 
-  /* The host renders this pane once per open, so an install or uninstall
-     that happens while it is on screen has to advance the rail itself. The
-     card hands back the refreshed status after every action; until the
-     first one, the host's copy is correct. */
+  /* The host renders this pane once per open, so an action taken while it is
+     on screen has to advance the rail itself. Each action hands back the
+     refreshed status; until the first one, the host's copy is correct. */
   const [cardStatus, setCardStatus] = useState<
     ReviewCliInstallStatus | undefined
   >(undefined);
 
   const status = cardStatus ?? install?.status;
-
-  const hasAgents =
-    status?.agents.some((agent) => agent.present || agent.installed) ?? false;
-
-  const compactRefresh = hasAgents && !setupError;
 
   const refreshInstall = async () => {
     if (!setupActions) return;
@@ -81,70 +83,63 @@ export function WelcomePage({
     ? onboardingSetupComplete(status)
     : (onboarding?.installed ?? false);
 
+  const updating = status?.updateNeeded ?? false;
+
+  // Review cannot see agent configs, so a copied prompt or command is the
+  // closest signal that an agent got connected.
+  const [connectCopied, setConnectCopied] = useState(readConnectCopied);
+  const [updateFinished, setUpdateFinished] = useState(false);
+
+  const markConnectCopied = () => {
+    setConnectCopied(true);
+
+    try {
+      globalThis.localStorage?.setItem(REVIEW_CONNECT_COPIED_STORAGE_KEY, "1");
+    } catch {
+      // The desktop can disable DOM storage; the in-memory flag still works.
+    }
+  };
+
   const tourChecked = onboarding?.tutorialChecked ?? 0;
   const tourTotal = onboarding?.tutorialTotal ?? 0;
 
   const steps: WelcomeStep[] = [
     {
-      title: "Connect your agents",
+      title: "Install the review command",
       done: installed,
-      note: installedLabels(status) ?? "not installed yet",
+      note: "writes ~/.local/bin/review",
       body: (
         <>
-          {install && hasAgents ? (
-            <AgentSetupCard
-              install={{ ...install, status: status ?? install.status }}
-              onStatusChange={setCardStatus}
-            />
-          ) : (
-            <>
-              <p className="review-home-empty">
-                {install
-                  ? "No coding agents detected."
-                  : "Agent setup is unavailable."}{" "}
-                Install <code>review</code> to get started.
-              </p>
-              {status?.shim.installed ? (
-                <p>
-                  <code>review</code> command installed.
-                </p>
-              ) : null}
-              {setupActions ? (
-                <button
-                  type="button"
-                  disabled={setupBusy}
-                  onClick={() =>
-                    void runSetup(async () => {
-                      await setupActions.installCli();
-                      await refreshInstall();
-                    })
-                  }
-                >
-                  {status?.shim.installed
-                    ? "Reinstall review in PATH"
-                    : "Install review in PATH"}
-                </button>
-              ) : null}
-            </>
-          )}
-          {setupActions ? (
+          <p className="review-home-zero-hint">
+            Agents start Review through this command, so install it before
+            connecting them.
+          </p>
+          {installed && status?.shim.installed ? (
+            <p className="review-home-zero-hint">
+              Installed at {status.shim.path}.
+            </p>
+          ) : null}
+          {setupActions && !installed ? (
             <button
               type="button"
               disabled={setupBusy}
-              className={
-                compactRefresh ? "review-onboarding-refresh" : undefined
+              onClick={() =>
+                void runSetup(async () => {
+                  await setupActions.installCli();
+                  await refreshInstall();
+                })
               }
-              aria-label={setupBusy ? "Refreshing agents" : "Refresh agents"}
-              title="Refresh agents"
+            >
+              Install review in PATH
+            </button>
+          ) : null}
+          {setupActions && !install ? (
+            <button
+              type="button"
+              disabled={setupBusy}
               onClick={() => void runSetup(refreshInstall)}
             >
-              {compactRefresh ? (
-                <RefreshIcon />
-              ) : setupBusy ? (
-                "Refreshing…"
-              ) : (
-                "Refresh agents"
-              )}
+              {setupBusy ? "Refreshing…" : "Refresh"}
             </button>
           ) : null}
           {setupError ? (
@@ -154,6 +149,28 @@ export function WelcomePage({
           ) : null}
         </>
       ),
+    },
+    {
+      title: "Connect your agents",
+      done: connectCopied || updateFinished,
+      note: "paste a prompt into each agent",
+      body:
+        install && status ? (
+          <>
+            {updating ? (
+              <LegacySkillsRow
+                install={{ ...install, status }}
+                onStatusChange={setCardStatus}
+              />
+            ) : null}
+            <ConnectCard
+              install={{ ...install, status }}
+              onCopied={markConnectCopied}
+            />
+          </>
+        ) : (
+          <p className="review-home-empty">Agent setup is unavailable.</p>
+        ),
     },
     {
       title: "Take the tour",
@@ -178,14 +195,15 @@ export function WelcomePage({
       title: "Create your first review",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
-      body: <PromptCard agent={promptAgent(status)} />,
+      body: <PromptCard />,
     },
   ];
 
-  // Pick the initial step from progress, then let the reader navigate. An
-  // installation must leave its confirmation visible and other agents usable.
+  // Pick the initial step from progress, then let the reader navigate, so an
+  // action never collapses the step it happened in. An update opens on step
+  // two, where the old skills and the prompts are.
   const [activeStep, setOpenStep] = useState(() =>
-    steps.findIndex((step) => !step.done),
+    updating ? 1 : steps.findIndex((step) => !step.done),
   );
 
   return (
@@ -197,13 +215,44 @@ export function WelcomePage({
               <span className="review-onboarding-kicker">
                 Welcome to Review
               </span>
-              <h1 className="review-onboarding-headline">
-                Your codebase, explained by your agent.
-              </h1>
-              <p className="review-onboarding-sub">
-                Connect your agent. Explore a review. Create your own.
-              </p>
-              {onClose ? (
+              {updating ? (
+                <>
+                  <h1 className="review-onboarding-headline">
+                    Review now connects to your agents over MCP
+                  </h1>
+                  <p className="review-onboarding-sub">
+                    Review no longer installs skills. Paste a prompt into each
+                    agent you use, and remove the skills earlier versions
+                    installed.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="review-onboarding-headline">
+                    Your codebase, explained by your agent.
+                  </h1>
+                  <p className="review-onboarding-sub">
+                    Install the command. Connect your agent. Explore a review.
+                    Create your own.
+                  </p>
+                </>
+              )}
+              {updating && install ? (
+                <button
+                  type="button"
+                  className="review-welcome-dismiss"
+                  disabled={setupBusy}
+                  onClick={() =>
+                    void runSetup(async () => {
+                      setCardStatus(await install.finishUpdate());
+                      setUpdateFinished(true);
+                      onClose?.();
+                    })
+                  }
+                >
+                  Done
+                </button>
+              ) : onClose ? (
                 <button
                   type="button"
                   className="review-welcome-dismiss"
@@ -257,13 +306,18 @@ export function WelcomePage({
 }
 
 function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
-  const installedAgents = status.agents.filter((agent) => agent.installed);
-
-  if (installedAgents.length === 0) return false;
-
-  // Optional trace-search registrations are managed in Settings and do not
-  // determine whether Review skills are installed.
   return !status.cli || status.shim.installed;
+}
+
+function readConnectCopied(): boolean {
+  try {
+    return (
+      globalThis.localStorage?.getItem(REVIEW_CONNECT_COPIED_STORAGE_KEY) ===
+      "1"
+    );
+  } catch {
+    return false;
+  }
 }
 
 interface WelcomeStep {
@@ -271,18 +325,6 @@ interface WelcomeStep {
   done: boolean;
   note: string;
   body: ReactNode;
-}
-
-/** Names the agents that are set up, so the collapsed row says something the
- * expanded rows do not repeat. */
-function installedLabels(
-  status: ReviewCliInstallStatus | undefined,
-): string | null {
-  const installed = (status?.agents ?? []).filter((agent) => agent.installed);
-
-  if (installed.length === 0) return null;
-
-  return installed.map((agent) => TARGET_LABELS[agent.target]).join(", ");
 }
 
 function StepBadge({ done, label }: { done: boolean; label: string }) {

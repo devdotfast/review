@@ -20,26 +20,11 @@ import {
 } from "../../../workbench/common/contributions.js";
 import { INativeWorkbenchEnvironmentService } from "../../../workbench/services/environment/electron-browser/environmentService.js";
 import { LifecyclePhase } from "../../../workbench/services/lifecycle/common/lifecycle.js";
-import { reviewCliInstallResyncRequest } from "../../common/reviewCliInstall.js";
-import {
-	type ReviewCliInstallStatus,
-	type ReviewCliInstallTarget,
-	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
-} from "../../common/reviewProtocol.js";
+import { reviewCliInstallStartupAction } from "../../common/reviewCliInstallStartup.js";
+import { REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY } from "../../common/reviewProtocol.js";
+import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import { IReviewDesktopConnectionService } from "../../services/reviewDesktopConnectionService.js";
-
-const TARGET_LABELS: Readonly<Record<ReviewCliInstallTarget, string>> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	cursor: "Cursor",
-	opencode: "OpenCode",
-	pi: "Pi",
-};
-
-function formatTargets(targets: readonly ReviewCliInstallTarget[]): string {
-	return targets.map((target) => TARGET_LABELS[target]).join(", ");
-}
 
 /**
  * The macOS app bundle that contains this build, derived from the resources
@@ -109,7 +94,7 @@ class InstallReviewCliInPathAction extends Action2 {
 			if (isMacintosh) {
 				await nativeHostService.uninstallShellCommand({ commandName: "review", symlinkOnly: true });
 			}
-			const installed = await desktopConnection.applyCliInstall({ targets: [], shim: true });
+			const installed = await desktopConnection.applyCliInstall({ shim: true });
 			notificationService.info(
 				localize(
 					"review.cliInstall.installed",
@@ -132,7 +117,7 @@ registerAction2(InstallReviewCliInPathAction);
 
 /**
  * Removes everything the app installed on this machine: the tutorial, the
- * agent skills, the review terminal command, and the consent stamp. It then
+ * review terminal command, managed trace capture, and the consent stamp. It then
  * points at the app bundle so the user can move it to the Trash. Other Review
  * data stays untouched. Resetting the stamp makes a later reinstall start as
  * a first run.
@@ -154,26 +139,10 @@ class UninstallReviewDesktopAction extends Action2 {
 		const storageService = accessor.get(IStorageService);
 
 		const status = await desktopConnection.getCliInstallStatus();
-		const targets = status.agents.filter((agent) => agent.installed).map((agent) => agent.target);
-		const fffTargets = status.stamp?.fffRegistrations?.map((registration) => registration.target) ?? [];
-		const removalTargets = [...new Set([...targets, ...fffTargets])];
 		const detail = [
-			targets.length > 0
-				? localize(
-						"review.uninstall.skills",
-						"Removes the Review skills and unchanged app-managed MCP connections for {0}.",
-						formatTargets(targets),
-					)
-				: localize("review.uninstall.noSkills", "No agent skills are installed."),
 			status.stamp?.shimPath
 				? localize("review.uninstall.shim", "Removes the review terminal command at {0}.", status.stamp.shimPath)
 				: localize("review.uninstall.noShim", "The review terminal command is not installed."),
-			fffTargets.length > 0
-				? localize(
-						"review.uninstall.fff",
-						"Removes unchanged fff registrations that Review created. The shared FFF binary stays installed.",
-					)
-				: localize("review.uninstall.noFff", "No fff registrations are managed by Review."),
 			status.stamp?.traceManaged
 				? localize(
 						"review.uninstall.trace",
@@ -193,7 +162,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		}
 
 		// The tutorial is disposable state: a failed delete must not stop
-		// the shim and skills removal the user just confirmed.
+		// the command removal the user just confirmed.
 		let tutorialError: unknown;
 		try {
 			await desktopConnection.deleteTutorial();
@@ -203,9 +172,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		}
 		try {
 			await desktopConnection.removeCliInstall({
-				targets: removalTargets,
 				shim: true,
-				fff: true,
 				...(status.stamp?.traceManaged ? { trace: true } : {}),
 			});
 			await desktopConnection.resetCliInstallPrompts();
@@ -217,7 +184,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize("review.uninstall.failed", "Review could not remove the installed skills and command."),
+				localize("review.uninstall.failed", "Review could not remove its command and trace setup."),
 				String(error),
 			);
 			return;
@@ -237,7 +204,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		const bundlePath = macAppBundlePath(environmentService.appRoot);
 		if (bundlePath) {
 			const { confirmed: reveal } = await dialogService.confirm({
-				message: localize("review.uninstall.done", "The installed skills and command were removed."),
+				message: localize("review.uninstall.done", "Review's command and trace setup were removed."),
 				detail: localize(
 					"review.uninstall.finish",
 					"To finish, quit Review Desktop and move {0} to the Trash.",
@@ -251,7 +218,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			}
 		} else {
 			await dialogService.info(
-				localize("review.uninstall.done", "The installed skills and command were removed."),
+				localize("review.uninstall.done", "Review's command and trace setup were removed."),
 				localize("review.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
 			);
 		}
@@ -261,13 +228,15 @@ class UninstallReviewDesktopAction extends Action2 {
 registerAction2(UninstallReviewDesktopAction);
 
 /**
- * First-run onboarding and silent re-sync. Consent lives in the server's
+ * First-run onboarding, the upgrade screen, and silent re-sync. Consent lives in the server's
  * install stamp (~/.dev/review-desktop/state/cli-install.json), not workbench
  * storage, so the CLI and the app read one source of truth:
  * - no stamp: open no tab; empty Home renders the Welcome rail, and
  *   Preferences > Getting Started reaches the same pane when Home has
  *   reviews to list instead;
- * - granted + stale CLI fingerprint or skill version: re-sync silently after an app update;
+ * - granted + stamp without the update marker: open Welcome, which shows the
+ *   update screen, unless empty Home already renders the Welcome rail;
+ * - granted + stale CLI fingerprint: rewrite the review command silently;
  * - declined or skipped: never open automatically (the menu action stays available).
  *
  * Dev sessions (`pnpm dev`, isBuilt false) never auto-open.
@@ -277,6 +246,8 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 		@INativeWorkbenchEnvironmentService environmentService: INativeWorkbenchEnvironmentService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IReviewDesktopConnectionService private readonly reviewDesktopConnectionService: IReviewDesktopConnectionService,
+		@IReviewCanvasEditorTabsService private readonly tabsService: IReviewCanvasEditorTabsService,
+		@IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
 	) {
 		if (!environmentService.isBuilt) {
 			return;
@@ -285,7 +256,7 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 			this.notificationService.warn(
 				localize(
 					"review.cliInstall.updateFailed",
-					"Review could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Review.",
+					"Review could not update its CLI: {0}. Retry from Getting Started, or restart Review.",
 					String(error),
 				),
 			);
@@ -294,41 +265,26 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 
 	private async check(): Promise<void> {
 		const status = await this.reviewDesktopConnectionService.getCliInstallStatus();
-		if (status.stamp?.consent === "declined") {
-			return;
+		switch (reviewCliInstallStartupAction(status)) {
+			case "openWelcome":
+				// With no reviews to list, Home already renders the Welcome
+				// rail, so opening a tab here would show it twice.
+				await this.apiCatalog.initialize();
+				if (this.apiCatalog.reviews.length > 0) await this.tabsService.openWelcome(true);
+				return;
+			case "resync":
+				// Without an installed command there is nothing to rewrite or announce.
+				if (!status.stamp?.shimPath || status.stamp.commandDisabled) return;
+				await this.reviewDesktopConnectionService.applyCliInstall({
+					shim: true,
+					autoUpdate: true,
+				});
+				// Review has no status bar; status() messages would be dropped.
+				this.notificationService.info(localize("review.cliInstall.resyncedCli", "Review updated the installed CLI."));
+				return;
+			case "none":
+				return;
 		}
-		if (status.stamp?.consent === "skipped") {
-			return;
-		}
-		if (status.stamp?.consent === "granted") {
-			if (status.stale) {
-				await this.resync(status);
-			}
-			return;
-		}
-		// First run needs no tab: with no reviews to list, Home already renders
-		// the Welcome rail, so opening one here would show it twice.
-	}
-
-	private async resync(status: ReviewCliInstallStatus): Promise<void> {
-		const request = reviewCliInstallResyncRequest(status);
-		if (!request) {
-			return;
-		}
-		await this.reviewDesktopConnectionService.applyCliInstall(request);
-		const message =
-			request.targets.length === 0
-				? localize("review.cliInstall.resyncedCli", "Review updated the installed CLI.")
-				: request.shim
-					? localize(
-							"review.cliInstall.resynced",
-							"Review updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.",
-						)
-					: localize(
-							"review.cliInstall.resyncedSkills",
-							"Review updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.",
-						);
-		this.notificationService.status(message, { hideAfter: 10_000 });
 	}
 }
 

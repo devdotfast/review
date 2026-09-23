@@ -5892,33 +5892,127 @@ button.review-stack-row:disabled .review-stack-relation {
 
 /* CodePeek loading while the resolve request is in flight. */
 
-/* Home: agent setup card */
+/* Connect card: the prompt card's tabs, one agent at a time */
 
-.review-agent-setup {
-  margin-top: 32px;
-  padding: 14px 16px;
+.review-connect-tabs {
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+}
+
+.review-connect-tabs .review-agent-logo {
+  width: 14px;
+  height: 14px;
+}
+
+.review-connect-body-wrap {
+  position: relative;
+}
+
+.review-connect-body[data-collapsed="true"] {
+  max-height: calc(22px * 4);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 35%, transparent);
+}
+
+/* Sits on the fade, centered, like a "show full prompt" pill. */
+.review-connect-expand {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
   border: 1px solid var(--review-home-rule-soft);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
+  cursor: pointer;
+}
+
+.review-connect-expand:hover {
+  border-color: var(--ink-muted);
+}
+
+.review-home-prompt-actions .review-connect-collapse {
+  margin-right: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font: 12px/22px var(--font-mono);
+  cursor: pointer;
+}
+
+.review-home-prompt-actions .review-connect-collapse:hover {
+  color: var(--ink);
+}
+
+.review-connect-hint {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font: 12px/18px var(--font-mono);
+}
+
+.review-connect-modes button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.review-connect a.review-home-prompt-copy {
+  text-decoration: none;
+}
+
+.review-connect-legacy button {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  white-space: nowrap;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+}
+
+.review-connect-legacy button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.review-connect-note {
+  margin: 0 0 8px;
+  color: var(--review-home-meta);
+  font-size: 12px;
+}
+
+.review-connect-legacy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--review-home-rule-soft);
+  font-size: 12px;
+}
+
+.review-connect-legacy p {
+  margin: 0;
+}
+
+.review-connect-legacy ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--review-home-meta);
+}
+
+.review-connect-legacy code {
+  font-family: var(--font-mono);
 }
 
 .review-agent-setup-cli {
   color: var(--review-home-meta);
   font-size: 12px;
-}
-
-.review-agent-setup-agents {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.review-agent-setup-agents li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-top: 1px solid var(--review-home-rule);
 }
 
 .review-agent-setup-name {
@@ -5927,50 +6021,22 @@ button.review-stack-row:disabled .review-stack-relation {
 
 .review-agent-setup-state {
   flex: 1;
+  min-width: 0;
   color: var(--review-home-meta);
   font-size: 12px;
 }
 
-/* Installed is the one state worth colouring: it is what the step is asking
-   the reader to achieve. */
+/* Enabled is the one state worth colouring. */
 .review-agent-setup-state[data-installed="true"] {
   color: var(--change-added);
 }
 
-.review-agent-setup button {
-  padding: 3px 10px;
-  border: 1px solid var(--review-home-rule-soft);
-  border-radius: 5px;
-  color: inherit;
-  background: var(--transparent);
-  cursor: pointer;
-}
-
-.review-agent-setup button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.review-agent-setup-error {
+.review-agent-setup-error,
+.review-connect-error {
   margin: 10px 0 0;
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.review-agent-setup-disclosure {
-  margin: 10px 0 0;
-  color: var(--review-home-meta);
-  font-size: 12px;
-}
-
-.review-agent-setup-disclosure code {
-  padding: 1px 4px;
-  border: 1px solid var(--review-home-rule-soft);
-  border-radius: 4px;
-  color: var(--ink);
-  background: var(--review-home-card-active);
-  font-family: inherit;
 }
 
 .review-agent-setup-terminal {
@@ -6020,45 +6086,6 @@ button.review-stack-row:disabled .review-stack-relation {
   background: var(--control-bg);
 }
 
-.review-agent-setup-trace-search {
-  flex-basis: 100%;
-  width: 100%;
-}
-
-.review-agent-setup-trace-search .review-agent-setup-terminal-info {
-  flex-basis: auto;
-}
-
-.review-agent-setup button.review-agent-setup-subtle {
-  border-color: var(--transparent);
-  color: var(--review-home-meta);
-}
-
-.review-agent-setup-page .review-agent-setup,
-.review-welcome-page .review-agent-setup {
-  margin-top: 0;
-}
-
-/* The Settings page is flat rows, not cards, so the agent list drops the
-   card chrome and lines up with every other section. */
-.review-settings-page .review-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.review-settings-page .review-agent-setup-agents li:first-child {
-  border-top: none;
-}
-
-.review-agent-setup-lede {
-  margin: 0 0 20px;
-  color: var(--review-home-meta);
-  font-size: 13px;
-}
-
 /* The Welcome pane: an intro column beside the three-step rail that owns the
    whole first-run flow. Colors come from the themed --review-home-* / --ink
    vars, so light mode follows without a second block. */
@@ -6106,6 +6133,23 @@ button.review-stack-row:disabled .review-stack-relation {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Below this the fixed intro column would squeeze the steps until the agent
+   rows overflow; stack the intro above them instead. */
+@media (max-width: 960px) {
+  .review-onboarding-columns {
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .review-onboarding-intro {
+    width: auto;
+  }
+
+  .review-onboarding-steps {
+    align-self: stretch;
+  }
 }
 
 .review-welcome-dismiss {
@@ -6188,23 +6232,6 @@ button.review-stack-row:disabled .review-stack-relation {
   font-size: 12px;
 }
 
-.review-onboarding-step-body > .review-onboarding-refresh {
-  align-self: flex-end;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 4px;
-  color: var(--ink-muted);
-  border: none;
-}
-
-.review-onboarding-step-body > .review-onboarding-refresh:hover {
-  color: var(--ink);
-  background: var(--surface-raised);
-}
-
 .review-onboarding-step-body > button + button {
   margin-left: 8px;
 }
@@ -6232,19 +6259,6 @@ button.review-stack-row:disabled .review-stack-relation {
 .review-onboarding-step-title {
   color: var(--ink);
   font-size: 13px;
-}
-
-/* The onboarding step supplies the frame for the setup card. */
-.review-onboarding-step-body .review-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.review-onboarding-step-body .review-agent-setup-agents li:first-child {
-  border-top: none;
 }
 
 .review-onboarding-step-note {
@@ -6278,21 +6292,7 @@ button.review-stack-row:disabled .review-stack-relation {
   margin: 0;
 }
 
-/* Agent brand marks. Sized in a fixed slot so the name column stays in one
-   lane across rows (the dimmed state marks an undetected agent). */
-.review-agent-setup-logo-slot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.review-agent-setup-logo-slot[data-present="false"] {
-  opacity: 0.4;
-}
-
+/* Agent brand marks. */
 .review-agent-logo {
   width: 16px;
   height: 16px;
@@ -6419,30 +6419,6 @@ button.review-stack-row:disabled .review-stack-relation {
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.review-home-setup-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--review-home-rule-soft);
-  border-radius: 6px;
-  color: var(--review-home-meta);
-  background: var(--review-home-card-active);
-  font-size: 12px;
-}
-
-.review-home-setup-banner button {
-  flex-shrink: 0;
-  padding: 3px 10px;
-  border: 1px solid var(--review-home-comment);
-  border-radius: 5px;
-  color: var(--review-home-comment);
-  background: var(--transparent);
-  cursor: pointer;
 }
 
 /* Map settings float over the map canvas instead of sitting behind a topbar

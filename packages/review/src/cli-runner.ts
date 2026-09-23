@@ -11,6 +11,7 @@ import {
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
+  emitJsonEvent,
   humanStream,
   jsonRequestedInArgv,
   registerTraceCommands,
@@ -26,21 +27,18 @@ import {
   runTraceStoreDelete,
   runTraceStoreInfo,
   traceHomeDir,
+  traceMachineEnabled,
   traceScope,
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { installReviewCommand, pathShimPath } from "./cli-install";
+import { isOwnedShim, pathShimPath } from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
-import { readReviewDesktopDiscovery } from "./desktop-discovery";
-import { isFile } from "./fs-utils";
+import { connectPrompts } from "./connect-prompts";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
-  type RunInstallInput,
-  defaultPackageRoot,
   isInstallTarget,
-  runInstall,
 } from "./install";
 import { runReviewMigration } from "./migrate";
 import { readReviewPackageVersion } from "./package-paths";
@@ -87,8 +85,6 @@ interface ReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
   runReviewAppPick: typeof runReviewAppPick;
   runReviewInfo: typeof runReviewInfo;
-  runInstall: typeof runInstall;
-  installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
@@ -130,7 +126,7 @@ export interface ReviewCliInput {
 
 interface ReviewInfoOptions {
   all?: boolean;
-  review?: string;
+  session?: string;
 }
 
 type OutputSurface = ReviewCliCommand | "plain";
@@ -212,7 +208,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     );
 
   const program = configureOutput(new Command(), "review")
-    .name("review")
+    .name("whiteboard")
     .enablePositionalOptions()
     .version(cliVersion)
     .description("Create, publish, and open dev.fast Reviews.")
@@ -377,18 +373,18 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
-          ? "Review Desktop is already running.\n"
+          ? "Whiteboard Desktop is already running.\n"
           : options.focus
-            ? "Review Desktop is ready.\n"
-            : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
+            ? "Whiteboard Desktop is ready.\n"
+            : "Whiteboard Desktop is ready in the background. Pass --focus to bring it forward.\n",
       );
     } else {
-      input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
+      input.stdout.write(`Whiteboard Desktop is showing "${event.title}".\n`);
     }
   };
 
   const pickReview = async (options: {
-    review?: string;
+    session?: string;
     focus?: boolean;
     json?: boolean;
   }) => {
@@ -396,7 +392,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
-      reviewUuid: options.review,
+      reviewUuid: options.session,
       focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
@@ -424,24 +420,24 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   const app = configureJsonOutput(
     program
       .command("app")
-      .description("Start Review Desktop in the background")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Start Whiteboard Desktop in the background")
+      .option("--focus", "bring Whiteboard Desktop to the foreground"),
     "plain",
   ).action(launchApp);
 
   configureJsonOutput(
     app
       .command("launch")
-      .description("Start Review Desktop in the background")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Start Whiteboard Desktop in the background")
+      .option("--focus", "bring Whiteboard Desktop to the foreground"),
     "plain",
   ).action(launchApp);
   configureJsonOutput(
     app
       .command("pick")
-      .description("Select a Review (interactive picker without --review)")
-      .option("--review <uuid>", "review UUID")
-      .option("--focus", "bring Review Desktop to the foreground"),
+      .description("Select a Review (interactive picker without --session)")
+      .option("--session <uuid>", "review UUID")
+      .option("--focus", "bring Whiteboard Desktop to the foreground"),
     "plain",
   ).action(pickReview);
 
@@ -451,138 +447,74 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   )
     .option("--all", "list active reviews for every worktree in this repo")
     .addOption(
-      new Option("--review <uuid>", "select a Review").conflicts("all"),
+      new Option("--session <uuid>", "select a Review").conflicts("all"),
     )
     .action(async (options: ReviewInfoOptions) => {
       const event = await runtime.runReviewInfo({
         cwd,
         all: options.all,
-        reviewUuid: options.review,
+        reviewUuid: options.session,
       });
 
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
     });
 
-  const install = configureJsonOutput(
+  const connect = configureJsonOutput(
     program
-      .command("install")
-      .description("Install the bundled Review skills")
+      .command("connect")
+      .description("Print the prompt that connects a coding agent to Review")
       .addArgument(
-        new Argument("[target...]", "coding agent target").choices([
+        new Argument("[target...]", "coding agent").choices([
           "claude",
           "claude-code",
           "codex",
           "cursor",
+          "opencode",
           "pi",
           "all",
         ]),
-      )
-      .option(
-        "--trace-endpoint <url>",
-        "S3/R2 endpoint URL (experimental trace capture)",
-      )
-      .option(
-        "--trace-bucket <name>",
-        "S3/R2 bucket name (experimental trace capture)",
-      )
-      .option(
-        "--trace-key <id>",
-        "S3/R2 access key ID (experimental trace capture)",
-      )
-      .option(
-        "--trace-secret <key>",
-        "S3/R2 secret access key (experimental trace capture)",
-      )
-      .option(
-        "--trace-region <region>",
-        "SigV4 signing region; default auto for R2, set the bucket region for S3",
-      )
-      .option(
-        "--without-traces",
-        "Deprecated: trace capture is off unless --trace-* options are given",
-      )
-      .option(
-        "--no-shim",
-        "Install skills without the review command or PATH changes",
-      )
-      .addHelpText("after", reviewInstallHelp()),
+      ),
     "plain",
   );
 
-  install.action(
-    async (
-      targets: string[],
-      options: {
-        json?: boolean;
-        traces?: boolean;
-        traceEndpoint?: string;
-        traceBucket?: string;
-        traceKey?: string;
-        traceSecret?: string;
-        traceRegion?: string;
-        shim?: boolean;
-      },
-    ) => {
-      const selectedTargets = installTargets(targets);
-      const installShim = options.shim !== false;
+  connect.action(async (targets: string[], options: { json?: boolean }) => {
+    const selected = parseTargets(targets);
 
-      const cliSource = installShim
-        ? await resolveInstallCliSource(env)
-        : undefined;
+    const { homeDir, devHome } = scope;
 
-      const installInput: RunInstallInput = {
-        targets: selectedTargets,
-        env,
-        fff: traceCredentialsRequested(options) && options.traces !== false,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      };
+    const prompts = connectPrompts({
+      hasShim: await isOwnedShim(pathShimPath(homeDir)),
+      traceEnabled: await traceMachineEnabled({ homeDir, env }),
+      fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),
+      fffCorpusRoot: path.join(devHome, "trace-search"),
+    });
 
-      if (installShim) installInput.reviewCommand = pathShimPath();
+    const output = {
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    };
 
-      // Trace capture is experimental and opt-in: only a request that names
-      // R2 credentials configures it. --without-traces stays accepted so
-      // existing scripts keep working.
-      if (traceCredentialsRequested(options) && options.traces !== false) {
-        installInput.trace = {
-          credentials: {
-            endpoint: options.traceEndpoint,
-            bucket: options.traceBucket,
-            key: options.traceKey,
-            secret: options.traceSecret,
-            region: options.traceRegion,
-          },
-        };
-      }
-
-      state.exitCode = await runtime.runInstall(installInput);
-
-      if (state.exitCode !== 0 || !installShim) return;
-
-      const human = humanStream({
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
+    if (options.json) {
+      emitJsonEvent(output, {
+        event: "connect",
+        prompts: Object.fromEntries(
+          selected.map((target) => [target, prompts[target]]),
+        ),
       });
 
-      if (!cliSource) {
-        human.write(
-          "Review did not install the review command because no built CLI was found. The skills were installed.\n",
-        );
+      return;
+    }
 
-        return;
-      }
+    const sections = selected.map((target) =>
+      selected.length > 1
+        ? `## ${TARGET_LABELS[target]}\n\n${prompts[target]}`
+        : prompts[target],
+    );
 
-      const installed = await runtime.installReviewCommand({
-        ...cliSource,
-        env,
-      });
-
-      human.write(installed.output);
-    },
-  );
+    humanStream(output).write(`${sections.join("\n\n")}\n`);
+  });
 
   const migrate = configureOutput(
     program.command("migrate").description("Migrate legacy Review data"),
@@ -622,7 +554,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     )
     .action(
       async (options: {
-        review?: string;
+        session?: string;
         version?: string;
         requestId?: string;
         preview?: boolean;
@@ -1002,7 +934,15 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   }
 }
 
-function installTargets(targets: readonly string[]): InstallTarget[] {
+const TARGET_LABELS: Record<InstallTarget, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  pi: "Pi",
+};
+
+function parseTargets(targets: readonly string[]): InstallTarget[] {
   if (targets.length === 0 || targets.includes("all")) {
     return [...ALL_INSTALL_TARGETS];
   }
@@ -1024,8 +964,6 @@ function reviewCliRuntime(
     runReviewAppLaunch,
     runReviewAppPick,
     runReviewInfo,
-    runInstall,
-    installReviewCommand,
     runReviewMigration,
     runTraceStatus,
     runTraceEnable,
@@ -1054,45 +992,12 @@ function reviewCliRuntime(
   };
 }
 
-interface InstallCliSource {
-  cliPath: string;
-  cliRuntimePath?: string;
-}
-
-async function resolveInstallCliSource(
-  env: NodeJS.ProcessEnv,
-): Promise<InstallCliSource | undefined> {
-  try {
-    const discovery = await readReviewDesktopDiscovery(
-      reviewDesktopDiscoveryPath(env),
-    );
-
-    if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      const source: InstallCliSource = { cliPath: discovery.cliPath };
-
-      if (discovery.cliRuntimePath) {
-        source.cliRuntimePath = discovery.cliRuntimePath;
-      }
-
-      return source;
-    }
-  } catch {
-    // A packaged CLI remains a valid fallback when discovery is stale.
-  }
-
-  const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
-
-  return (await isFile(packageCliPath))
-    ? { cliPath: packageCliPath }
-    : undefined;
-}
-
 function reviewTopLevelHelp(): string {
   return [
     "",
     "Use `review info` to discover Review documents for this checkout.",
-    "Reviews are authored through the JSON API: `review api tools` lists the tools, and `review mcp` serves the same catalog to an agent.",
-    "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` to open one.",
+    "Reviews are authored through the JSON API: `whiteboard api tools` lists the tools, and `whiteboard mcp` serves the same catalog to an agent.",
+    "Use `review app launch` to start Whiteboard Desktop. Use `review app pick --review <uuid>` to open one.",
     "Use `review server start` for headless authoring, and `review server status --json` to check readiness.",
     "Use `--view <review|commits|diff|map|trace>` with `review app pick` to choose the opened tab.",
     "",
@@ -1101,7 +1006,7 @@ function reviewTopLevelHelp(): string {
     "",
     "Example agent prompt (for a repository that provides a CI/CD system):",
     "",
-    "  Can you use $dev-review to explain this repository's CI/CD system to me?",
+    "  Can you use Review to explain this repository's CI/CD system to me?",
     "",
     "  My current understanding:",
     "",
@@ -1121,47 +1026,6 @@ function reviewTopLevelHelp(): string {
     "     with walkthroughs linked to the relevant code.",
     "",
     "  Start concise and let me dig deeper through the canvas.",
-  ].join("\n");
-}
-
-function traceCredentialsRequested(options: {
-  traceEndpoint?: string;
-  traceBucket?: string;
-  traceKey?: string;
-  traceSecret?: string;
-}): boolean {
-  return Boolean(
-    options.traceEndpoint ||
-    options.traceBucket ||
-    options.traceKey ||
-    options.traceSecret,
-  );
-}
-
-function reviewInstallHelp(): string {
-  return [
-    "",
-    "When no target is provided, Review installs for every supported agent.",
-    "",
-    "Review Desktop is the primary install path: on startup it offers to",
-    "install the CLI and skills for detected agents, and keeps them in sync",
-    "with the app. This command remains for headless environments.",
-    "",
-    "Targets:",
-    "  claude   Claude Code (~/.claude/skills)",
-    "  codex    Codex (~/.agents/skills)",
-    "  cursor   Cursor (~/.cursor/skills)",
-    "  opencode OpenCode (~/.config/opencode/plugins)",
-    "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
-    "  all      Every supported agent (default)",
-    "",
-    "Examples:",
-    "  review install codex",
-    "  review install claude cursor",
-    "  review install all",
-    "",
-    "Trace capture (experimental) is off unless S3/R2 credentials are given:",
-    "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
   ].join("\n");
 }
 
@@ -1259,13 +1123,13 @@ function telemetryCommandPath(
 
   if (name === "login" || name === "logout" || name === "whoami") return name;
 
-  if (name === "api" || name === "mcp") return name;
+  if (name === "api" || name === "mcp" || name === "connect") return name;
 
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;
   }
 
-  if (name === "version" || name === "info" || name === "install") {
+  if (name === "version" || name === "info") {
     return name;
   }
 

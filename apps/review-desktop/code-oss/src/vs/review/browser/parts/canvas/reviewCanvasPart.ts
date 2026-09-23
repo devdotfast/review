@@ -50,7 +50,6 @@ import type {
 	ReviewCanvasContent,
 	ReviewCanvasDiagnostic,
 	ReviewCanvasHandle,
-	ReviewCanvasHomeSetup,
 	ReviewCanvasInstallContent,
 	ReviewCanvasModule,
 	ReviewCanvasOnboarding,
@@ -427,7 +426,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (input.target.kind === "home") {
 			this.renderedInput = input;
 			this.setCanvasState("home");
-			const setup = await this.resolveHomeSetup();
 			await this.apiCatalog.initialize();
 			let emptyStateVisible = false;
 			/* The empty-list render suspends on the install fetch below, while
@@ -470,7 +468,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 								return;
 							}
 						},
-						setup,
 						// Home shows the Welcome rail while the list is empty.
 						install,
 						setupActions: this.setupActions(),
@@ -640,7 +637,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			return await this.loadInstallContent();
 		} catch (error) {
-			this.logService.warn("Review agent setup status failed", error);
+			this.logService.warn("Review install status failed", error);
 			return undefined;
 		}
 	}
@@ -655,6 +652,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			},
 			remove: async (request) => {
 				await this.desktopConnection.removeCliInstall(request);
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			removeLegacySkills: async () => {
+				await this.desktopConnection.removeLegacySkills();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			finishUpdate: async () => {
+				await this.desktopConnection.finishCliInstallUpdate();
 				return this.desktopConnection.getCliInstallStatus();
 			},
 			decline: async () => {
@@ -780,21 +785,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	/**
-	 * Install status for the Home setup banner. Home must render even when the
-	 * status endpoint fails, so a failure yields no banner.
-	 */
-	private async resolveHomeSetup(): Promise<ReviewCanvasHomeSetup | undefined> {
-		try {
-			return {
-				status: await this.desktopConnection.getCliInstallStatus(),
-				open: () => void this.tabsService.openWelcome(true),
-			};
-		} catch {
-			return undefined;
-		}
-	}
-
-	/**
 	 * Step state for the Welcome rail, derived from the install status the
 	 * caller already fetched, so one render costs one status round-trip. The
 	 * rest is local: stored tutorial progress and the review list.
@@ -803,7 +793,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		const checked = new Set(this.readTutorialProgress().checked);
 		const steps = REVIEW_TUTORIAL_STEP_IDS.filter((step) => step !== "openMap" || this.currentSoftwareMapEnabled());
 		return {
-			installed: status.agents.some((agent) => agent.installed),
+			installed: !status.cli || status.shim.installed,
 			tutorialChecked: steps.filter((step) => checked.has(step)).length,
 			tutorialTotal: steps.length,
 			// Drafts are filtered out of this list and the tutorial never

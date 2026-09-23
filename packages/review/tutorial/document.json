@@ -22,7 +22,7 @@
             "messages": [
               {
                 "role": "user",
-                "body": "/dev-review I'd like to review the feature we just worked on."
+                "body": "Create a Review of the feature we just worked on."
               },
               {
                 "role": "assistant",
@@ -339,7 +339,7 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "To manage the Review skills installed for your agents, open **Preferences \u2192\nSettings**. To revisit setup or take this tour again, open **Preferences \u2192\nGetting Started**.\n"
+          "markdown": "To connect Review to your agents, open **Preferences \u2192\nSettings**. To revisit setup or take this tour again, open **Preferences \u2192\nGetting Started**.\n"
         }
       ]
     },

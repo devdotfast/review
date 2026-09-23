@@ -307,7 +307,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
       "--state-dir",
       server.stateDir,
       "api",
-      "review_create",
+      "session_create",
       JSON.stringify({
         commandId: randomUUID(),
         title: "CI review",
@@ -319,8 +319,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
 
   expect(created).toMatchObject({ exitCode: 0, errors: "" });
 
-  const { reviewId } = z
-    .object({ reviewId: z.string() })
+  const { sessionId: reviewId } = z
+    .object({ sessionId: z.string() })
     .parse(JSON.parse(created.output));
 
   await client.post("/commands", {
@@ -506,8 +506,8 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
         id: 2,
         method: "tools/call",
         params: {
-          name: "review_get",
-          arguments: { reviewId, full: true, format: "json" },
+          name: "session_get",
+          arguments: { sessionId: reviewId, full: true, format: "json" },
         },
       }) + "\n",
     );
@@ -517,7 +517,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     const result = replies.find((reply) => reply.id === 2)!.result;
     expect(result.isError).not.toBe(true);
     expect(JSON.parse(result.content![0].text)).toMatchObject({
-      reviewId,
+      sessionId: reviewId,
       version: 2,
     });
   } finally {

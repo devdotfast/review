@@ -111,13 +111,13 @@ describe("WelcomePage", () => {
     expect(stepOpen(0)).toBe("true");
     expect(stepState(0)).toBe("todo");
     expect(stepState(1)).toBe("todo");
-    expect(buttons("Install review in PATH")).toHaveLength(1);
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(1);
 
-    await act(async () => buttons("Install review in PATH")[0]?.click());
+    await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
     expect(setupActions.installCli).toHaveBeenCalledOnce();
     expect(stepState(0)).toBe("done");
     expect(container.textContent).toContain("Installed at /tmp/review.");
-    expect(buttons("Install review in PATH")).toHaveLength(0);
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(0);
   });
 
   it("opens on the connect step once the command is installed", async () => {

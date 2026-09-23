@@ -107,7 +107,7 @@ export function WelcomePage({
     {
       title: "Install the whiteboard command",
       done: installed,
-      note: "writes ~/.local/bin/review",
+      note: "writes ~/.local/bin/whiteboard",
       body: (
         <>
           <p className="review-home-zero-hint">
@@ -130,7 +130,7 @@ export function WelcomePage({
                 })
               }
             >
-              Install review in PATH
+              Install whiteboard in PATH
             </button>
           ) : null}
           {setupActions && !install ? (

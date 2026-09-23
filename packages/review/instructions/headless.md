@@ -15,17 +15,17 @@ review server start --authoring-mode batch --json
 
 The directory defaults to `$DEV_REVIEW_HOME` (`~/.dev` when no home is configured). Select headless mode explicitly with `DEV_REVIEW_SERVER_DIR` for all processes, or `review --state-dir <path> server start`, `review --state-dir <path> api …`, and `review --state-dir <path> mcp`. `server start` and `server status` also accept a trailing `--state-dir` option. An explicitly selected directory never falls back to Desktop. Without an explicit selection, clients connect only to Desktop and ignore headless discovery files.
 
-The server binds to loopback on an available port. `--port <port>` selects a fixed port. `--software-maps` permits the skill to generate optional software maps; uploading existing maps is always supported.
+The server binds to loopback on an available port. `--port <port>` selects a fixed port. `--software-maps` permits agents to generate optional software maps; uploading existing maps is always supported.
 
 ## Configure the agent
 
-Install the shared skill for your harness, for example `review install codex --no-shim` or `review install claude --no-shim`. The npm installation already supplies the CLI. Agents can use `review api` directly, or a stdio MCP configuration with command `review`, arguments `["mcp"]`, and the same profile environment variables.
+The npm installation supplies the CLI. Point the agent at the server with `review api` or a stdio MCP entry (`review mcp` with the same profile environment), and have it read `review_get_instructions({})` first.
 
-Supply the local repository path and explicit base/head revisions. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; it shares the authoring guidance.
+Supply the local repository path and explicit base/head revisions. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. The server selects the batch authoring guidance.
 
 Batch authors begin a scratch draft, investigate source using its `draftId`, write substantial content, validate and commit. Only commit creates a saved version and marks all sections complete. Existing readers see the previous committed version until then; new drafts are absent from Home. On intentional failure, abort the draft. The server retains exclusive ownership without heartbeats until commit, abort or shutdown. CI must stop it during teardown. After a killed server, abandoned scratch content is discarded safely; there is no resume or merge.
 
-Omit `--authoring-mode batch` (or choose `interactive`) to retain immediate committed edits and the interactive skill's section progress and renewable activity lease. An agent disconnect does not release a batch draft's lock while its server remains alive.
+Omit `--authoring-mode batch` (or choose `interactive`) to retain immediate committed edits and interactive section progress and renewable activity lease. An agent disconnect does not release a batch draft's lock while its server remains alive.
 
 ## Try batch authoring locally
 
@@ -35,10 +35,10 @@ From this repository, in one terminal:
 pnpm review server start --authoring-mode batch
 ```
 
-Stop an already-running headless server first. In the second terminal, set `export DEV_REVIEW_SERVER_DIR="${DEV_REVIEW_HOME:-$HOME/.dev}"`, then run your agent with this checkout's `dev-review-batch` skill and a prompt such as:
+Stop an already-running headless server first. In the second terminal, set `export DEV_REVIEW_SERVER_DIR="${DEV_REVIEW_HOME:-$HOME/.dev}"`, then point the agent at the server with `review api` or a stdio MCP entry (`review mcp` with the same profile environment), have it read `review_get_instructions({})` first, and use a prompt such as:
 
 ```text
-Use dev-review-batch to author a review of /absolute/path/to/checkout,
+Author a review of /absolute/path/to/checkout,
 comparing base <base-sha> with head <head-sha>. The batch server is running.
 Use pnpm review api for tools and return the committed review ID and version.
 ```
@@ -98,7 +98,7 @@ updates a PR comment, use the [author-and-share action](https://github.com/devdo
 The example below is the lower-level authoring-only setup.
 
 
-Set the repository variable `REVIEW_VERSION` to an exact release containing these commands. Install the skills for your harness (for example `review install codex --no-shim`). Provide `ci/author-review.sh` invoking your chosen agent with `dev-review`; the script receives the checkout path, base SHA, and head SHA as arguments and inherits the server selection. Review does not run or configure the model itself.
+Set the repository variable `REVIEW_VERSION` to an exact release containing these commands. Point the agent at the server with `review api` or a stdio MCP entry (`review mcp` with the same profile environment), and have it read `review_get_instructions({})` first. Provide `ci/author-review.sh` invoking your chosen agent; the script receives the checkout path, base SHA, and head SHA as arguments and inherits the server selection. Review does not run or configure the model itself.
 
 ```yaml
 name: Author a Review

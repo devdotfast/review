@@ -45,7 +45,7 @@ Choose the component that makes the relationship visible. Use native diagram com
 | Concrete execution paths | `call_stack_diff` | Compare source-backed call paths, such as the old and new route through functions. Use a sequence for interactions between actors. |
 | Branching, retries or state transitions | `flow_diagram` | Use labeled edges to show decisions, alternate outcomes and cycles. |
 | Stored data and its readers/writers | `database_lens` | Show stores, tables or collections, relevant fields and relationships, plus read/write use cases linked to code. |
-| System structure and responsibilities | `software_map` | Show boundaries, ownership and dependencies among systems, containers and components. |
+<!-- software-map-start -->| System structure and responsibilities | `software_map` | Show boundaries, ownership and dependencies among systems, containers and components. |<!-- software-map-end -->
 | Options or properties to compare | A table in `markdown` | Compare tradeoffs, configuration values, compatibility or input/output cases. A sequence is the appropriate choice for a table whose rows describe messages passed between participants. |
 | Implementation worth examining inline | `code_peek` | Show the code that demonstrates a mechanism or supports a claim. Use source links for other citations. |
 | Illustrative usage or pseudocode | `code` | Make clear that the example is illustrative. |

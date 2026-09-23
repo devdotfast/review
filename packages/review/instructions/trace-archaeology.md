@@ -1,17 +1,8 @@
----
-name: trace-archaeology
-description: Find the agent sessions behind existing code and search past traces. Use when asked "why does this code exist", "what was the agent thinking here", "who/what wrote this", "has an agent solved X before", or when debugging agent-produced code where the original reasoning would help.
-metadata:
-  review-managed-by: "Review Desktop"
-  review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
-  review-version: "development"
----
-
 # Trace archaeology
 
 Agent-written commits record `Agent-Session: <id>` trailers. Use the `review trace` CLI to resolve and pull those sessions. Use FFF to find candidate events. Use `review trace show` for exact evidence.
 
-The `review trace` commands also work without Review Desktop installed or running.
+The `review trace` commands also work without Review Desktop installed or running. If `review` is not on your shell PATH, enable the Review command in Review Desktop Settings and use the installed command path.
 
 ## Configuration
 

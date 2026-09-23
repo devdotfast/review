@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  keepTraceExecutable,
   renderTraceCommand,
   resolveTraceCommand,
   traceHomeDir,
@@ -102,4 +103,15 @@ it("pins an npm PATH executable when Desktop has no local launcher", async () =>
   expect(
     resolveTraceCommand({ homeDir, env: { PATH: path.dirname(command) } }),
   ).toEqual({ file: command });
+});
+
+it("moves hooks to Whiteboard within an installation but preserves another live installation", async () => {
+  const homeDir = await tempHome();
+  const old = await installFile(homeDir, "review");
+  const { chmod } = await import("node:fs/promises");
+  await chmod(old, 0o755);
+  expect(
+    keepTraceExecutable(old, path.join(path.dirname(old), "whiteboard")),
+  ).toBe(false);
+  expect(keepTraceExecutable(old, "/another/bin/whiteboard")).toBe(true);
 });

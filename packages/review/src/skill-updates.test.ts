@@ -290,8 +290,8 @@ describe("packaged skill updates", () => {
     await writeFile(
       source,
       (await readFile(source, "utf8")).replace(
-        'review-version: "1.0.0"',
-        'review-version: "broken"',
+        'whiteboard-version: "1.0.0"',
+        'whiteboard-version: "broken"',
       ),
     );
     expect((await f.launch())?.code).toBe(1);

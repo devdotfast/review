@@ -9,19 +9,23 @@ import {
   type TraceCredentialsInput,
   configureTraceMachine,
   emitJsonEvent,
+  enableTraceRepository,
   failWithJsonError,
   humanStream,
   installClaudeTraceHook,
   installCodexTraceHook,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
+  listTraceRepositoryRoots,
   traceMachineEnabled,
+  traceRepositoryStatus,
+  traceScope,
   writeFileAtomicAsync,
 } from "@dev.fast/trace-core";
 import { valid as validVersion } from "semver";
 
 import { installFffForTargets, isFffTarget } from "./agent-fff";
-import { isDirectory, isFile } from "./fs-utils";
+import { isDirectory, isFile, isMissingFileError } from "./fs-utils";
 import { installDirectory } from "./install-directory";
 import { devReviewHome } from "./review-home-paths";
 import { readScratchpadEnabled } from "./review-preferences";
@@ -29,7 +33,9 @@ import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
-const REQUIRED_SKILL_NAMES = ["dev-review"] as const;
+const CANONICAL_SKILL_NAMES = ["whiteboard"] as const;
+
+const REQUIRED_SKILL_NAMES = [...CANONICAL_SKILL_NAMES, "dev-review"] as const;
 
 // Installed only on machines that capture traces; removed when capture is
 // disabled so agents are not steered toward an unconfigured feature.
@@ -184,6 +190,24 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installTraceHooks =
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
+  // Upgrade only repositories whose managed hooks remain enabled. This runs
+  // before the caller replaces the retired CLI shim; custom hooks stay chained.
+  if (installTraceHooks) {
+    const scope = traceScope({ homeDir, env });
+
+    for (const cwd of await listTraceRepositoryRoots(homeDir)) {
+      if (!(await isDirectory(cwd))) continue;
+      const status = await traceRepositoryStatus(cwd);
+
+      if (status.enabled)
+        await enableTraceRepository({
+          cwd,
+          scope,
+          reviewCommand: input.reviewCommand,
+        });
+    }
+  }
+
   const scratchpadEnabled = await readScratchpadEnabled(devReviewHome(env));
 
   const installed: InstalledItem[] = [];
@@ -193,6 +217,27 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     const destRoot = skillsDestRoot(homeDir, target);
 
     if (!visitedRoots.has(destRoot)) {
+      // Check the new names before changing any skills for this target.
+      for (const name of CANONICAL_SKILL_NAMES) {
+        const destination = path.join(skillsDestRoot(homeDir, target), name);
+
+        const existing = await lstat(destination).catch((error) => {
+          if (isMissingFileError(error)) return undefined;
+          throw error;
+        });
+
+        if (
+          existing &&
+          (!existing.isDirectory() ||
+            !(await readSkillVersion(path.join(destination, "SKILL.md"), name)))
+        )
+          return failWithJsonError(
+            input,
+            "install",
+            `${destination} already exists and is not managed by Whiteboard. Move or rename that skill before installing.`,
+          );
+      }
+
       visitedRoots.add(destRoot);
       await removeStaleSkills(destRoot);
 
@@ -302,12 +347,12 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
 
   if (input.targets.length > 0) {
     human.write(
-      `\nInstalled Review skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
+      `\nInstalled Whiteboard skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
         (input.targets.includes("codex")
-          ? "In Codex, invoke via /skills or the installed dev-review skill.\n"
+          ? "In Codex, invoke via /skills or the installed whiteboard skill.\n"
           : "") +
         (input.targets.includes("cursor")
-          ? "In Cursor, invoke the skills from the / menu (for example /dev-review).\n"
+          ? "In Cursor, invoke the skills from the / menu (for example /whiteboard).\n"
           : "") +
         "Restart the agent (or open a new session) to pick up the changes.\n",
     );
@@ -347,6 +392,11 @@ async function removeInstalledSkillsUnlocked(
     ...SCRATCHPAD_SKILL_NAMES,
     ...STALE_SKILL_NAMES,
   ]) {
+    if (
+      CANONICAL_SKILL_NAMES.some((canonical) => canonical === name) &&
+      !(await readSkillVersion(path.join(destRoot, name, "SKILL.md"), name))
+    )
+      continue;
     await rm(path.join(destRoot, name), { recursive: true, force: true });
   }
 
@@ -493,13 +543,17 @@ export async function readSkillVersion(
 
     if (
       !metadata ||
-      !/^  review-managed-by: "Review Desktop"\r?$/m.test(metadata) ||
-      !/^  review-generated: "[^"\r\n]+"\r?$/m.test(metadata)
+      !(
+        (/^  whiteboard-managed-by: "Whiteboard"\r?$/m.test(metadata) &&
+          /^  whiteboard-generated: "[^"\r\n]+"\r?$/m.test(metadata)) ||
+        (/^  review-managed-by: "Review Desktop"\r?$/m.test(metadata) &&
+          /^  review-generated: "[^"\r\n]+"\r?$/m.test(metadata))
+      )
     )
       return null;
 
     const version = metadata.match(
-      /^  review-version: "([^"\r\n]+)"\r?$/m,
+      /^  (?:whiteboard|review)-version: "([^"\r\n]+)"\r?$/m,
     )?.[1];
 
     return version && (version === "development" || validVersion(version))

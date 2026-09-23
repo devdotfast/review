@@ -14,7 +14,7 @@ export interface RunReviewInfoInput {
 
 export interface ReviewInfoEvent {
   event: "info";
-  reviews: SessionSummary[];
+  sessions: SessionSummary[];
 }
 
 export async function runReviewInfo(
@@ -27,28 +27,30 @@ export async function runReviewInfo(
 
   const client = new SessionApiClient({
     serverUrl: discovery.url,
+    apiPath: "/sessions-api",
+
     token: discovery.token,
   });
 
   // The API is mounted at "/sessions-api" and Hono matches strictly; "" is the
   // catalog route and "/" is a 404.
-  const reviews = await client.read<SessionSummary[]>("");
+  const sessions = await client.read<SessionSummary[]>("");
 
   if (input.sessionId) {
-    const selected = reviews.find(
+    const selected = sessions.find(
       (review) => review.sessionId === input.sessionId,
     );
 
     if (!selected) throw new Error(`Review not found: ${input.sessionId}`);
 
-    return { event: "info", reviews: [selected] };
+    return { event: "info", sessions: [selected] };
   }
 
   const root = await runtime.resolveReviewRoot(input.cwd);
 
   return {
     event: "info",
-    reviews: reviews.filter(
+    sessions: sessions.filter(
       (review) =>
         review.repositoryPath === root && (input.all || !review.dismissedAt),
     ),

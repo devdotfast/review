@@ -897,6 +897,7 @@ export type ReviewFffManagedRegistration = z.infer<
 >;
 
 export const ReviewMcpRegistrationSchema = z.strictObject({
+  name: z.enum(["review", "whiteboard"]).optional(),
   target: z.enum(["codex", "claude", "cursor", "opencode"]),
   configPath: requiredString,
   command: requiredString,

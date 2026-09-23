@@ -44,14 +44,14 @@ it("reports the native catalog with pins and versions, filtering the current rep
   );
   expect(await runReviewInfo({ cwd: "/repo" }, runtime)).toEqual({
     event: "info",
-    reviews: [current],
+    sessions: [current],
   });
   expect(
-    (await runReviewInfo({ cwd: "/repo", all: true }, runtime)).reviews,
+    (await runReviewInfo({ cwd: "/repo", all: true }, runtime)).sessions,
   ).toEqual([current, dismissed]);
   expect(
     (await runReviewInfo({ cwd: "/repo", sessionId: "dismissed" }, runtime))
-      .reviews,
+      .sessions,
   ).toEqual([dismissed]);
   await expect(
     runReviewInfo({ cwd: "/repo", sessionId: "missing" }, runtime),
@@ -76,7 +76,7 @@ it("lists the catalog at the mounted route, not a trailing-slash child", async (
 
   vi.stubGlobal("fetch", fetch);
 
-  expect((await runReviewInfo({ cwd: "/repo" }, runtime)).reviews).toEqual([
+  expect((await runReviewInfo({ cwd: "/repo" }, runtime)).sessions).toEqual([
     review,
   ]);
   expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([

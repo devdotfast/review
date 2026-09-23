@@ -48,7 +48,7 @@ const FORBIDDEN_MODULES = [
 ];
 
 const FORBIDDEN_PACKAGES = [
-  "@dev.fast/review",
+  "@dev.fast/whiteboard",
   "isomorphic-git",
   "react",
   "node:sqlite",
@@ -249,15 +249,15 @@ describe("trace-core package independence", () => {
       boundaryViolations(
         file,
         `
-      import type { App } from "@dev.fast/review";
-      export type { App } from "@dev.fast/review/authoring";
+      import type { App } from "@dev.fast/whiteboard";
+      export type { App } from "@dev.fast/whiteboard/authoring";
       const app = import("../../review/src/runtime");
       type AppType = import("../../review/src/authoring").App;
     `,
       ),
     ).toEqual([
-      "@dev.fast/review",
-      "@dev.fast/review/authoring",
+      "@dev.fast/whiteboard",
+      "@dev.fast/whiteboard/authoring",
       "../../review/src/runtime",
       "../../review/src/authoring",
     ]);

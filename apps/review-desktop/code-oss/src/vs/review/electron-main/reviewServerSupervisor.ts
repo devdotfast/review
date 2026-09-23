@@ -196,11 +196,11 @@ export class ReviewServerSupervisor extends Disposable {
   stageRustAnalyzer(): void {
     const sourcePath = resolveRustAnalyzerSource(this.options);
     if (!sourcePath) {
-      this.options.logError("[Review Desktop] no installed rust-analyzer source is available to stage.");
+      this.options.logError("[Whiteboard] no installed rust-analyzer source is available to stage.");
       return;
     }
     if (!this.serverProcess) {
-      this.options.logError("[Review Desktop] the Review server is unavailable for rust-analyzer staging.");
+      this.options.logError("[Whiteboard] the Whiteboard server is unavailable for rust-analyzer staging.");
       return;
     }
     this.serverProcess.postMessage({ type: "stage-rust-analyzer", path: sourcePath });
@@ -301,14 +301,14 @@ export class ReviewServerSupervisor extends Disposable {
       if (this.stopping) return;
       if (!ready && !this.connected.isSettled) {
         this.options.logError(
-          "[Review Desktop] server host exited before announcing an endpoint.",
+          "[Whiteboard] server host exited before announcing an endpoint.",
         );
       }
       const delay = REVIEW_SERVER_RESTART_DELAYS[this.restartCount++];
       if (delay === undefined) {
         this.failStartup(
           new Error(
-            "The Review server exhausted its restart budget without becoming ready.",
+            "The Whiteboard server exhausted its restart budget without becoming ready.",
           ),
         );
         return;
@@ -345,7 +345,7 @@ export class ReviewServerSupervisor extends Disposable {
     });
     const started = serverProcess.start({
       type: "review-desktop-host",
-      name: "Review Desktop host",
+      name: "Whiteboard host",
       entryPoint: "vs/review/electron-utility/reviewDesktopHostMain",
       parentLifecycleBound: appPid,
       env: environment,

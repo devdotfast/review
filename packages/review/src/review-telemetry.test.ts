@@ -79,7 +79,7 @@ describe("ReviewTelemetry", () => {
     expect(events).toHaveLength(1);
     expect(events[0].properties).toMatchObject({
       product: "review-cli",
-      package: "@dev.fast/review",
+      package: "@dev.fast/whiteboard",
       version: await reviewPackageVersion(),
       internal: true,
     });

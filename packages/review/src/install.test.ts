@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -11,12 +13,17 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { collectingWritable } from "@dev.fast/trace-core";
+import {
+  collectingWritable,
+  enableTraceRepository,
+  traceRepositoryStatus,
+  traceScope,
+} from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { installFile, runInstall } from "./install";
+import { installFile, removeInstalledSkills, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review"] as const;
+const REQUIRED_SKILLS = ["whiteboard", "dev-review"] as const;
 
 const ALL_SKILLS = [
   ...REQUIRED_SKILLS,
@@ -44,7 +51,7 @@ async function makeTempDir(): Promise<string> {
 async function writeSkill(
   packageRoot: string,
   name: string,
-  contents = `---\nname: ${name}\ndescription: ${name}\n---\n\n# ${name}\n`,
+  contents = `---\nname: ${name}\ndescription: ${name}\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "Managed test fixture"\n  review-version: "development"\n---\n\n# ${name}\n`,
 ): Promise<void> {
   const skillDir = path.join(packageRoot, "skills", name);
   await mkdir(skillDir, { recursive: true });
@@ -616,3 +623,105 @@ describe("runInstall", () => {
     );
   });
 });
+
+it("refuses a canonical skill-name collision before replacing an existing legacy skill", async () => {
+  const packageRoot = await makePackageRoot();
+  const homeDir = await makeTempDir();
+  const skills = path.join(homeDir, ".agents", "skills");
+  const custom = path.join(skills, "whiteboard", "SKILL.md");
+  const legacy = path.join(skills, "dev-review", "SKILL.md");
+  await mkdir(path.dirname(custom), { recursive: true });
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await writeFile(
+    custom,
+    "---\nname: whiteboard\ndescription: My drawing tool\n---\nKeep my instructions.",
+  );
+  await writeFile(legacy, "Existing installed skill");
+  const streams = silentStreams();
+  expect(
+    await runInstall({
+      packageRoot,
+      homeDir,
+      cwd: homeDir,
+      targets: ["codex"],
+      ...streams,
+    }),
+  ).toBe(1);
+  expect(await readFile(custom, "utf8")).toContain("Keep my instructions.");
+  expect(await readFile(legacy, "utf8")).toBe("Existing installed skill");
+  expect(streams.err.join("")).toContain("not managed by Whiteboard");
+  await removeInstalledSkills("codex", homeDir);
+  expect(await readFile(custom, "utf8")).toContain("Keep my instructions.");
+});
+
+it.each([true, false])(
+  "updates existing managed Git hooks only when tracing is enabled (%s)",
+  async (enabled) => {
+    const homeDir = await makeTempDir();
+    const packageRoot = await makePackageRoot();
+    const cwd = await makeTempDir();
+    execFileSync("git", ["init", "--quiet", cwd]);
+    const settingsPath = path.join(homeDir, "trace-settings.json");
+
+    const settings = JSON.stringify({
+      version: 1,
+      enabled,
+      autoActivateRepositories: true,
+    });
+
+    await writeFile(settingsPath, settings);
+    const env = { TRACE_SETTINGS_FILE: settingsPath };
+    const bin = path.join(homeDir, ".local", "bin");
+    await mkdir(bin, { recursive: true });
+    const oldCommand = path.join(bin, "review");
+    const command = path.join(bin, "whiteboard");
+    const invoked = path.join(homeDir, "invoked");
+    await writeFile(oldCommand, "#!/bin/sh\nexit 99\n");
+    await writeFile(command, `#!/bin/sh\nprintf '%s\\n' "$@" > '${invoked}'\n`);
+    await chmod(oldCommand, 0o755);
+    await chmod(command, 0o755);
+    const customHooks = path.join(cwd, "custom-hooks");
+    await mkdir(customHooks);
+    await writeFile(
+      path.join(customHooks, "prepare-commit-msg"),
+      "#!/bin/sh\nexit 0\n",
+    );
+    await chmod(path.join(customHooks, "prepare-commit-msg"), 0o755);
+    execFileSync("git", ["-C", cwd, "config", "core.hooksPath", customHooks]);
+    await enableTraceRepository({
+      cwd,
+      scope: traceScope({ homeDir, env }),
+      reviewCommand: oldCommand,
+    });
+    const before = await traceRepositoryStatus(cwd);
+    const streams = silentStreams();
+    expect(
+      await runInstall({
+        targets: [],
+        homeDir,
+        packageRoot,
+        env,
+        reviewCommand: command,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      }),
+    ).toBe(0);
+    const after = await traceRepositoryStatus(cwd);
+    expect(after.previousHooksPath).toBe(customHooks);
+    expect(after.command).toContain(enabled ? command : oldCommand);
+    expect(await readFile(settingsPath, "utf8")).toBe(settings);
+
+    if (enabled) {
+      execFileSync(
+        "sh",
+        [path.join(after.managedHooksPath!, "prepare-commit-msg"), "message"],
+        { cwd },
+      );
+    }
+
+    expect(existsSync(invoked)).toBe(enabled);
+    expect(enabled ? await readFile(invoked, "utf8") : after).toEqual(
+      enabled ? "trace\ngit-hook\nprepare-commit-msg\nmessage\n" : before,
+    );
+  },
+);

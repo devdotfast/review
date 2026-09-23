@@ -13,7 +13,9 @@ export function devReviewHome(
   env: NodeJS.ProcessEnv = process.env,
   homeDir: string = os.homedir(),
 ): string {
-  const override = env[DEV_REVIEW_HOME_ENV]?.trim();
+  const override = (
+    env.DEV_WHITEBOARD_HOME ?? env[DEV_REVIEW_HOME_ENV]
+  )?.trim();
 
   return override ? path.resolve(override) : path.join(homeDir, ".dev");
 }

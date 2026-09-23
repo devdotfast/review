@@ -594,7 +594,7 @@ export class ReviewTelemetry {
 
     const properties: PostHogCaptureProperties = {
       product: "review-cli",
-      package: "@dev.fast/review",
+      package: "@dev.fast/whiteboard",
       version: await this.readPackageVersion(),
       node_major: Number(process.versions.node.split(".", 1)[0]),
       platform: process.platform,

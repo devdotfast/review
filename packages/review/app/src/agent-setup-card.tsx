@@ -146,8 +146,8 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installs Whiteboard skills, the <code>whiteboard</code> command, and MCP tools
-        where supported.
+        Installs Whiteboard skills, the <code>whiteboard</code> command, and MCP
+        tools where supported.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>

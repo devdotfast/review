@@ -104,7 +104,35 @@ function configuration(registration: ReviewMcpRegistration) {
 
   return target === "claude" || target === "cursor"
     ? { type: "stdio", command, args, env }
-    : { command, args, env };
+    : // Review's tools only touch Review; asking before each one stalls authoring.
+      { command, args, env, default_tools_approval_mode: "approve" };
+}
+
+/**
+ * Codex has one `review` server: Review replaces whatever table-form entry is
+ * there. Inline or dotted forms stay, and the caller reports them as custom.
+ */
+function withoutCodexReviewTables(source: string): string {
+  const lines = source
+    .replace(
+      /# BEGIN Review Desktop MCP\n[\s\S]*?# END Review Desktop MCP\n/g,
+      "",
+    )
+    .split("\n");
+
+  const kept: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const header = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line)?.[1];
+
+    if (header !== undefined)
+      skipping = /^mcp_servers\.("review"|review)(\.|$)/.test(header);
+
+    if (!skipping) kept.push(line);
+  }
+
+  return kept.join("\n");
 }
 
 function tomlBlock(registration: ReviewMcpRegistration) {
@@ -167,6 +195,18 @@ function matches(
   );
 }
 
+function codexReplaceable(config: Awaited<ReturnType<typeof readConfig>>) {
+  if (config.key !== "mcp_servers" || config.current === undefined)
+    return false;
+
+  // `enabled = false` is the user switching Review off in Codex.
+  if (object.safeParse(config.current).data?.enabled === false) return false;
+
+  const stripped = parse(withoutCodexReviewTables(config.source));
+
+  return object.parse(stripped.mcp_servers ?? {}).review === undefined;
+}
+
 export async function reviewMcpStatus(
   desired: ReviewMcpRegistration,
   previous?: ReviewMcpRegistration,
@@ -179,7 +219,7 @@ export async function reviewMcpStatus(
 
     const state = matches(config, desired)
       ? "ready"
-      : config.current === undefined || managed
+      : config.current === undefined || managed || codexReplaceable(config)
         ? "missing"
         : "custom";
 
@@ -204,7 +244,15 @@ export async function writeReviewMcpRegistration(
   const managed =
     previous?.configPath === desired.configPath && matches(config, previous);
 
-  if (config.current !== undefined && !managed && !matches(config, desired))
+  const replace =
+    !managed && !matches(config, desired) && codexReplaceable(config);
+
+  if (
+    config.current !== undefined &&
+    !managed &&
+    !replace &&
+    !matches(config, desired)
+  )
     return false;
 
   if (remove && !managed) return false;
@@ -219,6 +267,7 @@ export async function writeReviewMcpRegistration(
     if (managed) next = next.replace(tomlBlock(previous), "");
     else if (matches(config, desired))
       next = next.replace(tomlBlock(desired), "");
+    else if (replace && !remove) next = withoutCodexReviewTables(next);
 
     if (!remove) next += `\n${tomlBlock(desired)}`;
     // Reject conflicting inline/dotted declarations before touching the file.

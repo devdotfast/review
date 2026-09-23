@@ -176,32 +176,50 @@ it("removes only the selected agent's entry and retains unrelated configuration"
   expect((await config("codex")).mcp_servers).toBeUndefined();
 });
 
-it("leaves a user's customized entry alone on update, reinstall, and uninstall", async () => {
+it("replaces a Codex review entry Review did not write", async () => {
+  await mkdir(path.join(homeDir, ".codex"));
+  const file = path.join(homeDir, ".codex/config.toml");
+
+  await writeFile(
+    file,
+    'model = "gpt-5"\n\n[mcp_servers.review]\ncommand = "review"\nargs = ["mcp"]\n\n[mcp_servers.review.env]\nFOO = "1"\n\n[mcp_servers.other]\ncommand = "other"\n',
+  );
+  await install();
+
+  const config = parse(await readFile(file, "utf8"));
+
+  expect(config.model).toBe("gpt-5");
+  expect(config.mcp_servers).toMatchObject({
+    other: { command: "other" },
+    review: { args: ["mcp"], default_tools_approval_mode: "approve" },
+  });
+  expect(
+    (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(
+      (item) => item.target === "codex",
+    )?.state,
+  ).toBe("ready");
+});
+
+it("leaves a Codex review entry the user disabled", async () => {
   await install();
   const file = path.join(homeDir, ".codex/config.toml");
 
-  const customized = (await readFile(file, "utf8")).replace(
-    'args = [ "mcp" ]',
-    'args = [ "custom" ]',
-  );
-
-  // Disable is a user choice even when the generated launch command is unchanged.
-  const changed = customized.replace(
+  const disabled = (await readFile(file, "utf8")).replace(
     "[mcp_servers.review]",
     "[mcp_servers.review]\nenabled = false",
   );
 
-  await writeFile(file, changed);
+  await writeFile(file, disabled);
   await install(true);
   await install();
-  expect(await readFile(file, "utf8")).toBe(changed);
+  expect(await readFile(file, "utf8")).toBe(disabled);
   expect(
     (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(
       (item) => item.target === "codex",
     )?.state,
   ).toBe("custom");
   await removeCliInstall({ targets: ["codex"], homeDir, env });
-  expect(await readFile(file, "utf8")).toBe(changed);
+  expect(await readFile(file, "utf8")).toBe(disabled);
 });
 
 it("does not replace an existing foreign Review server or malformed settings", async () => {

@@ -366,6 +366,7 @@ const initialize = {
 describe("review mcp instructions", () => {
   it("lists and answers while down, then serves guidance through a restart", async () => {
     let up = false;
+    let connections = 0;
 
     const store = new ReviewStore(":memory:", {
       validatePins: async () => {},
@@ -381,20 +382,25 @@ describe("review mcp instructions", () => {
     );
 
     const mcp = await startMcp(async () => {
+      connections++;
+
       if (!up) throw new Error("No Review Desktop server is ready.");
 
       return client;
     });
 
     try {
+      expect(connections).toBe(0);
+
       const init = await mcp.request(1, "initialize", initialize);
       expect(init.result.instructions).toContain("review_get_instructions");
       expect(init.result.instructions).toContain("trace-archaeology");
-      expect(init.result.instructions).not.toContain('topic:"scratchpad"');
+      expect(init.result.instructions).toContain('topic:"scratchpad"');
       const list = await mcp.request(2, "tools/list", {});
       expect(
         list.result.tools.map((tool: { name: string }) => tool.name),
       ).toEqual(["review_get_instructions"]);
+      expect(list.result.tools[0].description).not.toContain("scratchpad");
 
       const down = await mcp.request(3, "tools/call", {
         name: "review_get_instructions",
@@ -446,7 +452,7 @@ describe("review mcp instructions", () => {
     }
   });
 
-  it("uses the live scratchpad prompt and preserves tool errors", async () => {
+  it("uses the live scratchpad catalog description and preserves tool errors", async () => {
     const store = new ReviewStore(":memory:", {
       validatePins: async () => {},
       validateSource: async () => {},
@@ -480,10 +486,12 @@ describe("review mcp instructions", () => {
     const mcp = await startMcp(async () => client);
 
     try {
-      const init = await mcp.request(1, "initialize", initialize);
-      expect(init.result.instructions).toContain('topic:"scratchpad"');
+      await mcp.request(1, "initialize", initialize);
 
-      const invalid = await mcp.request(2, "tools/call", {
+      const list = await mcp.request(2, "tools/list", {});
+      expect(list.result.tools[0].description).toContain('topic:"scratchpad"');
+
+      const invalid = await mcp.request(3, "tools/call", {
         name: "review_get_instructions",
         arguments: { topic: "../secrets" },
       });
@@ -495,7 +503,7 @@ describe("review mcp instructions", () => {
 
       failInstruction = true;
 
-      const failed = await mcp.request(3, "tools/call", {
+      const failed = await mcp.request(4, "tools/call", {
         name: "review_get_instructions",
         arguments: {},
       });

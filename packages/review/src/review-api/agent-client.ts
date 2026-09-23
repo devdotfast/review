@@ -20,6 +20,8 @@ export interface AuthoringTool {
   commandType?: string;
 }
 
+export const TEXT_TOOLS = new Set(["review_get", "review_get_instructions"]);
+
 export async function connectReviewApi(env = process.env) {
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);

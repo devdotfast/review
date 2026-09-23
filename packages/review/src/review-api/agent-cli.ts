@@ -2,11 +2,12 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   type AuthoringTool,
+  TEXT_TOOLS,
   callAuthoringTool,
   connectReviewApi,
 } from "./agent-client.js";
 import { type ReviewApiClient, ReviewApiError } from "./client.js";
-import { RECOVERY } from "./mcp.js";
+import { RECOVERY } from "./recovery.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -101,8 +102,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (name === "review_get" && rest.includes("--json")) args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
     input.stdout.write(
-      ((name === "review_get" || name === "review_get_instructions") &&
-      isStringValue(result)
+      (TEXT_TOOLS.has(name) && isStringValue(result)
         ? result
         : JSON.stringify(result)) + "\n",
     );

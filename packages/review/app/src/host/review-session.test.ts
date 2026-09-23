@@ -19,7 +19,9 @@ it("sends JSON requests to the displayed version with authentication, including 
   expect(new URL(url).pathname).toBe("/sessions-api/review%2Fid/copy-context");
   expect(new URL(url).searchParams.get("version")).toBe("2");
   expect(new URL(url).searchParams.has("document")).toBe(false);
-  expect(new Headers(init?.headers).get("x-whiteboard-token")).toBe("secret-token");
+  expect(new Headers(init?.headers).get("x-whiteboard-token")).toBe(
+    "secret-token",
+  );
 
   version = 3;
   await session.fetch("/telemetry/event", { method: "POST" });

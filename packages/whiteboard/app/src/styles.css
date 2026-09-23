@@ -5908,24 +5908,53 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   height: 14px;
 }
 
+.whiteboard-connect-body-wrap {
+  position: relative;
+}
+
 .whiteboard-connect-body[data-collapsed="true"] {
   max-height: calc(22px * 4);
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+  mask-image: linear-gradient(to bottom, #000 35%, transparent);
 }
 
-.whiteboard-home-prompt-actions .whiteboard-connect-expand {
+/* Sits on the fade, centered, like a "show full prompt" pill. */
+.whiteboard-connect-expand {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
+  cursor: pointer;
+}
+
+.whiteboard-connect-expand:hover {
+  border-color: var(--ink-muted);
+}
+
+.whiteboard-home-prompt-actions .whiteboard-connect-collapse {
   margin-right: auto;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--whiteboard-home-ink-soft, var(--ink-soft));
+  color: var(--ink-muted);
   font: 12px/22px var(--font-mono);
   cursor: pointer;
 }
 
-.whiteboard-home-prompt-actions .whiteboard-connect-expand:hover {
+.whiteboard-home-prompt-actions .whiteboard-connect-collapse:hover {
   color: var(--ink);
+}
+
+.whiteboard-connect-hint {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font: 12px/18px var(--font-mono);
 }
 
 .whiteboard-connect-modes button {

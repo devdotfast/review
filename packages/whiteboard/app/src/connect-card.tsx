@@ -162,21 +162,33 @@ export function ConnectCard({
       </div>
       {text ? (
         <>
-          <pre
-            className="whiteboard-home-prompt-body whiteboard-connect-body"
-            data-collapsed={collapsed}
-          >
-            {text}
-          </pre>
-          <div className="whiteboard-home-prompt-actions">
-            {collapsible ? (
+          <div className="whiteboard-connect-body-wrap">
+            <pre
+              className="whiteboard-home-prompt-body whiteboard-connect-body"
+              data-collapsed={collapsed}
+            >
+              {text}
+            </pre>
+            {collapsed ? (
               <button
                 type="button"
                 className="whiteboard-connect-expand"
-                aria-expanded={expanded}
-                onClick={() => setExpanded((open) => !open)}
+                aria-expanded={false}
+                onClick={() => setExpanded(true)}
               >
-                {expanded ? "Show less" : "Show more…"}
+                Show full {noun}
+              </button>
+            ) : null}
+          </div>
+          <div className="whiteboard-home-prompt-actions">
+            {collapsible && expanded ? (
+              <button
+                type="button"
+                className="whiteboard-connect-collapse"
+                aria-expanded={true}
+                onClick={() => setExpanded(false)}
+              >
+                Show less
               </button>
             ) : null}
             <button
@@ -186,12 +198,19 @@ export function ConnectCard({
               aria-label={`${copied ? "Copied" : "Copy"} ${noun} for ${agent}`}
               onClick={() => copy(text)}
             >
-              <CopyIcon />
+              {copied ? <CheckIcon /> : <CopyIcon />}
               {copied
                 ? "Copied"
                 : `Copy ${mode === "prompt" ? "prompt" : "command"}`}
             </button>
           </div>
+          {mode === "prompt" ? (
+            <p className="whiteboard-connect-hint">
+              Your agent should reply that it reached Whiteboard&apos;s
+              instructions. If it says Whiteboard is not running, keep this app open
+              and try again.
+            </p>
+          ) : null}
         </>
       ) : plugin.url ? (
         <>
@@ -217,6 +236,14 @@ export function ConnectCard({
         <p className="whiteboard-connect-error">{status.error}</p>
       ) : null}
     </section>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M2.5 6.5 5 9l4.5-6" fill="none" />
+    </svg>
   );
 }
 

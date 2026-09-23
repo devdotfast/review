@@ -265,10 +265,12 @@ describe("ConnectCard", () => {
     expect(body?.dataset.collapsed).toBe("true");
 
     const toggle = container.querySelector("[aria-expanded]");
-    expect(toggle?.textContent).toBe("Show more…");
+    expect(toggle?.textContent).toBe("Show full prompt");
     await act(async () => (toggle as HTMLButtonElement).click());
     expect(body?.dataset.collapsed).toBe("false");
-    expect(toggle?.textContent).toBe("Show less");
+    expect(
+      container.querySelector(".review-connect-collapse")?.textContent,
+    ).toBe("Show less");
 
     const copy = [...container.querySelectorAll("button")].find(
       (b) => b.textContent === "Copy prompt",

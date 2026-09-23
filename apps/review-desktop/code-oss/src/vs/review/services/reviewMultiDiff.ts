@@ -1,5 +1,5 @@
 import { observableValue } from "../../base/common/observable.js";
-import type { ReviewDiffSection } from "../common/reviewProtocol.js";
+import type { ReviewDiffProgressState, ReviewDiffSection } from "../common/reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -34,7 +34,7 @@ export interface ReviewMultiDiffHeaderEntry {
 	readonly onToggleSectionCollapsed?: () => void;
 	readonly onToggleSection?: () => void;
   readonly onDidOpen?: () => void;
-	readonly viewedState?: "unread" | "partial" | "viewed";
+	readonly viewedState?: ReviewDiffProgressState;
 	readonly onToggleViewed?: () => void;
 }
 
@@ -89,7 +89,7 @@ export class ReviewMultiDiffUIElementFactory
 			const chevron = document.createElement('span'); chevron.className = `codicon codicon-chevron-${entry?.sectionCollapsed ? 'right' : 'down'}`;
 			const title = document.createElement('span'); title.className = 'review-diff-group-title'; title.textContent = section.label;
 			const counts = document.createElement('span'); counts.className = 'review-diff-group-counts';
-			counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? '✓' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
+			counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? '✓' : section.state === 'folded' ? 'Folded' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
 			counts.title = `Remaining +${section.remaining.additions} −${section.remaining.deletions} · Total +${section.total.additions} −${section.total.deletions}`;
 			const button = document.createElement('button'); button.className = 'review-header-viewed'; button.setAttribute('role', 'checkbox');
 			button.setAttribute('aria-checked', section.state === 'partial' ? 'mixed' : String(section.state === 'viewed'));
@@ -203,8 +203,14 @@ export class ReviewMultiDiffUIElementFactory
 			viewed.setAttribute("aria-checked", current.viewedState === "partial" ? "mixed" : String(current.viewedState === "viewed"));
 			viewed.title = current.viewedState === "viewed" ? "Mark unviewed and unfold" : "Mark visible scope viewed";
 			viewed.setAttribute("aria-label", viewed.title);
-			counts.classList.toggle("review-counts-viewed", current.viewedState === "viewed");
+			counts.classList.toggle("review-counts-viewed", current.viewedState === "viewed" || current.viewedState === "folded");
+			counts.classList.toggle("review-counts-folded", current.viewedState === "folded");
 			if (current.viewedState === "viewed") { additions.textContent = "✓"; deletions.textContent = ""; }
+			else if (current.viewedState === "folded") {
+				// A hidden file's note already says why it is folded.
+				additions.textContent = "Folded"; deletions.textContent = "";
+				counts.hidden ||= !!current.note;
+			}
 
 			note.hidden = !current.note;
 			note.textContent = current.note ?? "";

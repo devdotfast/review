@@ -25,10 +25,18 @@ export interface ChangeCounts {
   deletions: number;
 }
 
+/**
+ * Changed lines that diffr folds by default count as done, the way the
+ * reader's viewed marks do. `folded` is how many of the scope's lines are
+ * done only because they are folded; `remaining` excludes them.
+ * "folded" is the state of a scope with nothing left to read and nothing the
+ * reader marked: all of it starts folded.
+ */
 export interface CoverageProgress {
-  state: "unread" | "partial" | "viewed";
+  state: "unread" | "partial" | "viewed" | "folded";
   total: ChangeCounts;
   remaining: ChangeCounts;
+  folded: ChangeCounts;
 }
 
 export interface CoverageFile {
@@ -36,6 +44,10 @@ export interface CoverageFile {
   previousPath?: string;
   fingerprint: string;
   changed: Coverage;
+  /** The changed lines diffr folds by default: every changed line of a file
+   * it hides, or those under a region that starts collapsed. Absent without
+   * structural data, where every changed line is left to read. */
+  folded?: Coverage;
   viewed: Coverage;
 }
 
@@ -146,35 +158,48 @@ export function coverageProgress(
   sources?: readonly FileLineRange[],
 ): CoverageProgress {
   const total = { additions: 0, deletions: 0 },
-    remaining = { additions: 0, deletions: 0 };
+    remaining = { additions: 0, deletions: 0 },
+    folded = { additions: 0, deletions: 0 };
 
   for (const file of files) {
     const scope = scopedCoverage(file, sources);
     const counts = structuralChangeCounts(scope);
 
+    const side = (side: "base" | "head") => {
+      const unviewed = subtractIntervals(scope[side], file.viewed[side]);
+
+      return {
+        unread: subtractIntervals(unviewed, file.folded?.[side] ?? []),
+        folded: intersectIntervals(unviewed, file.folded?.[side] ?? []),
+      };
+    };
+
+    const base = side("base"),
+      head = side("head");
+
     const unread = structuralChangeCounts({
-      base: subtractIntervals(scope.base, file.viewed.base),
-      head: subtractIntervals(scope.head, file.viewed.head),
+      base: base.unread,
+      head: head.unread,
+    });
+
+    const foldedCounts = structuralChangeCounts({
+      base: base.folded,
+      head: head.folded,
     });
 
     total.additions += counts.added;
     total.deletions += counts.removed;
     remaining.additions += unread.added;
     remaining.deletions += unread.removed;
+    folded.additions += foldedCounts.added;
+    folded.deletions += foldedCounts.removed;
   }
-
-  const size = total.additions + total.deletions,
-    unread = remaining.additions + remaining.deletions;
 
   return {
     total,
     remaining,
-    state:
-      size > 0 && unread === 0
-        ? "viewed"
-        : unread < size
-          ? "partial"
-          : "unread",
+    folded,
+    state: progressState(total, remaining, folded),
   };
 }
 
@@ -184,28 +209,39 @@ export function mergeCoverageProgress(
   parts: readonly CoverageProgress[],
 ): CoverageProgress {
   const total = { additions: 0, deletions: 0 },
-    remaining = { additions: 0, deletions: 0 };
+    remaining = { additions: 0, deletions: 0 },
+    folded = { additions: 0, deletions: 0 };
 
   for (const part of parts) {
     total.additions += part.total.additions;
     total.deletions += part.total.deletions;
     remaining.additions += part.remaining.additions;
     remaining.deletions += part.remaining.deletions;
+    folded.additions += part.folded.additions;
+    folded.deletions += part.folded.deletions;
   }
-
-  const size = total.additions + total.deletions,
-    unread = remaining.additions + remaining.deletions;
 
   return {
     total,
     remaining,
-    state:
-      size > 0 && unread === 0
-        ? "viewed"
-        : unread < size
-          ? "partial"
-          : "unread",
+    folded,
+    state: progressState(total, remaining, folded),
   };
+}
+
+/** Done lines are the viewed and the folded ones; the state names which. */
+function progressState(
+  total: ChangeCounts,
+  remaining: ChangeCounts,
+  folded: ChangeCounts,
+): CoverageProgress["state"] {
+  const size = total.additions + total.deletions,
+    unread = remaining.additions + remaining.deletions,
+    viewed = size - unread - folded.additions - folded.deletions;
+
+  if (size > 0 && unread === 0) return viewed > 0 ? "viewed" : "folded";
+
+  return viewed > 0 ? "partial" : "unread";
 }
 
 export function coverageSources(

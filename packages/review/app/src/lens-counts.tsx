@@ -4,6 +4,8 @@ import { compactDiffCount as compact } from "./diff-count";
 export function ElementCounts({ progress }: { progress: CoverageProgress }) {
   return progress.state === "viewed" ? (
     <tspan>✓</tspan>
+  ) : progress.state === "folded" ? (
+    <tspan>Folded</tspan>
   ) : (
     <>
       <tspan className="diff-count-added">
@@ -24,6 +26,8 @@ export function ElementCountsText({
 }) {
   return progress.state === "viewed" ? (
     <span>✓</span>
+  ) : progress.state === "folded" ? (
+    <span>Folded</span>
   ) : (
     <>
       <span className="diff-count-added">

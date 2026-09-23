@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import {
   type CoverageFile,
   coverageProgress,
+  mergeCoverageProgress,
   scopedCoverage,
   updateCoverage,
 } from "./viewed-coverage";
@@ -28,11 +29,13 @@ it("overlapping lenses count changed lines once and share completion", () => {
     state: "viewed",
     total: { additions: 9, deletions: 0 },
     remaining: { additions: 0, deletions: 0 },
+    folded: { additions: 0, deletions: 0 },
   });
   expect(coverageProgress([updated])).toEqual({
     state: "partial",
     total: { additions: 11, deletions: 3 },
     remaining: { additions: 2, deletions: 3 },
+    folded: { additions: 0, deletions: 0 },
   });
 });
 
@@ -66,5 +69,75 @@ it("unchanged context alone is neutral and does not inflate completion", () => {
     state: "unread",
     total: { additions: 0, deletions: 0 },
     remaining: { additions: 0, deletions: 0 },
+    folded: { additions: 0, deletions: 0 },
+  });
+});
+
+it("folded lines count as done and leave only the unfolded ones remaining", () => {
+  const folded: CoverageFile = {
+    ...file,
+    folded: { base: [[4, 7]], head: [[15, 20]] },
+  };
+
+  expect(coverageProgress([folded])).toEqual({
+    state: "unread",
+    total: { additions: 11, deletions: 3 },
+    remaining: { additions: 6, deletions: 0 },
+    folded: { additions: 5, deletions: 3 },
+  });
+
+  // Viewing every unfolded line finishes the file.
+  const viewed: CoverageFile = {
+    ...folded,
+    viewed: { base: [], head: [[9, 15]] },
+  };
+
+  expect(coverageProgress([viewed])).toMatchObject({
+    state: "viewed",
+    remaining: { additions: 0, deletions: 0 },
+  });
+
+  // A viewed mark on a folded line is a viewed line, not a folded one.
+  const opened: CoverageFile = {
+    ...folded,
+    viewed: { base: [[4, 7]], head: [] },
+  };
+
+  expect(coverageProgress([opened])).toMatchObject({
+    state: "partial",
+    remaining: { additions: 6, deletions: 0 },
+    folded: { additions: 5, deletions: 0 },
+  });
+});
+
+it("a scope with only folded lines left, and none marked, reads as folded", () => {
+  const hidden: CoverageFile = { ...file, folded: file.changed };
+
+  expect(coverageProgress([hidden])).toEqual({
+    state: "folded",
+    total: { additions: 11, deletions: 3 },
+    remaining: { additions: 0, deletions: 0 },
+    folded: { additions: 11, deletions: 3 },
+  });
+
+  // Lens scopes and merged comparisons follow the same rule.
+  const sources = [
+    { side: "head" as const, file: "new.ts", fromLine: 10, toLine: 12 },
+  ];
+
+  expect(coverageProgress([hidden], sources).state).toBe("folded");
+  expect(
+    mergeCoverageProgress([
+      coverageProgress([hidden]),
+      coverageProgress([{ ...file, viewed: file.changed }]),
+    ]).state,
+  ).toBe("viewed");
+});
+
+it("without structural folds every changed line is left to read", () => {
+  expect(coverageProgress([file])).toMatchObject({
+    state: "unread",
+    remaining: { additions: 11, deletions: 3 },
+    folded: { additions: 0, deletions: 0 },
   });
 });

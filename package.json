@@ -19,8 +19,7 @@
     "ci": "pnpm --filter @dev.fast/review-desktop app:build && pnpm --filter @dev.fast/review check:tutorial && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
     "test": "node --test scripts/*.test.mjs && pnpm -r --if-present test",
     "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck",
-    "build": "pnpm -r --if-present build",
-    "whiteboard": "pnpm --filter @dev.fast/review whiteboard"
+    "build": "pnpm -r --if-present build"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.63.0",

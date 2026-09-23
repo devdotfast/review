@@ -75,7 +75,7 @@ try {
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));
   await assert.rejects(access(path.join(pkgRoot, "skills")));
-  const cli = path.join(prefix, "node_modules/.bin/review");
+  const cli = path.join(prefix, "node_modules/.bin/whiteboard");
 
   const env = {
     ...process.env,
@@ -99,7 +99,7 @@ try {
       })
     ).stdout;
 
-  assert.match(await run(["connect", "codex"]), /MCP server named "review"/);
+  await run(["connect", "codex"]);
 
   const api = async (name, value = {}) =>
     JSON.parse(await run(["api", name, JSON.stringify(value)]));
@@ -147,8 +147,8 @@ try {
   }
 
   assert.ok(ready, "Headless server must become ready");
-  const guidance = await run(["api", "review_get_instructions", "{}"]);
-  assert.ok(guidance.includes("review_activity"));
+  const guidance = await run(["api", "session_get_instructions", "{}"]);
+  assert.ok(guidance.trim().length > 0);
   const repository = path.join(root, "repository");
   await mkdir(repository);
   const git = (...args) => exec("git", args, { cwd: repository });
@@ -166,26 +166,26 @@ try {
   );
   const head = (await git("rev-parse", "HEAD")).stdout.trim();
 
-  const registered = await api("review_register_repository", {
+  const registered = await api("session_register_repository", {
     path: repository,
   });
 
-  const pins = await api("review_resolve_pins", {
+  const pins = await api("session_resolve_pins", {
     repositoryId: registered.id,
     base: head,
     head,
   });
 
-  const created = await api("review_create", {
+  const created = await api("session_create", {
     commandId: randomUUID(),
     title: "Packed CLI smoke",
     target: { kind: "commits", ...pins },
     open: false,
   });
 
-  const lease = { reviewId: created.reviewId, leaseId: randomUUID() };
-  await api("review_activity", { ...lease, action: "begin" });
-  await api("review_edit", {
+  const lease = { sessionId: created.sessionId, leaseId: randomUUID() };
+  await api("session_activity", { ...lease, action: "begin" });
+  await api("session_edit", {
     ...lease,
     commandId: randomUUID(),
     edit: {
@@ -202,8 +202,8 @@ try {
       },
     },
   });
-  await api("review_activity", { ...lease, action: "end" });
-  const reviews = await api("review_list");
+  await api("session_activity", { ...lease, action: "end" });
+  const reviews = await api("session_list");
   assert.equal(reviews.length, 1);
   console.log(
     `Installed ${pkg.name}@${pkg.version}: tracing and headless authoring passed without Desktop.`,

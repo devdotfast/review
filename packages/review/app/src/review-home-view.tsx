@@ -6,21 +6,10 @@ import type {
   ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import {
-  type ColumnDef,
-  type Row,
-  type SortingState,
-  type Table,
-  flexRender,
-  getCoreRowModel,
-  getExpandedRowModel,
-  getGroupedRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import {
   Fragment,
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,10 +21,6 @@ import { DiffCount } from "./diff-count";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
-export type ReviewHomeView = "cards" | "list";
-
-export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
-
 interface ReviewHomeProps {
   reviews: readonly ReviewApiSummary[];
   onOpen(review: ReviewApiSummary): void;
@@ -46,9 +31,6 @@ interface ReviewHomeProps {
   // support them.
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
-  // Opens the review and pins its read-only source tree open. Absent when the
-  // host cannot show the tree.
-  onOpenSourceTree?(review: ReviewApiSummary): void;
   setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
@@ -59,7 +41,6 @@ interface ReviewHomeProps {
 interface ReviewAttentionActions {
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
-  onOpenSourceTree?(review: ReviewApiSummary): void;
 }
 
 /* Passed by context rather than through every list and card signature: the
@@ -95,10 +76,8 @@ function MatchedText({ text }: { text: string }) {
   );
 }
 
-interface ReviewWorkspace {
-  path: string;
+interface ReviewTimeGroup {
   label: string;
-  branch: string | null;
   reviews: ReviewApiSummary[];
 }
 
@@ -113,25 +92,30 @@ export function ReviewHome({
   onDelete,
   onDismiss,
   onRestore,
-  onOpenSourceTree,
   setup,
   install,
   onboarding,
   onOpenTutorial,
 }: ReviewHomeProps) {
-  const [view, setView] = useState<ReviewHomeView>(readStoredHomeView);
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const actions = useMemo(
-    () => ({ onDismiss, onRestore, onOpenSourceTree }),
-    [onDismiss, onRestore, onOpenSourceTree],
+    () => ({ onDismiss, onRestore }),
+    [onDismiss, onRestore],
   );
 
   const needle = query.trim();
 
   // The one scratchpad is the last group on Home, outside the workspaces,
-  // their new-first order and their lifecycle. The filter still finds it.
+  // their chronological order and their lifecycle. The filter still finds it.
   const scratchpad = reviews.find((review) => review.kind === "scratchpad");
 
   const listed = useMemo(
@@ -155,27 +139,7 @@ export function ReviewHome({
     .filter((review) => review.dismissedAt)
     .sort(latestFirst);
 
-  /* Folders order by their most recently updated review. Within a folder, new
-     comes before viewed, then latest update. The list view reads the same
-     flattened order, so both views agree. */
-  const workspaces = groupReviewsByWorktree([...active].sort(latestFirst)).map(
-    (workspace) => ({
-      ...workspace,
-      reviews: [...workspace.reviews].sort(newFirstThenLatest),
-    }),
-  );
-
-  const sortedActive = workspaces.flatMap((workspace) => workspace.reviews);
-
-  const selectView = (next: ReviewHomeView) => {
-    setView(next);
-
-    try {
-      globalThis.localStorage?.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, next);
-    } catch {
-      // The desktop can disable DOM storage; the in-memory toggle still works.
-    }
-  };
+  const groups = groupReviewsByTime(active, now);
 
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
@@ -191,7 +155,7 @@ export function ReviewHome({
   }
 
   return (
-    <main className="review-home" data-view={view}>
+    <main className="review-home">
       <div className="review-home-scroll">
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
@@ -199,7 +163,6 @@ export function ReviewHome({
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
               <SearchBox query={query} onChange={setQuery} />
-              <ViewToggle view={view} onChange={selectView} />
             </div>
           </div>
           {/* Keyed off the active list, not the whole result: a query that hits
@@ -217,11 +180,9 @@ export function ReviewHome({
               {scratchpadShown ? (
                 <ScratchpadGroup review={scratchpad} onOpen={onOpen} />
               ) : null}
-              {active.length === 0 ? null : view === "cards" ? (
-                <CardView workspaces={workspaces} onOpen={onOpen} />
-              ) : (
-                <ListView reviews={sortedActive} onOpen={onOpen} />
-              )}
+              {active.length > 0 ? (
+                <CardView groups={groups} onOpen={onOpen} />
+              ) : null}
               {dismissed.length > 0 ? (
                 <DismissedSection
                   reviews={dismissed}
@@ -341,37 +302,6 @@ function SearchBox({
   );
 }
 
-function ViewToggle({
-  view,
-  onChange,
-}: {
-  view: ReviewHomeView;
-  onChange(view: ReviewHomeView): void;
-}) {
-  return (
-    <div className="review-home-view-toggle" role="group" aria-label="View">
-      <button
-        type="button"
-        className={view === "cards" ? "is-active" : undefined}
-        aria-label="Card view"
-        aria-pressed={view === "cards"}
-        onClick={() => onChange("cards")}
-      >
-        <GridIcon />
-      </button>
-      <button
-        type="button"
-        className={view === "list" ? "is-active" : undefined}
-        aria-label="List view"
-        aria-pressed={view === "list"}
-        onClick={() => onChange("list")}
-      >
-        <ListIcon />
-      </button>
-    </div>
-  );
-}
-
 /**
  * Dismissed reviews, collapsed by default and kept out of the workspace
  * grouping. Reviews stay saved until the reader deletes them.
@@ -450,41 +380,37 @@ function RestoreReviewButton({ review }: { review: ReviewApiSummary }) {
 }
 
 function CardView({
-  workspaces,
+  groups,
   onOpen,
 }: {
-  workspaces: readonly ReviewWorkspace[];
+  groups: readonly ReviewTimeGroup[];
   onOpen(review: ReviewApiSummary): void;
 }) {
   return (
     <div className="review-home-workspaces">
-      {workspaces.map((workspace) => (
-        <CardWorkspace
-          key={workspace.path}
-          workspace={workspace}
-          onOpen={onOpen}
-        />
+      {groups.map((group) => (
+        <section
+          className="review-home-workspace"
+          key={group.label}
+          aria-label={group.label}
+        >
+          <TimeGroupHeader
+            label={group.label}
+            count={group.reviews.length}
+            newestFirst
+          />
+          <div className="review-home-cards">
+            {group.reviews.map((review) => (
+              <ReviewCard
+                key={review.reviewId}
+                review={review}
+                onOpen={onOpen}
+              />
+            ))}
+          </div>
+        </section>
       ))}
     </div>
-  );
-}
-
-function CardWorkspace({
-  workspace,
-  onOpen,
-}: {
-  workspace: ReviewWorkspace;
-  onOpen(review: ReviewApiSummary): void;
-}) {
-  return (
-    <section className="review-home-workspace">
-      <WorkspaceHeader workspace={workspace} />
-      <div className="review-home-cards">
-        {workspace.reviews.map((review) => (
-          <ReviewCard key={review.reviewId} review={review} onOpen={onOpen} />
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -503,6 +429,9 @@ function ReviewCard({
         onClick={() => onOpen(review)}
       >
         <span className="review-home-card-main">
+          <span className="review-home-card-repository">
+            <RepositoryName review={review} />
+          </span>
           <span className="review-home-review-title">
             <MatchedText text={reviewTitle(review)} />
           </span>
@@ -510,6 +439,12 @@ function ReviewCard({
         </span>
         <span className="review-home-card-footer">
           <StatusPill review={review} />
+          <span className="review-home-card-provenance">
+            <ReviewWorktree review={review} />
+            <span className="review-home-card-updated">
+              {formatRelativeTime(reviewUpdatedAt(review))}
+            </span>
+          </span>
         </span>
       </button>
       <DismissReviewButton review={review} />
@@ -611,27 +546,6 @@ function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
 }
 
 /**
- * The most recently updated review whose source tree the workspace can open.
- */
-function workspaceSourceReview(
-  workspace: ReviewWorkspace,
-): ReviewApiSummary | null {
-  let selected: ReviewApiSummary | null = null;
-  let selectedUpdatedAt = 0;
-
-  for (const review of workspace.reviews) {
-    const updatedAt = reviewUpdatedAtMs(review);
-
-    if (!selected || updatedAt > selectedUpdatedAt) {
-      selected = review;
-      selectedUpdatedAt = updatedAt;
-    }
-  }
-
-  return selected;
-}
-
-/**
  * Two-step delete: the first click arms the button, the second click deletes
  * the review. Focus loss disarms it. Only a dismissed review offers it, so the
  * permanent action always follows the reversible one.
@@ -679,318 +593,63 @@ function DeleteReviewButton({
   );
 }
 
-function ListView({
-  reviews,
-  onOpen,
+function TimeGroupHeader({
+  label,
+  count,
+  newestFirst,
 }: {
-  reviews: readonly ReviewApiSummary[];
-  onOpen(review: ReviewApiSummary): void;
+  label: string;
+  count: number;
+  newestFirst?: boolean;
 }) {
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const data = useMemo(() => [...reviews], [reviews]);
-
-  const table = useReactTable({
-    columns: reviewListColumns,
-    data,
-    defaultColumn: reviewListDefaultColumn,
-    enableMultiSort: false,
-    getCoreRowModel: getCoreRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-    getGroupedRowModel: getGroupedRowModel(),
-    getRowId: (review) => review.reviewId,
-    getSortedRowModel: getSortedRowModel(),
-    initialState: {
-      columnVisibility: { workspace: false },
-      grouping: ["workspace"],
-    },
-    onSortingChange: setSorting,
-    // Groups can never collapse: expansion is controlled and always on.
-    state: { sorting, expanded: true },
-  });
-
-  return (
-    <div className="review-home-list-scroll">
-      <table
-        className="review-home-list-table"
-        aria-label="Reviews"
-        style={{ width: table.getTotalSize() }}
-      >
-        <colgroup>
-          {table.getVisibleLeafColumns().map((column) => (
-            <col key={column.id} style={{ width: column.getSize() }} />
-          ))}
-        </colgroup>
-        <tbody>
-          {table.getRowModel().rows.map((row) =>
-            row.getIsGrouped() ? (
-              <Fragment key={row.id}>
-                <WorkspaceGroupRow
-                  row={row}
-                  columnCount={table.getVisibleLeafColumns().length}
-                />
-                {row.getIsExpanded() ? (
-                  <ReviewListColumnHeaders table={table} />
-                ) : null}
-              </Fragment>
-            ) : (
-              <ReviewRow key={row.id} row={row} onOpen={onOpen} />
-            ),
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ReviewListColumnHeaders({
-  table,
-}: {
-  table: Table<ReviewApiSummary>;
-}) {
-  return table.getHeaderGroups().map((headerGroup) => (
-    <tr className="review-home-list-columns" key={headerGroup.id}>
-      {headerGroup.headers.map((header) => {
-        const direction = header.column.getIsSorted();
-
-        return (
-          <th
-            key={header.id}
-            scope="col"
-            aria-sort={
-              direction === "asc"
-                ? "ascending"
-                : direction === "desc"
-                  ? "descending"
-                  : "none"
-            }
-          >
-            {header.column.getCanSort() ? (
-              <button
-                type="button"
-                aria-label={`Sort by ${String(header.column.columnDef.header)}`}
-                onClick={header.column.getToggleSortingHandler()}
-              >
-                {header.isPlaceholder
-                  ? null
-                  : flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
-                    )}
-                {direction ? (
-                  <span
-                    className="review-home-sort-indicator"
-                    aria-hidden="true"
-                  >
-                    {direction === "asc" ? "↑" : "↓"}
-                  </span>
-                ) : null}
-              </button>
-            ) : header.isPlaceholder ? null : (
-              flexRender(header.column.columnDef.header, header.getContext())
-            )}
-          </th>
-        );
-      })}
-    </tr>
-  ));
-}
-
-function WorkspaceGroupRow({
-  row,
-  columnCount,
-}: {
-  row: Row<ReviewApiSummary>;
-  columnCount: number;
-}) {
-  const path = row.getValue<string>("workspace");
-
-  const workspace: ReviewWorkspace = {
-    path,
-    label: row.original.repositoryName ?? worktreeLabel(path),
-    branch: readableSourceBranch(row.original.origin?.branch),
-    reviews: row.subRows.map((child) => child.original),
-  };
-
-  return (
-    <tr className="review-home-list-workspace-row">
-      <th colSpan={columnCount} scope="rowgroup">
-        <WorkspaceHeader workspace={workspace} />
-      </th>
-    </tr>
-  );
-}
-
-function ReviewRow({
-  row,
-  onOpen,
-}: {
-  row: Row<ReviewApiSummary>;
-  onOpen(review: ReviewApiSummary): void;
-}) {
-  const review = row.original;
-
-  const open = () => {
-    onOpen(review);
-  };
-
-  return (
-    <tr
-      className="review-home-list-row"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        open();
-      }}
-    >
-      {row.getVisibleCells().map((cell) => (
-        <td key={cell.id}>
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </td>
-      ))}
-    </tr>
-  );
-}
-
-const reviewListColumns: ColumnDef<ReviewApiSummary>[] = [
-  {
-    id: "workspace",
-    accessorFn: (review) =>
-      review.repositoryPath ?? review.pins?.repositoryId ?? "",
-    enableSorting: false,
-  },
-  {
-    id: "review",
-    accessorFn: reviewTitle,
-    header: "Review",
-    size: 400,
-    sortDescFirst: false,
-    cell: ({ row }) => (
-      <span className="review-home-review-title">
-        <MatchedText text={reviewTitle(row.original)} />
-      </span>
-    ),
-  },
-  {
-    id: "pr",
-    accessorFn: (review) => review.origin?.pullRequestNumber ?? undefined,
-    header: "PR",
-    size: 74,
-    sortDescFirst: false,
-    sortUndefined: "last",
-    cell: ({ row }) => (
-      <span className="review-home-pr">
-        {row.original.origin?.pullRequestNumber
-          ? `PR #${row.original.origin?.pullRequestNumber}`
-          : "—"}
-      </span>
-    ),
-  },
-  {
-    id: "files",
-    accessorFn: (review) => review.diffStats?.fileCount,
-    header: "Files",
-    size: 68,
-    sortUndefined: "last",
-    cell: ({ row }) => <>{row.original.diffStats?.fileCount ?? "—"}</>,
-  },
-  {
-    id: "changes",
-    accessorFn: (review) =>
-      review.diffStats
-        ? review.diffStats.additions + review.diffStats.deletions
-        : undefined,
-    header: "Changes",
-    size: 130,
-    sortUndefined: "last",
-    cell: ({ row }) => {
-      const stats = row.original.diffStats;
-
-      return stats ? (
-        <span className="review-home-changes">
-          <span className="review-home-added">+{stats.additions}</span>
-          <span className="review-home-removed">−{stats.deletions}</span>
-        </span>
-      ) : (
-        <>—</>
-      );
-    },
-  },
-  {
-    id: "status",
-    accessorFn: (review) => statusDisplay(review).label,
-    header: "Status",
-    size: 146,
-    sortDescFirst: false,
-    cell: ({ row }) => <StatusPill review={row.original} />,
-  },
-  {
-    id: "updated",
-    accessorFn: (review) => reviewUpdatedAtMs(review),
-    header: "Updated",
-    size: 130,
-    cell: ({ row }) => (
-      <span className="review-home-updated">
-        {formatRelativeTime(reviewUpdatedAt(row.original))}
-      </span>
-    ),
-  },
-  {
-    id: "actions",
-    header: "",
-    size: 44,
-    enableSorting: false,
-    cell: ({ row }) => <DismissReviewButton review={row.original} />,
-  },
-];
-
-// Group headers do not display aggregates. Keeping their sortable values empty
-// preserves workspace order while TanStack sorts the leaf reviews within them.
-const reviewListDefaultColumn = {
-  aggregationFn: () => undefined,
-} satisfies Partial<ColumnDef<ReviewApiSummary>>;
-
-function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
-  const { onOpenSourceTree } = useContext(AttentionActionsContext);
-  const review = onOpenSourceTree ? workspaceSourceReview(workspace) : null;
-
-  const name = (
-    <strong>
-      <MatchedText text={workspace.label} />/
-    </strong>
-  );
-
   return (
     <div className="review-home-workspace-header review-home-workspace-header--group">
-      {onOpenSourceTree && review ? (
-        <button
-          type="button"
-          className="review-home-workspace-link"
-          aria-label={`Browse ${workspace.label} source`}
-          title="Browse the read-only source tree"
-          onClick={() => onOpenSourceTree(review)}
-        >
-          {name}
-        </button>
-      ) : (
-        name
-      )}
-      <span>
-        {workspace.reviews[0]?.repositoryPath}
-        {workspace.branch ? ` · ${workspace.branch}` : ""}
-      </span>
-      {onOpenSourceTree && review ? (
-        <button
-          type="button"
-          className="review-home-workspace-view"
-          title="Browse the read-only source tree"
-          onClick={() => onOpenSourceTree(review)}
-        >
-          View source →
-        </button>
-      ) : null}
+      <strong>
+        {label} · {count}
+      </strong>
+      {newestFirst ? <span>Newest first ↓</span> : null}
     </div>
+  );
+}
+
+function RepositoryName({ review }: { review: ReviewApiSummary }) {
+  const label = repositoryLabel(review);
+  const separator = label.lastIndexOf("/");
+
+  return separator < 0 ? (
+    <strong>
+      <MatchedText text={label} />
+    </strong>
+  ) : (
+    <>
+      <span>
+        <MatchedText text={label.slice(0, separator)} />
+      </span>
+      <span aria-hidden="true">/</span>
+      <strong>
+        <MatchedText text={label.slice(separator + 1)} />
+      </strong>
+    </>
+  );
+}
+
+function ReviewWorktree({ review }: { review: ReviewApiSummary }) {
+  const branch = readableSourceBranch(review.origin?.branch);
+  const worktree = review.repositoryPath;
+
+  const label = review.shared
+    ? "Shared"
+    : worktree
+      ? worktreeLabel(worktree)
+      : "Worktree unavailable";
+
+  return (
+    <span
+      className="review-home-origin-worktree"
+      title={[worktree, branch].filter(Boolean).join(" · ") || label}
+    >
+      <MatchedText text={label} />
+    </span>
   );
 }
 
@@ -1010,7 +669,6 @@ function ReviewMeta({ review }: { review: ReviewApiSummary }) {
           <DiffCount additions={stats.additions} deletions={stats.deletions} />
         </>
       ) : null}
-      <span>updated {formatRelativeTime(reviewUpdatedAt(review))}</span>
     </span>
   );
 }
@@ -1037,33 +695,33 @@ function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
   );
 }
 
-export function groupReviewsByWorktree(
+const REVIEW_TIME_PERIODS = ["Last day", "Last week", "Older"] as const;
+
+function reviewTimePeriod(review: ReviewApiSummary, now: number): string {
+  const age = now - reviewUpdatedAtMs(review);
+
+  if (age < 24 * 60 * 60 * 1000) return "Last day";
+
+  if (age < 7 * 24 * 60 * 60 * 1000) return "Last week";
+
+  return "Older";
+}
+
+export function groupReviewsByTime(
   reviews: readonly ReviewApiSummary[],
-): ReviewWorkspace[] {
-  const groups = new Map<string, ReviewWorkspace>();
+  now = Date.now(),
+): ReviewTimeGroup[] {
+  const sorted = [...reviews].sort(latestFirst);
 
-  for (const review of reviews) {
-    const path = review.repositoryPath ?? review.pins?.repositoryId ?? "";
-    let workspace = groups.get(path);
-
-    if (!workspace) {
-      workspace = {
-        path,
-        label:
-          review.repositoryName ??
-          worktreeLabel(
-            review.repositoryPath ?? review.pins?.repositoryId ?? "",
-          ),
-        branch: readableSourceBranch(review.origin?.branch),
-        reviews: [],
-      };
-      groups.set(path, workspace);
-    }
-
-    workspace.reviews.push(review);
-  }
-
-  return [...groups.values()];
+  return REVIEW_TIME_PERIODS.values()
+    .map((label) => ({
+      label,
+      reviews: sorted.filter(
+        (review) => reviewTimePeriod(review, now) === label,
+      ),
+    }))
+    .filter((group) => group.reviews.length > 0)
+    .toArray();
 }
 
 export function reviewUpdatedAt(review: ReviewApiSummary): string {
@@ -1077,16 +735,6 @@ function reviewUpdatedAtMs(review: ReviewApiSummary): number {
 
 function latestFirst(left: ReviewApiSummary, right: ReviewApiSummary): number {
   return reviewUpdatedAtMs(right) - reviewUpdatedAtMs(left);
-}
-
-function newFirstThenLatest(
-  left: ReviewApiSummary,
-  right: ReviewApiSummary,
-): number {
-  const leftNew = left.viewedAt ? 1 : 0;
-  const rightNew = right.viewedAt ? 1 : 0;
-
-  return leftNew - rightNew || latestFirst(left, right);
 }
 
 export function formatRelativeTime(
@@ -1122,17 +770,6 @@ function statusDisplay(review: ReviewApiSummary): ReviewStatusDisplay {
   return { label: review.viewedAt ? "Review ready" : "New", tone: "ready" };
 }
 
-function readStoredHomeView(): ReviewHomeView {
-  try {
-    return globalThis.localStorage?.getItem(REVIEW_HOME_VIEW_STORAGE_KEY) ===
-      "list"
-      ? "list"
-      : "cards";
-  } catch {
-    return "cards";
-  }
-}
-
 function reviewTitle(review: ReviewApiSummary): string {
   return review.title.trim() || "Untitled review";
 }
@@ -1141,8 +778,28 @@ function matchesQuery(review: ReviewApiSummary, query: string): boolean {
   return fuzzyMatches(
     query,
     reviewTitle(review),
+    repositoryLabel(review),
+    review.repositoryPath ?? "",
+    review.origin?.branch ?? "",
+  );
+}
+
+function repositoryLabel(review: ReviewApiSummary): string {
+  if (review.repositoryGroup) return review.repositoryGroup.label;
+
+  if (review.shared?.cloneUrl) {
+    try {
+      return new URL(review.shared.cloneUrl).pathname
+        .replace(/^\//, "")
+        .replace(/\.git$/, "");
+    } catch {
+      // Older imports may not have a valid remote URL.
+    }
+  }
+
+  return (
     review.repositoryName ??
-      worktreeLabel(review.repositoryPath ?? review.pins?.repositoryId ?? ""),
+    worktreeLabel(review.repositoryPath ?? review.pins?.repositoryId ?? "")
   );
 }
 
@@ -1162,17 +819,6 @@ function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
-function GridIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="6" height="6" rx="1" />
-      <rect x="11.5" y="2.5" width="6" height="6" rx="1" />
-      <rect x="2.5" y="11.5" width="6" height="6" rx="1" />
-      <rect x="11.5" y="11.5" width="6" height="6" rx="1" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -1186,17 +832,6 @@ function ClearIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" />
-    </svg>
-  );
-}
-
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <circle cx="3" cy="5" r="1" />
-      <circle cx="3" cy="10" r="1" />
-      <circle cx="3" cy="15" r="1" />
-      <path d="M7 5h10M7 10h10M7 15h10" />
     </svg>
   );
 }

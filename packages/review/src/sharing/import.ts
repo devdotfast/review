@@ -516,8 +516,8 @@ export class SharedReviewStore {
     };
   }
 
-  list() {
-    return this.loaded
+  list(mode: "structural" | "textual" = "structural") {
+    const reviews = this.loaded
       .keys()
       .filter(
         (id) =>
@@ -535,6 +535,8 @@ export class SharedReviewStore {
         };
       })
       .toArray();
+
+    return this.local?.store.withDiffStats(reviews, mode) ?? reviews;
   }
 
   async readObject(id: string, objectId: string) {

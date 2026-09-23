@@ -88,7 +88,6 @@ function Home({
   const deleteReview = content.deleteReview;
   const dismissReview = content.dismissReview;
   const restoreReview = content.restoreReview;
-  const openSourceTree = content.openSourceTree;
 
   return (
     <ReviewHome
@@ -102,9 +101,6 @@ function Home({
       }
       onRestore={
         restoreReview ? (review) => restoreReview(review.reviewId) : undefined
-      }
-      onOpenSourceTree={
-        openSourceTree ? (review) => openSourceTree(review.reviewId) : undefined
       }
       setup={content.setup}
       install={content.install}

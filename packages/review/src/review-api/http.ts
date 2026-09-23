@@ -145,7 +145,7 @@ export function createReviewApi(
   };
 
   const catalog = (mode: "structural" | "textual" = "structural") => {
-    return [...store.list(mode), ...(shared?.list() ?? [])];
+    return [...store.list(mode), ...(shared?.list(mode) ?? [])];
   };
 
   app.get("/", async (context) => {

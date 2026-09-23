@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
+import { resolveRepoContextSync } from "@dev.fast/local-vcs";
 import {
   type ReviewApiSummary,
   SCRATCHPAD_REVIEW_ID,
@@ -531,6 +533,33 @@ export class ReviewStore {
         new Date().toISOString(),
       );
   }
+  private readonly repositoryGroups = new Map<
+    string,
+    ReviewApiSummary["repositoryGroup"]
+  >();
+
+  private repositoryGroup(root: string): ReviewApiSummary["repositoryGroup"] {
+    if (this.repositoryGroups.has(root)) return this.repositoryGroups.get(root);
+
+    const context = resolveRepoContextSync(root);
+
+    if (!context) return undefined;
+
+    const group = context.githubSlug
+      ? {
+          key: `remote:https://github.com/${context.githubSlug.toLowerCase()}.git`,
+          label: context.githubSlug,
+        }
+      : {
+          key: `git:${context.commonDir}`,
+          label: path.basename(path.dirname(context.commonDir)),
+        };
+
+    this.repositoryGroups.set(root, group);
+
+    return group;
+  }
+
   registerRepository(root: string) {
     this.db
       .prepare("INSERT OR IGNORE INTO repositories(id,path,name) VALUES(?,?,?)")
@@ -685,20 +714,8 @@ export class ReviewStore {
   list(mode: "structural" | "textual" = "structural"): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
-    const stats = new Map(
-      this.db
-        .prepare("SELECT identity, stats FROM comparison_stats")
-        .all()
-        .map((row) => [
-          String(row.identity),
-          // SAFETY: comparison_stats is written only from the validated diff-stats contract.
-          JSON.parse(String(row.stats)) as NonNullable<
-            ReviewApiSummary["diffStats"]
-          >,
-        ]),
-    );
 
-    return this.db
+    const reviews = this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
           review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name, repositories.path AS repository_path
@@ -738,9 +755,9 @@ export class ReviewStore {
           repositoryPath: row.repository_path
             ? String(row.repository_path)
             : undefined,
-          diffStats: summary.pins
-            ? (stats.get(JSON.stringify([summary.pins, mode])) ?? null)
-            : null,
+          repositoryGroup: row.repository_path
+            ? this.repositoryGroup(String(row.repository_path))
+            : undefined,
           repositoryName: row.repository_name
             ? String(row.repository_name)
             : (summary.pins?.repositoryId ?? ""),
@@ -753,7 +770,36 @@ export class ReviewStore {
 
         return listed;
       });
+
+    return this.withDiffStats(reviews, mode);
   }
+
+  /** Local and imported summaries use the same persisted, mode-specific counts. */
+  withDiffStats<T extends ReviewApiSummary>(
+    reviews: T[],
+    mode: "structural" | "textual" = "structural",
+  ): T[] {
+    const stats = new Map(
+      this.db
+        .prepare("SELECT identity, stats FROM comparison_stats")
+        .all()
+        .map((row) => [
+          String(row.identity),
+          // SAFETY: comparison_stats is written only from the validated diff-stats contract.
+          JSON.parse(String(row.stats)) as NonNullable<
+            ReviewApiSummary["diffStats"]
+          >,
+        ]),
+    );
+
+    return reviews.map((review) => ({
+      ...review,
+      diffStats: review.pins
+        ? (stats.get(JSON.stringify([review.pins, mode])) ?? null)
+        : null,
+    }));
+  }
+
   /** What the pad holds, for its Home card: blocks, and the diagrams among them. */
   private scratchpadContents(): NonNullable<ReviewApiSummary["contents"]> {
     const blocks = elements(this.read(SCRATCHPAD_ID).document).filter(

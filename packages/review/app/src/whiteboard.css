@@ -293,13 +293,14 @@ button.host-authoring-activity[data-locatable]:focus-visible {
    Home. Mono display heading, serif card titles, status as marker washes.
    --------------------------------------------------------------------------- */
 .review-home-page-header h1 {
-  font: 600 32px/36px var(--font-mono);
+  font: 600 32px/42px var(--font-mono);
   letter-spacing: -0.02em;
 }
 
 .review-home-search {
-  height: 28px;
-  padding: 0 10px;
+  width: 256px;
+  height: 38px;
+  padding: 0 14px;
   border: 1px solid var(--rule);
   border-radius: 6px;
   background: var(--surface);
@@ -312,30 +313,16 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   box-shadow: 0 0 0 3px var(--marker-tint);
 }
 
-.review-home-view-toggle {
-  gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--well);
-}
-
-.review-home-view-toggle button {
-  border-radius: 4px;
-}
-
-.review-home-view-toggle button.is-active {
-  border-color: var(--rule);
-  background: var(--surface);
-  box-shadow: none;
-}
-
 .review-home-workspace-header {
-  padding-bottom: 10px;
+  height: auto;
+  justify-content: space-between;
+  padding: 8px 0 12px;
   border-bottom: 1px solid var(--rule);
 }
 
 .review-home-workspace-header strong {
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 24px;
 }
 
 .review-home-scratchpad-glyph {
@@ -355,7 +342,7 @@ button.host-authoring-activity[data-locatable]:focus-visible {
 }
 
 .review-home-card {
-  height: auto;
+  height: 100%;
   min-height: 128px;
   gap: 12px;
   padding: 16px 16px 14px;
@@ -367,6 +354,118 @@ button.host-authoring-activity[data-locatable]:focus-visible {
     box-shadow 120ms ease;
 }
 
+/* Paper card layout, using the app's existing serif and mono typefaces. */
+.review-home-card:not(.review-home-scratchpad-card) {
+  padding: 0;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-card-main {
+  width: 100%;
+  padding: 12px 14px;
+  gap: 8px;
+}
+
+.review-home-card-repository {
+  min-height: 20px;
+  padding-right: 24px;
+  color: var(--ink-faint);
+  font: 12px/18px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.review-home-card-repository > span[aria-hidden] {
+  padding-inline: 5px;
+}
+
+.review-home-card-repository strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-review-title {
+  font-size: 17px;
+  line-height: 22px;
+  min-height: 44px;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-card-meta {
+  gap: 6px 10px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.review-home-card:not(.review-home-scratchpad-card)
+  .review-home-card-meta
+  > *
+  + *::before {
+  content: none;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-pr:has(+ *) {
+  padding-right: 10px;
+  border-right: 1px solid var(--rule);
+}
+
+.review-home-card-footer {
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--tray);
+  border-top: 1px solid var(--rule);
+  flex-wrap: nowrap;
+}
+
+.review-home-card-footer .review-home-status {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.review-home-card-provenance {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 6px;
+  color: var(--ink-faint);
+  font: 11px/18px var(--font-mono);
+}
+
+.review-home-card-provenance .review-home-origin-worktree {
+  min-width: 0;
+}
+
+.review-home-card-updated {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.review-home-card-updated::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.review-home-card-shell .review-home-dismiss {
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  opacity: 1;
+  background: transparent;
+}
+
+.review-home-scratchpad .review-home-cards {
+  grid-template-columns: minmax(0, 336px);
+}
+
 .review-home-card:hover:not(:disabled) {
   border-color: var(--rule-soft);
 }
@@ -376,9 +475,7 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   box-shadow: 0 0 0 3px var(--marker-tint);
 }
 
-.review-home-card-meta,
-.review-home-updated,
-.review-home-list-row td {
+.review-home-card-meta {
   font-family: var(--font-mono);
 }
 
@@ -1323,10 +1420,6 @@ button:focus-visible > .review-chevron {
   content: "· ";
   color: var(--ink-faint);
   white-space: pre;
-}
-
-.review-home-workspace-view {
-  color: var(--accent);
 }
 
 /* A box is the state of a thing (viewed, enabled); it is the same 14px

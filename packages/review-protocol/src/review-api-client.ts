@@ -28,6 +28,10 @@ export interface ReviewApiSummary {
     pullRequestUrl?: string;
     revision?: string;
   };
+  /** Shared imports have separate local checkouts but retain their remote identity. */
+  shared?: { cloneUrl?: string };
+  /** Display grouping only; source pins remain bound to their own checkout. */
+  repositoryGroup?: { key: string; label: string };
   repositoryName: string;
   repositoryPath?: string;
   diffStats?: {

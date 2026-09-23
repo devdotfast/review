@@ -164,7 +164,7 @@ export async function resolveCliInstallStatus(input: {
   const mcp = await Promise.all(
     REVIEW_MCP_TARGETS.map(async (target) => {
       const result = await reviewMcpStatus(
-        reviewMcpRegistration(target, homeDir, env),
+        await reviewMcpRegistration(target, homeDir, env),
         stamp?.mcpRegistrations?.find((item) => item.target === target),
       );
 
@@ -473,7 +473,7 @@ async function applyCliInstallUnlocked(
     for (const target of REVIEW_MCP_TARGETS.filter((target) =>
       input.targets.includes(target),
     )) {
-      const registration = reviewMcpRegistration(target, homeDir, env);
+      const registration = await reviewMcpRegistration(target, homeDir, env);
 
       const managed = stamp.mcpRegistrations.find(
         (item) => item.target === target,

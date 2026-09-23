@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { parse as parseJsonc } from "jsonc-parser";
 import { parse } from "smol-toml";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -54,7 +55,7 @@ beforeEach(async () => {
 afterEach(() => rm(homeDir, { recursive: true, force: true }));
 
 async function config(target: (typeof targets)[number]) {
-  const file = reviewMcpRegistration(target, homeDir, env).configPath;
+  const file = (await reviewMcpRegistration(target, homeDir, env)).configPath;
   const text = await readFile(file, "utf8");
 
   return target === "codex" ? parse(text) : JSON.parse(text);
@@ -114,7 +115,7 @@ it("installs both agents without their CLIs, preserves other settings, and launc
     (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.map(
       (item) => item.state,
     ),
-  ).toEqual(["ready", "ready"]);
+  ).toEqual(["ready", "ready", "missing", "missing"]);
 });
 
 it("repairs missing registrations and launcher automatically for a previously enabled install", async () => {
@@ -224,4 +225,187 @@ it("does not reinstall a removed integration during a later automatic update", a
   expect((await install(true)).code).toBe(0);
   expect((await config("codex")).mcp_servers).toBeUndefined();
   expect((await config("claude")).mcpServers).toHaveProperty("review");
+});
+
+it.each(["cursor", "opencode"] as const)(
+  "registers, repairs, and removes %s through app setup",
+  async (target) => {
+    const registration = await reviewMcpRegistration(target, homeDir, env);
+    const key = target === "opencode" ? "mcp" : "mcpServers";
+
+    const original = `{
+  // Keep this preference and other server.
+  "theme": "dark",
+  "${key}": { "other": { "command": "other" }, },
+}\n`;
+
+    await mkdir(path.dirname(registration.configPath), { recursive: true });
+    await writeFile(registration.configPath, original);
+
+    const apply = (autoUpdate = false) =>
+      applyCliInstall({
+        packageRoot,
+        targets: [target],
+        homeDir,
+        env,
+        cliPath,
+        cliRuntimePath: process.execPath,
+        autoUpdate,
+      });
+
+    expect((await apply()).code).toBe(0);
+    const source = await readFile(registration.configPath, "utf8");
+    expect(source).toContain("// Keep this preference and other server.");
+    const settings = parseJsonc(source);
+    expect(settings.theme).toBe("dark");
+    expect(settings[key].other).toEqual({ command: "other" });
+    const server = settings[key].review;
+    const command = target === "opencode" ? server.command[0] : server.command;
+    const args = target === "opencode" ? server.command.slice(1) : server.args;
+    const environment = target === "opencode" ? server.environment : server.env;
+    expect(server.type).toBe(target === "opencode" ? "local" : "stdio");
+
+    const { stdout } = await promisify(execFile)(command, args, {
+      env: { ...env, DEV_REVIEW_SERVER_DIR: "other-server", ...environment },
+    });
+
+    expect(JSON.parse(stdout)).toEqual({
+      args: ["mcp"],
+      home: env.DEV_REVIEW_HOME,
+      serverDir: "",
+      build: 1,
+    });
+    expect(
+      (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(
+        (item) => item.target === target,
+      )?.state,
+    ).toBe("ready");
+    await apply();
+    expect(await readFile(registration.configPath, "utf8")).toBe(source);
+
+    await rm(registration.configPath);
+    expect(
+      (await resolveCliInstallStatus({ packageRoot, homeDir, env })).stale,
+    ).toBe(true);
+    expect((await apply(true)).code).toBe(0);
+    expect(
+      parseJsonc(await readFile(registration.configPath, "utf8"))[key].review,
+    ).toEqual(server);
+
+    await writeFile(registration.configPath, source);
+    await removeCliInstall({ targets: [target], homeDir, env });
+    const removed = await readFile(registration.configPath, "utf8");
+    expect(removed).toContain("// Keep this preference and other server.");
+    expect(parseJsonc(removed)[key]).toEqual({ other: { command: "other" } });
+    await apply(true);
+    expect(await readFile(registration.configPath, "utf8")).toBe(removed);
+  },
+);
+
+it.each(["cursor", "opencode"] as const)(
+  "preserves customized and malformed %s settings",
+  async (target) => {
+    const registration = await reviewMcpRegistration(target, homeDir, env);
+    const key = target === "opencode" ? "mcp" : "mcpServers";
+
+    const apply = () =>
+      applyCliInstall({
+        packageRoot,
+        targets: [target],
+        homeDir,
+        env,
+        cliPath,
+        cliRuntimePath: process.execPath,
+      });
+
+    await apply();
+
+    const settings = parseJsonc(
+      await readFile(registration.configPath, "utf8"),
+    );
+
+    settings[key].review.enabled = false;
+    const custom = JSON.stringify(settings);
+    await writeFile(registration.configPath, custom);
+    await apply();
+    expect(
+      (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(
+        (item) => item.target === target,
+      )?.state,
+    ).toBe("custom");
+    await removeCliInstall({ targets: [target], homeDir, env });
+    expect(await readFile(registration.configPath, "utf8")).toBe(custom);
+    await writeFile(registration.configPath, "{broken");
+    expect((await apply()).code).toBe(1);
+    expect(await readFile(registration.configPath, "utf8")).toBe("{broken");
+    expect(
+      (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(
+        (item) => item.target === target,
+      )?.state,
+    ).toBe("error");
+  },
+);
+
+it("keeps OpenCode ownership when a JSONC config is added later", async () => {
+  const apply = () =>
+    applyCliInstall({
+      packageRoot,
+      targets: ["opencode"],
+      homeDir,
+      env,
+      cliPath,
+      cliRuntimePath: process.execPath,
+    });
+
+  await apply();
+  const registration = await reviewMcpRegistration("opencode", homeDir, env);
+
+  const jsonc = path.join(
+    path.dirname(registration.configPath),
+    "opencode.jsonc",
+  );
+
+  const preferences = '{ "model": "provider/model" }';
+  await writeFile(jsonc, preferences);
+  await apply();
+  expect(await readFile(jsonc, "utf8")).toBe(preferences);
+  await removeCliInstall({ targets: ["opencode"], homeDir, env });
+  expect(
+    parseJsonc(await readFile(registration.configPath, "utf8")).mcp.review,
+  ).toBeUndefined();
+});
+
+it("uses OpenCode's existing JSONC config under XDG_CONFIG_HOME", async () => {
+  env.XDG_CONFIG_HOME = path.join(homeDir, "xdg");
+  const file = path.join(env.XDG_CONFIG_HOME, "opencode", "opencode.jsonc");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, '{\n // My model\n "model": "provider/model",\n}\n');
+  expect(
+    (
+      await applyCliInstall({
+        packageRoot,
+        targets: ["opencode"],
+        homeDir,
+        env,
+        cliPath,
+        cliRuntimePath: process.execPath,
+      })
+    ).code,
+  ).toBe(0);
+  const source = await readFile(file, "utf8");
+  expect(source).toContain("// My model");
+  expect(parseJsonc(source).mcp.review.command).toEqual([
+    reviewMcpLauncher(env),
+    "mcp",
+  ]);
+  await expect(
+    readFile(path.join(path.dirname(file), "opencode.json")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+  expect(
+    (
+      await readCliInstallStamp(cliInstallStampPath(env))
+    )?.mcpRegistrations?.find((item) => item.target === "opencode")?.configPath,
+  ).toBe(file);
+  await removeCliInstall({ targets: ["opencode"], homeDir, env });
+  expect(parseJsonc(await readFile(file, "utf8")).mcp.review).toBeUndefined();
 });

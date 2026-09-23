@@ -890,7 +890,7 @@ export type ReviewFffManagedRegistration = z.infer<
 >;
 
 export const ReviewMcpRegistrationSchema = z.strictObject({
-  target: z.enum(["codex", "claude"]),
+  target: z.enum(["codex", "claude", "cursor", "opencode"]),
   configPath: requiredString,
   command: requiredString,
   args: z.array(z.string()),
@@ -941,7 +941,7 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   mcp: z
     .array(
       z.strictObject({
-        target: z.enum(["codex", "claude"]),
+        target: ReviewMcpRegistrationSchema.shape.target,
         state: z.enum(["ready", "missing", "custom", "error"]),
         error: requiredString.optional(),
       }),

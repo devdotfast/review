@@ -613,20 +613,22 @@ if [ -z "$key" ] && [ -f "$DESKTOP/default-instance" ]; then
   key=$(head -n 1 "$DESKTOP/default-instance" | tr -d '[:space:]')
 fi
 DISCOVERY=""
-if [ "$key" = "stable" ]; then
-  DISCOVERY="$STABLE"
-elif [ -n "$key" ]; then
-  DISCOVERY="$DESKTOP/instances/$key.json"
-else
-  for record in "$DESKTOP"/instances/*.json "$LEGACY"; do
-    if [ "$record" = "$LEGACY" ] && [ "$STABLE" != "$LEGACY" ]; then continue; fi
-    if live "$record"; then
-      if [ -n "$DISCOVERY" ]; then DISCOVERY=""; break; fi
-      DISCOVERY="$record"
-    fi
-  done
-  [ -n "$DISCOVERY" ] || DISCOVERY="$STABLE"
-fi
+case "$key" in
+  # Keys name files; the CLI rejects anything else.
+  *[!A-Za-z0-9_.-]*) ;;
+  stable) DISCOVERY="$STABLE" ;;
+  ?*) DISCOVERY="$DESKTOP/instances/$key.json" ;;
+  *)
+    for record in "$DESKTOP"/instances/*.json "$LEGACY"; do
+      if [ "$record" = "$LEGACY" ] && [ "$STABLE" != "$LEGACY" ]; then continue; fi
+      if live "$record"; then
+        if [ -n "$DISCOVERY" ]; then DISCOVERY=""; break; fi
+        DISCOVERY="$record"
+      fi
+    done
+    [ -n "$DISCOVERY" ] || DISCOVERY="$STABLE"
+    ;;
+esac
 
 cli=""
 runtime=""

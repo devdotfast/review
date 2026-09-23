@@ -758,6 +758,9 @@ describe("installed launcher instance selection", () => {
     expect(await legacy()).toBe("legacy");
     expect(await legacy({ DEV_REVIEW_INSTANCE: "stable" })).toBe("legacy");
     expect(await legacy({ DEV_REVIEW_INSTANCE: "preview" })).toBe("fallback");
+
+    // A key is a file name; anything else is left for the CLI to reject.
+    expect(await both({ DEV_REVIEW_INSTANCE: "../server" })).toBe("fallback");
   });
 });
 

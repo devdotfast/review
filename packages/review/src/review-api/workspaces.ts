@@ -45,8 +45,9 @@ interface Environment extends WorkspaceStatus {
   role: "base" | "head";
 }
 
+// A lease lasts until the owning Desktop exits; closing the review does not release it.
 const OWNED_ELSEWHERE =
-  "Another Desktop is preparing this review's language workspaces. Close it there, or quit that Desktop, then retry.";
+  "Another Desktop owns this review's language workspaces. Quit that Desktop, then retry.";
 
 /** Local lifecycle only: source and authored history never depend on preparation.
  * Status/queue/process lifecycle follows #334, retaining the legacy prepare config
@@ -73,50 +74,14 @@ export class ReviewWorkspaces {
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS pinned_environments(id TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
     // Desktops sharing a profile each own the reviews they prepare; the
-    // lease stops a second process from preparing or collecting them.
+    // lease stops a second process from preparing or collecting them. The
+    // profile-wide lock it replaces only ever shipped in preview builds.
     this.db.exec(
-      "CREATE TABLE IF NOT EXISTS workspace_owner(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,pid INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS workspace_hosts(owner TEXT PRIMARY KEY,pid INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS workspace_leases(review_id TEXT PRIMARY KEY,owner TEXT NOT NULL,pid INTEGER NOT NULL)",
-    );
-    // A crashed guard process must not let an old Desktop bypass surviving hosts.
-    this.db.exec(
-      "CREATE TRIGGER IF NOT EXISTS workspace_owner_compat BEFORE INSERT ON workspace_owner WHEN EXISTS(SELECT 1 FROM workspace_hosts) AND NOT EXISTS(SELECT 1 FROM workspace_hosts WHERE owner=NEW.owner AND pid=NEW.pid) BEGIN SELECT RAISE(ABORT, 'A newer Desktop owns this profile. Restart the newer Desktop to recover its workspace locks.'); END",
+      "DROP TABLE IF EXISTS workspace_owner; CREATE TABLE IF NOT EXISTS workspace_leases(review_id TEXT PRIMARY KEY,owner TEXT NOT NULL,pid INTEGER NOT NULL)",
     );
     this.db.exec("BEGIN IMMEDIATE");
 
     try {
-      const legacy = this.db
-        .prepare("SELECT owner,pid FROM workspace_owner WHERE id=1")
-        .get();
-
-      if (
-        legacy &&
-        processIsAlive(Number(legacy.pid)) &&
-        !this.db
-          .prepare("SELECT 1 FROM workspace_hosts WHERE owner=? AND pid=?")
-          .get(legacy.owner, legacy.pid)
-      )
-        throw new ReviewInputError(
-          "An older Desktop owns this profile's language workspaces. Quit that Desktop before opening this version.",
-          409,
-        );
-
-      for (const host of this.db
-        .prepare("SELECT owner,pid FROM workspace_hosts")
-        .all())
-        if (!processIsAlive(Number(host.pid)))
-          this.db
-            .prepare("DELETE FROM workspace_hosts WHERE owner=?")
-            .run(host.owner);
-      this.db
-        .prepare("INSERT INTO workspace_hosts VALUES(?,?)")
-        .run(this.ownerId, process.pid);
-
-      // Keep the old global lock as a compatibility guard for older Desktops.
-      if (!legacy || !processIsAlive(Number(legacy.pid)))
-        this.db
-          .prepare("INSERT OR REPLACE INTO workspace_owner VALUES(1,?,?)")
-          .run(this.ownerId, process.pid);
-
       // Only the owning Desktop can invalidate generations or recover interrupted preparation.
       for (const environment of this.all()) {
         if (this.leasedElsewhere(environment.reviewId)) continue;
@@ -179,10 +144,14 @@ export class ReviewWorkspaces {
       );
   }
 
-  private leasedElsewhere(reviewId: string): boolean {
-    const lease = this.db
+  private lease(reviewId: string) {
+    return this.db
       .prepare("SELECT owner,pid FROM workspace_leases WHERE review_id=?")
       .get(reviewId);
+  }
+
+  private leasedElsewhere(reviewId: string): boolean {
+    const lease = this.lease(reviewId);
 
     return Boolean(
       lease &&
@@ -193,6 +162,8 @@ export class ReviewWorkspaces {
 
   /** Takes the review's lease unless another live Desktop holds it. */
   private claim(reviewId: string): boolean {
+    // Status reads claim on every poll; holding the lease needs no write lock.
+    if (this.lease(reviewId)?.owner === this.ownerId) return true;
     this.db.exec("BEGIN IMMEDIATE");
 
     try {
@@ -475,8 +446,9 @@ export class ReviewWorkspaces {
     if (!environment || environment.reviewId !== reviewId)
       throw new ReviewInputError("Language environment not found.", 404);
 
-    if (this.jobs.has(id) || !this.claim(reviewId))
-      return this.status(environment);
+    if (this.jobs.has(id)) return this.status(environment);
+
+    if (!this.claim(reviewId)) throw new ReviewInputError(OWNED_ELSEWHERE, 409);
 
     if (environment.state === "cleanup-failed") {
       this.collect();
@@ -584,35 +556,9 @@ export class ReviewWorkspaces {
 
     for (const job of this.jobs.values()) job.abort.abort();
     await this.idle();
-    this.db.exec("BEGIN IMMEDIATE");
-
-    try {
-      this.db
-        .prepare("DELETE FROM workspace_leases WHERE owner=?")
-        .run(this.ownerId);
-      this.db
-        .prepare("DELETE FROM workspace_hosts WHERE owner=?")
-        .run(this.ownerId);
-
-      const next = this.db
-        .prepare("SELECT owner,pid FROM workspace_hosts")
-        .all()
-        .find((host) => processIsAlive(Number(host.pid)));
-
-      if (next)
-        this.db
-          .prepare("UPDATE workspace_owner SET owner=?,pid=? WHERE owner=?")
-          .run(next.owner, next.pid, this.ownerId);
-      else
-        this.db
-          .prepare("DELETE FROM workspace_owner WHERE owner=?")
-          .run(this.ownerId);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    } finally {
-      this.db.close();
-    }
+    this.db
+      .prepare("DELETE FROM workspace_leases WHERE owner=?")
+      .run(this.ownerId);
+    this.db.close();
   }
 }

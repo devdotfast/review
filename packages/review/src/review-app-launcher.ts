@@ -8,8 +8,7 @@ import {
 
 import {
   type ReviewInstanceSelection,
-  readHealthyReviewDesktopDiscovery,
-  readReviewDesktopDiscovery,
+  healthyReviewInstance,
   reviewInstanceStartHint,
   reviewInstanceUnavailable,
   selectReviewInstance,
@@ -47,7 +46,6 @@ interface DesktopLaunchProcess {
 
 interface ReviewAppLauncherRuntime {
   selectInstance: () => Promise<ReviewInstanceSelection>;
-  readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
   fetch: typeof globalThis.fetch;
   focusDesktop: (discovery: ReviewDesktopDiscovery) => Promise<void>;
   launchDesktop: typeof launchDesktopApplication;
@@ -102,7 +100,6 @@ export async function runReviewAppLaunch(
 
   const runtime: ReviewAppLauncherRuntime = {
     selectInstance: () => selectReviewInstance({ fetch }),
-    readReviewDesktopDiscovery,
     fetch,
     focusDesktop: (discovery) => focusReviewDesktop(discovery, fetch),
     launchDesktop: launchDesktopApplication,
@@ -112,7 +109,10 @@ export async function runReviewAppLaunch(
     ...overrides,
   };
 
-  const current = await readLaunchHealthyDesktop(runtime);
+  // Launch recovers from a stale, malformed, or incompatible record, so a
+  // selection problem is not a stop here.
+  const selection = await runtime.selectInstance();
+  const current = healthyReviewInstance(selection);
 
   if (current) {
     if (input.focus) await runtime.focusDesktop(current);
@@ -120,7 +120,6 @@ export async function runReviewAppLaunch(
     return launchEvent("running", current.instanceId);
   }
 
-  const selection = await runtime.selectInstance();
   const running = selection.instances.filter((instance) => instance.healthy);
 
   if (selection.key !== "stable" && selection.key !== "preview")
@@ -152,7 +151,7 @@ export async function runReviewAppLaunch(
   let unexpectedSuccessfulExitAt: number | undefined;
 
   while (runtime.now() < deadline) {
-    const ready = await readLaunchHealthyDesktop(runtime);
+    const ready = healthyReviewInstance(await runtime.selectInstance());
 
     if (ready) return launchEvent("launched", ready.instanceId);
 
@@ -334,23 +333,6 @@ function launchEvent(
   instanceId: string,
 ): ReviewAppLaunchEvent {
   return { event: "app", action: "launch", state, instanceId };
-}
-
-async function readLaunchHealthyDesktop(
-  runtime: Pick<
-    ReviewAppLauncherRuntime,
-    "readReviewDesktopDiscovery" | "fetch"
-  >,
-) {
-  try {
-    return await readHealthyReviewDesktopDiscovery({
-      readDiscovery: runtime.readReviewDesktopDiscovery,
-      fetch: runtime.fetch,
-    });
-  } catch {
-    // Launch must recover from stale, malformed, and incompatible discovery.
-    return null;
-  }
 }
 
 function launchFailure(method: string, error: Error): Error {

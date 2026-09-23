@@ -15,6 +15,7 @@ import {
 import {
   reviewDefaultInstancePath,
   reviewDevInstanceKey,
+  reviewInstanceDiscoveryPath,
   reviewInstancesDir,
   reviewLegacyDiscoveryPath,
 } from "./review-home-paths";
@@ -42,13 +43,7 @@ export class ReviewDesktopDiscoveryUnreadableError extends Error {
   }
 }
 
-/** The selected instance's record, or null when it has none. */
-export async function readReviewDesktopDiscovery(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<ReviewDesktopDiscovery | null> {
-  return (await selectReviewInstance({ env })).instance?.discovery ?? null;
-}
-
+/** One record, or null when the file does not exist. */
 export async function readReviewDesktopDiscoveryFile(
   filePath: string,
 ): Promise<ReviewDesktopDiscovery | null> {
@@ -91,25 +86,6 @@ export async function readReviewDesktopDiscoveryFile(
   }
 }
 
-export interface ReviewDesktopHealthDependencies {
-  readDiscovery?: typeof readReviewDesktopDiscovery;
-  fetch?: typeof globalThis.fetch;
-}
-
-export async function readHealthyReviewDesktopDiscovery(
-  dependencies: ReviewDesktopHealthDependencies = {},
-): Promise<ReviewDesktopDiscovery | null> {
-  const readDiscovery =
-    dependencies.readDiscovery ?? readReviewDesktopDiscovery;
-
-  const discovery = await readDiscovery();
-
-  return discovery &&
-    (await isHealthyReviewDesktop(discovery, dependencies.fetch))
-    ? discovery
-    : null;
-}
-
 export async function isHealthyReviewDesktop(
   discovery: ReviewDesktopDiscovery,
   fetch = globalThis.fetch,
@@ -133,32 +109,32 @@ export async function isHealthyReviewDesktop(
   }
 }
 
+/** The selected Desktop's record while it is running, else null. */
+export function healthyReviewInstance(
+  selection: ReviewInstanceSelection,
+): ReviewDesktopDiscovery | null {
+  return selection.instance?.healthy ? selection.instance.discovery : null;
+}
+
 export async function requireHealthyReviewDesktop(
-  retryCommand: string,
-  dependencies: ReviewDesktopHealthDependencies = {},
+  fetch = globalThis.fetch,
 ): Promise<ReviewDesktopDiscovery> {
-  const discovery = await readHealthyReviewDesktopDiscovery(dependencies);
+  const selection = await selectReviewInstance({ fetch });
+  const discovery = healthyReviewInstance(selection);
 
-  if (discovery) return discovery;
+  if (!discovery) throw reviewInstanceUnavailable(selection);
 
-  if (dependencies.readDiscovery)
-    throw new Error(
-      `Review Desktop is not ready. Run \`review app launch\`, then retry \`${retryCommand}\`.`,
-    );
-
-  throw reviewInstanceUnavailable(
-    await selectReviewInstance({ fetch: dependencies.fetch }),
-  );
+  return discovery;
 }
 
 /** Shell-session override; agents inherit it through the bare shim. */
 export const REVIEW_INSTANCE_ENV = "DEV_REVIEW_INSTANCE";
 
 // Keys name files, so nothing else may select one.
-function checkedInstanceKey(key: string) {
+function checkedInstanceKey(key: string, origin = "") {
   if (/^(?:stable|preview|dev-[A-Za-z0-9_.-]+)$/.test(key)) return key;
   throw new Error(
-    `Unknown Whiteboard instance ${JSON.stringify(key)}. Use stable, preview, or a dev-… key from \`whiteboard instances\`.`,
+    `Unknown Whiteboard instance ${JSON.stringify(key)}${origin}. Use stable, preview, or a dev-… key from \`whiteboard instances\`.`,
   );
 }
 
@@ -285,6 +261,8 @@ export interface ReviewInstanceSelection {
   /** The selected key's record, when one exists. */
   instance?: ReviewInstance;
   instances: ReviewInstance[];
+  /** Why the selected key's record could not be read, when it has a broken one. */
+  problem?: Error;
 }
 
 /** DEV_REVIEW_INSTANCE, then the machine default, then the only running Desktop, then stable. */
@@ -302,25 +280,58 @@ export async function selectReviewInstance(
   const running = instances.filter((instance) => instance.healthy);
 
   const [key, source]: [string, ReviewInstanceSelection["source"]] = fromEnv
-    ? [checkedInstanceKey(fromEnv), "env"]
+    ? [checkedInstanceKey(fromEnv, ` from ${REVIEW_INSTANCE_ENV}`), "env"]
     : fromDefault
-      ? [checkedInstanceKey(fromDefault), "default"]
+      ? [
+          checkedInstanceKey(
+            fromDefault,
+            " as the machine default (`whiteboard instances clear` removes it)",
+          ),
+          "default",
+        ]
       : running.length === 1
         ? [running[0]!.key, "only-running"]
         : ["stable", "fallback"];
 
-  return {
-    key,
-    source,
-    instance: instances.find((instance) => instance.key === key),
-    instances,
-  };
+  const selection: ReviewInstanceSelection = { key, source, instances };
+  const instance = instances.find((instance) => instance.key === key);
+
+  if (instance) selection.instance = instance;
+  else {
+    const problem = await brokenRecord(key, env);
+
+    if (problem) selection.problem = problem;
+  }
+
+  return selection;
+}
+
+// A broken record for the selected key is a diagnosis, not "not running":
+// `app pick` must not launch a second Desktop over it.
+async function brokenRecord(
+  key: string,
+  env: NodeJS.ProcessEnv,
+): Promise<Error | undefined> {
+  const files = [reviewInstanceDiscoveryPath(key, env)];
+
+  if (key === "stable") files.push(reviewLegacyDiscoveryPath(env));
+
+  for (const file of files)
+    try {
+      await readReviewDesktopDiscoveryFile(file);
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+
+  return undefined;
 }
 
 /** Never a redirect: names what is running and how to start or pick one. */
 export function reviewInstanceUnavailable(
   selection: ReviewInstanceSelection,
 ): Error {
+  if (selection.problem) return selection.problem;
+
   const running = selection.instances
     .filter((instance) => instance.healthy)
     .map((instance) => instance.key);

@@ -166,6 +166,9 @@ function selectedDiscoveryFile(devHome: string, env: NodeJS.ProcessEnv) {
     // No machine default.
   }
 
+  // Keys name files; the CLI rejects anything else.
+  if (key && !/^[A-Za-z0-9_.-]+$/.test(key)) return undefined;
+
   // A stable Desktop that predates instances wrote only server.json; it never
   // stands in for any other key.
   const legacy = path.join(desktop, "server.json");

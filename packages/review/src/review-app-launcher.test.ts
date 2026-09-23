@@ -6,11 +6,13 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ReviewInstanceSelection } from "./desktop-discovery";
 import {
   type LaunchDesktopApplicationInput,
   launchDesktopApplication,
   runReviewAppLaunch,
 } from "./review-app-launcher";
+import { selectingDesktop } from "./review-test-utils";
 
 const discovery: ReviewDesktopDiscovery = {
   version: REVIEW_DESKTOP_DISCOVERY_VERSION,
@@ -48,7 +50,7 @@ describe("Review Desktop launcher", () => {
         runReviewAppLaunch(
           { focus },
           {
-            readReviewDesktopDiscovery: async () => discovery,
+            selectInstance: selectingDesktop(async () => discovery, fetch),
             fetch,
             launchDesktop,
           },
@@ -80,11 +82,9 @@ describe("Review Desktop launcher", () => {
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
-        {
-          ...launcherRuntime([healthyResponse()], launchDesktop),
-          readReviewDesktopDiscovery: async () =>
-            readCount++ === 0 ? null : discovery,
-        },
+        launcherRuntime([healthyResponse()], launchDesktop, async () =>
+          readCount++ === 0 ? null : discovery,
+        ),
       ),
     ).resolves.toMatchObject({ state: "launched" });
     expect(launchDesktop).toHaveBeenCalledOnce();
@@ -107,12 +107,12 @@ describe("Review Desktop launcher", () => {
 
       await runReviewAppLaunch(
         { timeoutMs: 1_000 },
-        {
-          ...launcherRuntime([healthyResponse()], launchDesktop),
-          selectInstance: async () => ({ ...selection, instances: [] }),
-          readReviewDesktopDiscovery: async () =>
-            readCount++ === 0 ? null : discovery,
-        },
+        launcherRuntime(
+          [healthyResponse()],
+          launchDesktop,
+          async () => (readCount++ === 0 ? null : discovery),
+          selection,
+        ),
       );
       expect(launchDesktop).toHaveBeenCalledWith(
         instance ? { focus: undefined, instance } : { focus: undefined },
@@ -125,15 +125,10 @@ describe("Review Desktop launcher", () => {
     await expect(
       runReviewAppLaunch(
         {},
-        {
-          ...launcherRuntime([], launchDesktop),
-          selectInstance: async () => ({
-            key: "dev-review-0123456789ab",
-            source: "default",
-            instances: [],
-          }),
-          readReviewDesktopDiscovery: async () => null,
-        },
+        launcherRuntime([], launchDesktop, async () => null, {
+          key: "dev-review-0123456789ab",
+          source: "default",
+        }),
       ),
     ).rejects.toThrow("Start it with `pnpm dev` in its checkout");
     expect(launchDesktop).not.toHaveBeenCalled();
@@ -144,17 +139,15 @@ describe("Review Desktop launcher", () => {
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
-        {
-          ...launcherRuntime(
-            [healthyResponse()],
-            vi.fn<typeof launchDesktopApplication>(() => pendingAttempt()),
-          ),
-          readReviewDesktopDiscovery: async () => {
+        launcherRuntime(
+          [healthyResponse()],
+          vi.fn<typeof launchDesktopApplication>(() => pendingAttempt()),
+          async () => {
             if (readCount++ === 0) throw new Error("unreadable discovery");
 
             return discovery;
           },
-        },
+        ),
       ),
     ).resolves.toMatchObject({ state: "launched" });
   });
@@ -178,8 +171,10 @@ describe("Review Desktop launcher", () => {
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
         {
-          readReviewDesktopDiscovery: async () =>
-            readCount++ === 0 ? discovery : fresh,
+          selectInstance: selectingDesktop(
+            async () => (readCount++ === 0 ? discovery : fresh),
+            fetch,
+          ),
           fetch,
           launchDesktop: () => pendingAttempt(),
           now: () => 0,
@@ -216,7 +211,7 @@ describe("Review Desktop launcher", () => {
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
         {
-          readReviewDesktopDiscovery: async () => discovery,
+          selectInstance: selectingDesktop(async () => discovery, fetch),
           fetch,
           launchDesktop: () => pendingAttempt(),
           now: () => now,
@@ -229,12 +224,13 @@ describe("Review Desktop launcher", () => {
   });
 
   it("reports the launch method and recovery after an early exit", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
         {
-          readReviewDesktopDiscovery: async () => null,
-          fetch: vi.fn<typeof globalThis.fetch>(),
+          selectInstance: selectingDesktop(async () => null, fetch),
+          fetch,
           launchDesktop: () => ({
             method: 'the macOS bundle identifier "dev.fast.review"',
             successfulExitIsExpected: true,
@@ -251,17 +247,22 @@ describe("Review Desktop launcher", () => {
 
   it("observes an asynchronous spawn failure while health polling is pending", async () => {
     let readCount = 0;
+
+    const fetch = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      return Response.json({ ok: false });
+    };
+
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
         {
-          readReviewDesktopDiscovery: async () =>
-            readCount++ === 0 ? null : discovery,
-          fetch: async () => {
-            await new Promise((resolve) => setTimeout(resolve, 20));
-
-            return Response.json({ ok: false });
-          },
+          selectInstance: selectingDesktop(
+            async () => (readCount++ === 0 ? null : discovery),
+            fetch,
+          ),
+          fetch,
           launchDesktop: () => ({
             method: 'the Desktop-managed bundle at "/missing/Review"',
             successfulExitIsExpected: false,
@@ -278,12 +279,13 @@ describe("Review Desktop launcher", () => {
 
   it("reports a successful Electron exit before Desktop becomes ready", async () => {
     let now = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>();
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
         {
-          readReviewDesktopDiscovery: async () => null,
-          fetch: vi.fn<typeof globalThis.fetch>(),
+          selectInstance: selectingDesktop(async () => null, fetch),
+          fetch,
           launchDesktop: () => ({
             method: 'the Desktop-managed bundle at "/tmp/Review"',
             successfulExitIsExpected: false,
@@ -539,13 +541,15 @@ describe("Review Desktop launcher", () => {
 function launcherRuntime(
   responses: Response[],
   launchDesktop: typeof launchDesktopApplication,
+  read: () => Promise<ReviewDesktopDiscovery | null> = async () => discovery,
+  selection?: Pick<ReviewInstanceSelection, "key" | "source">,
 ) {
   const fetch = vi.fn<typeof globalThis.fetch>();
 
   for (const response of responses) fetch.mockResolvedValueOnce(response);
 
   return {
-    readReviewDesktopDiscovery: async () => discovery,
+    selectInstance: selectingDesktop(read, fetch, selection),
     fetch,
     focusDesktop: async () => undefined,
     launchDesktop,

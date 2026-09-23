@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReviewDesktopProtocolMismatchError } from "./desktop-discovery";
 import { runReviewAppPick } from "./review-app";
+import { selectingDesktop } from "./review-test-utils";
 
 const input = {
   cwd: "/repo",
@@ -9,24 +10,32 @@ const input = {
   stdout: process.stdout,
 };
 
-const runtime = {
-  launch: async () => ({
-    event: "app" as const,
-    action: "launch" as const,
-    state: "running" as const,
-    instanceId: "desktop",
-  }),
-  readReviewDesktopDiscovery: async () => ({
-    version: 3 as const,
-    instanceId: "desktop",
-    url: "http://127.0.0.1:5570",
-    token: "secret",
-    appPid: 1,
-    serverPid: 2,
-    startedAt: 3,
-  }),
-  resolveReviewRoot: async () => "/repo",
+const launch = async () => ({
+  event: "app" as const,
+  action: "launch" as const,
+  state: "running" as const,
+  instanceId: "desktop",
+});
+
+const discovery = {
+  version: 3 as const,
+  instanceId: "desktop",
+  url: "http://127.0.0.1:5570",
+  token: "secret",
+  appPid: 1,
+  serverPid: 2,
+  startedAt: 3,
 };
+
+const runtime = (
+  fetch: typeof globalThis.fetch,
+  read: () => Promise<typeof discovery | null> = async () => discovery,
+) => ({
+  launch,
+  selectInstance: selectingDesktop(read, fetch),
+  resolveReviewRoot: async () => "/repo",
+  fetch,
+});
 
 describe("native Review picker", () => {
   it("opens an explicit review through the authenticated JSON API", async () => {
@@ -35,7 +44,7 @@ describe("native Review picker", () => {
     expect(
       await runReviewAppPick(
         { ...input, reviewUuid: "review" },
-        { ...runtime, fetch },
+        runtime(fetch),
       ),
     ).toEqual({
       event: "app",
@@ -67,7 +76,7 @@ describe("native Review picker", () => {
     expect(
       await runReviewAppPick(
         { ...input, reviewUuid: "review" },
-        { ...runtime, fetch },
+        runtime(fetch),
       ),
     ).toEqual({
       event: "app",
@@ -108,7 +117,7 @@ describe("native Review picker", () => {
     );
 
     expect(
-      await runReviewAppPick(input, { ...runtime, fetch, pickReview }),
+      await runReviewAppPick(input, { ...runtime(fetch), pickReview }),
     ).toBeNull();
     expect(pickReview.mock.calls[0]?.[0]).toEqual([
       {
@@ -128,16 +137,13 @@ describe("native Review picker", () => {
     );
 
     await expect(
-      runReviewAppPick(
-        { ...input, reviewUuid: "missing" },
-        { ...runtime, fetch },
-      ),
+      runReviewAppPick({ ...input, reviewUuid: "missing" }, runtime(fetch)),
     ).rejects.toThrow("Not found");
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("launches Desktop when no pointer exists yet, then opens the review", async () => {
-    const launch = vi.fn<typeof runtime.launch>(runtime.launch);
+    const launched = vi.fn<typeof launch>(launch);
     let reads = 0;
 
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
@@ -150,11 +156,8 @@ describe("native Review picker", () => {
       await runReviewAppPick(
         { ...input, reviewUuid: "review" },
         {
-          ...runtime,
-          launch,
-          readReviewDesktopDiscovery: async () =>
-            reads++ === 0 ? null : runtime.readReviewDesktopDiscovery(),
-          fetch,
+          ...runtime(fetch, async () => (reads++ === 0 ? null : discovery)),
+          launch: launched,
         },
       ),
     ).toEqual({
@@ -163,11 +166,11 @@ describe("native Review picker", () => {
       reviewUuid: "review",
       title: "Native",
     });
-    expect(launch).toHaveBeenCalledOnce();
+    expect(launched).toHaveBeenCalledOnce();
   });
 
   it("reports an unusable pointer instead of launching a second Desktop", async () => {
-    const launch = vi.fn<typeof runtime.launch>(runtime.launch);
+    const launched = vi.fn<typeof launch>(launch);
 
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({ ok: true }),
@@ -177,39 +180,35 @@ describe("native Review picker", () => {
       runReviewAppPick(
         { ...input, reviewUuid: "review" },
         {
-          ...runtime,
-          launch,
-          readReviewDesktopDiscovery: async () => {
+          ...runtime(fetch, async () => {
             throw new ReviewDesktopProtocolMismatchError(999);
-          },
-          fetch,
+          }),
+          launch: launched,
         },
       ),
     ).rejects.toThrow(
       "Review Desktop uses protocol 999, but this Review CLI needs protocol 3.",
     );
-    expect(launch).not.toHaveBeenCalled();
+    expect(launched).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("names the recovery command when the pointer leads nowhere", async () => {
-    const launch = vi.fn<typeof runtime.launch>(runtime.launch);
+  it("reports the instance as not running when the pointer leads nowhere", async () => {
+    const launched = vi.fn<typeof launch>(launch);
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("connection refused");
+    });
 
     await expect(
       runReviewAppPick(
         { ...input, reviewUuid: "review" },
-        {
-          ...runtime,
-          launch,
-          fetch: vi.fn<typeof globalThis.fetch>(async () => {
-            throw new Error("connection refused");
-          }),
-        },
+        { ...runtime(fetch), launch: launched },
       ),
     ).rejects.toThrow(
-      "Review Desktop is not ready. Run `review app launch`, then retry `review app pick`.",
+      "Whiteboard `stable` is not running. Start it with `whiteboard app launch`, or pick another instance with `whiteboard instances`. No Whiteboard is running.",
     );
-    expect(launch).not.toHaveBeenCalled();
+    expect(launched).not.toHaveBeenCalled();
   });
 
   it("focuses a running Desktop after opening when asked", async () => {
@@ -217,7 +216,7 @@ describe("native Review picker", () => {
 
     await runReviewAppPick(
       { ...input, reviewUuid: "review", focus: true },
-      { ...runtime, fetch },
+      runtime(fetch),
     );
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:5570/health",
@@ -231,32 +230,18 @@ describe("native Review picker", () => {
   });
 
   it("forwards focus to the launcher when no Desktop is running", async () => {
-    const launch = vi.fn<typeof runtime.launch>(async () => ({
-      event: "app",
-      action: "launch",
-      state: "running",
-      instanceId: "desktop",
-    }));
-
-    let launched = false;
-
+    const launched = vi.fn<typeof launch>(launch);
+    let reads = 0;
     const fetch = desktopFetch();
 
     await runReviewAppPick(
       { ...input, reviewUuid: "review", focus: true },
       {
-        ...runtime,
-        launch,
-        readReviewDesktopDiscovery: async () => {
-          if (launched) return runtime.readReviewDesktopDiscovery();
-          launched = true;
-
-          return null;
-        },
-        fetch,
+        ...runtime(fetch, async () => (reads++ === 0 ? null : discovery)),
+        launch: launched,
       },
     );
-    expect(launch).toHaveBeenCalledWith({ focus: true });
+    expect(launched).toHaveBeenCalledWith({ focus: true });
     expect(fetch.mock.calls.map(([url]) => String(url))).not.toContain(
       "http://127.0.0.1:5570/app/focus",
     );

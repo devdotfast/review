@@ -36,7 +36,7 @@ export async function listReviewInstancesCommand(input: ReviewInstancesInput) {
 
   if (input.json) {
     input.stdout.write(
-      `${JSON.stringify({ event: "instances", selected: selection.key, selectedBy: selection.source, default: defaultKey ?? null, instances: rows })}\n`,
+      `${JSON.stringify({ event: "instances", selected: selection.key, selectedBy: selection.source, default: defaultKey ?? null, problem: selection.problem?.message ?? null, instances: rows })}\n`,
     );
 
     return;
@@ -67,8 +67,14 @@ export async function listReviewInstancesCommand(input: ReviewInstancesInput) {
         .trimEnd()}\n`,
     );
 
+  const state = selection.instance
+    ? ""
+    : selection.problem
+      ? ` Its record is unusable: ${selection.problem.message}`
+      : " It has not started on this machine.";
+
   input.stdout.write(
-    `\nSelected: ${selection.key} (${describeSource(selection.source)}).${selection.instance ? "" : " It has not started on this machine."}\n`,
+    `\nSelected: ${selection.key} (${describeSource(selection.source)}).${state}\n`,
   );
 }
 

@@ -10,7 +10,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
@@ -20,7 +19,6 @@ import type { Pins } from "./document.js";
 import { createReviewApi } from "./http.js";
 import { openLocalReviewStore } from "./local-data.js";
 import type { commandSchema } from "./store.js";
-import { ReviewWorkspaces } from "./workspaces.js";
 
 let directory: string,
   repository: string,
@@ -108,6 +106,9 @@ it("lets a second Desktop share the profile without preparing a review the first
     await expect(second.data.workspaces.remove(reviewId)).rejects.toThrow(
       /Another Desktop/,
     );
+    await expect(
+      second.data.workspaces.retry(reviewId, preparing.id),
+    ).rejects.toThrow(/Another Desktop/);
     await local.data.close();
     await local.store.close();
     local = second;
@@ -295,59 +296,6 @@ it("reports a missing repository before first acquisition and recovers after it 
   ).toContain("42");
 });
 
-it("preserves a live older Desktop's lock", async () => {
-  const file = path.join(directory, "legacy-workspaces.db");
-  const db = new DatabaseSync(file);
-  db.exec(
-    "CREATE TABLE workspace_owner(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,pid INTEGER NOT NULL)",
-  );
-  db.prepare("INSERT INTO workspace_owner VALUES(1,?,?)").run(
-    "older-desktop",
-    process.pid,
-  );
-
-  try {
-    expect(() => new ReviewWorkspaces(file, local.store)).toThrow(
-      /older Desktop/,
-    );
-    expect(
-      db.prepare("SELECT owner,pid FROM workspace_owner").get(),
-    ).toMatchObject({ owner: "older-desktop", pid: process.pid });
-    db.prepare("UPDATE workspace_owner SET pid=?").run(2147483647);
-    const manager = new ReviewWorkspaces(file, local.store);
-    await manager.close();
-  } finally {
-    db.close();
-  }
-});
-
-it("keeps the legacy guard until the last new Desktop exits", async () => {
-  const file = path.join(directory, "compat-workspaces.db");
-  const first = new ReviewWorkspaces(file, local.store);
-  const second = new ReviewWorkspaces(file, local.store);
-  const db = new DatabaseSync(file);
-
-  try {
-    const owner = db.prepare("SELECT owner FROM workspace_owner").get()!.owner;
-    await first.close();
-
-    const remaining = db
-      .prepare("SELECT owner,pid FROM workspace_owner")
-      .get()!;
-
-    expect(remaining.owner).not.toBe(owner);
-    expect(remaining.pid).toBe(process.pid);
-    await second.close();
-    expect(
-      db.prepare("SELECT owner FROM workspace_owner").get(),
-    ).toBeUndefined();
-  } finally {
-    await first.close();
-    await second.close();
-    db.close();
-  }
-});
-
 it("claims unowned workspaces before removing them", async () => {
   await local.data.workspaces.source(reviewId, pins, "head");
   const second = openLocalReviewStore(database);
@@ -366,25 +314,5 @@ it("claims unowned workspaces before removing them", async () => {
     await second.store.close();
     await third.data.close();
     await third.store.close();
-  }
-});
-
-it("blocks an older Desktop after the compatibility guard crashes", async () => {
-  const file = path.join(directory, "crashed-guard.db");
-  const first = new ReviewWorkspaces(file, local.store);
-  const db = new DatabaseSync(file);
-
-  try {
-    db.prepare("UPDATE workspace_owner SET pid=?").run(2147483647);
-    expect(() =>
-      db
-        .prepare("INSERT OR REPLACE INTO workspace_owner VALUES(1,?,?)")
-        .run("older-desktop", process.pid),
-    ).toThrow(/newer Desktop/);
-    const second = new ReviewWorkspaces(file, local.store);
-    await second.close();
-  } finally {
-    await first.close();
-    db.close();
   }
 });

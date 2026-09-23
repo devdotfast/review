@@ -9,8 +9,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  readHealthyReviewDesktopDiscovery,
-  requireHealthyReviewDesktop,
+  isHealthyReviewDesktop,
   reviewInstanceUnavailable,
   selectReviewInstance,
 } from "./desktop-discovery";
@@ -25,20 +24,20 @@ const discovery: ReviewDesktopDiscovery = {
   startedAt: 3,
 };
 
-describe("Review Desktop health discovery", () => {
+describe("Review Desktop health", () => {
   it("accepts only the matching instance with an attached Desktop client", async () => {
     await expect(
-      readHealthyReviewDesktopDiscovery({
-        readDiscovery: async () => discovery,
-        fetch: vi.fn<() => Promise<Response>>(async () =>
+      isHealthyReviewDesktop(
+        discovery,
+        vi.fn<() => Promise<Response>>(async () =>
           Response.json({
             ok: true,
             instanceId: discovery.instanceId,
             desktopAttached: true,
           }),
         ),
-      }),
-    ).resolves.toEqual(discovery);
+      ),
+    ).resolves.toBe(true);
   });
 
   it.each([
@@ -69,31 +68,13 @@ describe("Review Desktop health discovery", () => {
       ),
     ],
   ])("rejects %s discovery", async (_label, fetch) => {
-    await expect(
-      readHealthyReviewDesktopDiscovery({
-        readDiscovery: async () => discovery,
-        fetch,
-      }),
-    ).resolves.toBeNull();
-  });
-
-  it("gives the explicit recovery command for stale discovery", async () => {
-    await expect(
-      requireHealthyReviewDesktop("review info", {
-        readDiscovery: async () => discovery,
-        fetch: vi.fn<() => Promise<Response>>(async () =>
-          Promise.reject(new Error("refused")),
-        ),
-      }),
-    ).rejects.toThrow(
-      "Review Desktop is not ready. Run `review app launch`, then retry `review info`.",
-    );
+    await expect(isHealthyReviewDesktop(discovery, fetch)).resolves.toBe(false);
   });
 });
 
 describe("Review instance selection", () => {
   async function home(
-    records: Record<string, boolean>,
+    records: Record<string, boolean | "broken">,
     extra: {
       defaultInstance?: string;
       legacy?: boolean;
@@ -107,6 +88,11 @@ describe("Review instance selection", () => {
     let port = 6000;
 
     for (const [key, isHealthy] of Object.entries(records)) {
+      if (isHealthy === "broken") {
+        await writeFile(path.join(desktop, "instances", `${key}.json`), "{");
+        continue;
+      }
+
       const record = {
         ...discovery,
         key,
@@ -173,11 +159,10 @@ describe("Review instance selection", () => {
     });
 
     const none = await home({});
-    expect(await none()).toMatchObject({
-      key: "stable",
-      source: "fallback",
-      instance: undefined,
-    });
+    const nothing = await none();
+    expect(nothing).toMatchObject({ key: "stable", source: "fallback" });
+    expect(nothing.instance).toBeUndefined();
+    expect(nothing.problem).toBeUndefined();
   });
 
   it("errors instead of redirecting when the selected instance is not running", async () => {
@@ -207,11 +192,31 @@ describe("Review instance selection", () => {
     );
   });
 
-  it("rejects a key that is not an instance name", async () => {
+  it("rejects a key that is not an instance name and says where it came from", async () => {
     const select = await home({});
     await expect(select({ DEV_REVIEW_INSTANCE: "../server" })).rejects.toThrow(
-      'Unknown Whiteboard instance "../server"',
+      'Unknown Whiteboard instance "../server" from DEV_REVIEW_INSTANCE',
     );
+
+    const stored = await home({}, { defaultInstance: "../server" });
+    await expect(stored()).rejects.toThrow(
+      /as the machine default \(`whiteboard instances clear` removes it\)/,
+    );
+  });
+
+  it("reports the selected key's broken record instead of skipping it", async () => {
+    const select = await home({ stable: "broken", preview: true });
+    const selection = await select({ DEV_REVIEW_INSTANCE: "stable" });
+    expect(selection.instance).toBeUndefined();
+    expect(selection.problem?.message).toMatch(
+      /discovery is unreadable at .*stable\.json/,
+    );
+    expect(reviewInstanceUnavailable(selection)).toBe(selection.problem);
+
+    // A broken record that is not selected is only skipped.
+    const other = await select({ DEV_REVIEW_INSTANCE: "preview" });
+    expect(other.problem).toBeUndefined();
+    expect(other.instance?.healthy).toBe(true);
   });
 
   it("reads a pre-instance Desktop's server.json as stable", async () => {

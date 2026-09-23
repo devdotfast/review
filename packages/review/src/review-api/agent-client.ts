@@ -1,4 +1,5 @@
 import {
+  healthyReviewInstance,
   reviewInstanceUnavailable,
   selectReviewInstance,
 } from "../desktop-discovery.js";
@@ -55,7 +56,7 @@ export async function connectReviewInstance(
   }
 
   const selection = await selectReviewInstance({ env });
-  const discovery = selection.instance?.healthy && selection.instance.discovery;
+  const discovery = healthyReviewInstance(selection);
 
   if (!discovery)
     throw new Error(

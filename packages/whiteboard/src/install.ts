@@ -236,20 +236,29 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
       }
 
       visitedRoots.add(destRoot);
-      const keepPi =
-        destRoot === skillsDestRoot(homeDir, "pi") &&
-        (input.targets.includes("pi") || input.preservePiSkill === true);
-      const { kept } = await removeManagedReviewSkills(
+      const keep = keptSkillNames(
         destRoot,
-        keepPi ? [...REQUIRED_SKILL_NAMES] : [],
+        homeDir,
+        input.targets.includes("pi") || Boolean(input.preservePiSkill),
       );
+
+      const { kept } = await removeManagedReviewSkills(destRoot, keep);
 
       for (const dest of kept)
         human.write(`Left ${dest}: not created by Whiteboard.\n`);
 
-      for (const skillDir of keepPi ? skillDirs : []) {
+      for (const skillDir of skillDirs.filter((skill) =>
+        keep.includes(skill.name),
+      )) {
         const skillDest = path.join(destRoot, skillDir.name);
 
+        if (
+          (await isDirectory(skillDest)) &&
+          !(await isWhiteboardOwnedSkill(skillDest, skillDir.name))
+        ) {
+          human.write(`Left ${skillDest}: not created by Whiteboard.\n`);
+          continue;
+        }
         if (input.skipCurrentSkills) {
           const bundled = await readSkillVersion(
             path.join(skillDir.src, "SKILL.md"),
@@ -399,7 +408,7 @@ export async function removeManagedReviewSkills(
     if (keep.includes(name)) continue;
     const dest = path.join(destRoot, name);
 
-    if (await readSkillVersion(path.join(dest, "SKILL.md"), name)) {
+    if (await isWhiteboardOwnedSkill(dest, name)) {
       await rm(dest, { recursive: true, force: true });
       removed.push(dest);
     } else if (await isDirectory(dest)) {
@@ -410,26 +419,70 @@ export async function removeManagedReviewSkills(
   return { removed, kept };
 }
 
-export async function hasRetiredManagedSkills(
+/** Codex and Pi share ~/.agents/skills; Pi's pointer skill stays there while Pi is managed. */
+export function keptSkillNames(
+  root: string,
+  homeDir: string,
+  piManaged: boolean,
+): string[] {
+  return piManaged && root === skillsDestRoot(homeDir, "pi")
+    ? [...REQUIRED_SKILL_NAMES]
+    : [];
+}
+
+export async function hasManagedSkillsToRemove(
   homeDir: string,
   targets: InstallTarget[],
+  piManaged = targets.includes("pi"),
 ): Promise<boolean> {
-  for (const target of targets) {
-    const destRoot = skillsDestRoot(homeDir, target);
+  const roots = new Set(targets.map((target) => skillsDestRoot(homeDir, target)));
+
+  for (const root of roots) {
+    const keep = keptSkillNames(root, homeDir, piManaged);
 
     for (const name of [...REQUIRED_SKILL_NAMES, ...RETIRED_SKILL_NAMES]) {
       if (
-        destRoot === skillsDestRoot(homeDir, "pi") &&
-        targets.includes("pi") &&
-        CANONICAL_SKILL_NAMES.includes(name as "whiteboard")
+        !keep.includes(name) &&
+        (await isWhiteboardOwnedSkill(path.join(root, name), name))
       )
-        continue;
-      if (await readSkillVersion(path.join(destRoot, name, "SKILL.md"), name))
         return true;
     }
   }
 
   return false;
+}
+
+/**
+ * Stamped skills are Whiteboard's; so are older unstamped copies that name
+ * themselves and mention the package, as `whiteboard migrate` has always
+ * accepted. Symlinks and other directories are never Review's to delete.
+ */
+export async function isWhiteboardOwnedSkill(
+  skillDir: string,
+  expectedName: string,
+): Promise<boolean> {
+  try {
+    const metadata = await lstat(skillDir);
+
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
+
+    const skillFile = path.join(skillDir, "SKILL.md");
+
+    if (await readSkillVersion(skillFile, expectedName)) return true;
+
+    const source = await readFile(skillFile, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
+    const name = frontmatter?.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1];
+
+    return (
+      name === expectedName &&
+      /@dev\.fast\/(?:review|whiteboard)|dev\.fast (?:Review|Whiteboard)|progressive (?:Review|Whiteboard)/i.test(
+        source,
+      )
+    );
+  } catch {
+    return false;
+  }
 }
 
 export interface InstalledSkillStatus {

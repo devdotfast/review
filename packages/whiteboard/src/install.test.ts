@@ -283,6 +283,52 @@ describe("runInstall", () => {
     expect(existsSync(path.join(retired(editedHome), "SKILL.md"))).toBe(true);
   });
 
+  it("removes recognizable unstamped Review skills but keeps look-alikes and symlinks", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const claude = path.join(homeDir, ".claude");
+
+    await writeSkill(
+      claude,
+      "dev-review",
+      "---\nname: dev-review\ndescription: old\n---\n\n# dev.fast Review\n",
+    );
+    await writeSkill(
+      claude,
+      "pr-review",
+      "---\nname: pr-review\ndescription: old\n---\n\nInstall @dev.fast/review.\n",
+    );
+    await writeSkill(
+      claude,
+      "review",
+      "---\nname: review\ndescription: unrelated\n---\n\nMy own skill.\n",
+    );
+    await mkdir(path.join(homeDir, "elsewhere"), { recursive: true });
+    await writeSkill(
+      path.join(homeDir, "elsewhere"),
+      "scratchpad",
+      "---\nname: scratchpad\ndescription: unrelated\n---\n\n# dev.fast Review\n",
+    );
+    await symlink(
+      path.join(homeDir, "elsewhere/skills/scratchpad"),
+      path.join(claude, "skills/scratchpad"),
+    );
+
+    expect(
+      await runInstall({
+        targets: ["claude"],
+        homeDir,
+        packageRoot,
+        ...silentStreams(),
+      }),
+    ).toBe(0);
+
+    for (const name of ["dev-review", "pr-review"])
+      expect(existsSync(path.join(claude, "skills", name))).toBe(false);
+    for (const name of ["review", "scratchpad"])
+      expect(existsSync(path.join(claude, "skills", name))).toBe(true);
+  });
+
   it("installs only Pi when requested", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();

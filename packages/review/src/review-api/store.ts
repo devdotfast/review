@@ -19,12 +19,15 @@ import {
 } from "../viewed-coverage.js";
 import { ReviewActivity } from "./activity.js";
 import {
+  type Applied,
   type Block,
   type EditSummary,
+  type Element,
   type FileLineRange,
   type Pins,
   ReviewInputError,
   type ReviewTarget,
+  type WrittenComponent,
   anchorPins,
   applyEdit,
   assignFreshIds,
@@ -179,7 +182,11 @@ export interface Result {
   ownedBy?: "another session";
   /** Older reviews that also name the PR, newest first. */
   otherReviewIds?: string[];
+  /** The component an edit landed on, its type, and — for an insert or
+   * replace — its first-level children with their fresh IDs. */
   targetId?: string;
+  type?: Element["type"];
+  children?: WrittenComponent[];
   attention?: true;
   deleted?: true;
   warnings?: string[];
@@ -1104,7 +1111,7 @@ export class ReviewStore {
           )
         : 0;
 
-      let targetId: string | undefined;
+      let applied: Applied | undefined;
 
       if (
         (op.type === "create" ||
@@ -1172,15 +1179,13 @@ export class ReviewStore {
           delete snapshot.lastEdit;
           break;
         case "edit": {
-          const applied = applyEdit(
+          applied = applyEdit(
             snapshot.document,
             op.edit,
             (prefix) => `${prefix}-${++nextId}`,
             // The scratchpad is a running log: the newest thought goes on top.
             { placement: snapshot.kind === "scratchpad" ? "first" : "last" },
           );
-
-          targetId = applied.targetId;
 
           snapshot.lastEdit = summarizeEdit(
             op.edit,
@@ -1246,7 +1251,9 @@ export class ReviewStore {
         ...(op.type === "create" && { created: true }),
         reviewId: id,
         version: snapshot.version,
-        targetId,
+        targetId: applied?.targetId,
+        ...(applied && { type: applied.type }),
+        ...(applied?.children && { children: applied.children }),
       };
 
       if (snapshot.staleSources?.length)

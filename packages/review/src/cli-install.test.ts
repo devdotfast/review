@@ -1049,6 +1049,7 @@ it("retargets enabled repository hooks before removing the owned legacy launcher
   await writeFile(
     oldCommand,
     "#!/bin/sh\n# Managed by Whiteboard Desktop\nexit 1\n",
+    { mode: 0o755 },
   );
   await enableTraceRepository({
     cwd,

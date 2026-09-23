@@ -44,6 +44,8 @@ export async function enableTraceRepository(input: {
   cwd: string;
   scope: TraceScope;
   reviewCommand?: string | TraceCommand;
+  /** Explicit command migration; ordinary activation preserves a working installation. */
+  replaceCommand?: boolean;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
 
@@ -103,6 +105,7 @@ export async function enableTraceRepository(input: {
 
   if (
     alreadyManaged &&
+    !input.replaceCommand &&
     oldState?.command &&
     keepTraceExecutable(
       traceCommandExecutable(oldState.command),

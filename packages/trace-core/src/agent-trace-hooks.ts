@@ -79,7 +79,7 @@ function openCodePluginPath(
 function executableOwner(file: string): TraceHookOwner | null {
   const base = path.basename(file);
 
-  return base === "review" ? base : null;
+  return base === "review" || base === "whiteboard" ? "review" : null;
 }
 
 /** The executable of a single lifecycle command, or undefined for a shell compound. */

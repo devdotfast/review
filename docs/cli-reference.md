@@ -45,7 +45,7 @@ Most people let their coding agent drive this workflow: it authors through
 JSON arrays:
 
 ```sh
-whiteboard api session_diff '{"reviewId":"<uuid>","format":"patch","paths":["src/app.ts","docs"]}'
+whiteboard api session_diff '{"sessionId":"<uuid>","format":"patch","paths":["src/app.ts","docs"]}'
 ```
 
 ## Machine-readable output

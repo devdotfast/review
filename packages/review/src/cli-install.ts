@@ -687,6 +687,7 @@ export async function installReviewCommand(input: {
           cwd,
           scope,
           reviewCommand: shimPath,
+          replaceCommand: true,
         });
     }
   }

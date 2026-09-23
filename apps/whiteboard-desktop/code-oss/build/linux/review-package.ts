@@ -61,7 +61,7 @@ async function loadReviewPackage(appRoot: string) {
 	if (product.reviewVersion !== metadata.version || !/^[a-f0-9]{40}$/.test(product.commit ?? '')) {
 		throw new Error('Linux payload must carry the stamped Review version and source commit');
 	}
-	return { pkg: whiteboardPackage(product, metadata.version), source, urlProtocol: product.urlProtocol };
+	return { pkg: whiteboardPackage(product, metadata.version), source, quality: product.quality, urlProtocol: product.urlProtocol };
 }
 
 /** Stage the Review runtime for the existing Code OSS RPM build task. */
@@ -69,7 +69,7 @@ export async function prepareReviewRpmPackage(codeRoot: string, arch: string): P
 	if (arch !== 'x86_64') { throw new Error('Review Linux packages currently support x86_64 only'); }
 	const appRoot = resolve(codeRoot, '..');
 	const monorepoRoot = resolve(appRoot, '../..');
-	const { pkg, source, urlProtocol } = await loadReviewPackage(appRoot);
+	const { pkg, source, quality, urlProtocol } = await loadReviewPackage(appRoot);
 	const { name, app, appName, appId } = pkg;
 	const share = `/usr/share/${app}`;
 	const rpmRoot = join(codeRoot, '.build/linux/rpm/x86_64/rpmbuild');
@@ -128,7 +128,8 @@ MimeType=x-scheme-handler/${urlProtocol};
 `);
 	const icon = join(destination, `usr/share/icons/hicolor/512x512/apps/${app}.png`);
 	await mkdir(dirname(icon), { recursive: true });
-	await cp(join(monorepoRoot, `packages/whiteboard/app/icons/${app}-square-512.png`), icon);
+	const iconName = quality === 'preview' ? 'whiteboard-preview' : 'whiteboard';
+	await cp(join(monorepoRoot, `packages/whiteboard/app/icons/${iconName}-square-512.png`), icon);
 	// Electron's packaged sandbox helper must be root-owned with setuid in the
 	// system package. Package creation sets ownership; no runtime chmod is needed.
 	await chmod(join(destination, share, 'chrome-sandbox'), 0o4755);

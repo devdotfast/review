@@ -248,6 +248,9 @@ jobs:
       - name: Install monorepo dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build packaged smoke dependencies
+        run: pnpm --filter @dev.fast/whiteboard-protocol... build
+
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:

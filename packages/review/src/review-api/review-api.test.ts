@@ -6,11 +6,13 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { selectSource } from "../lens-selection.js";
 import { createGlobalReviewServer } from "../server/desktop-server.js";
 import { GlobalReviewDesktopVerbRelay } from "../server/global-verb-relay.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
+import { authoringTools } from "./authoring-tools.js";
 import { ReviewApiClient } from "./client.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError } from "./document.js";
@@ -881,6 +883,75 @@ describe("snapshot authoring", () => {
         changes: { link: { from: "session" } },
       }),
     ).rejects.toThrow(/only comes with a new node/);
+  });
+
+  it("accepts flow nodes with no code attachments and reads them back with an empty list", async () => {
+    const { reviewId } = await create();
+
+    const evidence = [{ label: "Entry", sources: [selectSource(source)] }];
+
+    const { targetId: diagramId } = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "flow_diagram",
+        title: "CLI",
+        nodes: [
+          { key: "run", label: "Run", attachments: evidence },
+          { key: "ok", label: "exit 0", kind: "terminal" },
+        ],
+        edges: [{ from: "run", to: "ok" }],
+      },
+    });
+
+    await edit(reviewId, {
+      type: "insert",
+      parentId: diagramId,
+      content: {
+        type: "flow_node",
+        key: "fail",
+        label: "exit 1",
+        kind: "terminal",
+        link: { from: "run" },
+      },
+    });
+
+    const block = store.read(reviewId).document[0]!;
+
+    if (block.type !== "flow_diagram") throw new Error("Expected flow");
+    expect(
+      block.nodes.map(({ key, attachments }) => ({ key, attachments })),
+    ).toEqual([
+      { key: "run", attachments: evidence },
+      { key: "ok", attachments: [] },
+      { key: "fail", attachments: [] },
+    ]);
+
+    // The published tool schema does not tell agents attachments are required.
+    const nodeSchemas = (
+      schema: z.core.JSONSchema._JSONSchema,
+    ): z.core.JSONSchema.JSONSchema[] =>
+      schema === true || schema === false
+        ? []
+        : [
+            ...(schema.properties?.key && schema.properties.attachments
+              ? [schema]
+              : []),
+            ...[
+              ...Object.values(schema.properties ?? {}),
+              ...(schema.anyOf ?? []),
+              ...(schema.oneOf ?? []),
+              ...[schema.items ?? []].flat(),
+            ].flatMap(nodeSchemas),
+          ];
+
+    const published = nodeSchemas(
+      authoringTools().find((tool) => tool.name === "review_edit")!.inputSchema,
+    );
+
+    expect(published.length).toBeGreaterThan(0);
+
+    for (const schema of published)
+      expect(schema.required).not.toContain("attachments");
   });
 
   it("moves blocks in both directions and between containers without duplicating them", async () => {

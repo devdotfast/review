@@ -26,7 +26,6 @@ test("source tree, selected code, definitions and diffs hand off before creating
 	const tabs = new ReviewCanvasEditorTabsService(
 		{} as never, { onDidCloseEditor: Event.None } as never, {} as never,
 		{ async getConnection() { return { serverUrl: "http://localhost", token: "test" }; } } as never,
-		{} as never,
 		{ async openWindow(openables: IWindowOpenable[], options: IOpenWindowOptions) { windows.push({ openables, options }); } } as never,
 	);
 	const resolver = new ReviewEditorResolverService(

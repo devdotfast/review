@@ -517,7 +517,7 @@ describe("trace-cli", () => {
       expect(failures).toEqual([
         expect.objectContaining({
           session: sessionId,
-          retry: `review trace sync ${sessionId}`,
+          retry: `whiteboard trace sync ${sessionId}`,
         }),
       ]);
     } finally {

@@ -3,12 +3,16 @@ import { z } from "zod";
 import { activitySchema } from "./activity.js";
 import { fileLineRangeSchema } from "./document.js";
 import { type AuthoringMode, draftCommandSchema } from "./drafts.js";
+import { instructionsQuerySchema } from "./instructions.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
-export function authoringTools(mode: AuthoringMode = "interactive") {
+export function authoringTools(
+  mode: AuthoringMode = "interactive",
+  scratchpadAvailable = false,
+) {
   const id = z.string().min(1);
   const review = { reviewId: id };
   const sourceReview = mode === "batch" ? { draftId: id } : review;
@@ -66,6 +70,16 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
       z.strictObject({}),
       "GET",
       "/capabilities",
+    ),
+    tool(
+      "get_instructions",
+      "Read Review's guidance before creating or editing a Review. The default topic gives this server's authoring workflow. Other topics cover headless use and prepared worktrees. Call review_get_instructions({topic:\"trace-archaeology\"}) for why code exists, what an agent was thinking, or whether an agent solved this before." +
+        (scratchpadAvailable
+          ? ' When asked to show how code works or draw a diagram, call review_get_instructions({topic:"scratchpad"}) and draw in Review instead of ASCII diagrams in chat.'
+          : ""),
+      instructionsQuerySchema.partial(),
+      "GET",
+      "/instructions",
     ),
     tool(
       "activity",

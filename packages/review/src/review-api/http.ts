@@ -16,6 +16,7 @@ import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
 import type { AuthoringMode } from "./drafts.js";
+import { instructionsQuerySchema, renderInstructions } from "./instructions.js";
 import type { LocalReviewData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -180,9 +181,29 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) =>
-    context.json(authoringTools(authoringMode)),
-  );
+  app.get("/authoring", async (context) => {
+    const { desktopAvailable } = await capabilities();
+
+    return context.json(
+      authoringTools(
+        authoringMode,
+        authoringMode === "interactive" &&
+          desktopAvailable &&
+          scratchpadEnabled(),
+      ),
+    );
+  });
+  app.get("/instructions", async (context) => {
+    const { topic } = instructionsQuerySchema.parse(context.req.query());
+
+    return context.json(
+      await renderInstructions(topic, {
+        ...(await capabilities()),
+        authoringMode,
+        scratchpadEnabled: scratchpadEnabled(),
+      }),
+    );
+  });
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 

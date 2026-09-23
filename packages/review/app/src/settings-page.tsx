@@ -112,11 +112,11 @@ export function SettingsPage({
           {install?.status.cli ? (
             <Section label="Command line">
               <Row
-                label="review command"
+                label="whiteboard command"
                 description={
                   install.status.shim.installed
                     ? `Installed at ${install.status.shim.path}. Your agents and trace capture run it.`
-                    : "Adds review to your shell PATH. Your agents and trace capture run it."
+                    : "Adds whiteboard to your shell PATH. Your agents and trace capture run it."
                 }
               >
                 <button

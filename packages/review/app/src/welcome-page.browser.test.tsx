@@ -95,7 +95,7 @@ describe("WelcomePage", () => {
 
   const stepOpen = (index: number) => step(index)?.getAttribute("data-open");
 
-  it("opens on the install step until the review command is installed", async () => {
+  it("opens on the install step until the whiteboard command is installed", async () => {
     const setupActions = {
       load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () =>
         content({ ...fresh, shim: { ...fresh.shim, installed: true } }),

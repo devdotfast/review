@@ -18,7 +18,7 @@ export const REVIEW_CONNECT_COPIED_STORAGE_KEY =
  * automatically on first run (no consent stamp yet) and later from the
  * application menu or the command palette.
  *
- * The four steps are the product's own order — install the review command,
+ * The four steps are the product's own order — install the whiteboard command,
  * connect an agent, read the bundled tutorial, publish a review of your own
  * repo. Step two embeds the connect prompts, so this pane is also where
  * agents are connected later; there is no separate setup surface. `onClose`
@@ -105,7 +105,7 @@ export function WelcomePage({
 
   const steps: WelcomeStep[] = [
     {
-      title: "Install the review command",
+      title: "Install the whiteboard command",
       done: installed,
       note: "writes ~/.local/bin/review",
       body: (

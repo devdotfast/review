@@ -116,7 +116,7 @@ export function ConnectCard({
           command instead. */}
       {status.cli && !status.shim.installed ? (
         <p className="review-connect-note">
-          Install the review command first. The prompt and the plugin both
+          Install the whiteboard command first. The prompt and the plugin both
           launch it.
         </p>
       ) : null}
@@ -228,7 +228,7 @@ export function ConnectCard({
         </>
       ) : (
         <p className="review-home-prompt-body">
-          {`${plugin.label}\nInstall the review command first.`}
+          {`${plugin.label}\nInstall the whiteboard command first.`}
         </p>
       )}
       {status.error ? (

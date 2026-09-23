@@ -11,8 +11,8 @@ Status: agreed design, implemented in this change.
 
 1. CI installs the Review npm package and prepares a local checkout with the requested base and head revisions.
 2. CI starts `review server start --authoring-mode batch` as a foreground process and checks readiness with `review server status`.
-3. CI sets `DEV_REVIEW_SERVER_DIR` to the server state directory (or passes `--state-dir` to each client command). The CI-provided agent authors through `review api` or `review mcp`, following the shared `dev-review` skill.
-4. The batch skill validates a scratch draft and commits one snapshot. Commit sets all sections complete. Interactive mode remains available for immediate committed edits.
+3. CI sets `DEV_REVIEW_SERVER_DIR` to the server state directory (or passes `--state-dir` to each client command). The CI-provided agent authors through `review api` or `review mcp`, following the instructions from `review_get_instructions`.
+4. Following the batch instructions, the agent validates a scratch draft and commits one snapshot. Commit sets all sections complete. Interactive mode remains available for immediate committed edits.
 5. A later sharing step can consume the saved review through the server. Portable export and upload are separate work.
 6. CI stops the server process.
 
@@ -30,14 +30,14 @@ can still select isolated profile directories. Portable sharing remains separate
 - Each connection serializes its writes and shares cross-process authoring ownership through SQLite. Short transactions fence commits against concurrent ownership or version changes.
 - The store retains review versions and resource bytes. Repository registrations refer to local checkout paths; saving the state directory alone does not make a review portable.
 - Sections optionally carry `pending`, `in_progress`, or `complete`; transitions are not enforced. `review_activity` acquires one exclusive authoring session per review; mutations carry its lease ID and renewal keeps it alive. Ownership expires after 60 seconds without renewal and is checked again when edits commit. Reads remain available. There is no overall review completion state.
-- The shared skill calls `review_capabilities` to discover desktop availability and permission for map generation independently of opening a review.
+- The authoring instructions call `review_capabilities` to discover desktop availability and permission for map generation independently of opening a review.
 - The traces CLI demonstrates standalone npm installation and JSON output conventions, but has no local server lifecycle to reuse.
 
-## Skill and capabilities
+## Instructions and capabilities
 
-The `dev-review` entry skill routes explicit batch mode to `dev-review-batch`; the interactive instructions remain separate. It discovers server capabilities independently of `review_open`, opens a review when Desktop is available, and proceeds directly when headless. Document and component guidance stays shared. Batch mode uses persistent scratch drafts, no model heartbeats, and one atomic commit; shutdown discards unfinished drafts.
+`review_get_instructions` returns the batch workflow when the server runs in explicit batch mode; the live instructions remain separate. The `headless` topic covers setup and a GitHub Actions example. The instructions discover server capabilities independently of `review_open`, opens a review when Desktop is available, and proceeds directly when headless. Document and component guidance stays shared. Batch mode uses persistent scratch drafts, no model heartbeats, and one atomic commit; shutdown discards unfinished drafts.
 
-Optional software-map generation is disabled by default for the headless server and enabled explicitly at startup. Capability discovery reports that setting so the skill can decide whether to dispatch a map worker. Uploading existing map resources remains available independently of generation permission.
+Optional software-map generation is disabled by default for the headless server and enabled explicitly at startup. Capability discovery reports that setting so the agent can decide whether to dispatch a map worker. Uploading existing map resources remains available independently of generation permission.
 
 ## Verification targets
 
@@ -45,7 +45,7 @@ Optional software-map generation is disabled by default for the headless server 
 - Author and inspect a saved review through both CLI and MCP against prepared base/head commits, retaining the existing source and resource validation.
 - Report missing commits with actionable errors and preserve immediate saving for unfinished sections.
 - Keep independent job state separate and preserve accepted edits when restarting against the same state and checkout.
-- Verify the shared skill's desktop/headless branches and independent map-generation capability discovery.
+- Verify the served instructions' desktop/headless branches and independent map-generation capability discovery.
 - Leave portable export, upload, deep links, agent execution, and repository provisioning to their respective owners.
 
 ## Author and share in CI

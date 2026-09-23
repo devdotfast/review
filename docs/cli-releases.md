@@ -2,7 +2,7 @@
 
 The `Review CLI Release` workflow publishes the public `@dev.fast/review` npm
 package. The package contains `review server`, `review share`, `review trace`,
-and the agent skills. It runs independently of Desktop releases and requires
+the agent instructions, and the Pi pointer skill. It runs independently of Desktop releases and requires
 Node 24; building it does not install or launch Desktop.
 
 ## Release from GitHub

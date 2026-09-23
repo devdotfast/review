@@ -61,9 +61,9 @@ quit all Review windows, reopen the app, and retry the launch command.
 Run `review info` from the source repository. An empty `reviews` list means the
 current worktree has no matching active Review.
 
-Create one with the dev-review skill, which registers the repository, resolves
-pins, and calls `review_create` (or the equivalent `review api` command). See
-`packages/review/skills/dev-review/SKILL.md`.
+Ask your coding agent to create one. It registers the repository, resolves
+pins, and calls `review_create` (or the equivalent `review api` command),
+following `review api review_get_instructions '{}'`.
 Use `review info --all` to inspect active Reviews across every worktree in the
 repository.
 

@@ -19,14 +19,11 @@ This guide takes you from a fresh install to a completed first review.
 Review. The app updates itself after installation.
 
 On first launch, Review opens the welcome screen. It detects supported coding
-agents and offers to install:
-
-- the `review` command in `~/.local/bin`;
-- the `dev-review` skill for authoring reviews and software maps; and
-- the Review MCP connection for Codex and Claude Code.
-
-Choose **Install** for the agents you use. Review keeps the app-managed command
-and skills in sync after updates.
+agents (Claude Code, Codex, Cursor, and OpenCode) and connects them to the
+Review MCP server, which tells them how to author reviews and software maps.
+Connect other agents later from **Settings → Agents**. The `review` command in
+`~/.local/bin` is a separate **Command line** setting; MCP agents do not need
+it. Review keeps the app-managed setup in sync after updates.
 
 ## 2. Take the tour
 
@@ -44,8 +41,8 @@ Open the repository you want to review in your coding agent and tell it to
 review it!
 
 ```text
-Use the dev-review skill to review my current branch against up to date main,
-then open it in Review.
+Use Review to review my current branch against up to date main, then open it
+in Review.
 ```
 
 The agent registers the repository, resolves the base and head pins, creates

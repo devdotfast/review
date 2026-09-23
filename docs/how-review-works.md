@@ -43,12 +43,11 @@ See [review targets](cli-reference.md#review-targets) for the API options.
 
 ## Every edit saves immediately
 
-Authoring goes through the JSON API: `review api`, the Review MCP tools, or
-the dev-review skill. Every accepted edit is saved as soon as it is applied;
-there is no publish, checkpoint, or render-report step. See
-`packages/review/skills/dev-review/SKILL.md`
-and `packages/review/src/review-api/README.md`
-for the full authoring workflow.
+Authoring goes through the JSON API: `review api` or the Review MCP tools.
+Every accepted edit is saved as soon as it is applied; there is no publish,
+checkpoint, or render-report step. `review_get_instructions` returns the full
+authoring workflow; see `packages/review/src/review-api/README.md` for the
+tool/route list.
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain
@@ -91,8 +90,8 @@ a reason to repair.
 If sealed conversion fails, the record, authoring inputs, candidates, and
 private refs stay unchanged. Home lists an attention entry: the review was
 published with the removed MDX toolchain and its stored files are damaged, so
-it cannot be imported. Delete it from Home and recreate it with the Review
-skill. Malformed or unsupported records remain explicit list errors. A
+it cannot be imported. Delete it from Home and recreate it with your coding
+agent. Malformed or unsupported records remain explicit list errors. A
 current-schema Review with broken artifacts shows the same guidance in its
 document or map load state.
 
@@ -110,8 +109,8 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 
 The directory contains the document, supporting TypeScript, pinned state,
 sealed revisions, and disposable build output. Review owns the infrastructure
-files; agents author content through the JSON API (`review api`, the Review
-MCP tools, or the dev-review skill), never by editing files in this directory
+files; agents author content through the JSON API (`review api` or the Review
+MCP tools), never by editing files in this directory
 directly.
 
 `review.json` uses store schema 5 and records the independent document and map

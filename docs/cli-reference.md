@@ -37,9 +37,9 @@ review api tools
 review app pick --review <uuid>
 ```
 
-Most people let the installed Review skill drive this workflow: it authors
-through `review api` or the Review MCP tools. See
-`packages/review/skills/dev-review/SKILL.md`.
+Most people let a connected coding agent drive this workflow: it authors
+through `review api` or the Review MCP tools, following the instructions from
+`review api review_get_instructions '{}'`. See [Coding agents](agents.md).
 
 ## Machine-readable output
 
@@ -76,7 +76,7 @@ $ review version --json
 | `review server start`  | Run the foreground authoring server without Desktop.              |
 | `review server status` | Check readiness of the selected headless server.                  |
 | `review map`           | Author, validate, and share experimental software maps.           |
-| `review install`       | Install Review skills for supported coding agents.                |
+| `review install`       | Connect supported coding agents to Review.                        |
 | `review migrate apply` | Migrate supported legacy Review data.                             |
 | `review version`       | Print the Review package version.                                 |
 
@@ -85,7 +85,7 @@ $ review version --json
 `review server start` runs the authoring server in the foreground without a
 Desktop installation. `review server status --json` checks readiness. Stop the
 server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
-and shared `dev-review` skill as Desktop.
+and served instructions as Desktop.
 
 Set `DEV_REVIEW_SERVER_DIR` for the server and clients to select a job's saved
 state, or use `review --state-dir <path> server start` and
@@ -93,12 +93,14 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
+For headless setup and a GitHub Actions example, run
+`review api review_get_instructions '{"topic":"headless"}'`; see also
+[Headless authoring](headless-authoring.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Interactive mode (the default) saves each accepted edit as a version. Start with
 `--authoring-mode batch` to select scratch drafts and one atomic commit instead.
-Capabilities report the selected mode. The `dev-review` skill routes to the short
-`dev-review-batch` skill for this workflow. Draft ownership lasts until commit,
+Capabilities report the selected mode, and `review_get_instructions` returns
+the batch workflow when it is selected. Draft ownership lasts until commit,
 abort or server shutdown, without model heartbeats. Uncommitted drafts are
 discarded when their server stops.
 
@@ -133,11 +135,10 @@ The legacy `review app --review <uuid>` form remains a compatibility alias for
 
 ## Authoring
 
-Reviews are created and edited through the JSON API: `review api`, the Review
-MCP tools, or the installed dev-review skill. See
-`packages/review/skills/dev-review/SKILL.md`
-and `packages/review/src/review-api/README.md`
-for the authoring workflow and the full tool/route list. `review api tools`
+Reviews are created and edited through the JSON API: `review api` or the
+Review MCP tools. `review api review_get_instructions '{}'` returns the
+authoring workflow; see `packages/review/src/review-api/README.md` for the
+full tool/route list. `review api tools`
 prints the current tool catalog.
 
 ### Review targets
@@ -429,12 +430,15 @@ and data policy.
 ## Agent integration and migration
 
 ```sh
-review install [claude|claude-code|codex|cursor|all]
+review install [claude|claude-code|codex|cursor|opencode|pi|all]
 review migrate apply
 review migrate apply --force
 review version
 ```
 
-The app normally installs and updates agent skills. Use `review install` for a
-headless environment. Migration is only for legacy Review state; use `--force`
+The app normally connects agents and keeps their MCP entries up to date. Use
+`review install` for a headless environment: it writes the same Review MCP
+registration for Claude Code, Codex, Cursor, and OpenCode, and the `dev-review`
+pointer skill for Pi. With `DEV_REVIEW_SERVER_DIR` set it writes no MCP entries;
+agents use `review api` or `review mcp` there. Migration is only for legacy Review state; use `--force`
 only to restart an interrupted migration.

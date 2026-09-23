@@ -13,22 +13,20 @@ This guide takes you from a fresh install to a completed first review.
   to review.
 - Claude Code, Codex, and other coding agents.
 
-## 1. Install Whiteboard
+## 1. Install Review
 
 [Download the latest disk image](https://install.dev.fast), open it, and launch
-Whiteboard. The app updates itself after installation.
+Review. The app updates itself after installation.
 
-On first launch, Whiteboard opens the welcome screen. Its first step connects your
-coding agents:
+On first launch, Review opens the welcome screen. It detects supported coding
+agents and offers to install:
 
-1. Choose **Install whiteboard in PATH**.
-2. Choose **Copy prompt** next to an agent you use.
-3. Paste the prompt into a session of that agent. The agent registers Whiteboard's
-   MCP server and confirms that it can reach Whiteboard.
+- the `review` command in `~/.local/bin`;
+- the `dev-review` skill for authoring reviews and software maps; and
+- the Review MCP connection for Codex and Claude Code.
 
-Repeat for each agent. You can copy the prompts again later from
-**Settings → Agents**. See [Coding agents](agents.md#connect-an-agent) for
-what the prompt does.
+Choose **Install** for the agents you use. Review keeps the app-managed command
+and skills in sync after updates.
 
 ## 2. Take the tour
 
@@ -40,38 +38,36 @@ sample repository to show:
 - sequence and database views; and
 - the full architecture map.
 
-## 3. Create a session
+## 3. Create a review
 
 Open the repository you want to review in your coding agent and tell it to
 review it!
 
 ```text
-Create a Whiteboard of my current branch against up to date main, then open it
-in Whiteboard.
+Use the dev-review skill to review my current branch against up to date main,
+then open it in Review.
 ```
 
 The agent registers the repository, resolves the base and head pins, creates
-the session through the Whiteboard API, writes and validates the walkthrough, and
-opens it in Whiteboard. You can also review a specific GitHub pull request
+the review through the Review API, writes and validates the walkthrough, and
+opens it in Review Desktop. You can also review a specific GitHub pull request
 or ask for an architecture review of a repository.
 
-<a id="add-review-guidance"></a>
+### Add Review guidance
 
-### Add Whiteboard guidance
+You can add optional guidance for generated Review documents:
 
-You can add optional guidance for generated session documents:
-
-- User-level guidance: `$DEV_WHITEBOARD_HOME/DEV-REVIEW.md`. Whiteboard uses
+- User-level guidance: `$DEV_REVIEW_HOME/DEV-REVIEW.md`. Review uses
   `~/.dev/DEV-REVIEW.md` by default.
 - Repository guidance: `DEV-REVIEW.md` at the source repository root.
 
 Repository guidance takes precedence over user-level guidance.
 
-## 4. Read the session
+## 4. Read the review
 
 Use the three main surfaces together:
 
-- **Session** explains the change and links every code claim to its evidence.
+- **Review** explains the change and links every code claim to its evidence.
 - **Map** lets you move from systems to containers, components, and code
   (experimental).
 - **Files** shows the underlying changed-file diff.
@@ -81,17 +77,17 @@ Use the three main surfaces together:
 The app normally manages the CLI. These commands are useful for checking it:
 
 ```sh
-whiteboard version
-whiteboard app launch
-whiteboard info
+review version
+review app launch
+review info
 ```
 
-If the command is missing or behaves like an older browser-based Whiteboard, see
+If the command is missing or behaves like an older browser-based Review, see
 [Troubleshooting](troubleshooting.md).
 
 ## Next steps
 
-- Learn [how Whiteboard works](how-review-works.md).
+- Learn [how Review works](how-review-works.md).
 - Read about [coding-agent setup](agents.md).
 - Use the [CLI reference](cli-reference.md) for explicit or automated flows.
-- Read the [privacy boundaries](privacy.md).
+- Review the [privacy boundaries](privacy.md).

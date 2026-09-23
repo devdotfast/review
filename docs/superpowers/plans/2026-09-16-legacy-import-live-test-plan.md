@@ -15,9 +15,9 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
    ```sh
    cd <worktree for the branch under test>
    pnpm install
-   HOME_DIR=$(bash apps/whiteboard-desktop/scripts/legacy-import-live-home.sh | head -1)
+   HOME_DIR=$(bash apps/review-desktop/scripts/legacy-import-live-home.sh | head -1)
    cat "$HOME_DIR/TESTER-README.md"     # inventory, expected outcomes, CLI env
-   DEV_WHITEBOARD_HOME="$HOME_DIR" DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1 DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_WHITEBOARD_EXTENSIONS=none pnpm dev
+   DEV_REVIEW_HOME="$HOME_DIR" DEV_FAST_REVIEW_TELEMETRY_DISABLED=1 DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_REVIEW_EXTENSIONS=none pnpm dev
    ```
 
    Keep this terminal open; the server logs `[Review import] <uuid>: imported as version N` or `skipped (<reason>)` here. Save the whole log at the end.
@@ -25,7 +25,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
 2. In a second terminal, every CLI command in this plan runs with the same home and without delegation to the app's bundled CLI. Run `review` from inside `$HOME_DIR/repos/review-scratch`, the repository every review in the home pins:
 
    ```sh
-   export DEV_WHITEBOARD_HOME="$HOME_DIR" DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1
+   export DEV_REVIEW_HOME="$HOME_DIR" DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_FAST_REVIEW_TELEMETRY_DISABLED=1
    cd <worktree for the branch under test>
    alias review='pnpm --filter @dev.fast/review review'
    ```
@@ -66,7 +66,7 @@ Pick the imported review with the richest content (peeks, a diagram, a database 
 
 | # | Step | Expected |
 |---|---|---|
-| C1 | Seed one more published review into `<home>/reviews/<uuid>/` **while the app is running** — copy it from `~/.dev/reviews` (one whose worktree exists), or extract a `packages/whiteboard/src/fixtures/legacy-reviews/*.tgz` into a directory named after its `sourceUuid` — then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
+| C1 | Seed one more published review into `<home>/reviews/<uuid>/` **while the app is running** — copy it from `~/.dev/reviews` (one whose worktree exists), or extract a `packages/review/src/fixtures/legacy-reviews/*.tgz` into a directory named after its `sourceUuid` — then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
 | C2 | Run `review app pick --review <uuid>` again. | Exit 0, the JSON tab is focused, no second import line. |
 
 ## D. The JSON API is the only authoring route
@@ -83,7 +83,7 @@ There is no MDX authoring path left: `review scaffold`, `review publish`, `revie
 
 | # | Step | Expected |
 |---|---|---|
-| E1 | Quit the app (Cmd+Q), relaunch with the same `DEV_WHITEBOARD_HOME`. | Home lists the same imported reviews once each. The terminal shows **no** new `imported` lines for them (they are `current`). |
+| E1 | Quit the app (Cmd+Q), relaunch with the same `DEV_REVIEW_HOME`. | Home lists the same imported reviews once each. The terminal shows **no** new `imported` lines for them (they are `current`). |
 | E2 | Open one imported review. | Same content and version as before the restart. |
 | E3 | Delete an imported review from Home (the JSON entry's Delete). | It disappears. On the next Home refresh it is imported again from the legacy directory (the legacy record still exists); note this as expected behavior for now. |
 

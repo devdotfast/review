@@ -28,7 +28,7 @@ describe("trace storage selection", () => {
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), "trace-select-"));
-    env = { DEV_WHITEBOARD_HOME: path.join(home, ".dev") };
+    env = { DEV_REVIEW_HOME: path.join(home, ".dev") };
     clearTraceEnvCache();
   });
 

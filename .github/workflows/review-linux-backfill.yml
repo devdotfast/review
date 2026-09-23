@@ -59,7 +59,7 @@ jobs:
           TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           VERSION=${TAG#v}
-          CURRENT=$(node -p "require('./apps/whiteboard-desktop/package.json').version")
+          CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
           if [ "$CURRENT" != "$VERSION" ]; then
             echo '::error::Main no longer matches the published stable version. Use the normal release workflow.'
             exit 1
@@ -112,7 +112,7 @@ jobs:
         run: |
           mkdir linux-repository
           tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
-          python3 apps/whiteboard-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
           curl -fsS https://install.dev.fast/linux >/dev/null
           curl -fsS https://install.dev.fast/repos/dev-fast-review.repo >/dev/null
       - name: Attach RPM to the existing release

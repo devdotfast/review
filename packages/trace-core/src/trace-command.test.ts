@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  keepTraceExecutable,
   renderTraceCommand,
   resolveTraceCommand,
   traceHomeDir,
@@ -42,25 +41,23 @@ describe("resolveTraceCommand", () => {
 
     expect(
       resolveTraceCommand({
-        explicit: { file: "/x/whiteboard", args: ["--a"] },
+        explicit: { file: "/x/review", args: ["--a"] },
         env,
         homeDir,
       }),
-    ).toEqual({ file: "/x/whiteboard", args: ["--a"] });
+    ).toEqual({ file: "/x/review", args: ["--a"] });
     expect(
-      resolveTraceCommand({ explicit: "/opt/whiteboard", env, homeDir }),
-    ).toEqual({ file: "/opt/whiteboard" });
+      resolveTraceCommand({ explicit: "/opt/review", env, homeDir }),
+    ).toEqual({ file: "/opt/review" });
     expect(
       resolveTraceCommand({
-        env: { WHITEBOARD_TRACE_COMMAND: "/env/whiteboard" },
+        env: { REVIEW_TRACE_COMMAND: "/env/review" },
         homeDir,
       }),
-    ).toEqual({ file: "/env/whiteboard" });
-    expect(resolveTraceCommand({ env, homeDir })).toEqual({
-      file: "whiteboard",
-    });
+    ).toEqual({ file: "/env/review" });
+    expect(resolveTraceCommand({ env, homeDir })).toEqual({ file: "review" });
 
-    const installed = await installFile(homeDir, "whiteboard");
+    const installed = await installFile(homeDir, "review");
     expect(resolveTraceCommand({ env, homeDir })).toEqual({ file: installed });
   });
 
@@ -72,7 +69,7 @@ describe("resolveTraceCommand", () => {
 
 describe("renderTraceCommand", () => {
   it("quotes the file and every argument as separate words", () => {
-    expect(renderTraceCommand({ file: "whiteboard" })).toBe("'whiteboard'");
+    expect(renderTraceCommand({ file: "review" })).toBe("'review'");
     expect(
       renderTraceCommand({
         file: "/opt/dev traces/node",
@@ -91,7 +88,7 @@ describe("traceScope", () => {
       devHome: path.join("/h", ".dev"),
     });
     expect(
-      traceScope({ homeDir: "/h", env: { DEV_WHITEBOARD_HOME: "/d" } }).devHome,
+      traceScope({ homeDir: "/h", env: { DEV_REVIEW_HOME: "/d" } }).devHome,
     ).toBe(path.resolve("/d"));
     expect(traceScope().homeDir).toBe(os.homedir());
   });
@@ -99,21 +96,10 @@ describe("traceScope", () => {
 
 it("pins an npm PATH executable when Desktop has no local launcher", async () => {
   const homeDir = await tempHome();
-  const command = path.join(homeDir, "npm", "bin", "whiteboard");
+  const command = path.join(homeDir, "npm", "bin", "review");
   await mkdir(path.dirname(command), { recursive: true });
   await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
   expect(
     resolveTraceCommand({ homeDir, env: { PATH: path.dirname(command) } }),
   ).toEqual({ file: command });
-});
-
-it("moves hooks to Whiteboard within an installation but preserves another live installation", async () => {
-  const homeDir = await tempHome();
-  const old = await installFile(homeDir, "review");
-  const { chmod } = await import("node:fs/promises");
-  await chmod(old, 0o755);
-  expect(
-    keepTraceExecutable(old, path.join(path.dirname(old), "whiteboard")),
-  ).toBe(false);
-  expect(keepTraceExecutable(old, "/another/bin/whiteboard")).toBe(true);
 });

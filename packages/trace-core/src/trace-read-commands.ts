@@ -9,49 +9,41 @@ export function registerTraceReadCommands(
   settings: RegisterTraceCommandsOptions,
 ): void {
   const { runtime, cwd, configureJsonOutput } = settings;
-  const sessionFlag = "session";
-  const agentFlag = "agent-session";
 
   const withStorage = <T extends Command>(command: T): T =>
     addTraceStorageOption(command);
 
   const listOptions = (command: Command): Command =>
     command
-      .option(`--${sessionFlag} <uuid>`, "Whiteboard session UUID")
+      .option("--review <uuid>", "review UUID")
       .option("--commit <sha>", "commit or revision");
 
   const pullOptions = (command: Command): Command =>
-    command.option(
-      `--${sessionFlag} <uuid>`,
-      "pull agent traces for one Whiteboard session",
-    );
+    command.option("--review <uuid>", "pull sessions for one Review");
 
   configureJsonOutput(
     withStorage(
       listOptions(
         trace
           .command("list")
-          .description(
-            "List agent sessions for a Whiteboard session or commit",
-          ),
+          .description("List agent sessions for a Review or commit"),
       ),
     ),
   ).action(
     async (options: {
-      session?: string;
-      agentSession?: string;
+      review?: string;
       commit?: string;
       storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
-      if (options.session && options.commit) {
-        throw new Error(`Use either --${sessionFlag} or --commit, not both.`);
+      if (options.review && options.commit) {
+        throw new Error("Use either --review or --commit, not both.");
       }
 
       settings.setExitCode(
         await runtime.runTraceList({
           cwd,
-          sessionId: options.session,
+          reviewUuid: options.review,
           commitSha: options.commit,
           storage: options.storage,
           json: options.json,
@@ -113,38 +105,36 @@ export function registerTraceReadCommands(
           .option("--repo <owner/repo>", "repository for the corpus path"),
       )
         .option("--commit <sha>", "pull sessions for one commit or revision")
-        .option(`--${agentFlag} <id>`, "pull one agent conversation")
+        .option("--session <id>", "pull one session")
         .option("--main-only", "exclude subagent traces"),
     ),
   ).action(
     async (options: {
       repo?: string;
-      session?: string;
-      agentSession?: string;
+      review?: string;
       commit?: string;
+      session?: string;
       mainOnly?: boolean;
       storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
       const selectors = [
-        options.session,
+        options.review,
         options.commit,
-        options.agentSession,
+        options.session,
       ].filter(Boolean);
 
       if (selectors.length > 1) {
-        throw new Error(
-          `Use only one of --${sessionFlag}, --commit, or --${agentFlag}.`,
-        );
+        throw new Error("Use only one of --review, --commit, or --session.");
       }
 
       settings.setExitCode(
         await runtime.runTracePull({
           cwd,
           repo: options.repo,
-          sessionId: options.session,
+          reviewUuid: options.review,
           commitSha: options.commit,
-          session: options.agentSession,
+          session: options.session,
           mainOnly: options.mainOnly,
           storage: options.storage,
           json: options.json,

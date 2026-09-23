@@ -1,12 +1,12 @@
 // Per-user repository consent for the hosted trace store.
 //
-// A user allows a repository once with `whiteboard trace allow`, and every hosted
+// A user allows a repository once with `review trace allow`, and every hosted
 // upload path reads the entry back before it sends anything. Entries live in
 // the shared trace config under `repositories`, each naming the hosted
 // origins it may publish to. Consent never selects a store by itself.
 
 import { normalizeStoreOrigin } from "./store-origin";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import type {
   TraceConfigFile,
   TraceRepositoryEntry,
@@ -34,7 +34,7 @@ export interface TraceUserConfig {
   repositories: TraceRepositoryConsent[];
 }
 
-export function traceUserConfigPath(devHome = devWhiteboardHome()): string {
+export function traceUserConfigPath(devHome = devReviewHome()): string {
   return traceConfigPath({ devHome });
 }
 
@@ -48,7 +48,7 @@ export async function readTraceUserConfig(
 async function readTraceUserConfigFile(
   devHome?: string,
 ): Promise<{ file: TraceConfigFile; consent: TraceUserConfig }> {
-  const file = readTraceConfigFile({ devHome: devHome ?? devWhiteboardHome() });
+  const file = readTraceConfigFile({ devHome: devHome ?? devReviewHome() });
 
   if (file.error) throw new TraceConfigurationError(file.error);
 
@@ -101,7 +101,7 @@ function toConfigEntry(entry: TraceRepositoryConsent): TraceRepositoryEntry {
  */
 export async function allowTraceRepository(
   entry: { repositoryId: number; name: string; origin: string },
-  devHome = devWhiteboardHome(),
+  devHome = devReviewHome(),
 ): Promise<TraceUserConfig> {
   const origin = normalizeStoreOrigin(entry.origin);
 
@@ -143,7 +143,7 @@ export async function allowTraceRepository(
  */
 export async function denyTraceRepository(
   repository: { name: string; repositoryId?: number | null },
-  devHome = devWhiteboardHome(),
+  devHome = devReviewHome(),
 ): Promise<boolean> {
   const { file, consent: config } = await readTraceUserConfigFile(devHome);
 

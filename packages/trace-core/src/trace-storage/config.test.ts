@@ -25,7 +25,7 @@ describe("trace config file", () => {
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), "trace-config-"));
-    env = { DEV_WHITEBOARD_HOME: path.join(home, ".dev") };
+    env = { DEV_REVIEW_HOME: path.join(home, ".dev") };
   });
 
   afterEach(() => {

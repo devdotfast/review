@@ -56,13 +56,12 @@ export function registerTraceHookCommands(
     trace
       .command("hook <event>", { hidden: true })
       .description("Handle agent session lifecycle hooks")
-      .option("--agent-session <id>", "Agent session ID"),
+      .option("--session <id>", "Agent session ID"),
   ).action(
     async (
       event: string,
       options: {
         session?: string;
-        agentSession?: string;
       },
     ) => {
       settings.setExitCode(
@@ -70,7 +69,7 @@ export function registerTraceHookCommands(
           scope,
           cwd,
           event,
-          sessionId: options.agentSession,
+          sessionId: options.session,
           stdin: settings.stdin,
           traceCommand,
         }),

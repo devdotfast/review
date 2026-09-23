@@ -9,7 +9,7 @@ import {
   isOpenCodeSessionId,
 } from "./opencode-trace-export";
 import { isFile, listFilesRecursive } from "./trace-corpus";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import { traceEnvValue as s3EnvValue } from "./trace-storage/s3-config";
 
 export interface LocalTraceDiscovery {
@@ -68,7 +68,7 @@ export async function findLocalTrace(
       sessionId,
       root:
         process.env.TRACE_OPENCODE_TRACES_ROOT ||
-        path.join(devWhiteboardHome(), "opencode-traces"),
+        path.join(devReviewHome(), "opencode-traces"),
     });
 
     if (tracePath) harness = "opencode";

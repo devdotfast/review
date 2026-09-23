@@ -16,7 +16,7 @@ from review_latency.claude_stream import StreamRequest, parse_stream_requests
 from review_latency.cli_traces import CliTrace, load_cli_traces
 from review_latency.codex_stream import codex_result_summary, codex_timeline
 
-WHITEBOARD_COMMAND = re.compile(r"""(?:^|[\s;&|("'])review\s+(\S+)(?:\s+(\S+))?""")
+REVIEW_COMMAND = re.compile(r"""(?:^|[\s;&|("'])review\s+(\S+)(?:\s+(\S+))?""")
 AUTHORED_FILES = ("review.mdx", "data.ts")
 
 
@@ -26,7 +26,7 @@ def review_verbs(command: str) -> list[str]:
     if "--help" in command or " help " in f" {command} ":
         return []
     verbs: list[str] = []
-    for match in WHITEBOARD_COMMAND.finditer(command):
+    for match in REVIEW_COMMAND.finditer(command):
         verb, sub = match.group(1), match.group(2)
         if verb == "present":
             verb = "publish"

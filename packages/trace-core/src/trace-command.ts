@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { isStringValue } from "@dev.fast/json";
 
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 
 /** Where one CLI run reads its machine state; built once at the entry. */
 export interface TraceScope {
@@ -20,7 +20,7 @@ export function traceScope(
   const env = input.env ?? process.env;
   const homeDir = input.homeDir ?? os.homedir();
 
-  return { homeDir, env, devHome: devWhiteboardHome(env, homeDir) };
+  return { homeDir, env, devHome: devReviewHome(env, homeDir) };
 }
 
 /** The executable a hook re-enters, plus the leading arguments it needs. */
@@ -31,12 +31,12 @@ export interface TraceCommand {
 
 /** The executable name used in trace hooks. */
 export function traceCliName(): string {
-  return "whiteboard";
+  return "review";
 }
 
 /** The command prefix used in trace instructions. */
 export function traceCommandPrefix(): string {
-  return "whiteboard trace";
+  return "review trace";
 }
 
 /** Returns the configured trace home, then the operating-system home. */
@@ -61,16 +61,13 @@ export function resolveTraceCommand(
 
   const env = input.env ?? process.env;
 
-  const commandName = "whiteboard";
-
-  if (env.WHITEBOARD_TRACE_COMMAND)
-    return { file: env.WHITEBOARD_TRACE_COMMAND };
+  if (env.REVIEW_TRACE_COMMAND) return { file: env.REVIEW_TRACE_COMMAND };
 
   const installed = path.join(
     input.homeDir ?? traceHomeDir(env),
     ".local",
     "bin",
-    commandName,
+    "review",
   );
 
   if (existsSync(installed)) return { file: installed };
@@ -78,10 +75,10 @@ export function resolveTraceCommand(
   const onPath = (env.PATH ?? "")
     .split(path.delimiter)
     .filter((directory) => path.isAbsolute(directory))
-    .map((directory) => path.join(directory, commandName))
+    .map((directory) => path.join(directory, "review"))
     .find(isLiveTraceExecutable);
 
-  return { file: onPath ?? commandName };
+  return { file: onPath ?? "review" };
 }
 
 /** Quotes one value for a POSIX shell command. */
@@ -112,15 +109,6 @@ export function keepTraceExecutable(
   existing: string | undefined,
   wanted: string,
 ): boolean {
-  // Rename hooks within the same installation; never take over another live installation.
-  if (
-    existing &&
-    path.basename(existing) === "review" &&
-    path.basename(wanted) === "whiteboard" &&
-    path.dirname(existing) === path.dirname(wanted)
-  )
-    return false;
-
   return existing !== wanted && isLiveTraceExecutable(existing);
 }
 

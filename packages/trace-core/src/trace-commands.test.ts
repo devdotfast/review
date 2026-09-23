@@ -97,7 +97,7 @@ describe("shared trace command parsing", () => {
 
     await fixture.parse([
       "status",
-      "--agent-session",
+      "--session",
       "session-1",
       "--cursor",
       "page-2",
@@ -145,7 +145,7 @@ describe("shared trace command parsing", () => {
         expect(input).toMatchObject({
           cwd: "/repo",
           repo: "owner/repo",
-          sessionId: "uuid",
+          reviewUuid: "uuid",
           mainOnly: true,
           storage: "s3",
           json: true,
@@ -160,7 +160,7 @@ describe("shared trace command parsing", () => {
       "pull",
       "--repo",
       "owner/repo",
-      "--session",
+      "--review",
       "uuid",
       "--main-only",
       "--storage",
@@ -170,15 +170,15 @@ describe("shared trace command parsing", () => {
     expect(fixture.result).toEqual({ code: 0, out: "pulled\n", err: "" });
   });
   it.each([
-    ["list", "--session", "uuid", "--commit", "HEAD"],
-    ["pull", "--session", "uuid", "--agent-session", "s"],
-    ["pull", "--commit", "HEAD", "--agent-session", "s"],
+    ["list", "--review", "uuid", "--commit", "HEAD"],
+    ["pull", "--review", "uuid", "--session", "s"],
+    ["pull", "--commit", "HEAD", "--session", "s"],
   ])("rejects conflicting selectors %j", async (...argv) => {
     const fixture = build();
     await expect(fixture.parse(argv)).rejects.toThrow(
       argv[0] === "list"
-        ? "Use either --session or --commit, not both."
-        : "Use only one of --session, --commit, or --agent-session.",
+        ? "Use either --review or --commit, not both."
+        : "Use only one of --review, --commit, or --session.",
     );
     expect(fixture.result.code).toBe(-1);
   });

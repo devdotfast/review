@@ -32,9 +32,7 @@ export interface AgentTraceHookInstallResult {
   keptCommand?: string;
 }
 
-const PI_EXTENSION_MARKER = "Managed by Whiteboard trace setup";
-
-const LEGACY_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
+const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
 
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;
 
@@ -81,7 +79,7 @@ function openCodePluginPath(
 function executableOwner(file: string): TraceHookOwner | null {
   const base = path.basename(file);
 
-  return base === "review" || base === "whiteboard" ? "review" : null;
+  return base === "review" ? base : null;
 }
 
 /** The executable of a single lifecycle command, or undefined for a shell compound. */
@@ -114,11 +112,7 @@ export function traceHookCommandOwner(
 }
 
 function extensionCommandFile(source: string): string | undefined {
-  if (
-    ![PI_EXTENSION_MARKER, LEGACY_EXTENSION_MARKER].some((marker) =>
-      source.trimStart().startsWith(`// ${marker}`),
-    )
-  )
+  if (!source.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`))
     return undefined;
   const match = /spawn\(("(?:[^"\\]|\\.)*"), \["trace", "hook"/.exec(source);
 
@@ -133,7 +127,7 @@ function extensionOwner(source: string): TraceHookOwner | null {
   return file === undefined ? null : executableOwner(file);
 }
 
-function piExtensionSource(whiteboardCommand: string): string {
+function piExtensionSource(reviewCommand: string): string {
   return `// ${PI_EXTENSION_MARKER}
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -164,7 +158,7 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
     session_id: sessionId,
   });
 
-  const proc = spawn(${JSON.stringify(whiteboardCommand)}, ["trace", "hook", eventName], {
+  const proc = spawn(${JSON.stringify(reviewCommand)}, ["trace", "hook", eventName], {
     cwd,
     stdio: ["pipe", "ignore", "ignore"],
   });
@@ -177,7 +171,7 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
 `;
 }
 
-function openCodeTracePluginSource(whiteboardCommand: string): string {
+function openCodeTracePluginSource(reviewCommand: string): string {
   return `// ${OPENCODE_TRACE_PLUGIN_MARKER}
 import { spawn } from "node:child_process";
 
@@ -191,7 +185,7 @@ interface OpenCodeEvent {
 // the prompt registers the session for commit stamping and idle syncs the
 // trace. Child sessions spawned by the task tool stay attached to their
 // parent's turn and are never registered on their own.
-export default async function whiteboardTracePlugin(input: { directory: string }) {
+export default async function reviewTracePlugin(input: { directory: string }) {
   const directories = new Map<string, string>();
   const childSessions = new Set<string>();
 
@@ -252,7 +246,7 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
     session_id: sessionId,
   });
 
-  const proc = spawn(${JSON.stringify(whiteboardCommand)}, ["trace", "hook", eventName], {
+  const proc = spawn(${JSON.stringify(reviewCommand)}, ["trace", "hook", eventName], {
     cwd,
     stdio: ["pipe", "ignore", "ignore"],
   });
@@ -341,7 +335,7 @@ export function skippedHarnessesLine(
  */
 export async function installClaudeTraceHook(
   homeDir = os.homedir(),
-  whiteboardCommand = traceCliName(),
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const settingsDir = path.join(homeDir, ".claude");
   const settingsPath = claudeSettingsPath(homeDir);
@@ -366,7 +360,7 @@ export async function installClaudeTraceHook(
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
   ) => ({
     type: "command",
-    command: `${shellCommand(whiteboardCommand)} trace hook ${eventName}`,
+    command: `${shellCommand(reviewCommand)} trace hook ${eventName}`,
   });
 
   for (const eventName of [
@@ -389,7 +383,7 @@ export async function installClaudeTraceHook(
         if (file === undefined || executableOwner(file) === null) continue;
         found = true;
 
-        if (keepTraceExecutable(file, whiteboardCommand)) {
+        if (keepTraceExecutable(file, reviewCommand)) {
           keptCommand = file;
           continue;
         }
@@ -435,7 +429,7 @@ export async function installClaudeTraceHook(
  */
 export async function installCodexTraceHook(
   homeDir = os.homedir(),
-  whiteboardCommand = traceCliName(),
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const codexDir = path.join(homeDir, ".codex");
   const configPath = codexConfigPath(homeDir);
@@ -461,7 +455,7 @@ export async function installCodexTraceHook(
     if (file === undefined || executableOwner(file) === null) return block;
     found.add(event);
 
-    if (keepTraceExecutable(file, whiteboardCommand)) {
+    if (keepTraceExecutable(file, reviewCommand)) {
       keptCommand = file;
 
       return block;
@@ -470,7 +464,7 @@ export async function installCodexTraceHook(
     return block.replace(
       /^command = .*$/m,
       () =>
-        `command = ${JSON.stringify(`${shellCommand(whiteboardCommand)} trace hook ${event}`)}`,
+        `command = ${JSON.stringify(`${shellCommand(reviewCommand)} trace hook ${event}`)}`,
     );
   });
 
@@ -478,8 +472,8 @@ export async function installCodexTraceHook(
 
   if (missing.length > 0) {
     next = existing
-      ? `${next.trimEnd()}\n\n${missing.map((event) => codexTraceHookToml(event, whiteboardCommand)).join("\n\n")}\n`
-      : codexHookBlock(whiteboardCommand).trimStart();
+      ? `${next.trimEnd()}\n\n${missing.map((event) => codexTraceHookToml(event, reviewCommand)).join("\n\n")}\n`
+      : codexHookBlock(reviewCommand).trimStart();
   }
 
   const result: AgentTraceHookInstallResult = {
@@ -502,7 +496,7 @@ export async function installCodexTraceHook(
  */
 export async function installPiTraceExtension(
   homeDir = os.homedir(),
-  whiteboardCommand = traceCliName(),
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const extensionsDir = path.join(homeDir, ".pi", "agent", "extensions");
   const extensionPath = piExtensionPath(homeDir);
@@ -515,14 +509,14 @@ export async function installPiTraceExtension(
 
   const existingCommand = extensionCommandFile(existing);
 
-  if (keepTraceExecutable(existingCommand, whiteboardCommand))
+  if (keepTraceExecutable(existingCommand, reviewCommand))
     return {
       agent: "pi",
       path: extensionPath,
       modified: false,
       keptCommand: existingCommand,
     };
-  const source = piExtensionSource(whiteboardCommand);
+  const source = piExtensionSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
     return { agent: "pi", path: extensionPath, modified: false };
@@ -535,11 +529,11 @@ export async function installPiTraceExtension(
 }
 
 /**
- * Idempotently writes the OpenCode trace plugin into ~/.config/opencode/plugins/whiteboard-trace.ts.
+ * Idempotently writes the OpenCode trace plugin into ~/.config/opencode/plugins/review-trace.ts.
  */
 export async function installOpenCodeTraceExtension(
   homeDir = os.homedir(),
-  whiteboardCommand = traceCliName(),
+  reviewCommand = traceCliName(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<AgentTraceHookInstallResult> {
   const pluginPath = openCodePluginPath(homeDir, env);
@@ -553,14 +547,14 @@ export async function installOpenCodeTraceExtension(
 
   const existingCommand = extensionCommandFile(existing);
 
-  if (keepTraceExecutable(existingCommand, whiteboardCommand))
+  if (keepTraceExecutable(existingCommand, reviewCommand))
     return {
       agent: "opencode",
       path: pluginPath,
       modified: false,
       keptCommand: existingCommand,
     };
-  const source = openCodeTracePluginSource(whiteboardCommand);
+  const source = openCodeTracePluginSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
     return { agent: "opencode", path: pluginPath, modified: false };
@@ -694,7 +688,7 @@ function shellCommand(command: string): string {
 
 function codexTraceHookToml(
   eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
-  whiteboardCommand: string,
+  reviewCommand: string,
 ): string {
   const status =
     eventName === "SessionStart"
@@ -704,15 +698,15 @@ function codexTraceHookToml(
   return `[[hooks.${eventName}]]
 [[hooks.${eventName}.hooks]]
 type = "command"
-command = ${JSON.stringify(`${shellCommand(whiteboardCommand)} trace hook ${eventName}`)}${status}`;
+command = ${JSON.stringify(`${shellCommand(reviewCommand)} trace hook ${eventName}`)}${status}`;
 }
 
 /** The whole marked block, written when the Codex config is empty. */
-function codexHookBlock(whiteboardCommand: string): string {
+function codexHookBlock(reviewCommand: string): string {
   const events = ["SessionStart", "UserPromptSubmit", "SessionEnd"] as const;
 
   return `\n# review-trace-hooks:start\n${events
-    .map((eventName) => codexTraceHookToml(eventName, whiteboardCommand))
+    .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
     .join("\n\n")}\n# review-trace-hooks:end\n`;
 }
 

@@ -5,7 +5,7 @@ from pathlib import Path
 HARNESS_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = HARNESS_DIR.parent.parent
 DEFAULT_CONFIG = HARNESS_DIR / "runs.toml"
-SOURCE_CLI = REPO_ROOT / "packages" / "whiteboard" / "src" / "cli.ts"
+SOURCE_CLI = REPO_ROOT / "packages" / "review" / "src" / "cli.ts"
 
 
 @dataclass(frozen=True)

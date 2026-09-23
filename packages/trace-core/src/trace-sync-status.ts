@@ -13,7 +13,7 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
 import { traceCommandPrefix } from "./trace-command";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import type { TraceProvenanceReason } from "./trace-session-provenance";
 
 const MAX_ERROR_LENGTH = 300;
@@ -37,7 +37,7 @@ const syncFailureSchema = z.object({
 
 export type TraceSyncFailure = z.infer<typeof syncFailureSchema>;
 
-export function traceSyncStatusDir(devHome = devWhiteboardHome()): string {
+export function traceSyncStatusDir(devHome = devReviewHome()): string {
   return path.join(devHome, "trace", "sync-status");
 }
 
@@ -84,7 +84,7 @@ export async function recordTraceSyncFailure(input: {
   };
 
   await writePrivateJsonAtomic(
-    statusPath(input.sessionId, input.devHome ?? devWhiteboardHome()),
+    statusPath(input.sessionId, input.devHome ?? devReviewHome()),
     record,
   );
 }
@@ -94,9 +94,7 @@ export async function clearTraceSyncFailure(
   devHome?: string,
 ): Promise<void> {
   if (!sessionIdSchema.safeParse(sessionId).success) return;
-  await rm(statusPath(sessionId, devHome ?? devWhiteboardHome()), {
-    force: true,
-  });
+  await rm(statusPath(sessionId, devHome ?? devReviewHome()), { force: true });
 }
 
 export function describeTraceSyncFailure(failure: TraceSyncFailure): string {
@@ -111,7 +109,7 @@ export function describeTraceSyncFailure(failure: TraceSyncFailure): string {
 export async function listTraceSyncFailures(
   devHome?: string,
 ): Promise<TraceSyncFailure[]> {
-  const dir = traceSyncStatusDir(devHome ?? devWhiteboardHome());
+  const dir = traceSyncStatusDir(devHome ?? devReviewHome());
   const files = await readdir(dir).catch(() => []);
   const failures: TraceSyncFailure[] = [];
 

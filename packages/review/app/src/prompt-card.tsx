@@ -1,0 +1,188 @@
+import type { ReviewCliInstallStatus } from "@dev.fast/review-protocol";
+import { useEffect, useRef, useState } from "react";
+
+import { CopyIcon, copyText } from "./copy-text";
+
+/** Which agent's invocation syntax the prompt uses. Derived, never asked. */
+export type PromptAgent =
+  | "claude"
+  | "codex"
+  | "cursor"
+  | "generic"
+  | "opencode";
+
+/** What the review covers. This is the only choice the reader makes. */
+export type PromptKind = "change" | "architecture";
+
+export const REVIEW_HOME_PROMPT_KIND_STORAGE_KEY =
+  "dev.fast.review.homePromptKind";
+
+const PROMPT_KINDS: ReadonlyArray<{ kind: PromptKind; label: string }> = [
+  { kind: "change", label: "Review a change" },
+  { kind: "architecture", label: "Architecture review" },
+];
+
+/**
+ * The architecture prompt names the mode and stops there: the dev-review skill
+ * documents how to author one, so the prompt does not have to carry the mechanics.
+ */
+export const PROMPT_VARIANTS: Record<
+  PromptKind,
+  Record<PromptAgent, string>
+> = {
+  change: {
+    claude:
+      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+    codex:
+      "Use $dev-review to review my current branch against up to date main, then open it in Review.",
+    cursor:
+      "/dev-review Review my current branch against up to date main, then open it in Review.",
+    opencode:
+      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+    generic:
+      "Use the dev-review skill to review my current branch against up to date main: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`.",
+  },
+  architecture: {
+    claude:
+      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    codex:
+      "Use $dev-review to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    cursor:
+      "/dev-review Sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you’re done.",
+    opencode:
+      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    generic:
+      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`. Open it in Review when you're done.",
+  },
+};
+
+const COPIED_RESET_MS = 2000;
+
+/**
+ * The copy-a-prompt card. Only the user's agent can write a review of their
+ * own repo, so both the Welcome rail and the Home zero state end here.
+ *
+ * The tabs choose what the review covers. Which agent it is written for is
+ * passed in, not asked: the app already knows what is installed.
+ */
+export function PromptCard({ agent }: { agent: PromptAgent }) {
+  const [kind, setKind] = useState<PromptKind>(readStoredPromptKind);
+  const [copied, setCopied] = useState(false);
+
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
+  const selectKind = (next: PromptKind) => {
+    setKind(next);
+    setCopied(false);
+    clearTimeout(resetTimer.current);
+
+    try {
+      globalThis.localStorage?.setItem(
+        REVIEW_HOME_PROMPT_KIND_STORAGE_KEY,
+        next,
+      );
+    } catch {
+      // The desktop can disable DOM storage; the in-memory selection still works.
+    }
+  };
+
+  const copyPrompt = () => {
+    void copyText(PROMPT_VARIANTS[kind][agent]).then((ok) => {
+      if (!ok) {
+        return;
+      }
+
+      setCopied(true);
+      clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    });
+  };
+
+  return (
+    <section className="review-home-prompt-card" aria-label="Review prompt">
+      <div
+        className="review-home-prompt-tabs"
+        role="group"
+        aria-label="What to review"
+      >
+        {PROMPT_KINDS.map(({ kind: tab, label }) => (
+          <button
+            key={tab}
+            type="button"
+            className={kind === tab ? "is-active" : undefined}
+            aria-pressed={kind === tab}
+            onClick={() => selectKind(tab)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <pre className="review-home-prompt-body">
+        {PROMPT_VARIANTS[kind][agent]}
+      </pre>
+      <div className="review-home-prompt-actions">
+        <button
+          type="button"
+          className="review-home-prompt-copy"
+          aria-live="polite"
+          aria-label={copied ? "Prompt copied" : "Copy prompt"}
+          onClick={copyPrompt}
+        >
+          <CopyIcon />
+          {copied ? "Copied" : "Copy prompt"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Which agent's syntax to write the prompt in. A choice saved from the
+ * removed Home agent tabs still wins while that agent is around: the tabs
+ * are gone, but the preference they stored is not, and the derived order
+ * cannot know which of two installed agents the reader actually uses.
+ * Otherwise an installed agent wins over a merely detected one. Cursor uses
+ * its slash-menu skill invocation; unsupported agents use the CLI wording.
+ */
+export function promptAgent(
+  status: ReviewCliInstallStatus | undefined,
+): PromptAgent {
+  if (!status) return "generic";
+
+  const has = (
+    target: Exclude<PromptAgent, "generic">,
+    key: "installed" | "present",
+  ) => status.agents.some((agent) => agent.target === target && agent[key]);
+
+  for (const key of ["installed", "present"] as const) {
+    if (has("claude", key)) return "claude";
+
+    if (has("codex", key)) return "codex";
+
+    if (has("cursor", key)) return "cursor";
+
+    if (has("opencode", key)) return "opencode";
+  }
+
+  return "generic";
+}
+
+function readStoredPromptKind(): PromptKind {
+  try {
+    const stored = globalThis.localStorage?.getItem(
+      REVIEW_HOME_PROMPT_KIND_STORAGE_KEY,
+    );
+
+    if (stored === "change" || stored === "architecture") {
+      return stored;
+    }
+  } catch {
+    // Fall through to the default when DOM storage is unavailable.
+  }
+
+  return "change";
+}

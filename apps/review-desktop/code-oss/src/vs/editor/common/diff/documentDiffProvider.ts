@@ -1,0 +1,131 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import type { IObservable } from "../../../base/common/observable.js";
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { IRange } from '../core/range.js';
+import { Event } from '../../../base/common/event.js';
+import { MovedText } from './linesDiffComputer.js';
+import { DetailedLineRangeMapping } from './rangeMapping.js';
+import { ITextModel } from '../model.js';
+
+/**
+ * A document diff provider computes the diff between two text models.
+ * @internal
+ */
+export interface IDocumentDiffProvider {
+	/**
+	 * Computes the diff between the text models `original` and `modified`.
+	 */
+	computeDiff(original: ITextModel, modified: ITextModel, options: IDocumentDiffProviderOptions, cancellationToken: CancellationToken): Promise<IDocumentDiff>;
+
+	/**
+	 * Is fired when settings of the diff algorithm change that could alter the result of the diffing computation.
+	 * Any user of this provider should recompute the diff when this event is fired.
+	 */
+	readonly onDidChange: Event<void>;
+}
+
+/**
+ * Options for the diff computation.
+ * @internal
+ */
+export interface IDocumentDiffProviderOptions {
+	/**
+	 * When set to true, the diff should ignore whitespace changes.
+	 */
+	ignoreTrimWhitespace: boolean;
+
+	/**
+	 * A diff computation should throw if it takes longer than this value.
+	 */
+	maxComputationTimeMs: number;
+
+	/**
+	 * If set, the diff computation should compute moves in addition to insertions and deletions.
+	 */
+	computeMoves: boolean;
+
+	extendToSubwords?: boolean;
+}
+
+/**
+ * Represents a diff between two text models.
+ * @internal
+ */
+/**
+ * A hidden region supplied by the diff provider, one-based and per side. A side
+ * with a zero count is absent there. `label` names the region (a gap, a folded
+ * body, a summary); a multi-line label is shown in full under its first line.
+ * @internal
+ */
+export interface IDocumentContextGap {
+	readonly originalStart: number;
+	readonly modifiedStart: number;
+	readonly originalCount: number;
+	readonly modifiedCount: number;
+	readonly label?: string;
+	/** Presentation updates do not invalidate the diff or its fold state. */
+	readonly labelObservable?: IObservable<string | undefined>;
+	readonly foldStateId?: number;
+	/** Where the fold control originates; independent of the enclosed code's change status. */
+	readonly owner?: 'base' | 'head' | 'both';
+	/** Actual changes in the hidden ranges, used only for presentation. */
+	readonly change?: 'unchanged' | 'inserted' | 'removed' | 'modified';
+	/**
+	 * Whether the band lists the symbols its hidden lines belong to. Default
+	 * `true`; `false` keeps the bare count.
+	 */
+	readonly breadcrumbs?: boolean;
+	/**
+	 * Whether the region starts hidden. `false` supplies a region that is
+	 * fully shown, so the editor keeps its fold control on the region's
+	 * first line. Default `true`.
+	 */
+	readonly collapsed?: boolean;
+}
+
+export interface IDocumentDiff {
+	/** Authoritative change paint, independent of replacement ranges used for layout.
+	 * When present (even empty), replaces inferred line and character highlighting. */
+	readonly changeHighlights?: {
+		readonly original: readonly IRange[];
+		readonly modified: readonly IRange[];
+		/** One-based source lines receiving a lighter whole-line background. */
+		readonly originalLines?: readonly number[];
+		readonly modifiedLines?: readonly number[];
+	};
+	/** Optional authoritative zero-based source row correspondence. Null denotes padding. */
+	readonly contextGaps?: readonly IDocumentContextGap[];
+	readonly sourceLineAlignment?: readonly (readonly [number | null, number | null])[];
+	/**
+	 * If true, both text models are identical (byte-wise).
+	 */
+	readonly identical: boolean;
+
+	/**
+	 * If true, the diff computation timed out and the diff might not be accurate.
+	 */
+	readonly quitEarly: boolean;
+
+	/**
+	 * Maps all modified line ranges in the original to the corresponding line ranges in the modified text model.
+	 */
+	readonly changes: readonly DetailedLineRangeMapping[];
+
+	/**
+	 * Sorted by original line ranges.
+	 * The original line ranges and the modified line ranges must be disjoint (but can be touching).
+	 */
+	readonly moves: readonly MovedText[];
+}
+
+
+export const nullDocumentDiff: IDocumentDiff = Object.freeze({
+	identical: true,
+	quitEarly: false,
+	changes: Object.freeze([]),
+	moves: Object.freeze([])
+});

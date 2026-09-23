@@ -14,7 +14,7 @@ import {
 import { readStoreAuth } from "../store-auth";
 import { StoreApiError, StoreClient } from "../store-client";
 import { traceCliName, traceCommandPrefix } from "../trace-command";
-import { devWhiteboardHome } from "../trace-home";
+import { devReviewHome } from "../trace-home";
 import { traceRepoName } from "../trace-repo";
 import {
   type TraceRepositoryTarget,
@@ -145,7 +145,7 @@ export class HostedTraceStorage implements TraceStorage {
     this.target = { kind: "hosted", ...parts.target };
     this.transport = parts.transport;
     this.offline = parts.offline ?? false;
-    this.devHome = parts.devHome ?? devWhiteboardHome();
+    this.devHome = parts.devHome ?? devReviewHome();
     this.warn = parts.onWarning ?? defaultWarning;
   }
 
@@ -165,7 +165,7 @@ export class HostedTraceStorage implements TraceStorage {
     input: ResolveHostedStorageInput,
   ): Promise<HostedTraceStorage | null> {
     const env = input.env ?? process.env;
-    const devHome = devWhiteboardHome(env, input.homeDir);
+    const devHome = devReviewHome(env, input.homeDir);
     const report = input.onWarning ?? defaultWarning;
     const origin = input.origin;
 

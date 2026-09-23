@@ -18,16 +18,13 @@ process made no non-loopback network request.
 | Upgraded CLI    | this branch, same build command                                                                           |
 | Bucket          | MinIO (`minio/minio`, Docker 29.7.2) on `127.0.0.1:9000`, bucket `review-traces-gate`, region `us-east-1` |
 | Transport       | `aws-cli/2.34.60` as shipped; Node `v24.15.0`                                                             |
-| Home            | disposable `HOME` and `DEV_WHITEBOARD_HOME`; `AWS_PROFILE` and agent-session variables unset                  |
+| Home            | disposable `HOME` and `DEV_REVIEW_HOME`; `AWS_PROFILE` and agent-session variables unset                  |
 | Hosted network  | every non-loopback `fetch`, `http(s).request`, and socket connect throws and is logged (`no-network.cjs`) |
 | Commands run    | 32, all exit 0 (`evidence.log`)                                                                           |
 
 ### Procedure and observations
 
 1. **Pre-upgrade setup** with the original flow: `review install claude --trace-endpoint … --trace-bucket … --trace-key … --trace-secret … --trace-region us-east-1`, then `review trace enable .` in a scratch repository with a local bare `origin` and `GITHUB_REPOSITORY=acme/gate`.
-
-   `review install` was removed on 2026-09-23. On current builds the equivalent setup is `review trace storage use s3 …` followed by `review trace install`; the pre-upgrade phase still runs the historical command against the old build.
-
 2. **Pre-upgrade capture**: a synthetic session transcript under `~/.claude/projects`, a commit made with `AGENT_SESSION_ID` (the `prepare-commit-msg` hook added the `Agent-Session` trailer), and `git push` (the `pre-push` hook wrote `by-commit/<sha>.json` and uploaded `by-session/<id>/trace.jsonl` and `meta.json`). `review trace sync` reported `unchanged`; `trace list --commit HEAD`, `trace show`, `trace status`, and `review scaffold` (the Desktop discovery and materialization path) all read the session back.
 3. **Config file hashes and modes recorded** for `env`, `settings.json`, and `repositories.json` (all `0600`).
 4. **Upgrade in place**: the `review` wrapper's target was switched to the new build. Nothing else changed.
@@ -93,7 +90,7 @@ revision with the same outcome). The same comparison was repeated on a developer
 with a real, pre-existing s3 setup (`~/.config/dev-trace/env` and
 `settings.json` from the original setup flow, a Cloudflare R2 bucket, this
 repository registered for capture) and two sessions already in the bucket.
-Review Desktop was running, so `DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1` kept the
+Review Desktop was running, so `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` kept the
 standalone builds from deferring to the app's bundled CLI; without it every
 "new CLI" command silently ran the bundled older CLI, which is the intended
 delegation behavior and worth knowing when testing.
@@ -228,10 +225,10 @@ session_file() { # $1 session id, $2 text
 for v in $(env | grep -iE '^(CLAUDE|CODEX|OPENCODE|AGENT_SESSION)' | cut -d= -f1); do unset "$v"; done
 unset AWS_PROFILE AWS_DEFAULT_PROFILE AWS_CONFIG_FILE AWS_SHARED_CREDENTIALS_FILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 export HOME="$GATE/home"; rm -rf "$HOME"; mkdir -p "$HOME"
-export DEV_WHITEBOARD_HOME="$HOME/.dev"
-export REVIEW_TRACE_COMMAND="$GATE/bin/whiteboard"
+export DEV_REVIEW_HOME="$HOME/.dev"
+export REVIEW_TRACE_COMMAND="$GATE/bin/review"
 export GITHUB_REPOSITORY=acme/gate
-export DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1
+export DEV_FAST_REVIEW_TELEMETRY_DISABLED=1 DO_NOT_TRACK=1
 export PATH="$GATE/bin:$PATH"
 REPO="$GATE/repo"; rm -rf "$REPO" "$GATE/remote.git"; mkdir -p "$REPO"
 S1=aaaa1111-0000-4000-8000-000000000001
@@ -287,7 +284,7 @@ say "Post-upgrade scaffold (Desktop discovery path)"
 run review scaffold --base HEAD~2 --head main --new --json || fail "scaffold post"
 say "Post-upgrade config file hashes and modes"; hashes | tee "$GATE/hashes-after.txt" | tee -a "$LOG"
 diff "$GATE/hashes-before.txt" "$GATE/hashes-after.txt" >> "$LOG" || fail "config files changed"
-[ ! -e "$DEV_WHITEBOARD_HOME/trace/config.json" ] || fail "config.json was created without a request"
+[ ! -e "$DEV_REVIEW_HOME/trace/config.json" ] || fail "config.json was created without a request"
 [ ! -s "$GATE/network.log" ] || { cat "$GATE/network.log" >> "$LOG"; fail "non-loopback network attempt"; }
 echo "no non-loopback network attempts" | tee -a "$LOG"
 
@@ -303,10 +300,10 @@ echo "gates ok" | tee -a "$LOG"
 
 say "Phase D: migration acceptance"
 run review trace config migrate --dry-run --json || fail "migrate dry-run"
-[ ! -e "$DEV_WHITEBOARD_HOME/trace/config.json" ] || fail "dry-run wrote config"
+[ ! -e "$DEV_REVIEW_HOME/trace/config.json" ] || fail "dry-run wrote config"
 run review trace config migrate --json || fail "migrate"
-[ -e "$DEV_WHITEBOARD_HOME/trace/config.json" ] || fail "migrate wrote nothing"
-stat -f '%Sp %N' "$DEV_WHITEBOARD_HOME/trace/config.json" | tee -a "$LOG"
+[ -e "$DEV_REVIEW_HOME/trace/config.json" ] || fail "migrate wrote nothing"
+stat -f '%Sp %N' "$DEV_REVIEW_HOME/trace/config.json" | tee -a "$LOG"
 # Command output must never carry the secret; only the echoed install
 # command line does, by construction.
 if grep -v '^\$ ' "$LOG" | grep -q gateadminsecret; then fail "secret leaked into command output"; fi
@@ -328,7 +325,7 @@ run review trace sync "$S4" --json || fail "sync 5"
 bucket_ls | grep -q "by-session/$S4/trace.jsonl" || fail "trace object 5"
 run review trace show "$S4" --json || fail "show 5"
 say "Rollback: rename the retired files back, remove config.json"
-mv "$HOME/.config/dev-trace/legacy_env" "$HOME/.config/dev-trace/env" && mv "$HOME/.config/dev-trace/legacy_settings.json" "$HOME/.config/dev-trace/settings.json" && rm "$DEV_WHITEBOARD_HOME/trace/config.json"
+mv "$HOME/.config/dev-trace/legacy_env" "$HOME/.config/dev-trace/env" && mv "$HOME/.config/dev-trace/legacy_settings.json" "$HOME/.config/dev-trace/settings.json" && rm "$DEV_REVIEW_HOME/trace/config.json"
 run review trace status || fail "status after rollback"
 run review trace list --commit HEAD --json || fail "list after rollback"
 [ ! -s "$GATE/network.log" ] || fail "non-loopback network attempt (late)"

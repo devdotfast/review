@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "whiteboard": {
-      "command": "sh",
-      "args": ["-c", "exec \"$HOME/.local/bin/whiteboard\" mcp"]
-    }
-  }
-}

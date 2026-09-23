@@ -10,6 +10,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../platform/sto
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../workbench/common/contributions.js';
 import { isFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { REVIEW_DISCORD_URL } from '../common/reviewProtocol.js';
+import { IReviewApiCatalogService } from '../services/reviewApiCatalogService.js';
 
 export const DISMISSED_KEY = 'review.community.dontShowAgain';
 
@@ -21,17 +22,22 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 		@IDialogService dialogService: IDialogService,
 		@IStorageService storageService: IStorageService,
 		@IOpenerService openerService: IOpenerService,
+		@IReviewApiCatalogService catalogService: IReviewApiCatalogService,
 	) {
 		if (storageService.getBoolean(DISMISSED_KEY, StorageScope.APPLICATION, false)) {
 			return;
 		}
 
-		this.invite(dialogService, storageService, openerService).catch(onUnexpectedError);
+		this.invite(dialogService, storageService, openerService, catalogService).catch(onUnexpectedError);
 	}
 
-	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService): Promise<void> {
+	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService, catalogService: IReviewApiCatalogService): Promise<void> {
 		if (await isFirstRunReloadPending()) {
 			return; // the seeding reload would discard both the question and the answer
+		}
+		await catalogService.initialize();
+		if (catalogService.reviews.filter(review => review.kind !== 'scratchpad').length < 2) {
+			return;
 		}
 		const result = await dialogService.confirm({
 			type: 'info',

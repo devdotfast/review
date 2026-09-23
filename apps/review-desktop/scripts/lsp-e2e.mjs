@@ -472,6 +472,7 @@ async function createReview(fix, title, kind = "commits") {
 }
 
 async function probe(request, targetPage = page) {
+  await targetPage.bringToFront();
   const id = randomUUID();
   await writeFile(
     path.join(root, "request.json"),
@@ -1179,6 +1180,7 @@ try {
   }
 
   await probe({ diff: { base: uri(review, "base"), head: uri(review) } });
+  await headNavigator.page.bringToFront();
 
   for (const side of ["original", "modified"]) {
     const line = headNavigator.page
@@ -1186,8 +1188,12 @@ try {
       .filter({ hasText: "export const value = greet();" })
       .first();
 
-    await line.scrollIntoViewIfNeeded();
-    await clickGreet(line);
+    await until(async () => {
+      await line.scrollIntoViewIfNeeded({ timeout: 2000 });
+      await clickGreet(line);
+
+      return true;
+    }, `native diff ${side} source mounted`);
     await probe({ command: "editor.action.showHover" }, headNavigator.page);
     await headNavigator.page
       .locator(".monaco-hover:visible")

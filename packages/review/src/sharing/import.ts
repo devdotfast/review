@@ -525,8 +525,8 @@ export class SharedReviewStore {
     };
   }
 
-  list() {
-    return this.loaded
+  list(mode: "structural" | "textual" = "structural") {
+    const reviews = this.loaded
       .keys()
       .filter(
         (id) =>
@@ -538,12 +538,16 @@ export class SharedReviewStore {
 
         return {
           ...snapshot,
+          firstCreatedAt:
+            snapshot.version === 0 ? snapshot.createdAt : undefined,
           repositoryName: "Shared review",
           viewedAt: this.attention.get(id)?.viewedAt ?? null,
           dismissedAt: this.attention.get(id)?.dismissedAt ?? null,
         };
       })
       .toArray();
+
+    return this.local?.store.withDiffStats(reviews, mode) ?? reviews;
   }
 
   async readObject(id: string, objectId: string) {

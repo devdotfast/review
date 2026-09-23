@@ -169,7 +169,7 @@ export function createReviewApi(
       ...(scratchpadEnabled()
         ? local
         : local.filter((summary) => summary.kind !== "scratchpad")),
-      ...(shared?.list() ?? []),
+      ...(shared?.list(mode) ?? []),
     ];
   };
 

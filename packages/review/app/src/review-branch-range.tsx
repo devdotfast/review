@@ -34,7 +34,7 @@ export function ReviewBranchRange({
         onCopy={() => void copy("base", baseRef)}
       />
       <span className="review-branch-arrow" aria-hidden="true">
-        ←
+        →
       </span>
       <BranchRef
         label="head"
@@ -65,7 +65,7 @@ function BranchRef({
 
   return (
     <span className="review-branch-ref">
-      <span className="review-branch-label">{label}:</span>
+      <span className="review-branch-label">{label}</span>
       <button
         type="button"
         className="review-branch-copy"

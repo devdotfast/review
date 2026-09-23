@@ -9,9 +9,6 @@ import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
 import { testReviewSession } from "./review-session-test-utils";
 
-import styles from "./styles.css?inline";
-import whiteboardStyles from "./whiteboard.css?inline";
-
 let root: Root | null = null;
 
 describe("ReviewDocumentMetaLine", () => {
@@ -27,39 +24,36 @@ describe("ReviewDocumentMetaLine", () => {
     vi.restoreAllMocks();
   });
 
-  it("hides a wrapped commit range's separator and restores it when widened", async () => {
-    const style = document.createElement("style");
-    style.textContent = styles + whiteboardStyles;
-    const container = document.createElement("div");
-    container.style.width = "700px";
-    document.body.append(style, container);
+  it("uses the displayed snapshot's branch and hides it when unavailable", async () => {
     const session = testReviewSession();
-    session.review!.pullRequestNumber = 394;
+    const container = document.createElement("div");
+    document.body.append(container);
     root = createRoot(container);
-    await act(async () => {
-      root?.render(
-        <ReviewSessionProvider session={session}>
-          <ReviewDocumentMetaLine />
-        </ReviewSessionProvider>,
-      );
-    });
-    const range = container.querySelector(".review-branch-range")!;
-    const pr = container.querySelector(".review-doc-meta-pr")!;
-    const separator = () => getComputedStyle(range, "::before");
-    expect(separator().content).toContain("·");
-    expect(separator().visibility).toBe("visible");
 
-    for (const width of [300, 700, 300, 700]) {
-      container.style.width = `${width}px`;
-      await vi.waitFor(() => {
-        expect(separator().visibility).toBe(
-          width === 300 ? "hidden" : "visible",
-        );
-        expect(
-          range.getBoundingClientRect().top > pr.getBoundingClientRect().bottom,
-        ).toBe(width === 300);
-      });
-    }
+    const render = async (headBranch: string | undefined, version: number) => {
+      session.review = { ...session.review!, headBranch };
+      await act(async () =>
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <DisplayedReviewVersionContext.Provider value={version}>
+              <ReviewDocumentMetaLine />
+            </DisplayedReviewVersionContext.Provider>
+          </ReviewSessionProvider>,
+        ),
+      );
+    };
+
+    await render("codex/reorganize-homepage-sections", 2);
+    expect(container.textContent).toContain(
+      "codex/reorganize-homepage-sections",
+    );
+    await render("feature/earlier-name", 1);
+    expect(container.textContent).toContain("feature/earlier-name");
+    expect(container.textContent).not.toContain(
+      "codex/reorganize-homepage-sections",
+    );
+    await render(undefined, 0);
+    expect(container.querySelector(".review-doc-meta-branch")).toBeNull();
   });
 
   it("hydrates when the relative update time changes after SSR", async () => {
@@ -97,7 +91,7 @@ describe("ReviewDocumentMetaLine", () => {
       expect.arrayContaining([expect.stringContaining("Hydration failed")]),
     );
     await vi.waitFor(() =>
-      expect(container.textContent).toContain("updated 5 min ago"),
+      expect(container.textContent).toContain("Updated 5 min ago"),
     );
   });
 
@@ -139,7 +133,7 @@ describe("ReviewDocumentMetaLine", () => {
 
     await render(0);
     await vi.waitFor(() =>
-      expect(container.textContent).toContain("updated 5 min ago"),
+      expect(container.textContent).toContain("Updated 5 min ago"),
     );
     expect(container.querySelector("a")).toBeNull();
     meta = {
@@ -155,7 +149,7 @@ describe("ReviewDocumentMetaLine", () => {
       ),
     );
     expect(container.textContent).toContain("PR #310");
-    expect(container.textContent).toContain("updated just now");
+    expect(container.textContent).toContain("Updated just now");
     meta = {
       ok: true,
       updatedAtMs: now,

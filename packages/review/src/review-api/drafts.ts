@@ -6,6 +6,7 @@ import { processIsAlive } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import {
+  type Pins,
   ReviewInputError,
   applyEdit,
   assignFreshIds,
@@ -62,6 +63,7 @@ interface WorkingDraft extends Draft {
 }
 
 interface DraftHost {
+  headBranch?(pins: Pins): Promise<string | undefined>;
   read(reviewId: string): Snapshot;
   assertInteractiveUnlocked(reviewId: string): void;
   validate(snapshot: Snapshot): Promise<void>;
@@ -206,6 +208,10 @@ export class ReviewDrafts {
 
   async execute(input: z.infer<typeof draftCommandSchema>) {
     if (input.type === "begin") {
+      const branch = input.pins
+        ? await this.host.headBranch?.(input.pins)
+        : undefined;
+
       return this.transaction(() => {
         const reviewId = input.reviewId ?? randomUUID();
         this.assertUnlocked(reviewId);
@@ -254,6 +260,15 @@ export class ReviewDrafts {
         };
 
         this.metadata(draft, input);
+
+        if (
+          input.pins &&
+          this.host.headBranch &&
+          (!previous ||
+            previous.pins?.head !== input.pins.head ||
+            previous.pins?.repositoryId !== input.pins.repositoryId)
+        )
+          draft.origin = { ...draft.origin, branch };
         this.save(draft);
 
         return this.read(id);
@@ -300,6 +315,11 @@ export class ReviewDrafts {
     }
 
     if (input.type === "write" || input.type === "edit") {
+      const branch =
+        input.type === "write" && input.pins
+          ? await this.host.headBranch?.(input.pins)
+          : undefined;
+
       return this.transaction(() => {
         this.owned(input.draftId);
 
@@ -308,7 +328,16 @@ export class ReviewDrafts {
 
           for (const block of draft.document)
             assignFreshIds(block, (prefix) => `${prefix}-${++draft.nextId}`);
+
+          const changedHead =
+            input.pins &&
+            (input.pins.head !== draft.pins.head ||
+              input.pins.repositoryId !== draft.pins.repositoryId);
+
           this.metadata(draft, input);
+
+          if (changedHead && this.host.headBranch)
+            draft.origin = { ...draft.origin, branch };
         } else {
           applyEdit(
             draft.document,

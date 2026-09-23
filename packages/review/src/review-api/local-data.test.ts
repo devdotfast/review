@@ -2975,3 +2975,118 @@ it("validates grouped source ranges with one read per pinned file", async () => 
     read.mockRestore();
   }
 });
+
+it("saves the head branch for pinned reviews and preserves it across checkout changes", async () => {
+  git("checkout", "-b", "feature/saved-head");
+
+  const created = await local.store.execute(
+    command({ type: "create", title: "Branch provenance", pins }),
+  );
+
+  expect(local.store.read(created.reviewId).origin?.branch).toBe(
+    "feature/saved-head",
+  );
+  git("checkout", "-b", "feature/another");
+  await local.store.execute(
+    command({ type: "rename", reviewId: created.reviewId, title: "Renamed" }),
+  );
+  expect(
+    local.store.list().find((review) => review.reviewId === created.reviewId)
+      ?.origin?.branch,
+  ).toBe("feature/saved-head");
+
+  await local.store.close();
+  await local.data.close();
+  local = openLocalReviewStore(database);
+  expect(local.store.read(created.reviewId).origin?.branch).toBe(
+    "feature/saved-head",
+  );
+});
+
+it("saves the requested head branch for commit and live worktree targets", async () => {
+  git("branch", "feature/requested");
+
+  const fixed = await local.store.execute(
+    command({
+      type: "create",
+      title: "Named head",
+      target: {
+        kind: "commits",
+        repositoryId: pins.repositoryId,
+        head: "feature/requested",
+        base: pins.base,
+      },
+    }),
+  );
+
+  expect(local.store.read(fixed.reviewId).origin?.branch).toBe(
+    "feature/requested",
+  );
+  git("checkout", "-b", "feature/live");
+
+  const live = await local.store.execute(
+    command({
+      type: "create",
+      title: "Live head",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  expect(local.store.read(live.reviewId).origin?.branch).toBe("feature/live");
+
+  const pinned = await local.store.execute(
+    command({
+      type: "create",
+      title: "Resolved target",
+      target: {
+        kind: "commits",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+        head: pins.head,
+      },
+    }),
+  );
+
+  expect(local.store.read(pinned.reviewId).origin?.branch).toBe("feature/live");
+});
+
+it("does not invent a head branch for detached or unrelated pinned commits", async () => {
+  git("checkout", "-b", "feature/head");
+  expect(
+    await local.data.headBranch({ ...pins, head: pins.base }),
+  ).toBeUndefined();
+  git("checkout", "--detach", pins.head);
+
+  const created = await local.store.execute(
+    command({ type: "create", title: "Detached", pins }),
+  );
+
+  expect(local.store.read(created.reviewId).origin?.branch).toBeUndefined();
+});
+
+it("saves the head branch in batch drafts and clears it when repinning to an unrelated commit", async () => {
+  git("checkout", "-b", "feature/batch");
+
+  const draft = await local.store.drafts.execute({
+    type: "begin",
+    title: "Batch branch",
+    pins,
+  });
+
+  if (!("draftId" in draft) || !("reviewId" in draft))
+    throw new Error("Expected draft");
+  await local.store.drafts.execute({
+    type: "commit",
+    draftId: draft.draftId,
+    commandId: randomUUID(),
+  });
+  expect(local.store.read(draft.reviewId).origin?.branch).toBe("feature/batch");
+  await local.store.execute(
+    command({
+      type: "repin",
+      reviewId: draft.reviewId,
+      pins: { ...pins, head: pins.base },
+    }),
+  );
+  expect(local.store.read(draft.reviewId).origin?.branch).toBeUndefined();
+});

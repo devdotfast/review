@@ -36,6 +36,7 @@ async function fixture() {
     }).trim();
 
   git("init");
+  git("checkout", "-b", "feature/shared-head");
   git("config", "user.name", "Fixture");
   git("config", "user.email", "fixture@example.invalid");
   await writeFile(path.join(repo, "main.ts"), "export const answer = 1;\n");
@@ -166,6 +167,7 @@ async function importFixture() {
 
 it("fetches pinned source into an independent repository and retains complete traces offline", async () => {
   const { bundle, imported, id, repo, app, recipient } = await importFixture();
+  expect(imported.get(id).snapshot.origin?.branch).toBe("feature/shared-head");
   await rename(repo, repo + "-hidden");
   expect(
     (await (await app.request(`/${id}/file?side=head&file=main.ts`)).json())
@@ -456,4 +458,68 @@ it("counts a shared review's changed lines without a local review row", async ()
       expect.objectContaining({ path: "deleted.ts" }),
     ]),
   );
+});
+
+it("lists and streams shared diff counts with the same mode and persistence as local reviews", async () => {
+  const { app, id, imported, recipient, local, reviewId, root } =
+    await importFixture();
+
+  const readCatalog = async (mode: string) =>
+    await (await app.request(`/?mode=${mode}`)).json();
+
+  expect((await readCatalog("textual"))[0].diffStats).toBeNull();
+
+  const response = await app.request(
+    "/watch?subscriptions=" +
+      encodeURIComponent(JSON.stringify([{ reviewId: null, mode: "textual" }])),
+  );
+
+  const reader = response.body!.getReader();
+
+  const next = async () =>
+    JSON.parse(new TextDecoder().decode((await reader.read()).value));
+
+  try {
+    expect((await next())[0].value[0].diffStats).toBeNull();
+    expect((await app.request(`/${id}/progress?mode=textual`)).status).toBe(
+      200,
+    );
+
+    const pins = local.store.read(reviewId).pins!;
+    await local.data.coverage(reviewId, pins, "textual");
+    const expected = local.store.list("textual")[0].diffStats;
+
+    expect(expected).toMatchObject({ fileCount: 4 });
+    expect((await next())[0].value[0].diffStats).toEqual(expected);
+    expect((await readCatalog("textual"))[0].diffStats).toEqual(expected);
+    expect((await readCatalog("structural"))[0].diffStats).toBeNull();
+
+    const sharedPins = imported.get(id).snapshot.pins;
+    const structural = { fileCount: 4, additions: 1, deletions: 1 };
+    recipient.store.setDiffStats(sharedPins, structural, "structural");
+    expect((await readCatalog("structural"))[0].diffStats).toEqual(structural);
+    expect((await readCatalog("textual"))[0].diffStats).toEqual(expected);
+
+    await recipient.data.close();
+
+    const reopened = openLocalReviewStore(path.join(root, "recipient.db"));
+    cleanup.push(() => reopened.store.close());
+    cleanup.push(() => reopened.data.close());
+    const restored = new SharedReviewStore(imported.root);
+    restored.connect(reopened.store, reopened.data);
+    await restored.load();
+
+    const restarted = createReviewApi(
+      reopened.store,
+      reopened.data,
+      undefined,
+      restored,
+    );
+
+    expect(
+      (await (await restarted.request("/?mode=textual")).json())[0].diffStats,
+    ).toEqual(expected);
+  } finally {
+    await reader.cancel();
+  }
 });

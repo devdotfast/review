@@ -7,21 +7,11 @@ import type {
   ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import {
-  type ColumnDef,
-  type Row,
-  type SortingState,
-  type Table,
-  flexRender,
-  getCoreRowModel,
-  getExpandedRowModel,
-  getGroupedRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import {
   Fragment,
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -29,27 +19,21 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
-import { DiffCount } from "./diff-count";
 import { ArchiveIcon } from "./review-corner-action";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTopbarPopover } from "./use-topbar-popover";
 import { WelcomePage } from "./welcome-page";
-
-export type ReviewHomeView = "cards" | "list";
-
-export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
 
 interface ReviewHomeProps {
   reviews: readonly ReviewApiSummary[];
   onOpen(review: ReviewApiSummary): void;
-  // Deletion is immediate and permanent, so only a dismissed review offers it.
+  // Deletion is permanent and requires an arming click.
   // Absent when the host does not support deletion.
   onDelete?(review: ReviewApiSummary): Promise<void>;
   // Dismissal is reversible. Absent when the host does not
   // support them.
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
-  // Opens the review and pins its read-only source tree open. Absent when the
-  // host cannot show the tree.
-  onOpenSourceTree?(review: ReviewApiSummary): void;
   setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
@@ -59,9 +43,9 @@ interface ReviewHomeProps {
 }
 
 interface ReviewAttentionActions {
+  onDelete?(review: ReviewApiSummary): Promise<void>;
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
-  onOpenSourceTree?(review: ReviewApiSummary): void;
 }
 
 /* Passed by context rather than through every list and card signature: the
@@ -97,44 +81,93 @@ function MatchedText({ text }: { text: string }) {
   );
 }
 
-interface ReviewWorkspace {
-  path: string;
-  label: string;
-  branch: string | null;
-  reviews: ReviewApiSummary[];
-}
-
-interface ReviewStatusDisplay {
-  label: string;
-  tone: "ready" | "dismissed";
-}
-
 export function ReviewHome({
   reviews,
   onOpen,
   onDelete,
   onDismiss,
   onRestore,
-  onOpenSourceTree,
   setup,
   install,
   setupActions,
   onboarding,
   onOpenTutorial,
 }: ReviewHomeProps) {
-  const [view, setView] = useState<ReviewHomeView>(readStoredHomeView);
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
+  const [, setNow] = useState(Date.now);
+
+  const [deletions, setDeletions] = useState(
+    new Map<string, "pending" | "deleted">(),
+  );
+
+  const [deleteError, setDeleteError] = useState<string>();
+
+  // Keep successful deletions hidden until the catalog acknowledges removal.
+  useEffect(() => {
+    setDeletions((current) => {
+      const next = new Map(current);
+
+      for (const [id, status] of current) {
+        if (
+          status === "deleted" &&
+          !reviews.some((review) => review.reviewId === id)
+        ) {
+          next.delete(id);
+        }
+      }
+
+      return next.size === current.size ? current : next;
+    });
+  }, [reviews, deletions]);
+
+  const deleteReview = useCallback(
+    async (review: ReviewApiSummary) => {
+      if (!onDelete) return;
+      setDeleteError(undefined);
+      setDeletions((current) =>
+        new Map(current).set(review.reviewId, "pending"),
+      );
+
+      try {
+        await onDelete(review);
+        setDeletions((current) =>
+          new Map(current).set(review.reviewId, "deleted"),
+        );
+      } catch {
+        setDeletions((current) => {
+          const next = new Map(current);
+          next.delete(review.reviewId);
+
+          return next;
+        });
+        setDeleteError(
+          `Could not delete “${reviewTitle(review)}”. Please try again.`,
+        );
+      }
+    },
+    [onDelete],
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const actions = useMemo(
-    () => ({ onDismiss, onRestore, onOpenSourceTree }),
-    [onDismiss, onRestore, onOpenSourceTree],
+    () => ({
+      onDismiss,
+      onRestore,
+      onDelete: onDelete ? deleteReview : undefined,
+    }),
+    [onDismiss, onRestore, onDelete, deleteReview],
   );
 
   const needle = query.trim();
 
   // The one scratchpad is the last group on Home, outside the workspaces,
-  // their new-first order and their lifecycle. The filter still finds it.
+  // their chronological order and their lifecycle. The filter still finds it.
   const scratchpad = reviews.find((review) => review.kind === "scratchpad");
 
   const listed = useMemo(
@@ -146,8 +179,12 @@ export function ReviewHome({
     scratchpad !== undefined && matchesQuery(scratchpad, needle);
 
   const found = useMemo(
-    () => listed.filter((review) => matchesQuery(review, needle)),
-    [listed, needle],
+    () =>
+      listed.filter(
+        (review) =>
+          !deletions.has(review.reviewId) && matchesQuery(review, needle),
+      ),
+    [listed, needle, deletions],
   );
 
   /* Dismissed leaves the main list entirely: it is the one group you asked to
@@ -158,32 +195,10 @@ export function ReviewHome({
     .filter((review) => review.dismissedAt)
     .sort(latestFirst);
 
-  /* Folders order by their most recently updated review. Within a folder, new
-     comes before viewed, then latest update. The list view reads the same
-     flattened order, so both views agree. */
-  const workspaces = groupReviewsByWorktree([...active].sort(latestFirst)).map(
-    (workspace) => ({
-      ...workspace,
-      reviews: [...workspace.reviews].sort(newFirstThenLatest),
-    }),
-  );
-
-  const sortedActive = workspaces.flatMap((workspace) => workspace.reviews);
-
-  const selectView = (next: ReviewHomeView) => {
-    setView(next);
-
-    try {
-      globalThis.localStorage?.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, next);
-    } catch {
-      // The desktop can disable DOM storage; the in-memory toggle still works.
-    }
-  };
-
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
  */
-  if (listed.length === 0) {
+  if (listed.length === 0 && deletions.size === 0 && !deleteError) {
     return (
       <WelcomePage
         install={install}
@@ -195,7 +210,7 @@ export function ReviewHome({
   }
 
   return (
-    <main className="review-home" data-view={view}>
+    <main className="review-home">
       <div className="review-home-scroll">
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
@@ -203,9 +218,9 @@ export function ReviewHome({
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
               <SearchBox query={query} onChange={setQuery} />
-              <ViewToggle view={view} onChange={selectView} />
             </div>
           </div>
+          {deleteError ? <p role="alert">{deleteError}</p> : null}
           {/* Keyed off the active list, not the whole result: a query that hits
               only dismissed reviews empties the main area, and the collapsed
               Dismissed count alone does not explain why. */}
@@ -221,18 +236,16 @@ export function ReviewHome({
               {scratchpadShown ? (
                 <ScratchpadGroup review={scratchpad} onOpen={onOpen} />
               ) : null}
-              {active.length === 0 ? null : view === "cards" ? (
-                <CardView workspaces={workspaces} onOpen={onOpen} />
-              ) : (
-                <ListView reviews={sortedActive} onOpen={onOpen} />
-              )}
+              {active.length > 0 ? (
+                <ReviewTable reviews={active} onOpen={onOpen} />
+              ) : null}
               {dismissed.length > 0 ? (
                 <DismissedSection
                   reviews={dismissed}
                   expanded={showDismissed}
                   onToggle={() => setShowDismissed((open) => !open)}
                   onOpen={onOpen}
-                  onDelete={onDelete}
+                  onDelete={actions.onDelete}
                 />
               ) : null}
             </AttentionActionsContext.Provider>
@@ -315,7 +328,7 @@ function SearchBox({
         ref={input}
         type="search"
         value={query}
-        placeholder="Search"
+        placeholder="Search reviews"
         aria-label="Search reviews"
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
@@ -341,37 +354,6 @@ function SearchBox({
           <ClearIcon />
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function ViewToggle({
-  view,
-  onChange,
-}: {
-  view: ReviewHomeView;
-  onChange(view: ReviewHomeView): void;
-}) {
-  return (
-    <div className="review-home-view-toggle" role="group" aria-label="View">
-      <button
-        type="button"
-        className={view === "cards" ? "is-active" : undefined}
-        aria-label="Card view"
-        aria-pressed={view === "cards"}
-        onClick={() => onChange("cards")}
-      >
-        <GridIcon />
-      </button>
-      <button
-        type="button"
-        className={view === "list" ? "is-active" : undefined}
-        aria-label="List view"
-        aria-pressed={view === "list"}
-        onClick={() => onChange("list")}
-      >
-        <ListIcon />
-      </button>
     </div>
   );
 }
@@ -453,72 +435,310 @@ function RestoreReviewButton({ review }: { review: ReviewApiSummary }) {
   );
 }
 
-function CardView({
-  workspaces,
-  onOpen,
-}: {
-  workspaces: readonly ReviewWorkspace[];
-  onOpen(review: ReviewApiSummary): void;
-}) {
-  return (
-    <div className="review-home-workspaces">
-      {workspaces.map((workspace) => (
-        <CardWorkspace
-          key={workspace.path}
-          workspace={workspace}
-          onOpen={onOpen}
-        />
-      ))}
-    </div>
-  );
-}
+type ReviewSort = "newest" | "oldest" | "updated" | "pr" | "title";
 
-function CardWorkspace({
-  workspace,
+function ReviewTable({
+  reviews,
   onOpen,
 }: {
-  workspace: ReviewWorkspace;
+  reviews: readonly ReviewApiSummary[];
   onOpen(review: ReviewApiSummary): void;
 }) {
+  const [repository, setRepository] = useState("");
+  const [sort, setSort] = useState<ReviewSort>("newest");
+  const repositories = [...new Set(reviews.map(repositoryLabel))].sort();
+
+  const filtered = reviews.filter(
+    (review) => !repository || repositoryLabel(review) === repository,
+  );
+
+  const sorted = [...filtered].sort((left, right) => {
+    const created = (review: ReviewApiSummary) =>
+      Date.parse(review.firstCreatedAt ?? review.createdAt) || 0;
+
+    switch (sort) {
+      case "oldest":
+        return created(left) - created(right);
+      case "updated":
+        return latestFirst(left, right);
+      case "pr":
+        return (
+          (right.origin?.pullRequestNumber ?? -1) -
+            (left.origin?.pullRequestNumber ?? -1) || latestFirst(left, right)
+        );
+      case "title":
+        return reviewTitle(left).localeCompare(reviewTitle(right));
+      default:
+        return created(right) - created(left);
+    }
+  });
+
   return (
-    <section className="review-home-workspace">
-      <WorkspaceHeader workspace={workspace} />
-      <div className="review-home-cards">
-        {workspace.reviews.map((review) => (
-          <ReviewCard key={review.reviewId} review={review} onOpen={onOpen} />
-        ))}
+    <section className="review-home-table-section" aria-label="Reviews">
+      <div className="review-home-table-toolbar">
+        <span>{countLabel(filtered.length, "review")}</span>
+        <div className="review-home-table-controls">
+          <TableMenu
+            label="Filter"
+            ariaLabel="Filter by repository"
+            value={repository}
+            options={[
+              { value: "", label: "All repos" },
+              ...repositories.map((name) => ({ value: name, label: name })),
+            ]}
+            onChange={setRepository}
+          />
+          <TableMenu<ReviewSort>
+            label="Sort"
+            ariaLabel="Sort reviews"
+            value={sort}
+            options={[
+              { value: "newest", label: "Newest first" },
+              { value: "oldest", label: "Oldest first" },
+              { value: "updated", label: "Recently updated" },
+              { value: "pr", label: "PR number" },
+              { value: "title", label: "Title A–Z" },
+            ]}
+            onChange={setSort}
+          />
+        </div>
+      </div>
+      <div className="review-home-table-scroll">
+        <table className="review-home-table">
+          <colgroup>
+            <col className="review-home-col-pr" />
+            <col />
+            <col className="review-home-col-branch" />
+            <col className="review-home-col-date" />
+            <col className="review-home-col-date" />
+            <col className="review-home-col-action" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">PR</th>
+              <th scope="col">Title</th>
+              <th scope="col">Head branch</th>
+              <th scope="col">Created</th>
+              <th scope="col">Updated</th>
+              <th scope="col">
+                <span className="review-home-action-heading">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((review) => (
+              <tr key={review.reviewId} onClick={() => onOpen(review)}>
+                <td>
+                  {review.origin?.pullRequestNumber
+                    ? `#${review.origin.pullRequestNumber}`
+                    : "—"}
+                </td>
+                <td>
+                  <button
+                    className="review-home-table-open"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(review);
+                    }}
+                    title={reviewTitle(review)}
+                  >
+                    <span className="review-home-review-title">
+                      <MatchedText text={reviewTitle(review)} />
+                    </span>
+                    <span
+                      className="review-home-table-repository"
+                      title={
+                        review.repositoryPath ??
+                        (review.shared ? "Shared review" : undefined)
+                      }
+                    >
+                      <RepositoryName review={review} />
+                    </span>
+                  </button>
+                </td>
+                <td title={review.origin?.branch}>
+                  <MatchedText
+                    text={readableSourceBranch(review.origin?.branch) ?? "—"}
+                  />
+                </td>
+                <td title={review.firstCreatedAt}>
+                  {formatCreatedTime(review.firstCreatedAt)}
+                </td>
+                <td title={reviewUpdatedAt(review)}>
+                  {formatRelativeTime(reviewUpdatedAt(review))}
+                </td>
+                <td>
+                  <ReviewRowActions review={review} />
+                </td>
+              </tr>
+            ))}
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={6}>No reviews match this repository.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
       </div>
     </section>
   );
 }
 
-function ReviewCard({
-  review,
-  onOpen,
-}: {
-  review: ReviewApiSummary;
-  onOpen(review: ReviewApiSummary): void;
-}) {
+function ReviewRowActions({ review }: { review: ReviewApiSummary }) {
+  const { onDelete } = useContext(AttentionActionsContext);
+  const [open, setOpen] = useState(false);
+  const control = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const popover = useTopbarPopover(open, control);
+
+  useDismissOnOutside(control, open, setOpen);
+
+  if (!onDelete) return <DismissReviewButton review={review} />;
+
   return (
-    <div className="review-home-card-shell">
+    <div
+      ref={control}
+      className="review-home-row-actions"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={trigger}
         type="button"
-        className="review-home-card"
-        onClick={() => onOpen(review)}
+        className="review-home-row-menu-trigger"
+        aria-label={`Actions for ${reviewTitle(review)}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
       >
-        <span className="review-home-card-main">
-          <span className="review-home-review-title">
-            <MatchedText text={reviewTitle(review)} />
-          </span>
-          <ReviewMeta review={review} />
-        </span>
-        <span className="review-home-card-footer">
-          <StatusPill review={review} />
-        </span>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="4.5" cy="10" r="1.6" />
+          <circle cx="10" cy="10" r="1.6" />
+          <circle cx="15.5" cy="10" r="1.6" />
+        </svg>
       </button>
-      <DismissReviewButton review={review} />
+      {open ? (
+        <div
+          ref={popover}
+          popover="manual"
+          role="menu"
+          aria-label="Review actions"
+          className="review-home-row-menu"
+        >
+          <DeleteReviewButton review={review} onDelete={onDelete} menu />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function TableMenu<T extends string>({
+  label,
+  ariaLabel,
+  value,
+  options,
+  onChange,
+}: {
+  label: "Filter" | "Sort";
+  ariaLabel: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange(value: T): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  useDismissOnOutside(container, open, setOpen);
+
+  return (
+    <div
+      className="review-home-table-menu"
+      ref={container}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        className="review-home-table-menu-trigger"
+        type="button"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen(!open)}
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            d={
+              label === "Filter"
+                ? "M3 5h14M6 10h8M8.5 15h3"
+                : "M6 4v12m0 0-3-3m3 3 3-3M14 16V4m0 0-3 3m3-3 3 3"
+            }
+          />
+        </svg>
+        <span>{label}</span>
+        <strong>
+          {options.find((option) => option.value === value)?.label ?? value}
+        </strong>
+        <svg
+          className="review-home-menu-chevron"
+          viewBox="0 0 20 20"
+          aria-hidden="true"
+        >
+          <path d={open ? "m5 12 5-5 5 5" : "m5 8 5 5 5-5"} />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          aria-label={ariaLabel}
+          className="review-home-table-menu-options"
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.value === value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value ? (
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m5 10 3.5 3.5L15 6.5" />
+                </svg>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function formatCreatedTime(value: string | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return "—";
+
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 /**
@@ -615,37 +835,18 @@ function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
 }
 
 /**
- * The most recently updated review whose source tree the workspace can open.
- */
-function workspaceSourceReview(
-  workspace: ReviewWorkspace,
-): ReviewApiSummary | null {
-  let selected: ReviewApiSummary | null = null;
-  let selectedUpdatedAt = 0;
-
-  for (const review of workspace.reviews) {
-    const updatedAt = reviewUpdatedAtMs(review);
-
-    if (!selected || updatedAt > selectedUpdatedAt) {
-      selected = review;
-      selectedUpdatedAt = updatedAt;
-    }
-  }
-
-  return selected;
-}
-
-/**
  * Two-step delete: the first click arms the button, the second click deletes
- * the review. Focus loss disarms it. Only a dismissed review offers it, so the
- * permanent action always follows the reversible one.
+ * the review. Focus loss disarms it. The row menu and dismissed section share
+ * this arming step.
  */
 function DeleteReviewButton({
   review,
   onDelete,
+  menu = false,
 }: {
   review: ReviewApiSummary;
   onDelete(review: ReviewApiSummary): Promise<void>;
+  menu?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -654,9 +855,16 @@ function DeleteReviewButton({
   return (
     <button
       type="button"
-      className={armed ? "review-home-delete is-armed" : "review-home-delete"}
+      className={
+        menu
+          ? "review-home-menu-delete"
+          : armed
+            ? "review-home-delete is-armed"
+            : "review-home-delete"
+      }
+      role={menu ? "menuitem" : undefined}
       aria-label={armed ? `Confirm delete ${title}` : `Delete ${title}`}
-      title={armed ? "Click again to delete" : "Delete review"}
+      title={armed ? "Confirm delete" : "Delete review"}
       disabled={busy}
       onBlur={() => setArmed(false)}
       onKeyDown={(event) => event.stopPropagation()}
@@ -678,396 +886,39 @@ function DeleteReviewButton({
           });
       }}
     >
-      {armed ? "Delete?" : <TrashIcon />}
+      {menu ? (
+        <>
+          <TrashIcon />
+          <span>{armed ? "Confirm delete" : "Delete review"}</span>
+        </>
+      ) : armed ? (
+        "Delete?"
+      ) : (
+        <TrashIcon />
+      )}
     </button>
   );
 }
 
-function ListView({
-  reviews,
-  onOpen,
-}: {
-  reviews: readonly ReviewApiSummary[];
-  onOpen(review: ReviewApiSummary): void;
-}) {
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const data = useMemo(() => [...reviews], [reviews]);
+function RepositoryName({ review }: { review: ReviewApiSummary }) {
+  const label = repositoryLabel(review);
+  const separator = label.lastIndexOf("/");
 
-  const table = useReactTable({
-    columns: reviewListColumns,
-    data,
-    defaultColumn: reviewListDefaultColumn,
-    enableMultiSort: false,
-    getCoreRowModel: getCoreRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-    getGroupedRowModel: getGroupedRowModel(),
-    getRowId: (review) => review.reviewId,
-    getSortedRowModel: getSortedRowModel(),
-    initialState: {
-      columnVisibility: { workspace: false },
-      grouping: ["workspace"],
-    },
-    onSortingChange: setSorting,
-    // Groups can never collapse: expansion is controlled and always on.
-    state: { sorting, expanded: true },
-  });
-
-  return (
-    <div className="review-home-list-scroll">
-      <table
-        className="review-home-list-table"
-        aria-label="Reviews"
-        style={{ width: table.getTotalSize() }}
-      >
-        <colgroup>
-          {table.getVisibleLeafColumns().map((column) => (
-            <col key={column.id} style={{ width: column.getSize() }} />
-          ))}
-        </colgroup>
-        <tbody>
-          {table.getRowModel().rows.map((row) =>
-            row.getIsGrouped() ? (
-              <Fragment key={row.id}>
-                <WorkspaceGroupRow
-                  row={row}
-                  columnCount={table.getVisibleLeafColumns().length}
-                />
-                {row.getIsExpanded() ? (
-                  <ReviewListColumnHeaders table={table} />
-                ) : null}
-              </Fragment>
-            ) : (
-              <ReviewRow key={row.id} row={row} onOpen={onOpen} />
-            ),
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ReviewListColumnHeaders({
-  table,
-}: {
-  table: Table<ReviewApiSummary>;
-}) {
-  return table.getHeaderGroups().map((headerGroup) => (
-    <tr className="review-home-list-columns" key={headerGroup.id}>
-      {headerGroup.headers.map((header) => {
-        const direction = header.column.getIsSorted();
-
-        return (
-          <th
-            key={header.id}
-            scope="col"
-            aria-sort={
-              direction === "asc"
-                ? "ascending"
-                : direction === "desc"
-                  ? "descending"
-                  : "none"
-            }
-          >
-            {header.column.getCanSort() ? (
-              <button
-                type="button"
-                aria-label={`Sort by ${String(header.column.columnDef.header)}`}
-                onClick={header.column.getToggleSortingHandler()}
-              >
-                {header.isPlaceholder
-                  ? null
-                  : flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
-                    )}
-                {direction ? (
-                  <span
-                    className="review-home-sort-indicator"
-                    aria-hidden="true"
-                  >
-                    {direction === "asc" ? "↑" : "↓"}
-                  </span>
-                ) : null}
-              </button>
-            ) : header.isPlaceholder ? null : (
-              flexRender(header.column.columnDef.header, header.getContext())
-            )}
-          </th>
-        );
-      })}
-    </tr>
-  ));
-}
-
-function WorkspaceGroupRow({
-  row,
-  columnCount,
-}: {
-  row: Row<ReviewApiSummary>;
-  columnCount: number;
-}) {
-  const path = row.getValue<string>("workspace");
-
-  const workspace: ReviewWorkspace = {
-    path,
-    label: row.original.repositoryName ?? worktreeLabel(path),
-    branch: readableSourceBranch(row.original.origin?.branch),
-    reviews: row.subRows.map((child) => child.original),
-  };
-
-  return (
-    <tr className="review-home-list-workspace-row">
-      <th colSpan={columnCount} scope="rowgroup">
-        <WorkspaceHeader workspace={workspace} />
-      </th>
-    </tr>
-  );
-}
-
-function ReviewRow({
-  row,
-  onOpen,
-}: {
-  row: Row<ReviewApiSummary>;
-  onOpen(review: ReviewApiSummary): void;
-}) {
-  const review = row.original;
-
-  const open = () => {
-    onOpen(review);
-  };
-
-  return (
-    <tr
-      className="review-home-list-row"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        open();
-      }}
-    >
-      {row.getVisibleCells().map((cell) => (
-        <td key={cell.id}>
-          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-        </td>
-      ))}
-    </tr>
-  );
-}
-
-const reviewListColumns: ColumnDef<ReviewApiSummary>[] = [
-  {
-    id: "workspace",
-    accessorFn: (review) =>
-      review.repositoryPath ?? review.pins?.repositoryId ?? "",
-    enableSorting: false,
-  },
-  {
-    id: "review",
-    accessorFn: reviewTitle,
-    header: "Review",
-    size: 400,
-    sortDescFirst: false,
-    cell: ({ row }) => (
-      <span className="review-home-review-title">
-        <MatchedText text={reviewTitle(row.original)} />
-      </span>
-    ),
-  },
-  {
-    id: "pr",
-    accessorFn: (review) => review.origin?.pullRequestNumber ?? undefined,
-    header: "PR",
-    size: 74,
-    sortDescFirst: false,
-    sortUndefined: "last",
-    cell: ({ row }) => (
-      <span className="review-home-pr">
-        {row.original.origin?.pullRequestNumber
-          ? `PR #${row.original.origin?.pullRequestNumber}`
-          : "—"}
-      </span>
-    ),
-  },
-  {
-    id: "files",
-    accessorFn: (review) => review.diffStats?.fileCount,
-    header: "Files",
-    size: 68,
-    sortUndefined: "last",
-    cell: ({ row }) => <>{row.original.diffStats?.fileCount ?? "—"}</>,
-  },
-  {
-    id: "changes",
-    accessorFn: (review) =>
-      review.diffStats
-        ? review.diffStats.additions + review.diffStats.deletions
-        : undefined,
-    header: "Changes",
-    size: 130,
-    sortUndefined: "last",
-    cell: ({ row }) => {
-      const stats = row.original.diffStats;
-
-      return stats ? (
-        <span className="review-home-changes">
-          <span className="review-home-added">+{stats.additions}</span>
-          <span className="review-home-removed">−{stats.deletions}</span>
-        </span>
-      ) : (
-        <>—</>
-      );
-    },
-  },
-  {
-    id: "status",
-    accessorFn: (review) => statusDisplay(review).label,
-    header: "Status",
-    size: 146,
-    sortDescFirst: false,
-    cell: ({ row }) => <StatusPill review={row.original} />,
-  },
-  {
-    id: "updated",
-    accessorFn: (review) => reviewUpdatedAtMs(review),
-    header: "Updated",
-    size: 130,
-    cell: ({ row }) => (
-      <span className="review-home-updated">
-        {formatRelativeTime(reviewUpdatedAt(row.original))}
-      </span>
-    ),
-  },
-  {
-    id: "actions",
-    header: "",
-    size: 44,
-    enableSorting: false,
-    cell: ({ row }) => <DismissReviewButton review={row.original} />,
-  },
-];
-
-// Group headers do not display aggregates. Keeping their sortable values empty
-// preserves workspace order while TanStack sorts the leaf reviews within them.
-const reviewListDefaultColumn = {
-  aggregationFn: () => undefined,
-} satisfies Partial<ColumnDef<ReviewApiSummary>>;
-
-function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
-  const { onOpenSourceTree } = useContext(AttentionActionsContext);
-  const review = onOpenSourceTree ? workspaceSourceReview(workspace) : null;
-
-  const name = (
+  return separator < 0 ? (
     <strong>
-      <MatchedText text={workspace.label} />/
+      <MatchedText text={label} />
     </strong>
-  );
-
-  return (
-    <div className="review-home-workspace-header review-home-workspace-header--group">
-      {onOpenSourceTree && review ? (
-        <button
-          type="button"
-          className="review-home-workspace-link"
-          aria-label={`Browse ${workspace.label} source`}
-          title="Browse the read-only source tree"
-          onClick={() => onOpenSourceTree(review)}
-        >
-          {name}
-        </button>
-      ) : (
-        name
-      )}
+  ) : (
+    <>
       <span>
-        {workspace.reviews[0]?.repositoryPath}
-        {workspace.branch ? ` · ${workspace.branch}` : ""}
+        <MatchedText text={label.slice(0, separator)} />
       </span>
-      {onOpenSourceTree && review ? (
-        <button
-          type="button"
-          className="review-home-workspace-view"
-          title="Browse the read-only source tree"
-          onClick={() => onOpenSourceTree(review)}
-        >
-          View source →
-        </button>
-      ) : null}
-    </div>
+      <span aria-hidden="true">/</span>
+      <strong>
+        <MatchedText text={label.slice(separator + 1)} />
+      </strong>
+    </>
   );
-}
-
-function ReviewMeta({ review }: { review: ReviewApiSummary }) {
-  const stats = review.diffStats;
-
-  return (
-    <span className="review-home-card-meta">
-      {review.origin?.pullRequestNumber ? (
-        <span className="review-home-pr">
-          PR #{review.origin?.pullRequestNumber}
-        </span>
-      ) : null}
-      {stats ? (
-        <>
-          <span>{countLabel(stats.fileCount, "file")}</span>
-          <DiffCount additions={stats.additions} deletions={stats.deletions} />
-        </>
-      ) : null}
-      <span>updated {formatRelativeTime(reviewUpdatedAt(review))}</span>
-    </span>
-  );
-}
-
-function StatusPill({ review }: { review: ReviewApiSummary }) {
-  const status = statusDisplay(review);
-
-  return (
-    <span className={`review-home-status review-home-status--${status.tone}`}>
-      <StatusIcon tone={status.tone} />
-      <span>{status.label}</span>
-    </span>
-  );
-}
-
-function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
-  const path = tone === "dismissed" ? "M3.5 6h5" : "M3.7 6.1l1.4 1.4 3.2-3.1";
-
-  return (
-    <svg aria-hidden="true" viewBox="0 0 12 12">
-      <circle cx="6" cy="6" r="5" />
-      <path d={path} />
-    </svg>
-  );
-}
-
-export function groupReviewsByWorktree(
-  reviews: readonly ReviewApiSummary[],
-): ReviewWorkspace[] {
-  const groups = new Map<string, ReviewWorkspace>();
-
-  for (const review of reviews) {
-    const path = review.repositoryPath ?? review.pins?.repositoryId ?? "";
-    let workspace = groups.get(path);
-
-    if (!workspace) {
-      workspace = {
-        path,
-        label:
-          review.repositoryName ??
-          worktreeLabel(
-            review.repositoryPath ?? review.pins?.repositoryId ?? "",
-          ),
-        branch: readableSourceBranch(review.origin?.branch),
-        reviews: [],
-      };
-      groups.set(path, workspace);
-    }
-
-    workspace.reviews.push(review);
-  }
-
-  return [...groups.values()];
 }
 
 export function reviewUpdatedAt(review: ReviewApiSummary): string {
@@ -1081,16 +932,6 @@ function reviewUpdatedAtMs(review: ReviewApiSummary): number {
 
 function latestFirst(left: ReviewApiSummary, right: ReviewApiSummary): number {
   return reviewUpdatedAtMs(right) - reviewUpdatedAtMs(left);
-}
-
-function newFirstThenLatest(
-  left: ReviewApiSummary,
-  right: ReviewApiSummary,
-): number {
-  const leftNew = left.viewedAt ? 1 : 0;
-  const rightNew = right.viewedAt ? 1 : 0;
-
-  return leftNew - rightNew || latestFirst(left, right);
 }
 
 export function formatRelativeTime(
@@ -1120,23 +961,6 @@ export function formatRelativeTime(
   }).format(then);
 }
 
-function statusDisplay(review: ReviewApiSummary): ReviewStatusDisplay {
-  if (review.dismissedAt) return { label: "Dismissed", tone: "dismissed" };
-
-  return { label: review.viewedAt ? "Review ready" : "New", tone: "ready" };
-}
-
-function readStoredHomeView(): ReviewHomeView {
-  try {
-    return globalThis.localStorage?.getItem(REVIEW_HOME_VIEW_STORAGE_KEY) ===
-      "list"
-      ? "list"
-      : "cards";
-  } catch {
-    return "cards";
-  }
-}
-
 function reviewTitle(review: ReviewApiSummary): string {
   return review.title.trim() || "Untitled review";
 }
@@ -1145,8 +969,28 @@ function matchesQuery(review: ReviewApiSummary, query: string): boolean {
   return fuzzyMatches(
     query,
     reviewTitle(review),
+    repositoryLabel(review),
+    review.repositoryPath ?? "",
+    review.origin?.branch ?? "",
+  );
+}
+
+function repositoryLabel(review: ReviewApiSummary): string {
+  if (review.repositoryGroup) return review.repositoryGroup.label;
+
+  if (review.shared?.cloneUrl) {
+    try {
+      return new URL(review.shared.cloneUrl).pathname
+        .replace(/^\//, "")
+        .replace(/\.git$/, "");
+    } catch {
+      // Older imports may not have a valid remote URL.
+    }
+  }
+
+  return (
     review.repositoryName ??
-      worktreeLabel(review.repositoryPath ?? review.pins?.repositoryId ?? ""),
+    worktreeLabel(review.repositoryPath ?? review.pins?.repositoryId ?? "")
   );
 }
 
@@ -1166,17 +1010,6 @@ function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
-function GridIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="6" height="6" rx="1" />
-      <rect x="11.5" y="2.5" width="6" height="6" rx="1" />
-      <rect x="2.5" y="11.5" width="6" height="6" rx="1" />
-      <rect x="11.5" y="11.5" width="6" height="6" rx="1" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -1194,21 +1027,10 @@ function ClearIcon() {
   );
 }
 
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <circle cx="3" cy="5" r="1" />
-      <circle cx="3" cy="10" r="1" />
-      <circle cx="3" cy="15" r="1" />
-      <path d="M7 5h10M7 10h10M7 15h10" />
-    </svg>
-  );
-}
-
 function TrashIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 4.5h10M6.5 4.5v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8M6.7 7v4M9.3 7v4" />
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M3.5 5.5h13M8 5.5V4h4v1.5M5 5.5l.8 11h8.4l.8-11M8.3 8.5l.3 5M11.7 8.5l-.3 5" />
     </svg>
   );
 }

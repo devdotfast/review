@@ -51,7 +51,7 @@ try {
   console.log(
     `Production dependency audit passed (${dependencyCount} unique packages).`,
   );
-  const pkgRoot = path.join(prefix, "node_modules/@dev.fast/review");
+  const pkgRoot = path.join(prefix, "node_modules/@dev.fast/whiteboard");
 
   const pkg = JSON.parse(
     await readFile(path.join(pkgRoot, "package.json"), "utf8"),
@@ -68,17 +68,19 @@ try {
   assert.equal(build.commit, pkg.gitHead);
 
   for (const file of [
-    "dist/cli.js",
-    "skills/dev-review/docs/README.md",
+    "dist/whiteboard-cli.js",
+    "skills/whiteboard/docs/README.md",
     "skills/trace-archaeology/SKILL.md",
   ])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));
   assert.match(
-    await readFile(path.join(pkgRoot, "skills/dev-review/SKILL.md"), "utf8"),
-    new RegExp(`review-version: "${expectedVersion.replaceAll(".", "\\.")}"`),
+    await readFile(path.join(pkgRoot, "skills/whiteboard/SKILL.md"), "utf8"),
+    new RegExp(
+      `whiteboard-version: "${expectedVersion.replaceAll(".", "\\.")}"`,
+    ),
   );
-  const cli = path.join(prefix, "node_modules/.bin/review");
+  const cli = path.join(prefix, "node_modules/.bin/whiteboard");
 
   const env = {
     ...process.env,
@@ -165,17 +167,17 @@ try {
   );
   const head = (await git("rev-parse", "HEAD")).stdout.trim();
 
-  const registered = await api("review_register_repository", {
+  const registered = await api("session_register_repository", {
     path: repository,
   });
 
-  const pins = await api("review_resolve_pins", {
+  const pins = await api("session_resolve_pins", {
     repositoryId: registered.id,
     base: head,
     head,
   });
 
-  const created = await api("review_create", {
+  const created = await api("session_create", {
     commandId: randomUUID(),
     title: "Packed CLI smoke",
     target: { kind: "commits", ...pins },
@@ -183,8 +185,8 @@ try {
   });
 
   const lease = { sessionId: created.sessionId, leaseId: randomUUID() };
-  await api("review_activity", { ...lease, action: "begin" });
-  await api("review_edit", {
+  await api("session_activity", { ...lease, action: "begin" });
+  await api("session_edit", {
     ...lease,
     commandId: randomUUID(),
     edit: {
@@ -201,8 +203,8 @@ try {
       },
     },
   });
-  await api("review_activity", { ...lease, action: "end" });
-  const reviews = await api("review_list");
+  await api("session_activity", { ...lease, action: "end" });
+  const reviews = await api("session_list");
   assert.equal(reviews.length, 1);
   console.log(
     `Installed ${pkg.name}@${pkg.version}: tracing and headless authoring passed without Desktop.`,

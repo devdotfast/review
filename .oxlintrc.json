@@ -120,8 +120,8 @@
         "no-restricted-imports": [
           "error",
           {
-            "paths": ["@dev.fast/review"],
-            "patterns": ["@dev.fast/review/*", "**/review/**"]
+            "paths": ["@dev.fast/whiteboard"],
+            "patterns": ["@dev.fast/whiteboard/*", "**/review/**"]
           }
         ]
       }

@@ -1,16 +1,16 @@
 {
-  "name": "@dev.fast/review",
+  "name": "@dev.fast/whiteboard",
   "version": "0.0.1",
   "private": false,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/devdotfast/review.git",
+    "url": "https://github.com/devdotfast/whiteboard.git",
     "directory": "packages/review"
   },
   "bin": {
     "review": "./dist/cli.js",
-    "whiteboard": "dist/whiteboard-cli.js"
+    "whiteboard": "./dist/whiteboard-cli.js"
   },
   "files": [
     "LICENSE",
@@ -52,8 +52,9 @@
     "pretest": "pnpm run ensure:tutorial-assets",
     "pretest:node": "pnpm run ensure:tutorial-assets",
     "prepack": "pnpm run build",
-    "start": "tsx src/cli.ts",
+    "start": "tsx src/whiteboard-cli.ts",
     "review": "tsx src/cli.ts",
+    "whiteboard": "tsx src/whiteboard-cli.ts",
     "fixtures:capture-legacy-review": "tsx scripts/capture-legacy-review-fixture.ts",
     "fixtures:legacy-review-goldens": "tsx scripts/generate-legacy-review-goldens.ts",
     "test": "vitest run --config vitest.config.ts",
@@ -61,8 +62,7 @@
     "test:legacy-corpus": ": \"${REVIEW_LEGACY_CORPUS:?set REVIEW_LEGACY_CORPUS to a directory of legacy Review UUID folders}\" && vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/review",
-    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts",
-    "whiteboard": "tsx src/whiteboard-cli.ts"
+    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",
@@ -104,7 +104,7 @@
   },
   "intent": {
     "version": 1,
-    "repo": "devdotfast/review",
-    "docs": "packages/review/skills/dev-review/SKILL.md"
+    "repo": "devdotfast/whiteboard",
+    "docs": "packages/review/skills/whiteboard/SKILL.md"
   }
 }

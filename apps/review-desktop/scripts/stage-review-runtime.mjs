@@ -123,7 +123,7 @@ export async function stageReviewRuntime(packagedRoot) {
       // their own dependency graphs. Injecting copies them in with their deps.
       "--config.inject-workspace-packages=true",
       "--filter",
-      "@dev.fast/review",
+      "@dev.fast/whiteboard",
       "--prod",
       "deploy",
       "--legacy",

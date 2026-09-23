@@ -40,7 +40,7 @@ test("buildManifest emits the schema the update Worker serves", () => {
   assert.deepEqual(manifest, {
     version: "1.2.3",
     commit: "abc123",
-    url: "https://update.dev.fast/releases/1.2.3/darwin-arm64/Review-darwin-arm64-1.2.3.zip",
+    url: "https://update.dev.fast/releases/1.2.3/darwin-arm64/Whiteboard-darwin-arm64-1.2.3.zip",
     name: "1.2.3",
     pub_date: "2026-07-29T00:00:00.000Z",
     timestamp: now.getTime(),

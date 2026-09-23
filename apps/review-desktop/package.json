@@ -22,8 +22,8 @@
     "typecheck": "npm --prefix code-oss run typecheck-client"
   },
   "dependencies": {
-    "@dev.fast/review": "workspace:*",
-    "@dev.fast/review-protocol": "workspace:*"
+    "@dev.fast/review-protocol": "workspace:*",
+    "@dev.fast/whiteboard": "workspace:*"
   },
   "devDependencies": {
     "@dev.fast/review-canvas": "workspace:*",

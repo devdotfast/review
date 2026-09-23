@@ -1,7 +1,7 @@
-# Review workflow
+# Whiteboard workflow
 
-1. Install Review Desktop; it installs the `review` CLI and agent skills.
-2. Open Review Desktop. It hosts the JSON review server for this workflow.
-3. Run the dev-review skill (e.g. `/dev-review`).
-4. The skill authors the review through `review api` or the Review MCP
-   tools; see `skills/dev-review/SKILL.md` for the full workflow.
+1. Install Whiteboard; it installs the `whiteboard` CLI and agent skills.
+2. Open Whiteboard. It hosts the JSON whiteboard server for this workflow.
+3. Run the whiteboard skill (e.g. `/whiteboard`).
+4. The skill authors the review through `whiteboard api` or the Whiteboard MCP
+   tools; see `skills/whiteboard/SKILL.md` for the full workflow.

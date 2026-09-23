@@ -8,8 +8,8 @@ PRODUCT_NAME="$(node -p "require('$CHECKOUT/product.json').nameShort")"
 PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/$PRODUCT_NAME.app"
 VERSION="$(node -p "require('$APP_DIR/package.json').version")"
 ARTIFACT_DIR="${DEV_FAST_WHITEBOARD_ARTIFACT_DIR:-$APP_DIR/dist}"
-UPDATE_ZIP="$ARTIFACT_DIR/Review-darwin-arm64-$VERSION.zip"
-DMG="$ARTIFACT_DIR/Review-darwin-arm64-$VERSION.dmg"
+UPDATE_ZIP="$ARTIFACT_DIR/Whiteboard-darwin-arm64-$VERSION.zip"
+DMG="$ARTIFACT_DIR/Whiteboard-darwin-arm64-$VERSION.dmg"
 
 if (( $# > 0 )); then
   echo "usage: $0" >&2

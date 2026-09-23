@@ -195,9 +195,11 @@ const api = async (route, method = "GET", body) => {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+  const value = await response.json().catch(() => null);
+
   return {
     status: response.status,
-    value: await response.json().catch(() => null),
+    value: value,
   };
 };
 

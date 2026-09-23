@@ -169,9 +169,9 @@ jobs:
               exit 1
             fi
 
-            echo "Promoting ${PREVIEW_TAG} (${PREVIEW_COMMIT}) to Review Desktop ${TAG}."
+            echo "Promoting ${PREVIEW_TAG} (${PREVIEW_COMMIT}) to Whiteboard ${TAG}."
           else
-            echo "Releasing Review Desktop ${TAG} from ${GITHUB_REF_NAME}."
+            echo "Releasing Whiteboard ${TAG} from ${GITHUB_REF_NAME}."
           fi
 
           # Remote write-state, checked only where a push actually follows. Both
@@ -258,7 +258,7 @@ jobs:
         run: |
           gh release create "${{ steps.bump.outputs.tag }}" \
             --repo "${{ github.repository }}" \
-            --title "Review Desktop ${{ steps.bump.outputs.version }}" \
+            --title "Whiteboard ${{ steps.bump.outputs.version }}" \
             --draft \
             --generate-notes
 
@@ -569,17 +569,21 @@ jobs:
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
           # The releases/latest/ key is version-free by design, so the version
           # rides along in the filename a client saves the download as.
-          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+          DMG_DISPOSITION="attachment; filename=\"df-whiteboard-${RELEASE_VERSION}.dmg\""
 
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
             --content-type application/zip
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Review.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Whiteboard.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
 
@@ -607,7 +611,11 @@ jobs:
           echo "install.dev.fast (expect 302 to the disk image):"
           LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
           echo "$LOCATION"
-          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+          # The landing worker can deploy before or after this release.
+          case "$LOCATION" in
+            "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"|"https://install.dev.fast/releases/latest/darwin-arm64/Whiteboard.dmg") ;;
+            *) echo "Unexpected install redirect: $LOCATION" >&2; exit 1 ;;
+          esac
 
           echo "Following it (expect 200 and a disk image):"
           curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \
@@ -620,7 +628,7 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            "apps/review-desktop/dist/Review-darwin-arm64-${RELEASE_VERSION}.dmg"
+            "apps/review-desktop/dist/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg"
 
       - name: Remove signing credentials
         if: always()

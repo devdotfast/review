@@ -94,7 +94,7 @@ fi
   echo "CLI in a second terminal (run \`review\` from inside $SCRATCH):"
   echo
   echo "    export DEV_WHITEBOARD_HOME=\"$HOME_DIR\" DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1"
-  echo "    alias review='pnpm --filter @dev.fast/review review'"
+  echo "    alias review='pnpm --filter @dev.fast/whiteboard review'"
   echo
   echo "Inventory (state before the Desktop lists Home):"
   echo

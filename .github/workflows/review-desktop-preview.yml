@@ -394,17 +394,21 @@ jobs:
         run: |
           DIST=apps/review-desktop/dist
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
-          DMG_DISPOSITION="attachment; filename=\"df-review-preview-${RELEASE_VERSION}.dmg\""
+          DMG_DISPOSITION="attachment; filename=\"df-whiteboard-preview-${RELEASE_VERSION}.dmg\""
 
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
             --content-type application/zip
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             "s3://${R2_BUCKET}/releases/preview-latest/darwin-arm64/Review.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/preview-latest/darwin-arm64/Whiteboard.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
 
@@ -432,7 +436,11 @@ jobs:
           echo "install.dev.fast/preview (expect 302 to the preview disk image):"
           LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/preview)
           echo "$LOCATION"
-          test "$LOCATION" = "https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg"
+          # The landing worker can deploy before or after this release.
+          case "$LOCATION" in
+            "https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg"|"https://install.dev.fast/releases/preview-latest/darwin-arm64/Whiteboard.dmg") ;;
+            *) echo "Unexpected install redirect: $LOCATION" >&2; exit 1 ;;
+          esac
 
           echo "Following it (expect 200 and a disk image):"
           curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/preview \
@@ -442,7 +450,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: review-desktop-preview-${{ env.RELEASE_VERSION }}-dmg
-          path: apps/review-desktop/dist/Review-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
+          path: apps/review-desktop/dist/Whiteboard-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
           retention-days: 3
           compression-level: 0
 

@@ -1,7 +1,7 @@
 const RELEASE_IDENTITIES = Object.freeze({
   stable: Object.freeze({
-    nameShort: "Review",
-    nameLong: "/dev/fast Review",
+    nameShort: "Whiteboard",
+    nameLong: "/dev/fast Whiteboard",
     applicationName: "review",
     dataFolderName: ".dev-fast-review",
     sharedDataFolderName: ".dev-fast-review-shared",
@@ -9,8 +9,8 @@ const RELEASE_IDENTITIES = Object.freeze({
     urlProtocol: "dev-fast-review",
   }),
   preview: Object.freeze({
-    nameShort: "Review Preview",
-    nameLong: "/dev/fast Review Preview",
+    nameShort: "Whiteboard Preview",
+    nameLong: "/dev/fast Whiteboard Preview",
     applicationName: "review-preview",
     dataFolderName: ".dev-fast-review-preview",
     sharedDataFolderName: ".dev-fast-review-preview-shared",

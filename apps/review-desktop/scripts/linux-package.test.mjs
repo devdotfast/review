@@ -10,7 +10,7 @@ test("stable versions package as dev-fast-review", () => {
   assert.deepEqual(reviewPackage(product("stable"), "1.2.3", "2"), {
     name: "dev-fast-review",
     app: "review",
-    appName: "Review",
+    appName: "Whiteboard",
     appId: "dev.fast.review",
     rpmVersion: "1.2.3",
     revision: "2",
@@ -24,7 +24,7 @@ test("preview versions package separately with a tilde RPM version", () => {
     {
       name: "dev-fast-review-preview",
       app: "review-preview",
-      appName: "Review Preview",
+      appName: "Whiteboard Preview",
       appId: "dev.fast.review.preview",
       rpmVersion: "1.2.4~preview.20260922.7",
       revision: "1",

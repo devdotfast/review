@@ -1,6 +1,6 @@
 // Overwrites src/embedded-posthog-key.ts with a real PostHog project key so
 // release builds ship telemetry enabled. Source checkouts keep the undefined
-// placeholder. Run before `pnpm --filter @dev.fast/review build`.
+// placeholder. Run before `pnpm --filter @dev.fast/whiteboard build`.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

@@ -26,7 +26,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
 
   const descriptions = {
     create:
-      'Create a review with target: {kind: worktree, repositoryId, base?} for saved working files, or {kind: commits, repositoryId, head, base?} for immutable commits. Revisions are resolved on acceptance. Omitted commits base means source at head with no diff; supply the parent to review introduced changes. Legacy pins remain accepted. For a PR supply pullRequestUrl. kind:"scratchpad" names the one scratchpad, which the host creates itself.',
+      'Create a review with target: {kind: worktree, repositoryId, base?} for saved working files, or {kind: commits, repositoryId, head, base?} for immutable commits. Revisions are resolved on acceptance. Omitted commits base means source at head with no diff; supply the parent to review introduced changes. Legacy pins remain accepted. For a PR supply pullRequestUrl. kind:"scratchpad" names the one scratchpad, which the host creates itself. When Desktop is available the review opens there and the result reports opened, softwareMapEnabled and environmentIssues, as review_open does; set open:false to author in the background without taking over Desktop.',
     set_target:
       "Change the review target, preserving document and component IDs. Returns warnings for source references needing repair. Earlier versions keep their retained source.",
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Create an outline of section headings and short descriptions with status:pending first. Patch each section to status:in_progress before filling it, then status:complete after checking its content. Use returned IDs to fill sections in place. Section status persists independently of activity; absent status is unspecified. Accepted edits are saved immediately. Omitted placement appends; on the scratchpad it lands at the top, so insert a multi-block thought bottom-up or chain each block with afterId. null removes an optional field in a patch. While a reader may be watching, write small and often: one paragraph per edit, so the document draws itself as you go. Insert a new diagram whole, with all its nodes and edges or steps; the board traces it in one quick pass. Change a diagram already on the board one unit at a time: insert, update or remove a flow_node, flow_edge or step by ID (parentId names the diagram). Give each added flow_node link:{from} (or to) naming a node already drawn, so it arrives attached; a separate flow_edge is only for two nodes that already exist. Removing a flow_node removes its edges.",
@@ -62,7 +62,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
   const tools = [
     tool(
       "capabilities",
-      "Discover the explicitly selected authoringMode (interactive or batch), whether Desktop is available and optional software-map generation is enabled. Read before authoring; only call review_open when desktopAvailable is true. Map uploads remain supported regardless of generation permission.",
+      "Discover the explicitly selected authoringMode (interactive or batch), whether Desktop is available and optional software-map generation is enabled. Read before authoring. Map uploads remain supported regardless of generation permission.",
       z.strictObject({}),
       "GET",
       "/capabilities",
@@ -83,6 +83,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
         `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response. For content changes to an owned review, include the leaseId from review_activity.`,
         z.strictObject({
           ...fields,
+          ...(type === "create" && { open: z.boolean().optional() }),
           commandId: z.uuid(),
           leaseId: commandSchema.shape.leaseId,
         }),
@@ -108,7 +109,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "open",
-      "Show a review immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use review_environment to recheck.",
+      "Show an existing review immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use review_environment to recheck.",
       z.strictObject(review),
       "POST",
       "/:reviewId/open",

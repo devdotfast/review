@@ -59,7 +59,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/inspect` | Agent reading view: nested text outline with IDs; `targetId` reads one component completely, `full=true` includes all content, `version` selects history. `format=json` returns raw data instead. |
 | `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
-| `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
+| `POST /commands`                          | Apply one command; return review ID, version, and edited target ID. An interactive `create` also opens the new review in an attached Desktop unless `operation.open` is `false`, and reports `opened` with the open result or an `openError`; the review is saved either way |
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
 | `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
@@ -247,7 +247,7 @@ git config --add devfast.prepare 'pnpm generate'
 Commands run in order inside each managed checkout, never in the invoking user
 checkout. Successful preparation is cached by checkout and command-list hash;
 changed commands or recreated checkouts invalidate it. Preparation has no canvas
-disclosure. `review_open` starts acquisition in the background and returns any
+disclosure. `review_open`, and `review_create` when it opens the review, starts acquisition in the background and returns any
 already-recorded acquisition issues. `review_environment` rechecks current base/head
 checkouts; `retry:true` explicitly reruns failed preparation. Missing setup, pending preparation,
 and failed commands with a usable checkout do not produce issues. These checks

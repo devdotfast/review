@@ -9,15 +9,17 @@
     "directory": "packages/review"
   },
   "bin": {
-    "review": "./dist/cli.js"
+    "review": "./dist/cli.js",
+    "whiteboard": "./dist/cli.js"
   },
   "files": [
     "LICENSE",
     "README.md",
     "onboarding.md",
     "dist",
-    "skills",
-    "plugins",
+    "docs",
+    "!docs/review-actions-redesign",
+    "instructions",
     "tutorial",
     "!tutorial/.bundle",
     "src",
@@ -60,7 +62,8 @@
     "test:legacy-corpus": ": \"${REVIEW_LEGACY_CORPUS:?set REVIEW_LEGACY_CORPUS to a directory of legacy Review UUID folders}\" && vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/review",
-    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts"
+    "test:integration:diffr": "pnpm run build:workspace-deps && pnpm run ensure:diffr --required && vitest run --config vitest.integration.config.ts",
+    "whiteboard": "tsx src/cli.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.0.12",
@@ -69,7 +72,6 @@
     "es-module-lexer": "2.1.0",
     "fuzzysort": "4.0.2",
     "hono": "4.13.5",
-    "jsonc-parser": "3.3.1",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm": "3.1.0",
     "micromark-extension-gfm": "3.0.0",
@@ -103,6 +105,6 @@
   "intent": {
     "version": 1,
     "repo": "devdotfast/review",
-    "docs": "packages/review/skills/dev-review/SKILL.md"
+    "docs": "packages/review/instructions/authoring.md"
   }
 }

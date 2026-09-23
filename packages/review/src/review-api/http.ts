@@ -15,6 +15,11 @@ import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
+import {
+  instructionsQuerySchema,
+  renderInstructions,
+  scratchpadAvailable,
+} from "./instructions.js";
 import type { LocalReviewData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -66,6 +71,8 @@ export function createReviewApi(
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
+  // Read per request: capture can change from outside this server.
+  traceEnabled: () => Promise<boolean> = async () => false,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -173,7 +180,32 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) => context.json(authoringTools()));
+
+  // Server-owned state only: asking the Desktop canvas would let a stalled
+  // renderer block tool listing and the first instructions call.
+  const instructionContext = async () => ({
+    desktopAvailable: Boolean(open),
+    scratchpadEnabled: scratchpadEnabled(),
+    traceEnabled: await traceEnabled(),
+  });
+
+  app.get("/authoring", async (context) => {
+    const instructions = await instructionContext();
+
+    return context.json(
+      authoringTools(
+        scratchpadAvailable(instructions),
+        instructions.traceEnabled,
+      ),
+    );
+  });
+  app.get("/instructions", async (context) => {
+    const { topic } = instructionsQuerySchema.parse(context.req.query());
+
+    return context.json(
+      await renderInstructions(topic, await instructionContext()),
+    );
+  });
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
@@ -920,8 +952,8 @@ export function createReviewApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
-        `Review ID: ${snapshot.reviewId}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from Whiteboard: ${snapshot.title}`,
+        `Session ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
@@ -938,11 +970,11 @@ export function createReviewApi(
         ...(snapshot.pins
           ? [
               `Repository ID: ${snapshot.pins.repositoryId}`,
-              `Review base: ${snapshot.pins.base}`,
-              `Review head: ${snapshot.pins.head}`,
+              `Session base: ${snapshot.pins.base}`,
+              `Session head: ${snapshot.pins.head}`,
             ]
           : []),
-        `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+        `Read this version with session_get({"sessionId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
         "",

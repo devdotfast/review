@@ -704,11 +704,11 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     const text = await copy();
     expect(text).toContain(
-      `Review ID: ${review.reviewId}\nVersion: ${inserted.version}`,
+      `Session ID: ${review.reviewId}\nVersion: ${inserted.version}`,
     );
     expect(text).toContain("> Selected historical prose");
     expect(text).toContain(
-      `review_get({"reviewId":"${review.reviewId}","version":${inserted.version},"full":true})`,
+      `session_get({"sessionId":"${review.reviewId}","version":${inserted.version},"full":true})`,
     );
     expect(text).not.toContain("review.mdx");
 

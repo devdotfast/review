@@ -3,10 +3,12 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { Event } from "../../base/common/event.js";
 import { Disposable } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
 import type { ITextEditorOptions } from "../../platform/editor/common/editor.js";
 import { createDecorator, IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
+import { ILogService } from "../../platform/log/common/log.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import { isResourceDiffEditorInput, isResourceEditorInput, type IUntypedEditorInput } from "../../workbench/common/editor.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
@@ -54,6 +56,7 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		@IReviewDesktopConnectionService
 		private readonly desktopConnection: IReviewDesktopConnectionService,
 		@IHostService private readonly host: IHostService,
+		@ILogService private readonly logService: ILogService,
 	) {
 		super();
 		this._register(
@@ -157,6 +160,9 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
 			this.inputs.set(target.kind, input);
+			if (target.kind === "welcome") {
+				Event.once(input.onWillDispose)(() => void this.finishCliInstallUpdate());
+			}
 		}
 		configure?.(input);
 		// A control command may arrive while an Ask's loading pane has focus.
@@ -165,6 +171,19 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		const targetGroup = existingGroup === undefined ? this.editorGroupsService.mainPart.activeGroup : existingGroup;
 		await this.editorService.openEditor(input, { pinned: true, inactive: !active, revealIfVisible: true }, targetGroup);
 		return input;
+	}
+
+	/**
+	 * Closing Welcome while it shows the update screen counts as finishing the
+	 * update, so an upgrader is not sent back to it on the next launch.
+	 */
+	private async finishCliInstallUpdate(): Promise<void> {
+		try {
+			const status = await this.desktopConnection.getCliInstallStatus();
+			if (status.updateNeeded) await this.desktopConnection.finishCliInstallUpdate();
+		} catch (error) {
+			this.logService.warn("[Review] Could not finish the CLI install update:", error);
+		}
 	}
 
 	private async openReviewInput(input: ReviewCanvasEditorInput, active: boolean): Promise<void> {

@@ -40,7 +40,7 @@ node "$APP_DIR/scripts/curated-extensions.mjs" \
   --copy-to "$PACKAGED_ROOT/resources/app/extensions"
 
 # The installed app embeds its own Review server runtime (server, CLI, and
-# agent skills) so it never reaches back into this checkout.
+# docs) so it never reaches back into this checkout.
 pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
 pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review ensure:diffr --required
 node "$APP_DIR/scripts/stage-review-runtime.mjs" --packaged-root "$PACKAGED_ROOT"

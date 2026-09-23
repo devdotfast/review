@@ -5,14 +5,14 @@ Outline: Product model -> Review contents -> Targets -> Publication -> Lifecycle
 -->
 
 Review separates authoring from reading. A coding agent studies a change and
-writes a guided document; Review Desktop gives the human reviewer live code,
+writes a guided document; Whiteboard Desktop gives the human reviewer live code,
 and system views around that document.
 
 ```mermaid
 flowchart LR
   A[Branch, change, or PR] --> B[Agent authors a Review]
   B --> C[Server saves each edit through the Review API]
-  C --> D[Reviewer reads in Review Desktop]
+  C --> D[Reviewer reads in Whiteboard Desktop]
 ```
 
 ## A Review is more than a diff
@@ -43,12 +43,14 @@ See [review targets](cli-reference.md#review-targets) for the API options.
 
 ## Every edit saves immediately
 
-Authoring goes through the JSON API: `review api`, the Review MCP tools, or
-the dev-review skill. Every accepted edit is saved as soon as it is applied;
-there is no publish, checkpoint, or render-report step. See
-`packages/review/skills/dev-review/SKILL.md`
-and `packages/review/src/review-api/README.md`
+Authoring goes through the JSON API: `whiteboard api` or the Review MCP tools.
+Every accepted edit is saved as soon as it is applied; there is no publish,
+checkpoint, or render-report step. See `packages/review/src/review-api/README.md`
 for the full authoring workflow.
+
+Agents connect to the MCP tools by registering `whiteboard mcp` themselves, from a
+prompt that Review gives you; Review does not edit agent configuration. See
+[Coding agents](agents.md#connect-an-agent).
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain
@@ -80,7 +82,7 @@ exact sealed artifacts at the current document and independent map pointers,
 including terminal Reviews. It never recompiles editable `review.mdx` or
 `data.ts`, or converts every private historical revision. Valid JSON artifacts
 and absent maps are preserved; drafts without a presentation only need a record
-upgrade. Repeat reads need no further migration. `review migrate apply` runs
+upgrade. Repeat reads need no further migration. `whiteboard migrate apply` runs
 the same per-review upgrade across the store and also performs repository-level
 cleanup.
 
@@ -91,8 +93,8 @@ a reason to repair.
 If sealed conversion fails, the record, authoring inputs, candidates, and
 private refs stay unchanged. Home lists an attention entry: the review was
 published with the removed MDX toolchain and its stored files are damaged, so
-it cannot be imported. Delete it from Home and recreate it with the Review
-skill. Malformed or unsupported records remain explicit list errors. A
+it cannot be imported. Delete it from Home and recreate it with your coding
+agent. Malformed or unsupported records remain explicit list errors. A
 current-schema Review with broken artifacts shows the same guidance in its
 document or map load state.
 
@@ -110,8 +112,8 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 
 The directory contains the document, supporting TypeScript, pinned state,
 sealed revisions, and disposable build output. Review owns the infrastructure
-files; agents author content through the JSON API (`review api`, the Review
-MCP tools, or the dev-review skill), never by editing files in this directory
+files; agents author content through the JSON API (`whiteboard api` or the Review
+MCP tools), never by editing files in this directory
 directly.
 
 `review.json` uses store schema 5 and records the independent document and map
@@ -124,8 +126,8 @@ that legacy code into the canvas.
 
 Software maps are stored per commit in Git notes under
 `refs/notes/dev-fast/*`. They do not add generated map files to the reviewed
-branch. Map notes can be shared explicitly with `review map push` and
-`review map fetch`.
+branch. Map notes can be shared explicitly with `whiteboard map push` and
+`whiteboard map fetch`.
 
 See the [CLI reference](cli-reference.md) for the lifecycle commands and the
 [privacy overview](privacy.md) for the local and network boundaries.

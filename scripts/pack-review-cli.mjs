@@ -4,10 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  stageReviewDocs,
-  stampReviewSkills,
-} from "../apps/review-desktop/scripts/stage-review-runtime.mjs";
+import { stageReviewDocs } from "../apps/review-desktop/scripts/stage-review-runtime.mjs";
 import { parseVersion } from "./review-cli-release.mjs";
 
 /** Pack from the workspace, then add the docs and version metadata shipped by Desktop. */
@@ -44,7 +41,6 @@ export async function packReviewCli({ version, commit }, outputDirectory) {
     ]);
     const staged = path.join(scratch, "package");
     await stageReviewDocs(staged);
-    await stampReviewSkills(staged, version);
 
     execFileSync(
       "npm",

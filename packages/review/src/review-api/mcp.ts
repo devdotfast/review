@@ -7,25 +7,61 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import {
-  type AuthoringTool,
-  callAuthoringTool,
-  toolResultText,
-} from "./agent-client.js";
+import { type AuthoringTool, toolResultText } from "./agent-client.js";
+import { authoringTools } from "./authoring-tools.js";
 import type { ReviewApiClient } from "./client.js";
+import { ReviewApiError } from "./client.js";
+import { callPublicTool, publicTool } from "./public-tools.js";
+import { RECOVERY } from "./recovery.js";
+
+// Some hosts ignore tools/list_changed, so the agent itself has to reload.
+const RELOAD_TOOLS =
+  "Whiteboard is running now, but this session listed Whiteboard's tools before it started, so you may see only session_get_instructions. Before authoring, reload the `whiteboard` MCP server's tools (reconnect it in your agent, or start a new agent session). If you can already see tools such as session_create, carry on.";
+
+export function mcpServerInstructions(context: {
+  scratchpadAvailable: boolean;
+  traceEnabled: boolean;
+}): string {
+  return [
+    "Whiteboard explains code in documents the user reads in Whiteboard Desktop. Call session_get_instructions before creating or editing a Whiteboard and follow it. Read session_capabilities before authoring; session_create opens the new review in Desktop when it is available, so call session_open only for an existing review, and generate software maps only when softwareMapEnabled is true. When the user asks for a Whiteboard or to use Whiteboard (for example to review a branch, a change or a pull request, or to explain a system in Whiteboard), author a Whiteboard with the default topic.",
+    ...(context.scratchpadAvailable
+      ? [
+          'When the user asks in conversation to be shown how code works or wants a diagram, without asking for a Whiteboard, call session_capabilities; if it reports scratchpadEnabled and desktopAvailable, draw on the Whiteboard scratchpad rather than answering only in chat, starting with session_get_instructions({topic:"scratchpad"}).',
+        ]
+      : []),
+    ...(context.traceEnabled
+      ? [
+          'For why code exists, what an agent was thinking, or whether an agent solved something before, call session_get_instructions({topic:"trace-archaeology"}).',
+        ]
+      : []),
+    "Never read or write Whiteboard files or SQL. Reuse commandId and identical input after a lost response.",
+  ].join(" ");
+}
 
 export async function serveReviewMcp(
   connect: () => Promise<ReviewApiClient>,
   stdin: Readable,
   stdout: Writable,
   stderr: Writable = process.stderr,
+  traceEnabled = false,
 ) {
+  const instructionsTool = {
+    ...authoringTools(false, traceEnabled).find(
+      (tool) => tool.name === "review_get_instructions",
+    )!,
+    name: "session_get_instructions",
+  };
+
   const server = new Server(
-    { name: "review", version: "1.0.0" },
+    { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions:
-        "Author through the running Review server. Read review_capabilities before authoring; review_create opens the new review in Desktop when it is available, so call review_open only for an existing review. Dispatch software-map workers only when softwareMapEnabled is true, and name the scratchpad only when scratchpadEnabled is true. Accepted edits are validated and saved immediately. Never read or write Review files or SQL. Reuse commandId and identical input after a lost response. Use returned target IDs to edit components; there is no expectedVersion or publish step.",
+      // Initialize comes before Desktop can be asked; the scratchpad
+      // sentence defers to session_capabilities.
+      instructions: mcpServerInstructions({
+        scratchpadAvailable: true,
+        traceEnabled,
+      }),
     },
   );
 
@@ -34,10 +70,13 @@ export async function serveReviewMcp(
   // changed list once the host can be reached.
   let catalog: AuthoringTool[] = [];
   let announceCatalog = false;
+  let listedWhileDown = false;
 
   const load = async (signal?: AbortSignal) => {
     const client = await connect();
-    catalog = await client.read<AuthoringTool[]>("/authoring", signal);
+    catalog = (await client.read<AuthoringTool[]>("/authoring", signal)).map(
+      publicTool,
+    );
 
     if (announceCatalog) {
       announceCatalog = false;
@@ -52,15 +91,21 @@ export async function serveReviewMcp(
 
     try {
       ({ tools } = await load(extra.signal));
+      listedWhileDown = false;
     } catch (error) {
       announceCatalog = true;
+      listedWhileDown = true;
       stderr.write(
-        `review mcp: ${error instanceof Error ? error.message : String(error)}\n`,
+        `whiteboard mcp: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
 
     return {
-      tools: tools.map(({ name, description, inputSchema }) => ({
+      tools: [
+        tools.find((tool) => tool.name === instructionsTool.name) ??
+          instructionsTool,
+        ...tools.filter((tool) => tool.name !== instructionsTool.name),
+      ].map(({ name, description, inputSchema }) => ({
         name,
         description,
         inputSchema,
@@ -69,23 +114,45 @@ export async function serveReviewMcp(
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     try {
-      const { client, tools } = await load(extra.signal);
+      let client: ReviewApiClient;
+      let tools: AuthoringTool[];
+
+      try {
+        ({ client, tools } = await load(extra.signal));
+      } catch (error) {
+        announceCatalog = true;
+
+        if (
+          request.params.name === instructionsTool.name &&
+          !(error instanceof ReviewApiError)
+        )
+          return { content: [{ type: "text" as const, text: RECOVERY }] };
+
+        throw error;
+      }
+
       const tool = tools.find((tool) => tool.name === request.params.name);
 
-      if (!tool) throw new Error(`Unknown Review tool: ${request.params.name}`);
+      if (!tool)
+        throw new Error(`Unknown Whiteboard tool: ${request.params.name}`);
 
-      const result = await callAuthoringTool(
+      const result = await callPublicTool(
         client,
         tool,
         request.params.arguments ?? {},
         extra.signal,
       );
 
+      const text = toolResultText(tool, result);
+
       return {
         content: [
           {
             type: "text",
-            text: toolResultText(tool, result),
+            text:
+              listedWhileDown && tool.name === instructionsTool.name
+                ? `${RELOAD_TOOLS}\n\n${text}`
+                : text,
           },
         ],
       };

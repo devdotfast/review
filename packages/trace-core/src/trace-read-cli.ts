@@ -518,7 +518,7 @@ function printCommitResolution(
     stdout.write(`    ${session}${metaSuffix}\n`);
     stdout.write(`      trace: by-session/${session}/trace.jsonl\n`);
     stdout.write(
-      `      pull for FFF: ${traceCommandPrefix()} pull --session ${session}\n`,
+      `      pull for FFF: ${traceCommandPrefix()} pull --agent-session ${session}\n`,
     );
   }
 }

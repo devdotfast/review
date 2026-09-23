@@ -1,0 +1,6 @@
+{
+  "name": "whiteboard",
+  "version": "0.1.0",
+  "description": "Connect Claude Code to dev.fast Whiteboard",
+  "author": { "name": "dev.fast" }
+}

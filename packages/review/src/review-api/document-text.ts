@@ -24,7 +24,7 @@ export function documentText(
 
   const lines = [
     `# ${snapshot.title}`,
-    `Review ${snapshot.reviewId} · version ${snapshot.version}`,
+    `Session ${snapshot.reviewId} · version ${snapshot.version}`,
     "",
   ];
 
@@ -184,7 +184,7 @@ export function documentText(
 
   // Lenses sit beside the document; list them so their ids are at hand.
   if (!target && snapshot.lenses?.length) {
-    lines.push("", "Lenses (edit with review_lens_edit):");
+    lines.push("", "Lenses (edit with session_lens_edit):");
 
     for (const lens of snapshot.lenses) {
       write(0, `[${lens.id}] ${lens.title}`);

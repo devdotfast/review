@@ -6,6 +6,7 @@ import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   REVIEW_SCHEMA_VERSION,
   ReviewCliInstallStampSchema,
+  ReviewCliInstallStatusSchema,
   ReviewDesktopDiscoverySchema,
   ReviewDesktopStateSchema,
   ReviewDesktopVerbFrameSchema,
@@ -220,8 +221,9 @@ describe("Review protocol Zod contracts", () => {
   });
 
   // Desktop discovery deliberately ignores unknown keys so future additive
-  // fields never force another protocol version bump.
-  const tolerantContracts = new Set(["desktop discovery"]);
+  // fields never force another protocol version bump. The install stamp drops
+  // the agent records that stamps from before version 2 carry.
+  const tolerantContracts = new Set(["desktop discovery", "CLI install stamp"]);
 
   it.each(contracts)("rejects unknown keys in %s", (name, schema, value) => {
     expect(schema.safeParse({ ...value, unexpected: true }).success).toBe(
@@ -267,5 +269,61 @@ describe("summarizeReviewDiffFiles", () => {
     expect(
       summarizeReviewDiffFiles([{ additions: 4 }, { deletions: 3 }]),
     ).toEqual({ fileCount: 2, additions: 4, deletions: 3 });
+  });
+});
+
+describe("ReviewCliInstallStampSchema", () => {
+  it("parses a legacy stamp and drops its agent records", () => {
+    const stamp = ReviewCliInstallStampSchema.parse({
+      consent: "granted",
+      fingerprint: "abc",
+      targets: ["claude", "codex"],
+      shimPath: "/home/u/.local/bin/review",
+      mcpRegistrations: [
+        {
+          target: "claude",
+          configPath: "/x",
+          command: "/y",
+          args: ["mcp"],
+          env: {},
+        },
+      ],
+      fffRegistrations: [{ target: "claude", command: "claude", args: [] }],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(stamp).toEqual({
+      consent: "granted",
+      fingerprint: "abc",
+      shimPath: "/home/u/.local/bin/review",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+});
+
+describe("ReviewCliInstallStatusSchema", () => {
+  it("requires connect prompts and the legacy skill list", () => {
+    const result = ReviewCliInstallStatusSchema.safeParse({
+      fingerprint: "f",
+      stamp: null,
+      stale: false,
+      updateNeeded: false,
+      shim: {
+        path: "/p",
+        installed: false,
+        profileConfigured: false,
+        onPath: false,
+      },
+      trace: {
+        enabled: false,
+        configured: false,
+        autoActivateRepositories: false,
+        envPath: "/e",
+        settingsPath: "/s",
+      },
+      cli: null,
+    });
+
+    expect(result.success).toBe(false);
   });
 });

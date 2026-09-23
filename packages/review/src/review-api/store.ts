@@ -1450,7 +1450,7 @@ export class ReviewStore {
     const ownedBy = this.activity.heldByAnother(reviewId, leaseId);
 
     const note = [
-      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with review_get first), or pass reuseExisting:false to create a separate review.",
+      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with session_get first), or pass reuseExisting:false to create a separate review.",
       headMoved &&
         "The PR head moved since this review's target was set, and the target was NOT changed: call review_set_target to move it, then repair the source references it reports.",
       ownedBy &&

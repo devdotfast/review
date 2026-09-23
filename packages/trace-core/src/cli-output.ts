@@ -71,6 +71,8 @@ const VALUE_FLAGS = new Set([
   "--head",
   "--pr",
   "--review",
+  "--session",
+  "--agent-session",
   "--target",
   "--thread-id",
   "--timeout",

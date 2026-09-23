@@ -2,12 +2,16 @@ import { z } from "zod";
 
 import { activitySchema } from "./activity.js";
 import { fileLineRangeSchema } from "./document.js";
+import { instructionsQuerySchema } from "./instructions.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
-export function authoringTools() {
+export function authoringTools(
+  scratchpadAvailable = false,
+  traceEnabled = false,
+) {
   const id = z.string().min(1);
   const review = { reviewId: id };
   const version = z.number().int().nonnegative().optional();
@@ -58,6 +62,19 @@ export function authoringTools() {
       z.strictObject({}),
       "GET",
       "/capabilities",
+    ),
+    tool(
+      "get_instructions",
+      'Read Review\'s guidance before creating or editing a Review. The default topic gives the authoring workflow; "file-lenses" covers Diff-view file lenses.' +
+        (traceEnabled
+          ? ' Call review_get_instructions({topic:"trace-archaeology"}) for why code exists, what an agent was thinking, or whether an agent solved this before.'
+          : "") +
+        (scratchpadAvailable
+          ? ' When the user asks in conversation to be shown how code works or wants a diagram, without asking for a Review, draw it on the Review scratchpad rather than answering only in chat: call review_get_instructions({topic:"scratchpad"}) first. A request for a Review or to use Review means authoring a Review with the default topic.'
+          : ""),
+      instructionsQuerySchema.partial(),
+      "GET",
+      "/instructions",
     ),
     tool(
       "activity",

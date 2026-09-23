@@ -103,7 +103,6 @@ function Home({
       onRestore={
         restoreReview ? (review) => restoreReview(review.reviewId) : undefined
       }
-      setup={content.setup}
       install={content.install}
       setupActions={content.setupActions}
       onboarding={content.onboarding}

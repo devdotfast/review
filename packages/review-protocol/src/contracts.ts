@@ -332,16 +332,14 @@ export interface ReviewCanvasSetupActions {
 }
 
 /**
- * Install state and actions the workbench hands to the Home canvas. `apply`,
- * `skip`, and `enablePrompts` resolve with the refreshed status so the card can
- * re-render without a full canvas update.
+ * Install state and actions the workbench hands to the Home canvas. Every
+ * action resolves with the refreshed status so the card can re-render without
+ * a full canvas update.
  */
 export interface ReviewCanvasInstallContent {
   status: ReviewCliInstallStatus;
   apply(request: {
-    targets: readonly ReviewCliInstallTarget[];
     shim?: boolean;
-    fff?: boolean;
     trace?:
       | true
       | {
@@ -353,24 +351,14 @@ export interface ReviewCanvasInstallContent {
         };
   }): Promise<ReviewCliInstallStatus>;
   remove(request: {
-    targets: readonly ReviewCliInstallTarget[];
     shim?: boolean;
-    fff?: boolean;
     trace?: true;
   }): Promise<ReviewCliInstallStatus>;
+  removeLegacySkills(): Promise<ReviewCliInstallStatus>;
+  finishUpdate(): Promise<ReviewCliInstallStatus>;
   decline(): Promise<ReviewCliInstallStatus>;
   skip(): Promise<ReviewCliInstallStatus>;
   enablePrompts(): Promise<ReviewCliInstallStatus>;
-}
-
-/**
- * Install status handed to the Home canvas so it can show a one-line setup
- * banner when the install needs attention. `open` navigates to the Agent
- * Setup page.
- */
-export interface ReviewCanvasHomeSetup {
-  status: ReviewCliInstallStatus;
-  open(): void;
 }
 
 /**
@@ -507,10 +495,10 @@ export interface ReviewCanvasSettingsContent {
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   structuralDiffEnabled: boolean;
   setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
-  // Not a workbench setting: the review server and `review install` both
-  // read it, so it lives in the server preferences file. Off by default.
-  // Turning it on makes the pad and installs its skill for set-up agents;
-  // turning it off hides the pad and removes the skill.
+  // Not a workbench setting: the review server reads it, so it lives in the
+  // server preferences file. Off by default. Turning it on shows the pad and
+  // tells connected agents over MCP that they can draw on it; turning it off
+  // hides the pad.
   scratchpadEnabled: boolean;
   setScratchpadEnabled(enabled: boolean): Promise<boolean>;
   // Shared CLI configuration, read when its disclosure opens.
@@ -663,8 +651,6 @@ export type ReviewCanvasContent =
       // Opens the review and pins its read-only source tree open. Absent when
       // the host cannot show the tree.
       openSourceTree?(uuid: string): void;
-      // Absent when the install status endpoint is unavailable.
-      setup?: ReviewCanvasHomeSetup;
       // With no reviews, Home renders the Welcome rail instead of a zero
       // state of its own, so it needs what Welcome needs. Both absent when
       // the install status endpoint is unavailable.
@@ -878,99 +864,35 @@ export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema
 >;
 
-export const ReviewFffInstallTargetSchema = z.enum(["claude", "codex", "pi"], {
-  error: "must be claude, codex, or pi",
-});
-
-export type ReviewFffInstallTarget = z.infer<
-  typeof ReviewFffInstallTargetSchema
->;
-
-export const ReviewFffManagedRegistrationSchema = z.strictObject({
-  target: ReviewFffInstallTargetSchema,
-  command: requiredString,
-  args: z.array(requiredString),
-});
-
-export type ReviewFffManagedRegistration = z.infer<
-  typeof ReviewFffManagedRegistrationSchema
->;
-
-export const ReviewMcpRegistrationSchema = z.strictObject({
-  target: z.enum(["codex", "claude", "cursor", "opencode"]),
-  configPath: requiredString,
-  command: requiredString,
-  args: z.array(z.string()),
-  env: z.record(z.string(), z.string()),
-});
-
-export type ReviewMcpRegistration = z.infer<typeof ReviewMcpRegistrationSchema>;
-
-export const ReviewCliInstallStampSchema = z.strictObject({
+export const ReviewCliInstallStampSchema = z.object({
   consent: z.enum(["granted", "declined", "skipped"], {
     error: "must be granted, declined, or skipped",
   }),
   fingerprint: requiredString.optional(),
-  targets: z.array(ReviewCliInstallTargetSchema).optional(),
   shimPath: requiredString.optional(),
-  fffRegistrations: z.array(ReviewFffManagedRegistrationSchema).optional(),
-  mcpRegistrations: z.array(ReviewMcpRegistrationSchema).optional(),
+  /** The user removed the review command; the shim resync must not reinstall it. */
+  commandDisabled: z.literal(true).optional(),
   traceManaged: z.boolean().optional(),
   updatedAt: requiredString,
 });
+// z.object (not strictObject) so stamps from earlier versions parse; their
+// extra fields (targets, fffRegistrations, mcpRegistrations) are dropped.
 
 export type ReviewCliInstallStamp = z.infer<typeof ReviewCliInstallStampSchema>;
 
 export const ReviewCliInstallStatusSchema = z.strictObject({
-  agents: z.array(
-    z.strictObject({
-      target: ReviewCliInstallTargetSchema,
-      present: z.boolean(),
-      installed: z.boolean(),
-    }),
-  ),
   fingerprint: requiredString,
   stamp: ReviewCliInstallStampSchema.nullable(),
+  /** The stamp fingerprint differs from the running package: rewrite the shim. */
   stale: z.boolean(),
-  skills: z
-    .array(
-      z.strictObject({
-        target: ReviewCliInstallTargetSchema,
-        name: requiredString,
-        installedVersion: requiredString.nullable(),
-        bundledVersion: requiredString.nullable(),
-        stale: z.boolean(),
-        error: requiredString.optional(),
-      }),
-    )
-    .optional(),
+  /** A granted stamp without this build's update marker: show the update screen. */
+  updateNeeded: z.boolean(),
   error: requiredString.optional(),
-  mcp: z
-    .array(
-      z.strictObject({
-        target: ReviewMcpRegistrationSchema.shape.target,
-        state: z.enum(["ready", "missing", "custom", "error"]),
-        error: requiredString.optional(),
-      }),
-    )
-    .optional(),
   shim: z.strictObject({
     path: requiredString,
     installed: z.boolean(),
     profileConfigured: z.boolean(),
     onPath: z.boolean(),
-  }),
-  fff: z.strictObject({
-    serverName: z.literal("fff"),
-    corpusRoot: requiredString,
-    binary: z.strictObject({ path: requiredString, installed: z.boolean() }),
-    registrations: z.array(
-      z.strictObject({
-        target: ReviewFffInstallTargetSchema,
-        present: z.boolean(),
-        managed: z.boolean(),
-      }),
-    ),
   }),
   trace: z.strictObject({
     enabled: z.boolean(),
@@ -996,43 +918,47 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   cli: z
     .strictObject({ path: requiredString, version: requiredString })
     .nullable(),
+  connect: z.strictObject({
+    // "sh", or "review" when Desktop has no built CLI.
+    command: requiredString,
+    // ["-c", "exec \"$HOME/.local/bin/review\" mcp"], or ["mcp"].
+    args: z.array(z.string()),
+    prompts: z.record(ReviewCliInstallTargetSchema, requiredString),
+    // The published plugin per harness: an install command, or Cursor's link.
+    plugins: z.record(
+      ReviewCliInstallTargetSchema,
+      z.strictObject({
+        label: requiredString,
+        command: requiredString.optional(),
+        url: requiredString.optional(),
+      }),
+    ),
+  }),
+  legacySkills: z.array(z.strictObject({ path: requiredString })),
 });
 
 export type ReviewCliInstallStatus = z.infer<
   typeof ReviewCliInstallStatusSchema
 >;
 
-// Skills and FFF integrations are per-agent. Skill requests install the review
-// command by default. The command, FFF binary, and trace configuration are
-// per-machine. Silent app updates omit `fff` and `trace`, so they do not run an
-// FFF installer or contact R2.
-export const ReviewCliInstallApplyRequestSchema = z
-  .strictObject({
-    targets: z.array(ReviewCliInstallTargetSchema),
-    shim: z.boolean().optional(),
-    autoUpdate: z.boolean().optional(),
-    fff: z.boolean().optional(),
-    trace: z
-      .union([
-        z.literal(true),
-        z.strictObject({
-          endpoint: requiredString.optional(),
-          bucket: requiredString.optional(),
-          key: requiredString.optional(),
-          secret: requiredString.optional(),
-          region: requiredString.optional(),
-        }),
-      ])
-      .optional(),
-  })
-  .refine(
-    (request) =>
-      request.targets.length > 0 ||
-      request.shim === true ||
-      request.fff === true ||
-      request.trace !== undefined,
-    { message: "must install skills, the command, FFF, or trace capture" },
-  );
+// The command and trace configuration are per-machine. Silent app updates
+// omit `trace`, so they do not contact R2.
+export const ReviewCliInstallApplyRequestSchema = z.strictObject({
+  shim: z.boolean().optional(),
+  autoUpdate: z.boolean().optional(),
+  trace: z
+    .union([
+      z.literal(true),
+      z.strictObject({
+        endpoint: requiredString.optional(),
+        bucket: requiredString.optional(),
+        key: requiredString.optional(),
+        secret: requiredString.optional(),
+        region: requiredString.optional(),
+      }),
+    ])
+    .optional(),
+});
 
 export type ReviewCliInstallApplyRequest = z.infer<
   typeof ReviewCliInstallApplyRequestSchema

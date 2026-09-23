@@ -4,8 +4,6 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useEffect, useState } from "react";
 
-import { TARGET_LABELS, supportsFff } from "./agent-setup-card";
-
 type InstallApplyRequest = Parameters<ReviewCanvasInstallContent["apply"]>[0];
 
 type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
@@ -45,8 +43,7 @@ function traceDestinationCopy(trace: ReviewCliInstallStatus["trace"]): string {
  * capture to be enabled.
  *
  * The on/off state is the machine-level trace setting the review server owns,
- * read back through the install status. Enabling installs the agent hooks and
- * trace skill for every agent already set up; disabling removes them again.
+ * read back through the install status.
  */
 export function TraceCaptureSection({
   install,
@@ -96,34 +93,6 @@ export function TraceCaptureSection({
       setBusy(null);
     }
   };
-
-  const installedTargets = status.stamp?.targets?.length
-    ? status.stamp.targets
-    : status.agents
-        .filter((agent) => agent.installed)
-        .map((agent) => agent.target);
-
-  const fffTargets = status.agents
-    .filter(
-      (agent) =>
-        supportsFff(agent.target) &&
-        (agent.present ||
-          agent.installed ||
-          status.fff.registrations.some(
-            (registration) =>
-              registration.target === agent.target && registration.present,
-          )),
-    )
-    .map((agent) => agent.target);
-
-  const fffReady =
-    fffTargets.length > 0 &&
-    fffTargets.every((target) =>
-      status.fff.registrations.some(
-        (registration) =>
-          registration.target === target && registration.present,
-      ),
-    );
 
   return (
     <div className="review-agent-setup-terminal review-agent-setup-trace">
@@ -197,12 +166,9 @@ export function TraceCaptureSection({
       {status.trace.enabled ? (
         <button
           type="button"
-          className="review-agent-setup-subtle"
           disabled={busy !== null}
           onClick={() =>
-            void run("trace-remove", () =>
-              install.remove({ targets: [], trace: true }),
-            )
+            void run("trace-remove", () => install.remove({ trace: true }))
           }
         >
           {busy === "trace-remove" ? "Disabling…" : "Disable"}
@@ -228,14 +194,7 @@ export function TraceCaptureSection({
 
                 if (traceSecret) trace.secret = traceSecret;
 
-                const request: InstallApplyRequest = {
-                  targets: installedTargets,
-                  trace,
-                };
-
-                if (fffTargets.length > 0) request.fff = true;
-
-                return install.apply(request);
+                return install.apply({ trace });
               },
               () => {
                 setTraceKey("");
@@ -251,53 +210,6 @@ export function TraceCaptureSection({
               : "Enable"}
         </button>
       )}
-      {status.trace.enabled && fffTargets.length > 0 ? (
-        <div className="review-agent-setup-terminal review-agent-setup-trace-search">
-          <div className="review-agent-setup-terminal-info">
-            <span className="review-agent-setup-name">Trace search</span>
-            <span
-              className="review-agent-setup-state"
-              data-installed={fffReady}
-              title={`${status.fff.binary.path} · ${status.fff.corpusRoot}`}
-            >
-              {fffReady
-                ? "ready"
-                : status.fff.binary.installed
-                  ? "registration needed"
-                  : "not installed"}
-            </span>
-            <span className="review-agent-setup-cli">
-              FFF MCP binary:{" "}
-              {status.fff.binary.installed ? "installed" : "not managed here"}
-              {" · "}
-              {status.fff.registrations
-                .filter((registration) =>
-                  fffTargets.includes(registration.target),
-                )
-                .map(
-                  (registration) =>
-                    `${TARGET_LABELS[registration.target]}: ${registration.present ? (registration.target === "pi" ? "installed" : "registered") : "missing"}`,
-                )
-                .join(" · ")}
-            </span>
-            <span className="review-agent-setup-cli">
-              Existing FFF integrations stay unchanged. Open a new agent session
-              after setup.
-            </span>
-          </div>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() =>
-              void run("fff", () =>
-                install.apply({ targets: fffTargets, fff: true }),
-              )
-            }
-          >
-            {busy === "fff" ? "Installing…" : fffReady ? "Repair" : "Install"}
-          </button>
-        </div>
-      ) : null}
       {error ? <p className="review-agent-setup-error">{error}</p> : null}
     </div>
   );

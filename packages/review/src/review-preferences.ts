@@ -16,15 +16,14 @@ import { devReviewHome } from "./review-home-paths";
 /**
  * Machine-wide Review preferences the server itself needs. Workbench settings
  * do not work here: the reaper runs in the review server, which never reads
- * the workbench configuration, and `review install` runs with no workbench
- * at all.
+ * the workbench configuration.
  */
 export interface ReviewPreferences {
   /** `null` means never reap. */
   dismissedRetentionDays: DismissedRetentionDays;
   /**
    * Whether the scratchpad exists on this machine. Off, the server neither
-   * makes nor lists it and the scratchpad skill is not installed for agents.
+   * makes nor lists it and Review's instructions do not offer it to agents.
    */
   scratchpadEnabled: boolean;
 }

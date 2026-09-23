@@ -87,7 +87,7 @@ export async function writeOwnUploadStatus(input: {
 
     if (page.nextCursor)
       input.stdout.write(
-        `More uploads: run \`${traceCommandPrefix()} status${input.session ? ` --session ${input.session}` : ""} --limit ${query.data.limit} --cursor ${page.nextCursor}\`.\n`,
+        `More uploads: run \`${traceCommandPrefix()} status${input.session ? ` --agent-session ${input.session}` : ""} --limit ${query.data.limit} --cursor ${page.nextCursor}\`.\n`,
       );
 
     return 0;

@@ -27,6 +27,7 @@ test("source tree, selected code, definitions and diffs hand off before creating
 		{} as never, { onDidCloseEditor: Event.None } as never, {} as never,
 		{ async getConnection() { return { serverUrl: "http://localhost", token: "test" }; } } as never,
 		{ async openWindow(openables: IWindowOpenable[], options: IOpenWindowOptions) { windows.push({ openables, options }); } } as never,
+		{ warn() {} } as never,
 	);
 	const resolver = new ReviewEditorResolverService(
 		{ get activeGroup() { throw new Error("Review must not create an editor group"); } } as never,

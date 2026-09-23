@@ -19,7 +19,10 @@ import {
   parseReviewCliInstallApplyRequest,
   reviewDiffrSummarizerInputSchema,
 } from "@dev.fast/review-protocol";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import {
+  traceMachineEnabled,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -28,12 +31,13 @@ import { z } from "zod";
 import {
   applyCliInstall,
   declineCliInstall,
+  finishCliInstallUpdate,
   removeCliInstall,
+  removeLegacyReviewSkills,
   resetCliInstall,
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
-import { syncScratchpadSkills } from "../install";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
@@ -215,13 +219,12 @@ export function createGlobalReviewServer(
         };
       },
       () => scratchpadEnabled,
+      () => traceMachineEnabled(),
     ),
   );
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );
-  // Turning the pad on or off also installs or removes its skill for every
-  // agent already set up, as trace capture does with its own skill.
   app.put("/preferences/scratchpad", async (context) => {
     const request = z
       .object({ enabled: z.boolean() })
@@ -231,10 +234,6 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("enabled must be a boolean.", 400);
 
     scratchpadEnabled = await writeScratchpadEnabled(request.data.enabled);
-    await syncScratchpadSkills({
-      enabled: scratchpadEnabled,
-      packageRoot: input.packageRoot,
-    });
 
     // Home watches the catalog; the pad appears or goes without a store write.
     if (scratchpadEnabled) await reviewStore.ensureScratchpad();
@@ -372,14 +371,11 @@ export function createGlobalReviewServer(
 
     const applyInput: Parameters<typeof applyCliInstall>[0] = {
       packageRoot: input.packageRoot,
-      targets: request.targets,
     };
 
     if (request.shim !== undefined) applyInput.shim = request.shim;
 
     if (request.autoUpdate) applyInput.autoUpdate = true;
-
-    if (request.fff) applyInput.fff = true;
 
     if (request.trace !== undefined) applyInput.trace = request.trace;
 
@@ -405,18 +401,24 @@ export function createGlobalReviewServer(
       await readBoundedRequestJson(context.req.raw),
     );
 
-    const removeInput: Parameters<typeof removeCliInstall>[0] = {
-      targets: request.targets,
-    };
+    const removeInput: Parameters<typeof removeCliInstall>[0] = {};
 
     if (request.shim) removeInput.shim = true;
-
-    if (request.fff) removeInput.fff = true;
 
     if (request.trace) removeInput.trace = true;
     const result = await removeCliInstall(removeInput);
 
     return globalJson(200, { ok: true, output: result.output });
+  });
+  app.post("/install/legacy-skills/remove", async () => {
+    const { removed } = await removeLegacyReviewSkills();
+
+    return globalJson(200, { ok: true, removed });
+  });
+  app.post("/install/finish-update", async () => {
+    await finishCliInstallUpdate();
+
+    return globalJson(200, { ok: true });
   });
   app.post("/install/decline", async () => {
     await declineCliInstall();

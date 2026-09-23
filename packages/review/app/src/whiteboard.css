@@ -513,12 +513,6 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   stroke-width: 1.2;
 }
 
-.review-home-setup-banner {
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  background: var(--tray);
-}
-
 .review-home-dismissed-toggle {
   color: var(--ink-muted);
 }
@@ -1188,25 +1182,13 @@ button.host-authoring-activity[data-locatable]:focus-visible {
    Controls. 28px, 6px radius, one filled button per screen.
    --------------------------------------------------------------------------- */
 .review-corner-dismiss,
-.review-home-setup-banner button,
 .review-home-prompt-copy,
-.agent-setup-card button,
+.review-connect-legacy button,
 .tutorial-guide button {
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 500;
-}
-
-.review-home-setup-banner button {
-  border: 0;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-
-.review-home-setup-banner button:hover {
-  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
 
 /* ---------------------------------------------------------------------------

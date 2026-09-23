@@ -28,8 +28,8 @@ process.exitCode = delegatedExitCode ?? (await runCli(ownCliPath));
 async function runCli(effectivePath: string): Promise<number> {
   if (!supportedNodeRuntime()) {
     process.stderr.write(
-      `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
-        "Update Node, or use the review command installed by Review Desktop.\n",
+      `Whiteboard needs Node.js 24 or newer; found ${process.versions.node}. ` +
+        "Update Node, or use the whiteboard command installed by Whiteboard Desktop.\n",
     );
 
     return 1;

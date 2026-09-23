@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -14,25 +15,34 @@ import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import {
+  enableTraceRepository,
   installClaudeTraceHook,
   traceMachineStatus,
+  traceRepositoryStatus,
+  traceScope,
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   applyCliInstall,
   cliInstallStampPath,
+  cliInstallUpdateMarkerPath,
   ensureShellProfilePath,
+  finishCliInstallUpdate,
   installReviewCommand,
+  pathShimPath,
   readCliInstallStamp,
   removeCliInstall,
+  removeLegacyReviewSkills,
   removeShellProfilePath,
+  resetCliInstall,
   resolveCliInstallStatus,
-  resolveInstalledReviewAgentStatus,
   skipCliInstall,
   writePathShim,
 } from "./cli-install";
+import { reviewMcpLaunch } from "./connect-prompts";
+import { cursorInstallDeeplink } from "./cursor-deeplink";
 
 const temporaryDirectories: string[] = [];
 
@@ -60,6 +70,12 @@ describe("skipCliInstall", () => {
     expect(await readCliInstallStamp(cliInstallStampPath(env))).toMatchObject({
       consent: "skipped",
     });
+    expect(existsSync(cliInstallUpdateMarkerPath(env))).toBe(true);
+
+    await resetCliInstall(env);
+
+    expect(existsSync(cliInstallStampPath(env))).toBe(false);
+    expect(existsSync(cliInstallUpdateMarkerPath(env))).toBe(false);
   });
 
   it.each(["granted", "declined", "skipped"] as const)(
@@ -132,7 +148,6 @@ describe("trace capture installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: [],
       homeDir,
       env,
       trace: {
@@ -172,7 +187,7 @@ describe("trace capture installation", () => {
     });
     expect(JSON.stringify(status)).not.toContain("fresh-secret-value");
 
-    await removeCliInstall({ targets: [], trace: true, homeDir, env });
+    await removeCliInstall({ trace: true, homeDir, env });
 
     const disabled = await resolveCliInstallStatus({
       packageRoot,
@@ -188,6 +203,7 @@ describe("trace capture installation", () => {
 
   it("uses the shared installer and keeps credentials when disabled", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "review-trace-install-"));
+
     temporaryDirectories.push(homeDir);
 
     const env: NodeJS.ProcessEnv = {
@@ -199,7 +215,6 @@ describe("trace capture installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: [],
       homeDir,
       env,
       trace: {
@@ -221,7 +236,7 @@ describe("trace capture installation", () => {
     expect(JSON.stringify(status)).not.toContain("mock-secret-value");
     expect(status.stamp?.traceManaged).toBe(true);
 
-    await removeCliInstall({ targets: [], trace: true, homeDir, env });
+    await removeCliInstall({ trace: true, homeDir, env });
 
     const disabled = await resolveCliInstallStatus({
       packageRoot,
@@ -317,24 +332,22 @@ describe("shell profile PATH management", () => {
   });
 });
 
-describe("skill and review command installation", () => {
+describe("review command installation", () => {
   it("preserves a command symlink and its target", async () => {
     const homeDir = await temporaryHome("review-cli-symlink-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
     const cliPath = path.join(homeDir, "current-app", "cli.js");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
-    const external = path.join(homeDir, "external-command");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     await Promise.all([
       mkdir(path.dirname(cliPath), { recursive: true }),
       mkdir(path.dirname(shimPath), { recursive: true }),
     ]);
     await writeFile(cliPath, "// current CLI\n");
-    await writeFile(external, "external\n", { mode: 0o755 });
-    await symlink(external, shimPath);
+    await writeFile(external(homeDir), "external\n", { mode: 0o755 });
+    await symlink(external(homeDir), shimPath);
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: [],
       shim: true,
       cliPath,
       homeDir,
@@ -344,14 +357,14 @@ describe("skill and review command installation", () => {
     expect(applied).toMatchObject({ code: 0, shimPath });
     expect((await lstat(shimPath)).isSymbolicLink()).toBe(true);
     expect(await readFile(shimPath, "utf8")).toBe("external\n");
-    expect(await readFile(external, "utf8")).toBe("external\n");
+    expect(await readFile(external(homeDir), "utf8")).toBe("external\n");
   });
 
-  it("installs only the command and replaces a previous app shim", async () => {
+  it("installs the command and profile and replaces a previous app shim", async () => {
     const homeDir = await temporaryHome("review-cli-only-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
     const cliPath = path.join(homeDir, "current-app", "cli.js");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     await Promise.all([
       mkdir(path.dirname(cliPath), { recursive: true }),
       mkdir(path.dirname(shimPath), { recursive: true }),
@@ -360,14 +373,13 @@ describe("skill and review command installation", () => {
       writeFile(cliPath, "// current CLI\n"),
       writeFile(
         shimPath,
-        "#!/bin/sh\n# Managed by Review Desktop\nFALLBACK_CLI='/Applications/Old Review.app/cli.js'\n",
+        "#!/bin/sh\n# Managed by Whiteboard Desktop\nFALLBACK_CLI='/Applications/Old Review.app/cli.js'\n",
         { mode: 0o755 },
       ),
     ]);
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: [],
       shim: true,
       cliPath,
       homeDir,
@@ -375,48 +387,18 @@ describe("skill and review command installation", () => {
     });
 
     expect(applied).toMatchObject({ code: 0, shimPath });
+    expect(applied.output).toContain("whiteboard command");
     const installed = await readFile(shimPath, "utf8");
     expect(installed).toContain(cliPath);
     expect(installed).not.toContain("Old Review.app");
-    expect(await readCliInstallStamp(cliInstallStampPath(env))).toMatchObject({
-      consent: "granted",
-      targets: [],
-      shimPath,
-    });
-  });
-
-  it("installs the command and profile by default for a skill target", async () => {
-    const homeDir = await temporaryHome("review-default-shim-");
-    const env = profileEnvironment(homeDir, "/bin/zsh");
-    const cliPath = path.join(homeDir, "cli.js");
-    await writeFile(cliPath, "// test CLI\n");
-
-    const applied = await applyCliInstall({
-      packageRoot,
-      targets: ["codex"],
-      cliPath,
-      homeDir,
-      env,
-    });
-
-    expect(applied).toMatchObject({
-      code: 0,
-      shimPath: path.join(homeDir, ".local", "bin", "review"),
-    });
-    expect(applied.output).toContain("review command");
-    expect(await readFile(applied.shimPath!, "utf8")).toContain(
-      "Managed by Review Desktop",
-    );
     expect(await readFile(path.join(homeDir, ".zprofile"), "utf8")).toContain(
       profileExport,
     );
-    expect(
-      await readFile(
-        path.join(homeDir, ".agents", "skills", "dev-review", "SKILL.md"),
-        "utf8",
-      ),
-    ).toContain("name: dev-review");
-    await rm(cliInstallStampPath(env), { force: true });
+    expect(await readCliInstallStamp(cliInstallStampPath(env))).toMatchObject({
+      consent: "granted",
+      shimPath,
+    });
+    expect(existsSync(cliInstallUpdateMarkerPath(env))).toBe(true);
     const status = await resolveCliInstallStatus({ packageRoot, homeDir, env });
     expect(status.shim).toMatchObject({
       installed: true,
@@ -425,40 +407,52 @@ describe("skill and review command installation", () => {
     });
   });
 
-  it("supports an explicit shim opt-out", async () => {
-    const homeDir = await temporaryHome("review-no-shim-");
+  it("treats an empty request as a no-op", async () => {
+    const homeDir = await temporaryHome("review-empty-apply-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
 
-    const applied = await applyCliInstall({
-      packageRoot,
-      targets: ["codex"],
-      shim: false,
-      homeDir,
-      env,
+    expect(await applyCliInstall({ packageRoot, homeDir, env })).toEqual({
+      code: 0,
+      output: "",
     });
-
-    expect(applied.code).toBe(0);
-    await expect(
-      readFile(path.join(homeDir, ".local", "bin", "review"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      readFile(path.join(homeDir, ".zprofile"), "utf8"),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readCliInstallStamp(cliInstallStampPath(env))).toBeNull();
   });
 
-  it("warns when the default shim has no CLI", async () => {
-    const homeDir = await temporaryHome("review-missing-default-cli-");
+  it("keeps a removed command removed until it is installed explicitly", async () => {
+    const homeDir = await temporaryHome("review-disabled-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
+    const builtRoot = await builtPackageRoot();
+    const cliPath = path.join(builtRoot, "dist", "cli.js");
+    const shimPath = pathShimPath(homeDir);
 
-    const applied = await applyCliInstall({
-      packageRoot,
-      targets: ["codex"],
+    await applyCliInstall({
+      packageRoot: builtRoot,
+      shim: true,
+      cliPath,
       homeDir,
       env,
     });
+    await removeCliInstall({ shim: true, homeDir, env });
+    expect(existsSync(shimPath)).toBe(false);
 
-    expect(applied.code).toBe(0);
-    expect(applied.output).toContain("The skills were installed");
+    await writeFile(path.join(builtRoot, "dist", "cli.js"), "// next build\n");
+    await applyCliInstall({
+      packageRoot: builtRoot,
+      autoUpdate: true,
+      cliPath,
+      homeDir,
+      env,
+    });
+    expect(existsSync(shimPath)).toBe(false);
+
+    await applyCliInstall({
+      packageRoot: builtRoot,
+      shim: true,
+      cliPath,
+      homeDir,
+      env,
+    });
+    expect(existsSync(shimPath)).toBe(true);
   });
 
   it("fails when an explicit shim has no CLI", async () => {
@@ -467,7 +461,6 @@ describe("skill and review command installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: ["codex"],
       shim: true,
       homeDir,
       env,
@@ -484,7 +477,7 @@ describe("skill and review command installation", () => {
     await mkdir(foreignBin, { recursive: true });
     await Promise.all([
       writeFile(cliPath, "// test CLI\n"),
-      writeFile(path.join(foreignBin, "review"), "#!/bin/sh\n", {
+      writeFile(path.join(foreignBin, "whiteboard"), "#!/bin/sh\n", {
         mode: 0o755,
       }),
     ]);
@@ -496,13 +489,13 @@ describe("skill and review command installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: ["codex"],
+      shim: true,
       cliPath,
       homeDir,
       env,
     });
 
-    expect(applied.output).toContain(path.join(foreignBin, "review"));
+    expect(applied.output).toContain(path.join(foreignBin, "whiteboard"));
     expect(applied.output).toContain(
       "docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options",
     );
@@ -513,24 +506,13 @@ describe("skill and review command installation", () => {
     const env = profileEnvironment(homeDir, "/bin/zsh");
     const cliPath = path.join(homeDir, "cli.js");
     await writeFile(cliPath, "// test CLI\n");
-    await applyCliInstall({
-      packageRoot,
-      targets: ["codex"],
-      cliPath,
-      homeDir,
-      env,
-    });
+    await applyCliInstall({ packageRoot, shim: true, cliPath, homeDir, env });
 
-    const removed = await removeCliInstall({
-      targets: [],
-      shim: true,
-      homeDir,
-      env,
-    });
+    const removed = await removeCliInstall({ shim: true, homeDir, env });
 
     expect(removed.output).toContain("removed Review PATH entry");
     await expect(
-      readFile(path.join(homeDir, ".local", "bin", "review"), "utf8"),
+      readFile(path.join(homeDir, ".local", "bin", "whiteboard"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(path.join(homeDir, ".zprofile"), "utf8")).toBe("");
   });
@@ -538,17 +520,12 @@ describe("skill and review command installation", () => {
   it("preserves a foreign command while removing the managed profile block", async () => {
     const homeDir = await temporaryHome("review-foreign-command-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
-    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const shimPath = path.join(homeDir, ".local", "bin", "whiteboard");
     await mkdir(path.dirname(shimPath), { recursive: true });
     await writeFile(shimPath, "#!/bin/sh\necho foreign\n", { mode: 0o755 });
     await ensureShellProfilePath({ homeDir, env });
 
-    const removed = await removeCliInstall({
-      targets: [],
-      shim: true,
-      homeDir,
-      env,
-    });
+    const removed = await removeCliInstall({ shim: true, homeDir, env });
 
     expect(removed.output).toContain("left in place");
     expect(await readFile(shimPath, "utf8")).toContain("echo foreign");
@@ -556,54 +533,13 @@ describe("skill and review command installation", () => {
   });
 });
 
-describe("resolveInstalledReviewAgentStatus", () => {
-  it("detects installed agents without invoking their CLIs", async () => {
-    const homeDir = await mkdtemp(path.join(tmpdir(), "review-agent-status-"));
-    temporaryDirectories.push(homeDir);
-    const binDir = path.join(homeDir, "bin");
-    const probeLog = path.join(homeDir, "agent-probes.log");
-    await Promise.all([
-      mkdir(binDir, { recursive: true }),
-      mkdir(path.join(homeDir, ".claude", "skills", "dev-review"), {
-        recursive: true,
-      }),
-    ]);
-    await writeFile(
-      path.join(homeDir, ".claude", "skills", "dev-review", "SKILL.md"),
-      "---\nname: dev-review\n---\n",
-    );
-    const executable = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> "$AGENT_PROBE_LOG"\nexit 1\n`;
-    await Promise.all(
-      ["claude", "codex"].map((name) =>
-        writeFile(path.join(binDir, name), executable, { mode: 0o755 }),
-      ),
-    );
-
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      AGENT_PROBE_LOG: probeLog,
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
-      PATH: binDir,
-    };
-
-    const status = await resolveInstalledReviewAgentStatus({
-      homeDir,
-      env,
-    });
-
-    expect(status.agents).toContainEqual({
-      target: "claude",
-      present: true,
-      installed: true,
-    });
-    await expect(readFile(probeLog, "utf8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-  });
-});
+function external(homeDir: string): string {
+  return path.join(homeDir, "external-command");
+}
 
 async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-cli-install-"));
+
   temporaryDirectories.push(directory);
 
   return { DEV_REVIEW_HOME: directory };
@@ -634,7 +570,7 @@ describe("installed launcher runtime selection", () => {
       cliPath,
       'console.log(JSON.stringify({build:"current",home:process.env.DEV_REVIEW_HOME}))',
     );
-    const shim = path.join(homeDir, ".local", "bin", "review");
+    const shim = path.join(homeDir, ".local", "bin", "whiteboard");
     await writePathShim(
       shim,
       oldCli,
@@ -740,7 +676,7 @@ describe("Desktop installation alongside npm", () => {
   it("preserves the npm launcher and its target when npm uses ~/.local/bin", async () => {
     const homeDir = await temporaryHome("review-npm-coexist-");
     const cli = path.join(homeDir, "npm/cli.js");
-    const shim = path.join(homeDir, ".local/bin/review");
+    const shim = path.join(homeDir, ".local/bin/whiteboard");
     await mkdir(path.dirname(cli), { recursive: true });
     await mkdir(path.dirname(shim), { recursive: true });
     await writeFile(cli, "#!/usr/bin/env node\n// npm-owned\n", {
@@ -775,8 +711,6 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
 
   const installed = await applyCliInstall({
     packageRoot,
-    targets: [],
-    shim: false,
     homeDir,
     env,
     trace: {
@@ -792,15 +726,14 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
   const before = await readFile(hook.path, "utf8");
   await applyCliInstall({
     packageRoot,
-    targets: ["claude"],
     shim: true,
+    trace: true,
     cliPath: path.join(packageRoot, "dist/cli.js"),
     homeDir,
     env,
   });
   expect(await readFile(hook.path, "utf8")).toBe(before);
   await removeCliInstall({
-    targets: ["claude"],
     shim: true,
     trace: true,
     homeDir,
@@ -808,4 +741,349 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
   });
   expect(await readFile(hook.path, "utf8")).toBe(before);
   expect((await traceMachineStatus({ homeDir, env })).enabled).toBe(true);
+});
+
+const STAMPED_SKILL = `---
+name: dev-review
+description: x
+metadata:
+  review-managed-by: "Review Desktop"
+  review-generated: "Do not edit."
+  review-version: "1.2.3"
+---
+# body
+`;
+
+async function builtPackageRoot(): Promise<string> {
+  const root = await temporaryHome("review-built-package-");
+  await mkdir(path.join(root, "dist"), { recursive: true });
+  await writeFile(path.join(root, "package.json"), '{"version":"1.2.3"}\n');
+  await writeFile(path.join(root, "dist", "cli.js"), "// built CLI\n");
+
+  return root;
+}
+
+describe("MCP self-install", () => {
+  const now = "2026-09-01T00:00:00.000Z";
+  let homeDir: string;
+  let env: NodeJS.ProcessEnv;
+  let builtRoot: string;
+  let cliPath: string;
+  let shim: string;
+
+  beforeEach(async () => {
+    homeDir = await temporaryHome("review-self-install-");
+    env = profileEnvironment(homeDir, "/bin/zsh");
+    builtRoot = await builtPackageRoot();
+    cliPath = path.join(builtRoot, "dist", "cli.js");
+    shim = pathShimPath(homeDir);
+  });
+
+  const writeStamp = (stamp: ReviewCliInstallStamp & { targets?: string[] }) =>
+    writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+
+  const writeStampedSkill = async (skillDir: string) => {
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(path.join(skillDir, "SKILL.md"), STAMPED_SKILL);
+  };
+
+  describe("install status", () => {
+    it("reports updateNeeded for a granted stamp without the update marker and none of its old fields", async () => {
+      await writeStamp({
+        consent: "granted",
+        fingerprint: "old",
+        targets: ["claude"],
+        shimPath: shim,
+        updatedAt: now,
+      });
+
+      const status = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      expect(status.updateNeeded).toBe(true);
+      expect(Object.keys(status)).not.toContain("agents");
+      expect(Object.keys(status.stamp ?? {})).not.toContain("targets");
+    });
+
+    it("reports updateNeeded for a pre-per-target stamp", async () => {
+      await writeStamp({
+        consent: "granted",
+        fingerprint: "old",
+        updatedAt: now,
+      });
+
+      expect(
+        (
+          await resolveCliInstallStatus({
+            packageRoot: builtRoot,
+            homeDir,
+            env,
+          })
+        ).updateNeeded,
+      ).toBe(true);
+    });
+
+    it("generates prompts with the sh launch form when the shim exists and the bare command otherwise", async () => {
+      await writePathShim(shim, cliPath, undefined, path.join(homeDir, ".dev"));
+
+      const built = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      expect(built.connect).toMatchObject({
+        command: "sh",
+        args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
+      });
+      expect(built.connect.prompts.claude).toContain(
+        "$HOME/.local/bin/whiteboard",
+      );
+
+      await rm(shim);
+
+      const source = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      expect(source.connect).toMatchObject({
+        command: "whiteboard",
+        args: ["mcp"],
+      });
+      expect(source.connect.prompts.pi).toContain(
+        "whiteboard api session_get_instructions",
+      );
+    });
+
+    it("offers each harness's plugin, with the Cursor link only when the shim exists", async () => {
+      await writePathShim(shim, cliPath, undefined, path.join(homeDir, ".dev"));
+
+      const built = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      const { plugins } = built.connect;
+
+      expect(plugins.opencode.command).toContain(
+        "@dev.fast/opencode-whiteboard",
+      );
+      expect(plugins.cursor).toEqual({
+        label: "Install in Cursor",
+        url: cursorInstallDeeplink(reviewMcpLaunch(true)),
+      });
+
+      await rm(shim);
+
+      const withoutShim = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      expect(withoutShim.connect.plugins.cursor).toEqual({
+        label: "Install in Cursor",
+      });
+    });
+
+    it("lists Review-stamped legacy skills", async () => {
+      await writeStampedSkill(
+        path.join(homeDir, ".claude", "skills", "dev-review"),
+      );
+
+      const status = await resolveCliInstallStatus({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+      });
+
+      expect(status.legacySkills).toEqual([
+        { path: "~/.claude/skills/dev-review" },
+      ]);
+    });
+  });
+
+  describe("finishCliInstallUpdate", () => {
+    it("writes the update marker and leaves a legacy stamp as it was", async () => {
+      await writeStamp({
+        consent: "granted",
+        fingerprint: "old",
+        targets: ["claude"],
+        shimPath: shim,
+        commandDisabled: true,
+        traceManaged: true,
+        updatedAt: now,
+      });
+
+      const before = await readFile(cliInstallStampPath(env), "utf8");
+
+      await finishCliInstallUpdate(env);
+
+      expect(await readFile(cliInstallStampPath(env), "utf8")).toBe(before);
+      expect(existsSync(cliInstallUpdateMarkerPath(env))).toBe(true);
+      expect(
+        (
+          await resolveCliInstallStatus({
+            packageRoot: builtRoot,
+            homeDir,
+            env,
+          })
+        ).updateNeeded,
+      ).toBe(false);
+    });
+  });
+
+  describe("autoUpdate resync", () => {
+    it("rewrites only the shim and never touches agent files", async () => {
+      await writeStamp({
+        consent: "granted",
+        fingerprint: "old",
+        shimPath: shim,
+        updatedAt: now,
+      });
+      const claudeConfig = path.join(homeDir, ".claude.json");
+      await writeFile(claudeConfig, "{}");
+
+      const result = await applyCliInstall({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+        autoUpdate: true,
+        cliPath,
+      });
+
+      expect(result.code).toBe(0);
+      expect(await readFile(shim, "utf8")).toContain("Managed by Whiteboard");
+      expect(await readFile(claudeConfig, "utf8")).toBe("{}");
+      expect(
+        (await readCliInstallStamp(cliInstallStampPath(env)))?.fingerprint,
+      ).not.toBe("old");
+    });
+
+    it("keeps updateNeeded across a resync for an upgrader", async () => {
+      await writeStamp({
+        consent: "granted",
+        fingerprint: "old",
+        shimPath: shim,
+        updatedAt: now,
+      });
+
+      const result = await applyCliInstall({
+        packageRoot: builtRoot,
+        homeDir,
+        env,
+        autoUpdate: true,
+        cliPath,
+      });
+
+      expect(result.code).toBe(0);
+      expect(
+        (await readCliInstallStamp(cliInstallStampPath(env)))?.fingerprint,
+      ).not.toBe("old");
+      expect(
+        (
+          await resolveCliInstallStatus({
+            packageRoot: builtRoot,
+            homeDir,
+            env,
+          })
+        ).updateNeeded,
+      ).toBe(true);
+    });
+  });
+
+  describe("removeLegacyReviewSkills", () => {
+    it("removes stamped skills and the status no longer lists them", async () => {
+      await writeStampedSkill(
+        path.join(homeDir, ".agents", "skills", "scratchpad"),
+      );
+
+      const { removed } = await removeLegacyReviewSkills({ homeDir, env });
+
+      expect(removed).toHaveLength(1);
+      expect(
+        (
+          await resolveCliInstallStatus({
+            packageRoot: builtRoot,
+            homeDir,
+            env,
+          })
+        ).legacySkills,
+      ).toEqual([]);
+    });
+  });
+});
+
+it("retargets enabled repository hooks before removing the owned legacy launcher", async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), "review-shim-trace-"));
+  temporaryDirectories.push(homeDir);
+  const cwd = path.join(homeDir, "repo");
+  await mkdir(cwd);
+  const run = promisify(execFile);
+  await run("git", ["init", "--quiet", cwd]);
+  const settings = path.join(homeDir, "trace-settings.json");
+  await writeFile(
+    settings,
+    JSON.stringify({
+      version: 1,
+      enabled: true,
+      autoActivateRepositories: true,
+    }),
+  );
+
+  const env = {
+    ...process.env,
+    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    TRACE_SETTINGS_FILE: settings,
+    DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
+  };
+
+  const oldCommand = path.join(homeDir, ".local", "bin", "review");
+  await mkdir(path.dirname(oldCommand), { recursive: true });
+  await writeFile(
+    oldCommand,
+    "#!/bin/sh\n# Managed by Whiteboard Desktop\nexit 1\n",
+    { mode: 0o755 },
+  );
+  await enableTraceRepository({
+    cwd,
+    scope: traceScope({ homeDir, env }),
+    reviewCommand: oldCommand,
+  });
+  const cliPath = path.join(homeDir, "cli.js");
+  const invoked = path.join(homeDir, "invoked.json");
+  await writeFile(
+    cliPath,
+    `require("node:fs").writeFileSync(${JSON.stringify(invoked)}, JSON.stringify(process.argv.slice(2)));`,
+  );
+
+  const result = await applyCliInstall({
+    shim: true,
+    homeDir,
+    env,
+    packageRoot,
+    cliPath,
+    cliRuntimePath: process.execPath,
+  });
+
+  expect(result.code).toBe(0);
+  await expect(lstat(oldCommand)).rejects.toMatchObject({ code: "ENOENT" });
+  const hooks = await traceRepositoryStatus(cwd);
+  await run(
+    "sh",
+    [path.join(hooks.managedHooksPath!, "prepare-commit-msg"), "message"],
+    { cwd, env },
+  );
+  expect(JSON.parse(await readFile(invoked, "utf8"))).toEqual([
+    "trace",
+    "git-hook",
+    "prepare-commit-msg",
+    "message",
+  ]);
 });

@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -14,34 +13,13 @@ const token = "scratchpad-test-token";
 
 afterEach(() => vi.unstubAllEnvs());
 
-/**
- * The scratchpad preference is off until Settings turns it on. Off, the
- * server neither makes nor lists the pad, refuses its id, and keeps its
- * skill out of every agent's skills directory; on, all of that reverses,
- * and a pad drawn on earlier keeps its contents across the flip.
- */
-it("makes, lists and installs the scratchpad only while its preference is on", async () => {
+it("makes and lists the scratchpad only while its preference is on", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "review-scratchpad-pref-"));
-  const home = path.join(root, "home");
-  const devHome = path.join(root, "dev-review");
+
+  const devHome = path.join(root, "review");
   const packageRoot = path.join(root, "package");
   vi.stubEnv("DEV_REVIEW_HOME", devHome);
-  // syncScratchpadSkills resolves agents under the user's home.
-  vi.stubEnv("HOME", home);
-
   await mkdir(devHome, { recursive: true });
-  // Claude Code counts as set up once a Review skill is present for it.
-  await mkdir(path.join(home, ".claude", "skills", "dev-review"), {
-    recursive: true,
-  });
-  await mkdir(path.join(packageRoot, "skills", "scratchpad"), {
-    recursive: true,
-  });
-  await writeFile(
-    path.join(packageRoot, "skills", "scratchpad", "SKILL.md"),
-    "---\nname: scratchpad\ndescription: scratchpad\n---\n\n# scratchpad\n",
-  );
-  const installedSkill = path.join(home, ".claude", "skills", "scratchpad");
 
   const local = openLocalReviewStore(path.join(devHome, "review-api.db"));
 
@@ -110,7 +88,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     expect(created.status).toBe(409);
     expect(local.store.has(SCRATCHPAD_REVIEW_ID)).toBe(false);
 
-    // On: the pad exists, is listed, and the skill reaches set-up agents.
+    // On: the pad exists, is listed, and is accessible.
     expect(await setEnabled(server.url, true)).toEqual({ enabled: true });
     expect((await readReviewPreferences(devHome)).scratchpadEnabled).toBe(true);
     expect(await (await get(server.url, "/reviews-api")).json()).toMatchObject([
@@ -122,18 +100,14 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     expect(
       (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
     ).toBe(200);
-    expect(
-      await readFile(path.join(installedSkill, "SKILL.md"), "utf8"),
-    ).toContain("# scratchpad");
 
-    // Off again: hidden and refused, but not deleted; the skill goes.
+    // Off again: hidden and refused, but not deleted.
     expect(await setEnabled(server.url, false)).toEqual({ enabled: false });
     expect(await (await get(server.url, "/reviews-api")).json()).toEqual([]);
     expect(
       (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
     ).toBe(409);
     expect(local.store.has(SCRATCHPAD_REVIEW_ID)).toBe(true);
-    expect(existsSync(installedSkill)).toBe(false);
 
     // A new server starts from the saved preference.
     await setEnabled(server.url, true);

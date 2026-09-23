@@ -95,7 +95,7 @@ const s = (ms) => (ms/1000).toFixed(1) + 's';
 const mmss = (ms) => { const x = Math.round(ms/1000); return String(Math.floor(x/60)).padStart(2,'0') + ':' + String(x%60).padStart(2,'0'); };
 
 document.getElementById('title').textContent = T.run.id + ' — PR #' + T.run.pr + ' (' + T.run.repo_name + ', ' + T.run.mode + ')';
-document.getElementById('subtitle').textContent = (T.run.harness || 'claude-code') + ' · model ' + T.run.model + ' @ ' + (T.run.effort || 'inherited effort') + (T.fork ? ' · forked from ' + T.fork.source_session.slice(0,8) + ' at record ' + T.fork.cut_index + '/' + T.fork.records : '') + ' · review ' + (T.review ? T.review.uuid : 'none') + ' · session ' + s(total) + (T.surface ? ' · surface skill(installed):' + (typeof T.surface.skill === 'string' ? T.surface.skill : T.surface.skill.claude + '/' + T.surface.skill.agents) + (T.surface.skill_repo ? ' repo:' + T.surface.skill_repo : '') + ' cli:' + T.surface.cli_help : '');
+document.getElementById('subtitle').textContent = (T.run.harness || 'claude-code') + ' · model ' + T.run.model + ' @ ' + (T.run.effort || 'inherited effort') + (T.fork ? ' · forked from ' + T.fork.source_session.slice(0,8) + ' at record ' + T.fork.cut_index + '/' + T.fork.records : '') + ' · review ' + (T.review ? T.review.uuid : 'none') + ' · session ' + s(total) + (T.surface ? ' · surface' + (T.surface.skill ? ' skill(installed):' + (typeof T.surface.skill === 'string' ? T.surface.skill : T.surface.skill.claude + '/' + T.surface.skill.agents) : '') + (T.surface.skill_repo ? ' repo:' + T.surface.skill_repo : '') + ' cli:' + T.surface.cli_help : '');
 
 const S = T.summary;
 const cards = [

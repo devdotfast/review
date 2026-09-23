@@ -1,265 +1,197 @@
 import type {
   ReviewCanvasInstallContent,
   ReviewCliInstallStatus,
-  ReviewCliInstallTarget,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { type Root, createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WelcomePage } from "./welcome-page";
+import { REVIEW_CONNECT_COPIED_STORAGE_KEY, WelcomePage } from "./welcome-page";
 
-describe("Welcome agent installation", () => {
-  it("keeps PATH setup available through a status failure and retries without agents", async () => {
-    const container = document.createElement("div");
+const fresh: ReviewCliInstallStatus = {
+  fingerprint: "test",
+  stamp: null,
+  stale: false,
+  updateNeeded: false,
+  shim: {
+    path: "/tmp/review",
+    installed: false,
+    profileConfigured: false,
+    onPath: false,
+  },
+  trace: {
+    enabled: false,
+    configured: false,
+    autoActivateRepositories: false,
+    envPath: "/tmp/env",
+    settingsPath: "/tmp/settings",
+  },
+  cli: { path: "/tmp/cli.js", version: "0.0.1" },
+  connect: {
+    command: "sh",
+    args: ["-c", 'exec "$HOME/.local/bin/review" mcp'],
+    prompts: {
+      claude: "claude prompt",
+      codex: "codex prompt",
+      cursor: "cursor prompt",
+      opencode: "opencode prompt",
+      pi: "pi prompt",
+    },
+    plugins: {
+      claude: { label: "claude plugin", command: "claude command" },
+      codex: { label: "codex plugin", command: "codex command" },
+      cursor: { label: "cursor plugin", url: "cursor://install" },
+      opencode: { label: "opencode plugin", command: "opencode command" },
+      pi: { label: "pi plugin", command: "pi command" },
+    },
+  },
+  legacySkills: [],
+};
+
+function content(status: ReviewCliInstallStatus): ReviewCanvasInstallContent {
+  const same = async () => status;
+
+  return {
+    status,
+    apply: vi.fn<ReviewCanvasInstallContent["apply"]>(same),
+    remove: vi.fn<ReviewCanvasInstallContent["remove"]>(same),
+    removeLegacySkills: vi.fn<ReviewCanvasInstallContent["removeLegacySkills"]>(
+      async () => ({ ...status, legacySkills: [] }),
+    ),
+    finishUpdate: vi.fn<ReviewCanvasInstallContent["finishUpdate"]>(
+      async () => ({ ...status, updateNeeded: false }),
+    ),
+    decline: vi.fn<ReviewCanvasInstallContent["decline"]>(same),
+    skip: vi.fn<ReviewCanvasInstallContent["skip"]>(same),
+    enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(same),
+  };
+}
+
+describe("WelcomePage", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
     document.body.append(container);
-    const root = createRoot(container);
+    root = createRoot(container);
+  });
 
-    const status: ReviewCliInstallStatus = {
-      agents: [{ target: "codex", present: false, installed: false }],
-      fingerprint: "test",
-      stamp: null,
-      stale: false,
-      shim: {
-        path: "/tmp/review",
-        installed: false,
-        profileConfigured: false,
-        onPath: false,
-      },
-      fff: {
-        serverName: "fff",
-        corpusRoot: "/tmp/traces",
-        binary: { path: "/tmp/fff", installed: false },
-        registrations: [],
-      },
-      trace: {
-        enabled: false,
-        configured: false,
-        autoActivateRepositories: false,
-        envPath: "/tmp/env",
-        settingsPath: "/tmp/settings",
-      },
-      cli: { path: "/tmp/cli.js", version: "0.0.1" },
-    };
+  afterEach(async () => {
+    localStorage.removeItem(REVIEW_CONNECT_COPIED_STORAGE_KEY);
+    await act(async () => root.unmount());
+    container.remove();
+  });
 
-    const install: ReviewCanvasInstallContent = {
-      status,
-      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(async () => ({
-        ...status,
-        agents: [{ target: "codex" as const, present: false, installed: true }],
-      })),
-      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(async () => status),
-      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(async () => status),
-      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(async () => status),
-      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(
-        async () => status,
-      ),
-    };
+  const buttons = (label: string) =>
+    [...container.querySelectorAll("button")].filter(
+      (button) => button.textContent === label,
+    );
 
+  const step = (index: number) =>
+    container.querySelectorAll(".review-onboarding-step")[index];
+
+  const stepState = (index: number) => step(index)?.getAttribute("data-state");
+
+  const stepOpen = (index: number) => step(index)?.getAttribute("data-open");
+
+  it("opens on the install step until the review command is installed", async () => {
     const setupActions = {
-      load: vi
-        .fn<() => Promise<ReviewCanvasInstallContent>>()
-        .mockRejectedValueOnce(new Error("Review install status returned 500."))
-        .mockResolvedValueOnce(install)
-        .mockResolvedValueOnce({
-          ...install,
-          status: { ...status, shim: { ...status.shim, installed: true } },
-        })
-        .mockResolvedValue({
-          ...install,
-          status: {
-            ...status,
-            agents: [{ target: "codex", present: true, installed: false }],
-          },
-        }),
+      load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () =>
+        content({ ...fresh, shim: { ...fresh.shim, installed: true } }),
+      ),
       installCli: vi.fn<() => Promise<void>>(async () => {}),
     };
 
-    const click = async (label: string) => {
-      const button = [...container.querySelectorAll("button")].find(
-        (button) =>
-          button.textContent === label ||
-          button.getAttribute("aria-label") === label,
-      );
+    await act(async () =>
+      root.render(
+        <WelcomePage install={content(fresh)} setupActions={setupActions} />,
+      ),
+    );
+    expect(stepOpen(0)).toBe("true");
+    expect(stepState(0)).toBe("todo");
+    expect(stepState(1)).toBe("todo");
+    expect(buttons("Install review in PATH")).toHaveLength(1);
 
-      expect(button).toBeDefined();
-      await act(async () => button!.click());
-    };
-
-    try {
-      await act(async () =>
-        root.render(<WelcomePage setupActions={setupActions} />),
-      );
-      await click("Refresh agents");
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "500",
-      );
-      await click("Refresh agents");
-      expect(container.textContent).toContain("No coding agents detected.");
-      expect(container.querySelector('[role="alert"]')).toBeNull();
-      expect(container.querySelector(".review-agent-setup-agents")).toBeNull();
-      await click("Install review in PATH");
-      expect(setupActions.installCli).toHaveBeenCalledOnce();
-      expect(container.textContent).toContain("review command installed.");
-      await click("Refresh agents");
-      expect(container.textContent).not.toContain("No coding agents detected.");
-      expect(
-        container.querySelector('[title="Refresh agents"]')?.textContent,
-      ).toBe("");
-      setupActions.load.mockRejectedValueOnce(new Error("Detection failed"));
-      await click("Refresh agents");
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "Detection failed",
-      );
-      expect(
-        container.querySelector('[title="Refresh agents"]')?.textContent,
-      ).toBe("Refresh agents");
-      await click("Refresh agents");
-      expect(container.querySelector('[role="alert"]')).toBeNull();
-      expect(
-        container.querySelector('[title="Refresh agents"]')?.textContent,
-      ).toBe("");
-      await click("Install");
-      expect(install.apply).toHaveBeenCalledWith({ targets: ["codex"] });
-      expect(
-        container.querySelector(".review-agent-setup-state")?.textContent,
-      ).toBe("installed");
-    } finally {
-      await act(async () => root.unmount());
-      container.remove();
-    }
+    await act(async () => buttons("Install review in PATH")[0]?.click());
+    expect(setupActions.installCli).toHaveBeenCalledOnce();
+    expect(stepState(0)).toBe("done");
+    expect(container.textContent).toContain("Installed at /tmp/review.");
+    expect(buttons("Install review in PATH")).toHaveLength(0);
   });
 
-  it.each(["cursor", "claude", "codex"] as const)(
-    "remembers %s installation across dropdown toggles and copies skill prompts",
-    async (target: ReviewCliInstallTarget) => {
-      const container = document.createElement("div");
-      document.body.append(container);
-      const root = createRoot(container);
+  it("opens on the connect step once the command is installed", async () => {
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, installed: true },
+          })}
+        />,
+      ),
+    );
+    expect(stepState(0)).toBe("done");
+    expect(stepOpen(1)).toBe("true");
+    expect(
+      container.querySelectorAll('[aria-label="Agent"] button'),
+    ).toHaveLength(5);
+  });
 
-      const initial: ReviewCliInstallStatus = {
-        agents: [
-          { target, present: true, installed: false },
-          ...(target === "cursor"
-            ? [
-                { target: "claude" as const, present: true, installed: false },
-                { target: "codex" as const, present: true, installed: false },
-              ]
-            : []),
-        ],
-        fingerprint: "test",
-        stamp: null,
-        stale: false,
-        shim: {
-          path: "/tmp/review",
-          installed: false,
-          profileConfigured: false,
-          onPath: false,
-        },
-        fff: {
-          serverName: "fff",
-          corpusRoot: "/tmp/traces",
-          binary: { path: "/tmp/fff", installed: false },
-          registrations: [],
-        },
-        trace: {
-          enabled: false,
-          configured: false,
-          autoActivateRepositories: false,
-          envPath: "/tmp/env",
-          settingsPath: "/tmp/settings",
-        },
-        cli: { path: "/tmp/cli.js", version: "0.0.1" },
-      };
+  it("counts a source run as installed", async () => {
+    await act(async () =>
+      root.render(<WelcomePage install={content({ ...fresh, cli: null })} />),
+    );
+    expect(stepState(0)).toBe("done");
+  });
 
-      const installed: ReviewCliInstallStatus = {
-        ...initial,
-        agents: initial.agents.map((agent) => ({
-          ...agent,
-          installed: agent.target === target,
-        })),
-        shim: { ...initial.shim, installed: true },
-      };
+  it("finishes the connect step once a prompt is copied", async () => {
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
 
-      const install: ReviewCanvasInstallContent = {
-        status: initial,
-        apply: vi.fn<ReviewCanvasInstallContent["apply"]>(
-          async () => installed,
-        ),
-        remove: vi.fn<ReviewCanvasInstallContent["remove"]>(
-          async () => initial,
-        ),
-        decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-        skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
-        enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
-      };
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, installed: true },
+          })}
+        />,
+      ),
+    );
+    expect(stepState(1)).toBe("todo");
+    await act(async () => buttons("Copy prompt")[0]?.click());
+    expect(stepState(1)).toBe("done");
+    expect(localStorage.getItem(REVIEW_CONNECT_COPIED_STORAGE_KEY)).toBe("1");
+    writeText.mockRestore();
+  });
 
-      const click = async (label: string) => {
-        const button = [...container.querySelectorAll("button")].find(
-          (button) =>
-            button.textContent === label ||
-            button.getAttribute("aria-label") === label,
-        );
+  it("shows the update screen and finishes the update on Done", async () => {
+    const install = content({
+      ...fresh,
+      updateNeeded: true,
+      shim: { ...fresh.shim, installed: true },
+      legacySkills: [{ path: "/h/.codex/skills/review" }],
+    });
 
-        expect(button).toBeDefined();
-        await act(async () => button!.click());
-      };
+    const onClose = vi.fn<() => void>(() => {
+      expect(install.finishUpdate).toHaveBeenCalledOnce();
+    });
 
-      const state = () =>
-        container.querySelector(".review-agent-setup-state")?.textContent;
+    await act(async () =>
+      root.render(<WelcomePage install={install} onClose={onClose} />),
+    );
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "Review now connects to your agents over MCP",
+    );
+    expect(container.textContent).toContain("/h/.codex/skills/review");
+    expect(buttons("Copy prompt")).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[aria-label="Agent"] button'),
+    ).toHaveLength(5);
 
-      try {
-        await act(async () => root.render(<WelcomePage install={install} />));
-        await click("Install");
-        expect(install.apply).toHaveBeenCalledExactlyOnceWith({
-          targets: [target],
-        });
-        expect(state()).toBe("installed");
-        expect(
-          container
-            .querySelector(".review-onboarding-step")
-            ?.getAttribute("data-state"),
-        ).toBe("done");
-        await click("Collapse Connect your agents");
-        await click("Expand Connect your agents");
-        expect(state()).toBe("installed");
-        await click("Expand Create your first review");
-
-        const writeText = vi
-          .spyOn(navigator.clipboard, "writeText")
-          .mockResolvedValue();
-
-        for (const kind of ["Review a change", "Architecture review"]) {
-          await click(kind);
-
-          const prompt = container.querySelector(
-            ".review-home-prompt-body",
-          )?.textContent;
-
-          expect(prompt).toContain(
-            target === "cursor" ? "/dev-review" : "dev-review",
-          );
-          expect(prompt).not.toContain("review scaffold");
-          expect(prompt).not.toContain("review publish");
-          await click("Copy prompt");
-          expect(writeText).toHaveBeenLastCalledWith(prompt);
-        }
-
-        await click("Expand Connect your agents");
-        await click("Uninstall");
-        await click("Collapse Connect your agents");
-        await click("Expand Connect your agents");
-        expect(state()).toBe("detected");
-        expect(
-          container
-            .querySelector(".review-onboarding-step")
-            ?.getAttribute("data-state"),
-        ).toBe("todo");
-      } finally {
-        await act(async () => root.unmount());
-        container.remove();
-        vi.restoreAllMocks();
-      }
-    },
-  );
+    await act(async () => buttons("Done")[0]?.click());
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });

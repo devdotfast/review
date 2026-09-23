@@ -47,16 +47,20 @@ export function registerTraceCaptureCommands(
     trace
       .command("status")
       .description("Check trace storage and your hosted uploads")
-      .option("--session <id>", "Check uploads of one session")
+      .option("--agent-session <id>", "Check uploads of one session")
       .option("--cursor <cursor>", "Continue an upload status page")
       .option("--limit <count>", "Uploads per page", Number),
   ).action(
-    async (options: { session?: string; cursor?: string; limit?: number }) => {
+    async (options: {
+      agentSession?: string;
+      cursor?: string;
+      limit?: number;
+    }) => {
       settings.setExitCode(
         await runtime.runTraceStatus({
           scope,
           cwd,
-          session: options.session,
+          session: options.agentSession,
           cursor: options.cursor,
           limit: options.limit,
           stdout: settings.stdout,

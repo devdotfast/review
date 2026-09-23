@@ -6,7 +6,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { AgentSetupCard } from "./agent-setup-card";
+import { ConnectCard, LegacySkillsRow } from "./connect-card";
 import { DiffrConfigSection } from "./diffr-config-section";
 import { TraceCaptureSection } from "./trace-capture-section";
 
@@ -101,10 +101,42 @@ export function SettingsPage({
 
           {install ? (
             <Section label="Agents">
-              <AgentSetupCard
+              <LegacySkillsRow
                 install={install}
                 onStatusChange={setInstallStatus}
               />
+              <ConnectCard install={install} />
+            </Section>
+          ) : null}
+
+          {install?.status.cli ? (
+            <Section label="Command line">
+              <Row
+                label="review command"
+                description={
+                  install.status.shim.installed
+                    ? `Installed at ${install.status.shim.path}. Your agents and trace capture run it.`
+                    : "Adds review to your shell PATH. Your agents and trace capture run it."
+                }
+              >
+                <button
+                  type="button"
+                  className="review-settings-button"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void run(
+                      "command",
+                      () =>
+                        install.status.shim.installed
+                          ? install.remove({ shim: true })
+                          : install.apply({ shim: true }),
+                      setInstallStatus,
+                    )
+                  }
+                >
+                  {install.status.shim.installed ? "Remove" : "Install"}
+                </button>
+              </Row>
             </Section>
           ) : null}
 
@@ -232,7 +264,7 @@ export function SettingsPage({
             </Row>
             <Row
               label="Scratchpad"
-              description="Show the experimental scratchpad on Home and install its skill for agents that are set up."
+              description="Show the experimental scratchpad on Home. Agents draw on it through Review's MCP tools."
             >
               <label className="review-settings-toggle">
                 <input

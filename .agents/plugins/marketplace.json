@@ -1,0 +1,11 @@
+{
+  "name": "devfast",
+  "plugins": [
+    {
+      "name": "whiteboard",
+      "source": { "source": "local", "path": "./packages/agent-plugins/codex" },
+      "policy": { "installation": "AVAILABLE" },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -52,7 +52,7 @@ export function DiffCounts({ progress }: { progress: CoverageProgress }) {
       className={`diff-counts ${progress.state === "viewed" || progress.state === "folded" ? "is-viewed" : ""}`}
     >
       {progress.state === "viewed" ? (
-        "✓"
+        "Viewed"
       ) : progress.state === "folded" ? (
         "Folded"
       ) : (

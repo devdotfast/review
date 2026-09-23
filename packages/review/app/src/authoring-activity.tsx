@@ -142,7 +142,7 @@ export function AuthoringActivityBadge({
 export function ReviewSurfaceLabel({
   hasContent,
   active,
-  label = "Session",
+  label = "Whiteboard",
 }: {
   hasContent: boolean;
   active: boolean;

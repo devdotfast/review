@@ -325,16 +325,19 @@ export function ApiCanvas({
     [client, content.reviewId, data],
   );
 
+  // Loads are near-instant, so stay blank until there is data or an error.
   if (!data)
     return (
-      <>
-        <p role="status">{error ?? "Loading review…"}</p>
-        {version !== undefined && (
-          <button onClick={() => setVersion(undefined)}>
-            Back to latest version
-          </button>
-        )}
-      </>
+      error !== undefined && (
+        <>
+          <p role="status">{error}</p>
+          {version !== undefined && (
+            <button onClick={() => setVersion(undefined)}>
+              Back to latest version
+            </button>
+          )}
+        </>
+      )
     );
 
   return (

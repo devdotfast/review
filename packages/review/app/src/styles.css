@@ -7799,12 +7799,63 @@ button.review-stack-row:disabled .review-stack-relation {
   fill: var(--change-removed);
 }
 
+/* A selected lens is a filter chip around its funnel, name and clear mark; the
+   counts stay outside it so they keep their column. */
+.diff-lens-hint {
+  padding: 0 14px 6px 16px;
+  color: var(--ink-faint);
+  font: 11px/16px var(--font-mono);
+}
+.diff-lens-chip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+}
+.diff-lens-chip .diff-lens-name {
+  flex: 0 1 auto;
+}
+.diff-lens-toggle > .diff-counts {
+  margin-left: auto;
+}
 .diff-lens-toggle.is-active {
   color: var(--accent);
+}
+.diff-lens-toggle.is-active .diff-lens-chip {
+  padding-right: 4px;
   background: var(--marker-tint);
 }
 .diff-lens-toggle.is-active .diff-lens-icon {
   color: inherit;
+  fill: currentColor;
+}
+.diff-lens-clear {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+}
+.diff-lens-clear path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.diff-lens-toggle.is-active:hover {
+  background: transparent;
+}
+.diff-lens-toggle.is-active:hover .diff-lens-clear {
+  background: var(--marker-glow);
+}
+/* The filter outranks the viewed fade; the checkbox beside it says viewed. */
+.diff-workspace .diff-lens-toggle.is-active.is-viewed {
+  opacity: 1;
 }
 
 /* The hit areas overlap adjacent panes; the visible dividers stay one pixel. */

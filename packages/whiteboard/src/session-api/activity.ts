@@ -145,8 +145,8 @@ export class SessionActivity {
     if (leaseId && !active)
       throw new SessionInputError(
         scope === "lenses"
-          ? 'No live lenses lease. Begin one with review_activity scope:"lenses" and reread the lenses before editing them.'
-          : "Authoring session ended or expired. Begin a new session and reread the review before editing.",
+          ? 'No live lenses lease. Begin one with session_activity scope:"lenses" and reread the lenses before editing them.'
+          : "Authoring session ended or expired. Begin a new session and reread the session before editing.",
         409,
       );
   }

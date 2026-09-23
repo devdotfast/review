@@ -956,7 +956,7 @@ it("reads each version of one review at its own pins", async () => {
   );
   expect(await local.data.comparison(first, pins.head)).toEqual(pins);
   await expect(local.data.comparison(second, pins.head)).rejects.toThrow(
-    "The selected commit is not part of this review version.",
+    "The selected commit is not part of this session version.",
   );
   expect(await local.data.file(first, "head", source.file)).toMatchObject({
     commit: pins.head,

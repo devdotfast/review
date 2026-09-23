@@ -31,6 +31,6 @@ export class WhiteboardDesktopChannel implements IServerChannel {
       this.host.stageRustAnalyzer();
       return undefined as T;
     }
-    throw new Error(`Unknown Review Desktop channel call: ${command}`);
+    throw new Error(`Unknown Whiteboard channel call: ${command}`);
   }
 }

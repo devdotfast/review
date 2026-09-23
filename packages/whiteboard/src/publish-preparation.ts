@@ -16,7 +16,7 @@ export async function resolvePublishWhiteboard(
       includeTerminal: options.includeTerminal,
     });
 
-    if (!selected) throw new Error(`Active review not found: ${sessionId}`);
+    if (!selected) throw new Error(`Active session not found: ${sessionId}`);
 
     return selected;
   }
@@ -42,12 +42,12 @@ export async function resolvePublishWhiteboard(
 
   if (scoped.length === 0) {
     throw new Error(
-      "No active review found for the checked-out change. Pass --review <uuid>.",
+      "No active session found for the checked-out change. Pass --session <uuid>.",
     );
   }
 
   if (scoped.length > 1) {
-    throw new Error("Multiple active reviews require --review <uuid>.");
+    throw new Error("Multiple active sessions require --session <uuid>.");
   }
 
   return scoped[0]!;

@@ -149,7 +149,7 @@ export class LocalSessionData {
   get workspaces(): WhiteboardWorkspaces {
     if (!this.workspaceManager)
       throw new SessionInputError(
-        "Open this review in Desktop to prepare language workspaces.",
+        "Open this session in Desktop to prepare language workspaces.",
         409,
       );
 
@@ -1295,7 +1295,7 @@ export class LocalSessionData {
 
     if (!selected)
       throw new SessionInputError(
-        "The selected commit is not part of this review version.",
+        "The selected commit is not part of this session version.",
         404,
       );
 

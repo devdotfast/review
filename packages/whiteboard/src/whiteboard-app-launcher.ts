@@ -162,7 +162,7 @@ export async function runWhiteboardAppLaunch(
   }
 
   throw new Error(
-    `Review Desktop did not become ready within ${Math.ceil((input.timeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS) / 1_000)} seconds after ${attempt.method}. Open Review Desktop once, then run \`whiteboard app launch\` again.`,
+    `Whiteboard did not become ready within ${Math.ceil((input.timeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS) / 1_000)} seconds after ${attempt.method}. Open Whiteboard once, then run \`whiteboard app launch\` again.`,
   );
 }
 
@@ -181,7 +181,7 @@ export async function focusWhiteboardDesktop(
   if (!response.ok || !result.ok) {
     throw new Error(
       result.ok
-        ? `Review Desktop focus returned ${response.status}.`
+        ? `Whiteboard focus returned ${response.status}.`
         : result.error,
     );
   }
@@ -310,7 +310,7 @@ async function readLaunchHealthyDesktop(
 
 function launchFailure(method: string, error: Error): Error {
   return new Error(
-    `Could not launch Review Desktop with ${method}: ${error.message}. Open Review Desktop once, then run \`whiteboard app launch\` again.`,
+    `Could not launch Whiteboard with ${method}: ${error.message}. Open Whiteboard once, then run \`whiteboard app launch\` again.`,
   );
 }
 

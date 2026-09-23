@@ -163,7 +163,7 @@ export class WhiteboardMainErrorTelemetry {
       ).catch(() => undefined);
     } catch (error) {
       this.options.logError?.(
-        `[Review Desktop] could not report a main-process telemetry event: ${error}`,
+        `[Whiteboard] could not report a main-process telemetry event: ${error}`,
       );
     }
   }

@@ -16,7 +16,7 @@ export async function withSkillInstallLock<T>(
 
   if (!outcome.acquired)
     throw new Error(
-      "Another Review skill installation is running. Retry shortly.",
+      "Another Whiteboard skill installation is running. Retry shortly.",
     );
 
   return outcome.result;

@@ -289,7 +289,7 @@ export class SharedSessionStore {
     return (
       this.states.get(id) ?? {
         stage: "error" as const,
-        error: "Shared review is not available.",
+        error: "Shared session is not available.",
       }
     );
   }
@@ -306,7 +306,7 @@ export class SharedSessionStore {
 
   repositoryRoot(id: string) {
     if (!/^shared-[a-f0-9]{64}$/.test(id))
-      throw new SessionInputError("Invalid shared review ID.");
+      throw new SessionInputError("Invalid shared session ID.");
 
     return path.join(this.root, ".repositories", id);
   }
@@ -329,7 +329,7 @@ export class SharedSessionStore {
     const saved = this.validated.get(id);
 
     if (!saved)
-      throw new SessionInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared session is not available.", 404);
     const root = this.repositoryRoot(id);
 
     try {
@@ -441,7 +441,7 @@ export class SharedSessionStore {
           path.join(this.root, `.invalid-${id}-${Date.now()}`),
         );
         console.warn(
-          "A cached shared review was corrupt. Reopen its share link to download it again.",
+          "A cached shared session was corrupt. Reopen its share link to download it again.",
         );
         continue;
       }
@@ -530,7 +530,7 @@ export class SharedSessionStore {
     const bundle = this.loaded.get(id);
 
     if (!bundle)
-      throw new SessionInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared session is not available.", 404);
     const validated = this.validated.get(id)!;
     const repositoryId = this.repositories.get(id);
 
@@ -612,7 +612,7 @@ export class SharedSessionStore {
     await this.jobs.get(id)?.catch(() => {});
 
     if (!this.loaded.has(id))
-      throw new SessionInputError("Shared review is not available.", 404);
+      throw new SessionInputError("Shared session is not available.", 404);
     await this.local?.data.workspaces.remove(id);
     const repositoryId = this.repositories.get(id);
 
@@ -718,7 +718,7 @@ export class SharedSessionStore {
 
   private async readValidated(id: string) {
     if (!/^shared-[a-f0-9]{64}$/.test(id))
-      throw new Error("Invalid shared review ID.");
+      throw new Error("Invalid shared session ID.");
     const dir = path.join(this.root, id);
 
     if (

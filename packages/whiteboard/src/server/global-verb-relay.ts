@@ -44,7 +44,7 @@ export class GlobalWhiteboardDesktopVerbRelay implements WhiteboardDesktopVerbRe
   attach(writer: GlobalWhiteboardDesktopVerbWriter): boolean {
     if (this.controlWriter || writer.signal.aborted) return false;
     this.controlWriter = writer;
-    const detach = () => this.detach(writer, "No Review Desktop is attached.");
+    const detach = () => this.detach(writer, "No Whiteboard is attached.");
     this.controlAbortListener = detach;
     writer.signal.addEventListener("abort", detach, { once: true });
 
@@ -58,7 +58,7 @@ export class GlobalWhiteboardDesktopVerbRelay implements WhiteboardDesktopVerbRe
     if (!control) {
       return Promise.resolve({
         ok: false,
-        error: "No Review Desktop is attached.",
+        error: "No Whiteboard is attached.",
       });
     }
 
@@ -67,7 +67,7 @@ export class GlobalWhiteboardDesktopVerbRelay implements WhiteboardDesktopVerbRe
     return new Promise<WhiteboardVerbResponse>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        resolve({ ok: false, error: "Review Desktop verb timed out." });
+        resolve({ ok: false, error: "Whiteboard verb timed out." });
       }, this.timeoutMs);
 
       timer.unref?.();
@@ -76,10 +76,10 @@ export class GlobalWhiteboardDesktopVerbRelay implements WhiteboardDesktopVerbRe
 
       try {
         void Promise.resolve(control.write(frame)).catch(() => {
-          this.detach(control, "No Review Desktop is attached.");
+          this.detach(control, "No Whiteboard is attached.");
         });
       } catch {
-        this.detach(control, "No Review Desktop is attached.");
+        this.detach(control, "No Whiteboard is attached.");
       }
     });
   }
@@ -100,12 +100,12 @@ export class GlobalWhiteboardDesktopVerbRelay implements WhiteboardDesktopVerbRe
     const control = this.controlWriter;
 
     if (!control) {
-      this.rejectPending("Review Desktop relay closed.");
+      this.rejectPending("Whiteboard relay closed.");
 
       return;
     }
 
-    this.detach(control, "Review Desktop relay closed.");
+    this.detach(control, "Whiteboard relay closed.");
     void Promise.resolve(control.close()).catch(() => undefined);
   }
 

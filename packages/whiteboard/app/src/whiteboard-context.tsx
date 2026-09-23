@@ -129,7 +129,9 @@ export function useWhiteboardActions(): WhiteboardActionsValue {
   const value = useContext(WhiteboardActionsContext);
 
   if (!value)
-    throw new Error("Review components must render inside WhiteboardProvider");
+    throw new Error(
+      "Whiteboard components must render inside WhiteboardProvider",
+    );
 
   return value;
 }
@@ -138,7 +140,9 @@ export function useWhiteboardState(): WhiteboardStateValue {
   const value = useContext(WhiteboardStateContext);
 
   if (!value)
-    throw new Error("Review components must render inside WhiteboardProvider");
+    throw new Error(
+      "Whiteboard components must render inside WhiteboardProvider",
+    );
 
   return value;
 }

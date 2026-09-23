@@ -336,7 +336,7 @@ async function withDesktopInstallLock<T>(
 
   if (!outcome.acquired)
     throw new Error(
-      "Another Review setup operation is running. Retry shortly.",
+      "Another Whiteboard setup operation is running. Retry shortly.",
     );
 
   return outcome.result;
@@ -616,7 +616,7 @@ async function removeCliInstallUnlocked(
     if (!removed) keepMcpLauncher = true;
     chunks.push(
       removed
-        ? `[ok] removed ${registration.target} Review MCP\n`
+        ? `[ok] removed ${registration.target} Whiteboard MCP\n`
         : `The ${registration.target} Whiteboard MCP entry changed after installation; left in place.\n`,
     );
   }
@@ -647,7 +647,7 @@ async function removeCliInstallUnlocked(
     }
 
     for (const profilePath of await removeShellProfilePath(homeDir)) {
-      chunks.push(`[ok] removed Review PATH entry from ${profilePath}\n`);
+      chunks.push(`[ok] removed Whiteboard PATH entry from ${profilePath}\n`);
     }
   }
 
@@ -675,7 +675,7 @@ async function removeCliInstallUnlocked(
       );
     } else {
       await disableTraceMachine({ homeDir, env });
-      chunks.push("[ok] disabled Review trace capture\n");
+      chunks.push("[ok] disabled Whiteboard trace capture\n");
     }
   }
 
@@ -690,7 +690,7 @@ async function removeCliInstallUnlocked(
 
       if (!managed) {
         chunks.push(
-          `The ${target} ${FFF_SERVER_NAME} registration is not managed by Review Desktop; left in place.\n`,
+          `The ${target} ${FFF_SERVER_NAME} registration is not managed by Whiteboard; left in place.\n`,
         );
         continue;
       }
@@ -876,13 +876,13 @@ if [ -n "$runtime" ] && [ -x "$runtime" ]; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Whiteboard needs Node.js 24 or newer and none was found. Install Node 24, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer and none was found. Install Node 24, or install Whiteboard." >&2
   exit 1
 fi
 major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 case "$major" in *[!0-9]*) major=0;; esac
 if [ "$major" -lt 24 ]; then
-  echo "Whiteboard needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Review Desktop." >&2
+  echo "Whiteboard needs Node.js 24 or newer; found $(node -v 2>/dev/null). Update Node, or install Whiteboard." >&2
   exit 1
 fi
 exec node "$cli" "$@"

@@ -96,7 +96,7 @@ export function createJsonWhiteboardReporting(
 
     if (id.startsWith("shared-")) {
       if (!shared)
-        throw new SessionInputError("Shared review is not available.", 404);
+        throw new SessionInputError("Shared session is not available.", 404);
       shared.get(id);
     } else store.assertExists(id);
     await next();

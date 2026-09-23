@@ -67,7 +67,7 @@ export async function runWhiteboardAppPick(
   }
 
   const discovery = await runtime.requireHealthyWhiteboardDesktop(
-    "review app pick",
+    "whiteboard app pick",
     {
       readDiscovery: runtime.readWhiteboardDesktopDiscovery,
       fetch: runtime.fetch,
@@ -95,7 +95,7 @@ export async function runWhiteboardAppPick(
   } else {
     if (!input.stdin.isTTY)
       throw new Error(
-        "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
+        "whiteboard app pick needs a terminal without --session. Pass --session <uuid> or run it in a terminal.",
       );
     const root = await runtime.resolveWhiteboardRoot(input.cwd);
 
@@ -103,7 +103,7 @@ export async function runWhiteboardAppPick(
       .filter((review) => review.repositoryPath === root && !review.dismissedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-    if (!reviews.length) throw new Error("No review to show.");
+    if (!reviews.length) throw new Error("No session to show.");
 
     const picked = await runtime.pickWhiteboard(
       reviews.map((review) => ({

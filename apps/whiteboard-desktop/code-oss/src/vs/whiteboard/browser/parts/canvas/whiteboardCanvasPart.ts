@@ -1040,7 +1040,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 					delete this.targetDocument?.body.dataset["whiteboardCanvasReady"];
 				}
 				const method = diagnostic.level === "error" ? console.error : console.warn;
-				method(`[Review canvas ${diagnostic.source}] ${diagnostic.message}`, diagnostic.stack ?? "");
+				method(`[Whiteboard canvas ${diagnostic.source}] ${diagnostic.message}`, diagnostic.stack ?? "");
 				lifecycle?.reportDiagnostic(diagnostic);
 			},
 		};

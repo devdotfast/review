@@ -55,7 +55,7 @@ it("reports the native catalog with pins and versions, filtering the current rep
   ).toEqual([dismissed]);
   await expect(
     runWhiteboardInfo({ cwd: "/repo", sessionId: "missing" }, runtime),
-  ).rejects.toThrow("Review not found");
+  ).rejects.toThrow("Session not found");
 });
 
 it("lists the catalog at the mounted route, not a trailing-slash child", async () => {

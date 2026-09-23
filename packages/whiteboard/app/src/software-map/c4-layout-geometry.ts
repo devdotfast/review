@@ -1903,7 +1903,10 @@ async function initializeC4Libavoid(wasmUrl?: string): Promise<void> {
   try {
     await initLibavoidEdgeRouter(wasmUrl);
   } catch (error) {
-    console.error("Review software-map libavoid initialization failed", error);
+    console.error(
+      "Whiteboard software-map libavoid initialization failed",
+      error,
+    );
     throw error;
   }
 }

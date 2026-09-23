@@ -207,7 +207,7 @@ describe("native Review picker", () => {
         },
       ),
     ).rejects.toThrow(
-      "Whiteboard is not ready. Run `whiteboard app launch`, then retry `review app pick`.",
+      "Whiteboard is not ready. Run `whiteboard app launch`, then retry `whiteboard app pick`.",
     );
     expect(launch).not.toHaveBeenCalled();
   });

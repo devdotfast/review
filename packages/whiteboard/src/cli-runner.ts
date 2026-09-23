@@ -228,13 +228,13 @@ export async function runWhiteboardCli(
     .description(`Create, share, and open Whiteboard sessions.`)
     .addHelpText("after", whiteboardTopLevelHelp());
 
-  // Tolerate the leading form (`review --json scaffold`) as well as the usual
+  // Tolerate the leading form (`whiteboard --json scaffold`) as well as the usual
   // trailing one. Never give this a .default(): optsWithGlobals merges globals
   // over locals, so a default would clobber a subcommand's own true.
   program.addOption(new Option("--json").hideHelp());
   program.option(
     "--state-dir <path>",
-    "select headless Review state for server, api, and mcp",
+    "select headless Whiteboard state for server, api, and mcp",
   );
   program.exitOverride();
 
@@ -517,7 +517,7 @@ export async function runWhiteboardCli(
       )
       .option(
         "--no-shim",
-        "Install skills without the review command or PATH changes",
+        "Install skills without the whiteboard command or PATH changes",
       )
       .addHelpText("after", whiteboardInstallHelp()),
     "plain",
@@ -834,8 +834,8 @@ export async function runWhiteboardCli(
   // share the top-level help, the leading `--json` form, and the telemetry
   // hooks without a separate parser.
   for (const [name, description] of [
-    ["api", "Call a JSON Review authoring tool on the running server"],
-    ["mcp", "Serve the JSON Review authoring tools over stdio MCP"],
+    ["api", "Call a JSON Whiteboard authoring tool on the running server"],
+    ["mcp", "Serve the JSON Whiteboard authoring tools over stdio MCP"],
   ] as const) {
     configureOutput(
       program

@@ -6,7 +6,7 @@ export async function decodeImage(bytes: Uint8Array): Promise<Buffer> {
   // Electron's Linux GLib conflicts with Sharp's bundled native library.
   if (process.platform === "linux" && process.versions.electron)
     throw new SessionInputError(
-      "Image uploads and imports are unavailable in Review Desktop on Linux.",
+      "Image uploads and imports are unavailable in Whiteboard on Linux.",
     );
 
   // Load the native decoder only here, so a missing platform binary fails one upload, not host startup.

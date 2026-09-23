@@ -85,7 +85,7 @@ export class WhiteboardUpdateTelemetry extends Disposable {
       })
       .catch((error) =>
         options.logError?.(
-          `[Review Desktop] could not process update telemetry: ${error}`,
+          `[Whiteboard] could not process update telemetry: ${error}`,
         ),
       );
   }

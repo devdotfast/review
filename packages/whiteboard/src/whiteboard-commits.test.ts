@@ -24,6 +24,6 @@ describe("resolveWhiteboardCommitScope", () => {
   it("rejects commits outside the pinned range", () => {
     expect(() =>
       resolveWhiteboardCommitScope([commit], "c".repeat(40)),
-    ).toThrow("outside the pinned review range");
+    ).toThrow("outside the pinned session range");
   });
 });

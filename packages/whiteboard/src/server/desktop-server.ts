@@ -515,7 +515,7 @@ export function createGlobalWhiteboardServer(
 
       return globalJson(409, {
         ok: false,
-        error: "A Review Desktop control client is already attached.",
+        error: "A Whiteboard control client is already attached.",
       });
     }
 

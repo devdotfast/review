@@ -40,7 +40,7 @@ export async function whiteboardFetchUrl(
 }
 
 export function whiteboardWasmUrl(config: WhiteboardClientConfig): string {
-  if (!config.wasmUrl) throw new Error("Review WASM asset URL is missing.");
+  if (!config.wasmUrl) throw new Error("Whiteboard WASM asset URL is missing.");
 
   return config.wasmUrl;
 }

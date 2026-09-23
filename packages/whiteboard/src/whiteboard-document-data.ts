@@ -202,7 +202,7 @@ const whiteboardElementNodeSchema = z
         context.addIssue({
           code: "custom",
           path: ["props", key],
-          message: `prop "${key}" is not allowed in review prose`,
+          message: `prop "${key}" is not allowed in session prose`,
         });
       }
 

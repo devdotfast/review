@@ -47,7 +47,7 @@ export interface AuthoringCapabilities {
 }
 
 const SCRATCHPAD_DISABLED =
-  "The scratchpad is off. Turn it on in Review Desktop Settings.";
+  "The scratchpad is off. Turn it on in Whiteboard Settings.";
 
 /** Both hosts mount this behind their token authentication. */
 export function createSessionApi(
@@ -157,7 +157,10 @@ export function createSessionApi(
     const snapshot = shared?.get(id).snapshot;
 
     if (!snapshot || (version !== undefined && version !== snapshot.version))
-      throw new SessionInputError("Shared review version is unavailable.", 404);
+      throw new SessionInputError(
+        "Shared session version is unavailable.",
+        404,
+      );
 
     return snapshot;
   };

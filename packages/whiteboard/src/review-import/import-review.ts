@@ -176,8 +176,8 @@ export async function importLegacyWhiteboard(
       kind: "skipped",
       sessionId,
       reason: importedRevision
-        ? `imported revision ${importedRevision} is not in the review log`
-        : "presented revision is not in the review log",
+        ? `imported revision ${importedRevision} is not in the session log`
+        : "presented revision is not in the session log",
     };
 
   const known = new Set(
@@ -426,7 +426,7 @@ async function importPresentedMap(
   const warnings: string[] = [];
 
   // Legacy imports always land with document pins.
-  if (!head.pins) throw new Error("Imported review has no source pins.");
+  if (!head.pins) throw new Error("Imported session has no source pins.");
 
   const section = await importMapSection(
     review,
@@ -438,7 +438,7 @@ async function importPresentedMap(
     head.pins,
   );
 
-  // Never `skipped`: an imported review must still open in the JSON canvas.
+  // Never `skipped`: an imported session must still open in the JSON canvas.
   if (!section) return { kind: "current", sessionId, warnings };
 
   const replaced = head.document.find(isMapSection);

@@ -161,7 +161,7 @@ export function mountSharingHost(
             "error",
             error instanceof SessionInputError
               ? error.message
-              : "This share is unavailable, revoked, or needs a newer Review version.",
+              : "This share is unavailable, revoked, or needs a newer Whiteboard version.",
           );
         })
         .finally(() => imports.delete(id));
@@ -192,14 +192,14 @@ export function mountSharingPublisher(
 
     if (input.sessionId.startsWith("shared-"))
       throw new SessionInputError(
-        "Only the authoring review can be shared.",
+        "Only the authoring session can be shared.",
         409,
       );
     const snapshot = store.read(input.sessionId, input.version);
 
     if (snapshot.target?.kind === "worktree")
       throw new SessionInputError(
-        "Pin this review to commits before sharing it.",
+        "Pin this session to commits before sharing it.",
       );
 
     if (!snapshot.pins)
@@ -211,7 +211,7 @@ export function mountSharingPublisher(
 
     if (!account)
       throw new SessionInputError(
-        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run review login before sharing.",
+        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run whiteboard login before sharing.",
         409,
       );
 
@@ -287,7 +287,7 @@ export function mountSharingPublisher(
 
     if (!account)
       throw new SessionInputError(
-        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run review login first.",
+        "Set DEV_WHITEBOARD_SHARE_TOKEN for CI, or run whiteboard login first.",
         409,
       );
     await new ShareClient(account.origin, account.token).revoke(shareId);

@@ -97,7 +97,7 @@ export async function runDesktopHost(
     ensureBundledRustAnalyzer({ env }).catch((error) => {
       const reason = error instanceof Error ? error.message : String(error);
       process.stderr.write(
-        `[Review tools] Could not stage bundled rust-analyzer: ${reason}\n`,
+        `[Whiteboard tools] Could not stage bundled rust-analyzer: ${reason}\n`,
       );
     });
 

@@ -66,7 +66,7 @@ export function useWhiteboardPanelStore(): WhiteboardPanelStore {
 
   if (!store) {
     throw new Error(
-      "Review panel components must render inside WhiteboardPanelProvider",
+      "Whiteboard panel components must render inside WhiteboardPanelProvider",
     );
   }
 

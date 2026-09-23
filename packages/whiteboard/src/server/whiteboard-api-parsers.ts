@@ -176,7 +176,7 @@ export function parseWhiteboardTabTelemetryInput(
   return parseZod(
     WhiteboardTabTelemetryInputSchema,
     value,
-    "Review tab telemetry event",
+    "Whiteboard tab telemetry event",
   );
 }
 

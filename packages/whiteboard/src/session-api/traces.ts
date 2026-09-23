@@ -40,7 +40,7 @@ export async function listPinnedTraces(
       return {
         ...result,
         storageError:
-          "The hosted trace store has no login on this machine. Run `review login` and open the review again.",
+          "The hosted trace store has no login on this machine. Run `whiteboard login` and open the session again.",
         sessions: [],
       };
 

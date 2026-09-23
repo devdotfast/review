@@ -41,7 +41,7 @@ export function fffBinaryPath(homeDir = os.homedir()): string {
 /**
  * Resolves the same trace search corpus directory as
  * `traceSearchCorpusDir()` in review-agent-traces.ts, so an FFF search index
- * registered here reads the traces that `review trace pull` writes there.
+ * registered here reads the traces that `whiteboard trace pull` writes there.
  */
 export function fffCorpusRoot(
   homeDir = os.homedir(),

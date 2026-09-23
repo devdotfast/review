@@ -15,7 +15,7 @@ import type { SessionSummary } from "@dev.fast/whiteboard-protocol";
 import { runWhiteboardInfo } from "./whiteboard-info";
 
 /**
- * The Review app's trace commands. It resolves `--review <uuid>` (or the
+ * The Whiteboard app's trace commands. It resolves `--session <uuid>` (or the
  * Review that owns the current checkout) against the Session store and hands
  * the change range to the store-free read commands as a value.
  */
@@ -145,11 +145,11 @@ async function resolveTraceWhiteboard(
   const candidates = (await runWhiteboardInfo({ cwd, sessionId })).sessions;
 
   if (candidates.length === 0) {
-    throw new Error("No review found for this worktree.");
+    throw new Error("No session found for this worktree.");
   }
 
   if (candidates.length > 1) {
-    throw new Error("Multiple reviews require --review <uuid>.");
+    throw new Error("Multiple sessions require --session <uuid>.");
   }
 
   return candidates[0];

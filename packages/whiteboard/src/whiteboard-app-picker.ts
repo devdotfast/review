@@ -42,7 +42,7 @@ export function pickWhiteboard(
       const matches = filtered();
 
       if (cursor >= matches.length) cursor = Math.max(0, matches.length - 1);
-      const lines = [`? Switch Review Desktop to: ${query}█`];
+      const lines = [`? Switch Whiteboard to: ${query}█`];
       const visible = matches.slice(0, MAX_VISIBLE_ROWS);
 
       for (const [index, item] of visible.entries()) {

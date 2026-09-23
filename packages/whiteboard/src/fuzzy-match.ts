@@ -1,7 +1,7 @@
 import fuzzysort from "fuzzysort";
 
 /* Below this score the query only matched as scattered letters — "dev" landing
-   on the d, e and v of "Speed up Review Desktop". Those hits are noise, and a
+   on the d, e and v of "Speed up Whiteboard". Those hits are noise, and a
    plain subsequence matcher cannot tell them from real ones. */
 const SCORE_THRESHOLD = 0.5;
 

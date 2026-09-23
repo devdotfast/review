@@ -604,7 +604,7 @@ it("requires a pinned review before sharing saved worktree changes", async () =>
   await writeFile(path.join(repo, "main.ts"), "export const answer = 99;\n");
   await expect(
     exportShare({ ...local, sessionId, repository }),
-  ).rejects.toThrow("Pin this review to commits before sharing it.");
+  ).rejects.toThrow("Pin this session to commits before sharing it.");
   await local.store.execute({
     commandId: randomUUID(),
     operation: { type: "repin", sessionId, pins: snapshot.pins },

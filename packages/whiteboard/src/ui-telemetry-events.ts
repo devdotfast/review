@@ -133,7 +133,7 @@ export const WHITEBOARD_OPENED_VIA = ["home", "cli", "other"] as const;
 
 const WHITEBOARD_DISMISSED_VIA = ["review_topbar", "home"] as const;
 
-// "open" is the implicit undo: opening a dismissed review brings it back.
+// "open" is the implicit undo: opening a dismissed session brings it back.
 const WHITEBOARD_RESTORED_VIA = ["home", "open"] as const;
 
 const MAP_LEVEL = ["system", "container", "component", "code"] as const;

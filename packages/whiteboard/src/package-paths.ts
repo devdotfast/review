@@ -40,9 +40,7 @@ export function whiteboardModelModulePath(
   packageRoot = findWhiteboardPackageRoot(),
 ): string {
   if (!MODEL_SOURCE_FILES.has(modelFileName)) {
-    throw new Error(
-      `Unsupported Progressive Review model file ${modelFileName}`,
-    );
+    throw new Error(`Unsupported Whiteboard model file ${modelFileName}`);
   }
 
   const distFileName = modelFileName.replace(/\.ts$/, ".js");

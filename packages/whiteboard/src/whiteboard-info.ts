@@ -22,10 +22,10 @@ export async function runWhiteboardInfo(
   runtime = { requireHealthyWhiteboardDesktop, resolveWhiteboardRoot },
 ): Promise<WhiteboardInfoEvent> {
   if (input.all && input.sessionId)
-    throw new Error("Review info cannot combine all and sessionId.");
+    throw new Error("Whiteboard info cannot combine all and sessionId.");
 
   const discovery =
-    await runtime.requireHealthyWhiteboardDesktop("review info");
+    await runtime.requireHealthyWhiteboardDesktop("whiteboard info");
 
   const client = new SessionApiClient({
     serverUrl: discovery.url,
@@ -43,7 +43,7 @@ export async function runWhiteboardInfo(
       (review) => review.sessionId === input.sessionId,
     );
 
-    if (!selected) throw new Error(`Review not found: ${input.sessionId}`);
+    if (!selected) throw new Error(`Session not found: ${input.sessionId}`);
 
     return { event: "info", sessions: [selected] };
   }

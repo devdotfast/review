@@ -165,7 +165,7 @@ export function mergeErrorTelemetryProperties(
  * the remainder is VS Code's own file. It is wrong here: a path under the home
  * directory then keeps everything after it, so
  * `/Users/you/work/acme-repo/plan.md` would be sent as
- * `/work/acme-repo/plan.md` — the repository name intact. A review tool cannot
+ * `/work/acme-repo/plan.md` — the repository name intact. A session tool cannot
  * disclose that.
  *
  * With no directories to delete, the cleaner's overlap check never fires and

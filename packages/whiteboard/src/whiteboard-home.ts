@@ -191,7 +191,7 @@ export async function createWhiteboardDir(
     sourceIdentity: binding.sourceIdentity ?? null,
     pullRequestNumber: binding.pullRequestNumber ?? null,
     pullRequestUrl: binding.pullRequestUrl ?? null,
-    title: binding.title ?? "Progressive Review",
+    title: binding.title ?? "Whiteboard",
     sourceSession,
     status: "draft",
     presentedDocumentRevision: null,
@@ -295,7 +295,7 @@ export async function touchWhiteboardAgentSession(
 
   if (!outcome.acquired) {
     throw new Error(
-      `Timed out while updating agent sessions for Review ${review.review.uuid}.`,
+      `Timed out while updating agent sessions for Whiteboard ${review.review.uuid}.`,
     );
   }
 
@@ -710,7 +710,7 @@ export async function readStoredWhiteboard(
         return {
           error: whiteboardHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",
-            message: `${errorMessage(error)} This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.`,
+            message: `${errorMessage(error)} This session was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Whiteboard skill.`,
           }),
         };
       }
@@ -779,7 +779,7 @@ async function migrateLegacyStoredWhiteboard(dir: string): Promise<void> {
 
     await migrateStoredWhiteboard({
       whiteboardDir: dir,
-      log: (message) => console.warn(`Review ${uuid}: ${message}`),
+      log: (message) => console.warn(`Whiteboard ${uuid}: ${message}`),
     });
   });
 }
@@ -925,7 +925,7 @@ async function statIfExists(targetPath: string) {
 }
 
 function defaultWhiteboardMdx(review: WhiteboardRecord): string {
-  return `# ${review.title}\n\nThis review document is ready for repo-specific notes.\n\n{/* Review source: ${review.sourceCommit ?? "unbound"} */}\n`;
+  return `# ${review.title}\n\nThis session document is ready for repo-specific notes.\n\n{/* Whiteboard source: ${review.sourceCommit ?? "unbound"} */}\n`;
 }
 
 function whiteboardPackageJson(uuid: string) {

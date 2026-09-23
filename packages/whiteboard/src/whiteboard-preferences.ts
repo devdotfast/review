@@ -16,7 +16,7 @@ import { devWhiteboardHome } from "./whiteboard-home-paths";
 /**
  * Machine-wide Review preferences the server itself needs. Workbench settings
  * do not work here: the reaper runs in the review server, which never reads
- * the workbench configuration, and `review install` runs with no workbench
+ * the workbench configuration, and `whiteboard install` runs with no workbench
  * at all.
  */
 export interface WhiteboardPreferences {

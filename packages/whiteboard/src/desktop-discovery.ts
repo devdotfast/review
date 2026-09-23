@@ -31,7 +31,7 @@ export class WhiteboardDesktopDiscoveryUnreadableError extends Error {
 
   constructor(filePath: string, detail?: string) {
     super(
-      `Review Desktop discovery is unreadable at ${filePath}. Restart Review Desktop and try again.${detail ? ` ${detail}` : ""}`,
+      `Whiteboard discovery is unreadable at ${filePath}. Restart Whiteboard and try again.${detail ? ` ${detail}` : ""}`,
     );
   }
 }

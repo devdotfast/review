@@ -41,7 +41,7 @@ export async function openWhiteboardProfile(
 
   if (!outcome.acquired)
     throw new Error(
-      "Another Review process is initializing this profile. Retry shortly.",
+      "Another Whiteboard process is initializing this profile. Retry shortly.",
     );
 
   return outcome.result;
@@ -112,7 +112,7 @@ async function importHeadlessStore(home: string, source: string) {
               .get()
           )
             throw new Error(
-              `Cannot merge ${source}: the shared store already contains one of its review IDs. Both databases are unchanged.`,
+              `Cannot merge ${source}: the shared store already contains one of its session IDs. Both databases are unchanged.`,
             );
           database.exec(`
           INSERT INTO repositories SELECT s.* FROM headless.repositories s WHERE NOT EXISTS (SELECT 1 FROM repositories t WHERE t.path=s.path);

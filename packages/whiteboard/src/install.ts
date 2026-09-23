@@ -260,7 +260,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
 
           if (!bundled)
             throw new Error(
-              `Bundled skill ${skillDir.name} has no release version. Reinstall Review Desktop.`,
+              `Bundled skill ${skillDir.name} has no release version. Reinstall Whiteboard.`,
             );
 
           if (
@@ -441,7 +441,7 @@ function isScratchpadSkill(name: string): boolean {
 /**
  * Installs or removes the scratchpad skill for every agent already set up,
  * to match the preference. Callers write the preference first, so a
- * `review install` racing this call lands on the same answer.
+ * `whiteboard install` racing this call lands on the same answer.
  */
 export async function syncScratchpadSkills(input: {
   enabled: boolean;
@@ -601,7 +601,7 @@ export async function resolveInstalledSkills(input: {
         };
 
         if (!bundledVersion) {
-          status.error = `Bundled skill ${name} has no release version. Reinstall Review Desktop.`;
+          status.error = `Bundled skill ${name} has no release version. Reinstall Whiteboard.`;
         }
 
         return status;

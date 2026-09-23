@@ -46,7 +46,7 @@ describe("global Review Desktop verb relay", () => {
       relay.dispatch({ name: "focusCanvas", args: {} }),
     ).resolves.toEqual({
       ok: false,
-      error: "No Review Desktop is attached.",
+      error: "No Whiteboard is attached.",
     });
   });
 
@@ -66,7 +66,7 @@ describe("global Review Desktop verb relay", () => {
       await vi.advanceTimersByTimeAsync(25);
       await expect(timedOut).resolves.toEqual({
         ok: false,
-        error: "Review Desktop verb timed out.",
+        error: "Whiteboard verb timed out.",
       });
 
       const disconnectRelay = new GlobalWhiteboardDesktopVerbRelay();
@@ -81,7 +81,7 @@ describe("global Review Desktop verb relay", () => {
       disconnectWriter.abort.abort();
       await expect(disconnected).resolves.toEqual({
         ok: false,
-        error: "No Review Desktop is attached.",
+        error: "No Whiteboard is attached.",
       });
 
       const closedRelay = new GlobalWhiteboardDesktopVerbRelay();
@@ -97,7 +97,7 @@ describe("global Review Desktop verb relay", () => {
       expect(closedWriter.close).toHaveBeenCalledOnce();
       await expect(closed).resolves.toEqual({
         ok: false,
-        error: "Review Desktop relay closed.",
+        error: "Whiteboard relay closed.",
       });
     } finally {
       vi.useRealTimers();

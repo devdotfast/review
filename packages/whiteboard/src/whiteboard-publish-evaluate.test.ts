@@ -297,7 +297,7 @@ export default createActiveWhiteboardDocument({ title: "Legacy", routePath: "/",
       });
 
     expect(documentLocalComponent.errors).toContain(
-      "Document-local components are not supported; use the Review components.",
+      "Document-local components are not supported; use the Whiteboard components.",
     );
     expect(documentLocalComponent.document).toBeNull();
 

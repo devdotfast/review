@@ -12,6 +12,6 @@ it("rejects image ingestion before loading Sharp in Linux Electron", async () =>
   });
 
   await expect(decodeImage(new Uint8Array())).rejects.toThrow(
-    "Image uploads and imports are unavailable in Review Desktop on Linux.",
+    "Image uploads and imports are unavailable in Whiteboard on Linux.",
   );
 });

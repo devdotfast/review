@@ -196,7 +196,7 @@ describe("Review Desktop launcher", () => {
         },
       ),
     ).rejects.toThrow(
-      'Could not launch Review Desktop with the macOS bundle identifier "dev.fast.review": the launch process exited with code 1. Open Review Desktop once, then run `whiteboard app launch` again.',
+      'Could not launch Whiteboard with the macOS bundle identifier "dev.fast.review": the launch process exited with code 1. Open Whiteboard once, then run `whiteboard app launch` again.',
     );
   });
 
@@ -223,7 +223,7 @@ describe("Review Desktop launcher", () => {
         },
       ),
     ).rejects.toThrow(
-      'Could not launch Review Desktop with the Desktop-managed bundle at "/missing/Review": spawn ENOENT.',
+      'Could not launch Whiteboard with the Desktop-managed bundle at "/missing/Review": spawn ENOENT.',
     );
   });
 
@@ -247,7 +247,7 @@ describe("Review Desktop launcher", () => {
         },
       ),
     ).rejects.toThrow(
-      'Could not launch Review Desktop with the Desktop-managed bundle at "/tmp/Review": the launch process exited before Desktop became ready.',
+      'Could not launch Whiteboard with the Desktop-managed bundle at "/tmp/Review": the launch process exited before Desktop became ready.',
     );
   });
 

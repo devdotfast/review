@@ -54,7 +54,7 @@ describe("resolvePublishWhiteboard", () => {
     ).resolves.toMatchObject({ review: { uuid: healthy.review.uuid } });
     await expect(
       resolvePublishWhiteboard(home, healthy.review.uuid),
-    ).rejects.toThrow(/Active review not found/);
+    ).rejects.toThrow(/Active session not found/);
   });
 });
 

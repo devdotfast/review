@@ -12,7 +12,7 @@ export function resolveWhiteboardCommitScope(
   const entry = commits.find((candidate) => candidate.commit === commit);
 
   if (!entry) {
-    throw new Error("The commit is outside the pinned review range.");
+    throw new Error("The commit is outside the pinned session range.");
   }
 
   return { baseRef: entry.parentCommit, headRef: entry.commit };

@@ -233,7 +233,7 @@ export class WhiteboardServerSupervisor extends Disposable {
   private handleEnvironmentResolutionFailure(error: unknown): void {
     const reason = error instanceof Error ? error.message : String(error);
     this.options.logError(
-      `[Review Desktop] unable to resolve the login-shell environment; starting with the application environment: ${reason}`,
+      `[Whiteboard] unable to resolve the login-shell environment; starting with the application environment: ${reason}`,
     );
     this.startWithEnvironment({});
   }
@@ -277,7 +277,7 @@ export class WhiteboardServerSupervisor extends Disposable {
         this.restartCount = 0;
         if (!this.connected.isSettled) {
           this.options.logInfo(
-            `[Review Desktop] server ready at ${connection.url}`,
+            `[Whiteboard] server ready at ${connection.url}`,
           );
           void this.connected.complete(connection);
         }
@@ -294,7 +294,7 @@ export class WhiteboardServerSupervisor extends Disposable {
       if (terminated) return;
       terminated = true;
       this.options.logError(
-        `[Review Desktop] server host terminated: ${detail}`,
+        `[Whiteboard] server host terminated: ${detail}`,
       );
       this.serverProcess = undefined;
       this.processListeners.dispose();
@@ -373,7 +373,7 @@ export class WhiteboardServerSupervisor extends Disposable {
 
   private failStartup(error: unknown): void {
     const reason = error instanceof Error ? error : new Error(String(error));
-    this.options.logError(`[Review Desktop] ${reason.message}`);
+    this.options.logError(`[Whiteboard] ${reason.message}`);
     if (!this.connected.isSettled) this.connected.error(reason);
   }
 

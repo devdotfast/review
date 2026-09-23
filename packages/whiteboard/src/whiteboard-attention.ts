@@ -13,13 +13,13 @@ import { withWhiteboardMutationLock } from "./whiteboard-mutation-lock";
 
 /**
  * The reader-facing lifecycle: new -> viewed -> dismissed. It is a separate
- * axis from `status`, which tracks the agent handoff. A review carries both.
+ * axis from `status`, which tracks the agent handoff. A session carries both.
  *
  * Dismissal is reversible until the reaper deletes the review. Closing a review
  * tab is not dismissal and must never write these fields.
  */
 
-/** `null` turns reaping off: a dismissed review then waits forever. */
+/** `null` turns reaping off: a dismissed session then waits forever. */
 export type DismissedRetentionDays = number | null;
 
 const DAY_MS = 86_400_000;

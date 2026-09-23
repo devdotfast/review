@@ -46,7 +46,7 @@ export function WhiteboardCornerAction(): ReactElement | null {
     try {
       await dismissWhiteboard();
     } catch (error) {
-      console.error("Review action failed", error);
+      console.error("Whiteboard action failed", error);
       setFailed(true);
     } finally {
       setBusy(false);

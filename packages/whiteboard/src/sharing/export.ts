@@ -62,7 +62,7 @@ export async function exportShare(input: {
 
   if (target?.kind === "worktree")
     throw new SessionInputError(
-      "Pin this review to commits before sharing it.",
+      "Pin this session to commits before sharing it.",
     );
 
   documentSchema.parse(snapshot.document);
@@ -79,7 +79,7 @@ export async function exportShare(input: {
       totalBytes += bytes.byteLength;
 
       if (totalBytes > MAX_SHARE_BYTES)
-        throw new SessionInputError("Review exceeds the sharing limit.");
+        throw new SessionInputError("Session exceeds the sharing limit.");
       objects.set(id, Uint8Array.from(bytes));
     }
 

@@ -207,7 +207,7 @@ function validationRuntimeModuleSource(exportNames: readonly string[]): string {
   return [
     `const runtime = globalThis.${RUNTIME_GLOBAL};`,
     `if (!runtime) {`,
-    `  throw new Error("Review publish validation runtime is not installed.");`,
+    `  throw new Error("Whiteboard publish validation runtime is not installed.");`,
     `}`,
     // Names the curated runtime does not know become inert functions, so a new
     // doc-runtime export never fails the link or a module-scope call.

@@ -31,7 +31,7 @@ interface SoftwareMapSourceCheck {
   errors: string[];
 }
 
-// The one validation body behind `review map check` and the publish map-health
+// The one validation body behind `whiteboard map check` and the publish map-health
 // gate. Both callers run this exact function, so "healthy at check" and
 // "healthy at publish" cannot drift apart.
 export async function checkSoftwareMapSource(input: {
@@ -149,7 +149,7 @@ export async function loadPublishSoftwareMaps(input: {
 
     if (!read) {
       errors.push(
-        `No software map note at ${role} commit ${short}. Run \`review map open ${short}\`, author the map, then \`review map check ${short}\` and \`review map push\`.`,
+        `No software map note at ${role} commit ${short}. Run \`whiteboard map open ${short}\`, author the map, then \`whiteboard map check ${short}\` and \`whiteboard map push\`.`,
       );
       continue;
     }
@@ -178,7 +178,7 @@ export async function loadPublishSoftwareMaps(input: {
           canonicalizeModelImport(read.source)
       ) {
         errors.push(
-          `The ${role} software map scratch has unflushed changes. Run \`review map check ${commit.slice(0, 12)}\` first.`,
+          `The ${role} software map scratch has unflushed changes. Run \`whiteboard map check ${commit.slice(0, 12)}\` first.`,
         );
         continue;
       }
@@ -198,7 +198,7 @@ export async function loadPublishSoftwareMaps(input: {
 
     for (const error of check.errors) {
       errors.push(
-        `Software map at ${role} commit ${short} fails \`review map check\`: ${error}`,
+        `Software map at ${role} commit ${short} fails \`whiteboard map check\`: ${error}`,
       );
     }
 

@@ -44,7 +44,7 @@ export async function connectSessionApi(env = process.env) {
 
   if (!discovery)
     throw new Error(
-      "No Review Desktop server is ready. Run whiteboard app launch, or select a running headless server with --state-dir or DEV_WHITEBOARD_SERVER_DIR, then retry.",
+      "No Whiteboard server is ready. Run whiteboard app launch, or select a running headless server with --state-dir or DEV_WHITEBOARD_SERVER_DIR, then retry.",
     );
 
   return new SessionApiClient({

@@ -1,5 +1,5 @@
 // Developer-only telemetry sink. When DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG is `1`
-// or `true`, Review prints each event to stderr and sends nothing to PostHog.
+// or `true`, Whiteboard prints each event to stderr and sends nothing to PostHog.
 // The switch is an environment variable, not a CLI flag, because the CLI, the
 // local server, and the Desktop server host each build their own telemetry
 // instance, and most events reach the server process, not the CLI.

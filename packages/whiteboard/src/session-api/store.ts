@@ -105,7 +105,7 @@ export const commandSchema = z.strictObject({
         .boolean()
         .optional()
         .describe(
-          "Default true: return the existing review for pullRequestUrl. false creates a separate review.",
+          "Default true: return the existing session for pullRequestUrl. false creates a separate review.",
         ),
       /** The one scratchpad: no target, no pins; every reference names its own. */
       kind: z.literal("scratchpad").optional(),
@@ -987,7 +987,7 @@ export class SessionStore {
       if (receipt) {
         if (receipt.request === "null")
           throw new SessionInputError(
-            "This command's review was deleted.",
+            "This command's session was deleted.",
             404,
           );
 
@@ -1476,7 +1476,7 @@ export class SessionStore {
     const ownedBy = this.activity.heldByAnother(sessionId, leaseId);
 
     const note = [
-      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with session_get first), or pass reuseExisting:false to create a separate review.",
+      "Returned the existing session for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with session_get first), or pass reuseExisting:false to create a separate review.",
       headMoved &&
         "The PR head moved since this review's target was set, and the target was NOT changed: call session_set_target to move it, then repair the source references it reports.",
       ownedBy &&
@@ -1602,7 +1602,7 @@ export class SessionStore {
       (options.preserveCurrent &&
         options.preserveCurrent.sessionId !== sessionId)
     )
-      return Promise.reject(new Error("Import versions of one review only."));
+      return Promise.reject(new Error("Import versions of one session only."));
 
     const run = this.pending.then(async () => {
       this.activity.assertWrite(sessionId);

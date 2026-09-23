@@ -23,7 +23,7 @@
 //    cleans a message rather than a stack, so that branch is dropped and such a
 //    path is replaced whole. The `node_modules` branch is kept: a message can
 //    name a module usefully.
-//  - `cleanData`, upstream's object walker, is not ported. Review cleans two
+//  - `cleanData`, upstream's object walker, is not ported. Whiteboard cleans two
 //    known strings, so walking an arbitrary object is not needed, and not
 //    having it means there is no path by which an unreviewed property could be
 //    cleaned-and-forwarded.

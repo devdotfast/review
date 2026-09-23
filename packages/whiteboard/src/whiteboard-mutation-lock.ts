@@ -37,7 +37,7 @@ export class WhiteboardBusyError extends Error {
   constructor(whiteboardDir: string) {
     const sessionId = path.basename(whiteboardDir);
     super(
-      `Review ${sessionId} is busy. Retry after its current operation completes.`,
+      `Session ${sessionId} is busy. Retry after its current operation completes.`,
     );
     this.sessionId = sessionId;
   }
@@ -48,7 +48,7 @@ export function whiteboardBusyResponse(
 ): WhiteboardErrorResponse {
   return {
     ok: false,
-    code: "review_busy",
+    code: "session_busy",
     retryable: true,
     error: error.message,
   };

@@ -136,7 +136,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 			.getChannel(WHITEBOARD_DESKTOP_CHANNEL)
 			.call("getConnection")) as WhiteboardDesktopConnection;
 		if (connection?.version !== WHITEBOARD_DESKTOP_CONNECTION_VERSION) {
-			throw new Error(`Unsupported Review Desktop connection version: ${String(connection?.version)}.`);
+			throw new Error(`Unsupported Whiteboard connection version: ${String(connection?.version)}.`);
 		}
 		this.connection = connection;
 	}

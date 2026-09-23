@@ -15,7 +15,8 @@ export async function readSharingAuth(env: NodeJS.ProcessEnv = process.env) {
 
   const token = env.DEV_WHITEBOARD_SHARE_TOKEN.trim();
 
-  if (!token) throw new SessionInputError("DEV_WHITEBOARD_SHARE_TOKEN is empty.");
+  if (!token)
+    throw new SessionInputError("DEV_WHITEBOARD_SHARE_TOKEN is empty.");
   let url: URL;
 
   try {

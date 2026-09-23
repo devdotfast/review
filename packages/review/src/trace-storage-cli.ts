@@ -183,7 +183,7 @@ async function useHosted(
 
     if (!auth || auth.origin !== origin) {
       throw new TraceConfigurationError(
-        `Log in to ${origin} first: \`review login --origin ${origin}\`.`,
+        `Log in to ${origin} first: \`whiteboard login --origin ${origin}\`.`,
       );
     }
 

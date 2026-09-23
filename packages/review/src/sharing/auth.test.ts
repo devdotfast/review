@@ -35,7 +35,10 @@ it("uses explicit CI credentials without altering saved login and never silently
       readSharingAuth({ ...env, DEV_WHITEBOARD_SHARE_TOKEN: "" }),
     ).rejects.toThrow(/empty/);
     await expect(
-      readSharingAuth({ ...env, DEV_WHITEBOARD_SHARE_ORIGIN: "https://ci.test" }),
+      readSharingAuth({
+        ...env,
+        DEV_WHITEBOARD_SHARE_ORIGIN: "https://ci.test",
+      }),
     ).rejects.toThrow(/requires/);
     await expect(
       readSharingAuth({

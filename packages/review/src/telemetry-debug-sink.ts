@@ -14,7 +14,8 @@ export function createTelemetryDebugSink(
   env: NodeJS.ProcessEnv,
   output: NodeJS.WritableStream = process.stderr,
 ): ReviewTelemetryCaptureClient | undefined {
-  if (!isEnabledEnvValue(env.DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG)) return undefined;
+  if (!isEnabledEnvValue(env.DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG))
+    return undefined;
 
   return {
     enabled: true,

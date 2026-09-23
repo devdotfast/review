@@ -74,6 +74,10 @@ import {
 	IChatContextPickService,
 } from "../workbench/contrib/chat/browser/attachments/chatContextPickService.js";
 import { type IChatWidget, IChatWidgetService } from "../workbench/contrib/chat/browser/chat.js";
+import {
+	ChatOutputRendererService,
+	IChatOutputRendererService,
+} from "../workbench/contrib/chat/browser/chatOutputItemRenderer.js";
 import type { IChatEditorOptions } from "../workbench/contrib/chat/browser/widgetHosts/editor/chatEditor.js";
 import type { ChatAgentLocation } from "../workbench/contrib/chat/common/constants.js";
 import "../workbench/contrib/output/browser/output.contribution.js";
@@ -195,6 +199,9 @@ registerSingleton(IMarkerService, MarkerService, InstantiationType.Delayed);
 registerSingleton(IContextKeyService, ContextKeyService, InstantiationType.Delayed);
 registerSingleton(IChatContextPickService, ChatContextPickService, InstantiationType.Delayed);
 registerSingleton(IChatWidgetService, ReviewChatWidgetService, InstantiationType.Delayed);
+// The webview API bridge wires chat output renderers (a proposed API Review
+// does not enable); keep upstream's service so that bridge can construct.
+registerSingleton(IChatOutputRendererService, ChatOutputRendererService, InstantiationType.Delayed);
 registerSingleton(ITextResourceConfigurationService, TextResourceConfigurationService, InstantiationType.Delayed);
 registerSingleton(IDownloadService, DownloadService, InstantiationType.Delayed);
 registerSingleton(IOpenerService, OpenerService, InstantiationType.Delayed);
@@ -212,6 +219,7 @@ import "../workbench/contrib/codeActions/browser/codeActions.contribution.js";
 import "../workbench/contrib/codeEditor/browser/outline/documentSymbolsOutline.js";
 import "../workbench/contrib/codeEditor/browser/workbenchReferenceSearch.js";
 import "../workbench/contrib/commands/common/commands.contribution.js";
+import "../workbench/contrib/customEditor/browser/customEditor.contribution.js";
 import { IDebugService } from "../workbench/contrib/debug/common/debug.js";
 import { IDebugVisualizerService } from "../workbench/contrib/debug/common/debugVisualizers.js";
 import { NullDebugService, NullDebugVisualizerService } from "../workbench/contrib/debug/common/nullDebugService.js";
@@ -228,6 +236,7 @@ import "../workbench/contrib/speech/browser/speech.contribution.js";
 import "../workbench/contrib/themes/browser/themes.contribution.js";
 import "../workbench/contrib/webview/browser/webview.contribution.js";
 import "../workbench/contrib/webviewPanel/browser/webviewPanel.contribution.js";
+import "../workbench/contrib/webviewView/browser/webviewView.contribution.js";
 import "../workbench/contrib/workspace/browser/workspace.contribution.js";
 import "../workbench/services/outline/browser/outlineService.js";
 registerSingleton(IDebugService, NullDebugService, InstantiationType.Delayed);

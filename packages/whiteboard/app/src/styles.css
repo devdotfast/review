@@ -2295,7 +2295,7 @@ button {
   font-size: 12px;
 }
 
-.whiteboard-view-region--whiteboard {
+.whiteboard-view-region--review {
   overflow: auto;
 }
 
@@ -4215,7 +4215,7 @@ button {
   --whiteboard-page-top: 20px;
 }
 
-.whiteboard-view-region--whiteboard {
+.whiteboard-view-region--review {
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -4231,17 +4231,17 @@ button {
     calc(120px + var(--whiteboard-toc-tail, 0px));
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar {
+.whiteboard-view-region--review::-webkit-scrollbar {
   width: var(--whiteboard-scrollbar-size);
   background: transparent;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-track,
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-corner {
+.whiteboard-view-region--review::-webkit-scrollbar-track,
+.whiteboard-view-region--review::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb {
   min-height: 32px;
   border: 3px solid transparent;
   border-radius: 999px;
@@ -4249,17 +4249,17 @@ button {
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:hover {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb:hover {
   background: var(--whiteboard-scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:active {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb:active {
   background: var(--whiteboard-scrollbar-thumb-active);
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard.whiteboard-view-region--document-warning {
+.whiteboard-view-region--review.whiteboard-view-region--document-warning {
   padding-top: calc(var(--whiteboard-page-top) + 72px);
 }
 
@@ -5012,7 +5012,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 }
 
 @container whiteboard-content (max-width: 1080px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
@@ -5035,14 +5035,14 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 }
 
 @container whiteboard-content (max-width: 1180px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     gap: 0;
     padding: var(--whiteboard-page-top) 42px 120px;
   }
 }
 
 @container whiteboard-content (max-width: 1080px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     flex-direction: row;
     align-items: flex-start;
     justify-content: center;
@@ -5799,7 +5799,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
     padding: 0 4px;
   }
 
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     padding: 22px 8px calc(96px + var(--whiteboard-toc-tail, 0px));
   }
 

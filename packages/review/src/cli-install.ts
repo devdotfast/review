@@ -61,6 +61,7 @@ import {
   hasManagedSkillsToRemove,
   keptSkillNames,
   removeInstalledSkills,
+  removeReviewSkillsEverywhere,
   resolveInstalledSkills,
   runInstall,
   skillsDestRoot,
@@ -144,7 +145,9 @@ async function resolveAgentState(homeDir: string, env: NodeJS.ProcessEnv) {
     present: present.has(target),
     installed:
       target === "pi"
-        ? piInstalled
+        ? // Codex's old skills shared this root, so the file alone is not Pi.
+          piInstalled &&
+          (present.has("pi") || Boolean(stamp?.targets?.includes("pi")))
         : mcp.some(
             (item) =>
               item.target === target &&
@@ -352,6 +355,24 @@ export async function registerReviewMcp(
   }
 
   return output.join("");
+}
+
+/**
+ * Review manages its skills: Desktop removes its old copies at every startup,
+ * whatever the setup consent. Pi keeps its pointer while Pi is in use.
+ */
+export async function removeRetiredReviewSkills(
+  input: { homeDir?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<string[]> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const env = input.env ?? process.env;
+  const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+
+  const piManaged =
+    (stamp?.consent === "granted" && Boolean(stamp.targets?.includes("pi"))) ||
+    (await detectPresentAgents(homeDir)).has("pi");
+
+  return removeReviewSkillsEverywhere(homeDir, piManaged);
 }
 
 interface ApplyCliInstallInput {

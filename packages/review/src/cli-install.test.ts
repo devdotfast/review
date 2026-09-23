@@ -31,6 +31,7 @@ import {
   installReviewCommand,
   readCliInstallStamp,
   removeCliInstall,
+  removeRetiredReviewSkills,
   removeShellProfilePath,
   resolveCliInstallStatus,
   resolveInstalledReviewAgentStatus,
@@ -396,11 +397,23 @@ describe("skill and review command installation", () => {
     const shimPath = path.join(homeDir, ".local", "bin", "review");
     await writeFile(cliPath, "// test CLI\n");
 
-    await applyCliInstall({ packageRoot, targets: ["pi"], cliPath, homeDir, env });
+    await applyCliInstall({
+      packageRoot,
+      targets: ["pi"],
+      cliPath,
+      homeDir,
+      env,
+    });
     await removeCliInstall({ targets: [], shim: true, homeDir, env });
     expect(existsSync(shimPath)).toBe(false);
 
-    await applyCliInstall({ packageRoot, targets: ["codex"], cliPath, homeDir, env });
+    await applyCliInstall({
+      packageRoot,
+      targets: ["codex"],
+      cliPath,
+      homeDir,
+      env,
+    });
     expect(existsSync(shimPath)).toBe(false);
 
     await applyCliInstall({
@@ -413,7 +426,13 @@ describe("skill and review command installation", () => {
     });
     expect(existsSync(shimPath)).toBe(true);
 
-    await applyCliInstall({ packageRoot, targets: ["claude"], cliPath, homeDir, env });
+    await applyCliInstall({
+      packageRoot,
+      targets: ["claude"],
+      cliPath,
+      homeDir,
+      env,
+    });
     expect(existsSync(shimPath)).toBe(true);
   });
 
@@ -960,4 +979,45 @@ it("migrates legacy consent without targets using owned MCP skills only", async 
 
   for (const file of [claudeSkill, codexSkill])
     await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("removes old Review skills at startup even when setup was declined", async () => {
+  const homeDir = await temporaryHome("review-startup-cleanup-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    consent: "declined",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  } satisfies ReviewCliInstallStamp);
+
+  const claude = await seedManagedSkill(homeDir, ".claude");
+  const codex = await seedManagedSkill(homeDir, ".agents");
+  const trace = await seedManagedSkill(homeDir, ".agents", "trace-archaeology");
+
+  expect(await removeRetiredReviewSkills({ homeDir, env })).toHaveLength(3);
+
+  for (const file of [claude, codex, trace])
+    expect(existsSync(file)).toBe(false);
+});
+
+it("keeps Pi's pointer at startup while Pi is in use, and only then reports Pi", async () => {
+  const homeDir = await temporaryHome("review-startup-pi-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+  const pointer = await seedManagedSkill(homeDir, ".agents");
+
+  // An old Codex copy in the shared root is not a Pi install.
+  expect(
+    (await resolveInstalledReviewAgentStatus({ homeDir, env })).agents.find(
+      (agent) => agent.target === "pi",
+    )?.installed,
+  ).toBe(false);
+
+  await mkdir(path.join(homeDir, ".pi"));
+  await removeRetiredReviewSkills({ homeDir, env });
+  expect(existsSync(pointer)).toBe(true);
+  expect(
+    (await resolveInstalledReviewAgentStatus({ homeDir, env })).agents.find(
+      (agent) => agent.target === "pi",
+    )?.installed,
+  ).toBe(true);
 });

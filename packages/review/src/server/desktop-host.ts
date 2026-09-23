@@ -3,6 +3,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { removeRetiredReviewSkills } from "../cli-install";
 import { findReviewPackageRoot } from "../package-paths";
 import { openReviewProfile } from "../review-api/profile";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
@@ -88,6 +89,15 @@ export async function runDesktopHost(
     await local?.store.close();
     throw error;
   }
+
+  // Review manages its skills; old copies go at every start, whatever the
+  // setup consent.
+  void removeRetiredReviewSkills().catch((error) => {
+    const reason = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `[Review] Could not remove old Review skills: ${reason}\n`,
+    );
+  });
 
   process.stdout.write(
     `${JSON.stringify({ event: "ready", ...server.discovery, installationId })}\n`,

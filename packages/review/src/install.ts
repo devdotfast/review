@@ -355,6 +355,29 @@ async function removeInstalledSkillsUnlocked(
   return result;
 }
 
+/** Removes Review's own skill copies from every agent root, keeping Pi's pointer when asked. */
+export async function removeReviewSkillsEverywhere(
+  homeDir: string,
+  piManaged: boolean,
+): Promise<string[]> {
+  return withSkillInstallLock(homeDir, async () => {
+    const removed: string[] = [];
+
+    for (const root of new Set(
+      ALL_INSTALL_TARGETS.map((target) => skillsDestRoot(homeDir, target)),
+    )) {
+      const result = await removeManagedReviewSkills(
+        root,
+        keptSkillNames(root, homeDir, piManaged),
+      );
+
+      removed.push(...result.removed);
+    }
+
+    return removed;
+  });
+}
+
 export async function removeManagedReviewSkills(
   destRoot: string,
   keep: string[],

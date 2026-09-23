@@ -209,7 +209,7 @@ it("leaves a user's customized entry alone on update, reinstall, and uninstall",
   expect(await readFile(file, "utf8")).toBe(changed);
 });
 
-it("does not replace an existing foreign Review server or malformed settings", async () => {
+it("does not replace an existing foreign Whiteboard server or malformed settings", async () => {
   await mkdir(path.join(homeDir, ".codex"));
   const foreign = 'mcp_servers = { whiteboard = { command = "my-server" } }\n';
   await writeFile(path.join(homeDir, ".codex/config.toml"), foreign);

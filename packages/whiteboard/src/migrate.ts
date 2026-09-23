@@ -204,7 +204,7 @@ export async function runWhiteboardMigration(input: {
 
   human.write(
     [
-      `Review migration: ${count(stored.documents, "document")} checked;`,
+      `Whiteboard migration: ${count(stored.documents, "document")} checked;`,
       `${count(stored.droppedWhiteboards, "old Review")} dropped;`,
       `${count(stored.droppedLegacyPeekWhiteboards, "legacy-peek Review")} dropped;`,
       `${count(jj.migrated, "jj repository", "jj repositories")} converted;`,
@@ -218,7 +218,7 @@ export async function runWhiteboardMigration(input: {
   );
 
   for (const blocker of blockers) {
-    input.stderr.write(`Review migration blocker: ${blocker}\n`);
+    input.stderr.write(`Whiteboard migration blocker: ${blocker}\n`);
   }
 
   emitJsonEvent(input, {
@@ -394,7 +394,7 @@ export async function migrateJjWhiteboardRepositories(input: {
         force: input.force,
       });
       input.log?.(
-        `Converted jj Review repository ${whiteboardDir} to plain Git.`,
+        `Converted jj Session repository ${whiteboardDir} to plain Git.`,
       );
       result.migrated += 1;
     } catch (error) {

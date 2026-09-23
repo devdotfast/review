@@ -16,7 +16,7 @@ import { runWhiteboardInfo } from "./whiteboard-info";
 
 /**
  * The Review app's trace commands. It resolves `--review <uuid>` (or the
- * Review that owns the current checkout) against the Review store and hands
+ * Review that owns the current checkout) against the Session store and hands
  * the change range to the store-free read commands as a value.
  */
 
@@ -44,7 +44,7 @@ export async function resolveTraceWhiteboardScope(
   const review = await resolveTraceWhiteboard(cwd, sessionId);
 
   if (!review.repositoryPath || !review.pins)
-    throw new Error("Review repository is unavailable.");
+    throw new Error("Session repository is unavailable.");
 
   return {
     uuid: review.sessionId,

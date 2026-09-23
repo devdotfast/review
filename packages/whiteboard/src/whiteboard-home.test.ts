@@ -501,7 +501,7 @@ describe("review home", () => {
           worktreePath: invalid,
           lastPublishedAt: null,
           code: "MIGRATION_REQUIRED",
-          message: expect.stringContaining("review migrate apply"),
+          message: expect.stringContaining("whiteboard migrate apply"),
         },
         {
           whiteboardDir: incompatible,
@@ -510,7 +510,7 @@ describe("review home", () => {
           worktreePath: "/tmp/incompatible",
           lastPublishedAt: "2026-08-08T00:00:00.000Z",
           code: "MIGRATION_REQUIRED",
-          message: expect.stringContaining("review migrate apply"),
+          message: expect.stringContaining("whiteboard migrate apply"),
         },
       ]),
     );
@@ -524,7 +524,7 @@ describe("review home", () => {
     await writeFile(path.join(malformedDir, "review.json"), "ENOENT", "utf8");
 
     await expect(findWhiteboard("not-a-uuid")).rejects.toThrow(
-      "Review UUID is invalid: not-a-uuid",
+      "Session UUID is invalid: not-a-uuid",
     );
     await expect(
       findWhiteboard("11111111-1111-4111-8111-111111111111"),
@@ -670,7 +670,7 @@ describe("legacy records on read", () => {
     }
 
     await expect(findWhiteboardForRepair("not-a-uuid")).rejects.toThrow(
-      "Review UUID is invalid",
+      "Session UUID is invalid",
     );
     await expect(
       findWhiteboardForRepair("22222222-2222-4222-8222-222222222222"),

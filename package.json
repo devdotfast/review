@@ -2,7 +2,7 @@
   "name": "@dev.fast/whiteboard-workspace",
   "version": "0.0.0",
   "private": true,
-  "description": "Review Desktop monorepo",
+  "description": "Whiteboard Desktop monorepo",
   "license": "MIT",
   "scripts": {
     "dev": "WHITEBOARD_DESKTOP_DEV_FAST=1 pnpm desktop:build && pnpm desktop:run",

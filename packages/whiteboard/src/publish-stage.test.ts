@@ -145,10 +145,10 @@ describe("publish revision stage", () => {
       ).resolves.toBe("live\n");
       await expect(
         materializePublishRevision({ review, revision: ".." }),
-      ).rejects.toThrow("Review revision is invalid");
+      ).rejects.toThrow("Session revision is invalid");
       await expect(
         materializePublishRevision({ review, revision: "." }),
-      ).rejects.toThrow("Review revision is invalid");
+      ).rejects.toThrow("Session revision is invalid");
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });

@@ -325,10 +325,10 @@ describe("collectWhiteboardAnchors", () => {
           messages: [{ anchor, code: { text: "second" } }],
         },
       }),
-    ).toThrow('Review anchor id "a" has more than one authored content body.');
+    ).toThrow('Session anchor id "a" has more than one authored content body.');
     expect(() =>
       collectWhiteboardAnchors({ anchor, duplicate: { ...anchor } }),
-    ).toThrow('Review anchor id "a" is defined more than once.');
+    ).toThrow('Session anchor id "a" is defined more than once.');
   });
 });
 

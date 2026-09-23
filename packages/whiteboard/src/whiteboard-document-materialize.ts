@@ -371,7 +371,7 @@ export function collectWhiteboardAnchors(
 
         if (existing !== undefined && existing !== message.code.text) {
           throw new Error(
-            `Review anchor id "${message.anchor.id}" has more than one authored content body.`,
+            `Session anchor id "${message.anchor.id}" has more than one authored content body.`,
           );
         }
 
@@ -384,7 +384,7 @@ export function collectWhiteboardAnchors(
 
       if (existing && existing !== value) {
         throw new Error(
-          `Review anchor id "${value.id}" is defined more than once.`,
+          `Session anchor id "${value.id}" is defined more than once.`,
         );
       }
 

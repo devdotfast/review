@@ -189,7 +189,7 @@ export async function migrateStoredWhiteboardData(input: {
       total.documents += 1;
     } catch (error) {
       total.failedWhiteboardUuids?.push(entry.name);
-      const message = `${whiteboardDir}: current artifact migration failed: ${errorMessage(error)} Review preserved; retry review migrate apply after resolving the blocker.`;
+      const message = `${whiteboardDir}: current artifact migration failed: ${errorMessage(error)} Review preserved; retry whiteboard migrate apply after resolving the blocker.`;
       input.onBlocker?.(message);
       input.log?.(message);
     }
@@ -335,7 +335,7 @@ async function regeneratePresentedArtifacts(input: {
         JSON.stringify(input.original)
       ) {
         throw new Error(
-          "Review changed while preparing migration; rerun review migrate apply.",
+          "Session changed while preparing migration; rerun whiteboard migrate apply.",
         );
       }
 
@@ -443,7 +443,7 @@ async function regeneratePresentedArtifacts(input: {
 
           const revision = await sealWhiteboardCandidate(
             candidateDir,
-            "Migrate current Review document to JSON",
+            "Migrate current Session document to JSON",
           );
 
           newRevisions.push(revision);

@@ -624,7 +624,7 @@ it("authenticates clients, reports capabilities and readiness without exposing t
   expect(stopped.exitCode).toBe(1);
   expect(JSON.parse(stopped.output)).toMatchObject({ event: "error" });
   await expect(connectSessionApi(server.env)).rejects.toThrow(
-    /review server start/,
+    /whiteboard server start/,
   );
 });
 

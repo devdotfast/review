@@ -228,7 +228,7 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		const checksums = computeChecksums(out, [
 			'vs/base/parts/sandbox/electron-browser/preload.js',
 			'vs/whiteboard/whiteboard.desktop.main.js',
-			'vs/whiteboard/review.desktop.main.css',
+			'vs/whiteboard/whiteboard.desktop.main.css',
 			'vs/workbench/api/node/extensionHostProcess.js',
 			'vs/code/electron-browser/workbench/workbench.html',
 			'vs/code/electron-browser/workbench/workbench.js'

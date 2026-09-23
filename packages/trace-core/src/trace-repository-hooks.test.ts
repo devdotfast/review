@@ -134,7 +134,7 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-it("keeps a working repository hook executable when a second Review install refreshes it", async () => {
+it("keeps a working repository hook executable when a second Whiteboard install refreshes it", async () => {
   const { homeDir, repo } = await makeRepository();
   const desktop = path.join(homeDir, "desktop/review");
   const npm = path.join(homeDir, "npm/review");

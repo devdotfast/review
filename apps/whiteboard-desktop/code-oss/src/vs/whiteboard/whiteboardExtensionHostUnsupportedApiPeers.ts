@@ -8,7 +8,7 @@ import { MainContext } from '../workbench/api/common/extHost.protocol.js';
 import { extHostNamedCustomer, IExtHostContext } from '../workbench/services/extensions/common/extHostCustomers.js';
 
 function unavailable(api: string): Promise<never> {
-	return Promise.reject(new Error(`Review does not expose the ${api} API`));
+	return Promise.reject(new Error(`Whiteboard does not expose the ${api} API`));
 }
 
 @extHostNamedCustomer(MainContext.MainThreadAuthentication)

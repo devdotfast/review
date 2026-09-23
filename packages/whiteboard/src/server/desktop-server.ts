@@ -299,7 +299,7 @@ export function createGlobalWhiteboardServer(
     const stored = await tutorial.find();
 
     if (!stored) {
-      throw new WhiteboardServerError("Review not found.", 404);
+      throw new WhiteboardServerError("Session not found.", 404);
     }
 
     return globalJson(200, {
@@ -612,7 +612,7 @@ function listen(server: Server, port: number): Promise<number> {
       const address = server.address();
 
       if (!isTcpAddress(address)) {
-        reject(new Error("The Review server did not bind a TCP port."));
+        reject(new Error("The Whiteboard server did not bind a TCP port."));
 
         return;
       }

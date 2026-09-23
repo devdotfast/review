@@ -38,7 +38,7 @@ interface PendingWhiteboardTelemetryEvent {
 }
 
 /**
- * Reports Electron main-process telemetry through the embedded Review server.
+ * Reports Electron main-process telemetry through the embedded Whiteboard server.
  *
  * The upstream `ErrorTelemetry` already routes `uncaughtException` and
  * `unhandledRejection` into `onUnexpectedError`, so listening on the shared

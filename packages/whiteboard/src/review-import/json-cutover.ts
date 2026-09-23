@@ -107,7 +107,7 @@ export async function migrateJsonWhiteboards(input: {
           );
 
           if (review.uuid !== id)
-            throw new Error("Review directory and UUID disagree.");
+            throw new Error("Session directory and UUID disagree.");
           originals.push({ dir, review });
         } catch (error) {
           const reason = errorMessage(error);
@@ -242,7 +242,8 @@ export async function migrateJsonWhiteboards(input: {
     },
   );
 
-  if (!locked.acquired) throw new Error("Another Review migration is running.");
+  if (!locked.acquired)
+    throw new Error("Another Whiteboard migration is running.");
 
   return locked.result;
 }
@@ -287,7 +288,7 @@ export async function ensureJsonCutover(
 
   if (result.errors.length)
     throw new Error(
-      `Review migration could not finish. The original database is unchanged. Report: ${path.join(path.dirname(result.database), "report.json")}\n` +
+      `Whiteboard migration could not finish. The original database is unchanged. Report: ${path.join(path.dirname(result.database), "report.json")}\n` +
         result.errors
           .map((item) => `${item.sessionId}: ${item.reason}`)
           .join("\n"),

@@ -36,7 +36,7 @@ export async function materializePublishRevision(
   dependencies: { materialize?: typeof materializeWhiteboardRevision } = {},
 ): Promise<string> {
   if (!/^[0-9a-f]{40}$/i.test(input.revision)) {
-    throw new Error(`Review revision is invalid: ${input.revision}`);
+    throw new Error(`Session revision is invalid: ${input.revision}`);
   }
 
   const revision = input.revision.toLowerCase();
@@ -76,7 +76,7 @@ export async function materializePublishRevision(
     const record = await readPresentedWhiteboardRecord(temporaryPath);
 
     if (record.uuid !== input.review.review.uuid)
-      throw new Error("Sealed Review UUID does not match its store.");
+      throw new Error("Sealed Session UUID does not match its store.");
     await writeFile(
       path.join(temporaryPath, CACHE_MARKER),
       JSON.stringify({ format: "review-materialization/1", revision }),
@@ -103,7 +103,7 @@ export async function materializePublishRevision(
 
     if (!installed.acquired)
       throw new Error(
-        `Review cache for ${revision} is busy; retry opening it.`,
+        `Session cache for ${revision} is busy; retry opening it.`,
       );
 
     return destinationPath;

@@ -247,7 +247,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 		const outer = $(".content.whiteboard-canvas-container");
 		this.container = $(".whiteboard-canvas-host");
 		this.container.tabIndex = -1;
-		this.canvasMount = $(".review-canvas-surface");
+		this.canvasMount = $(".whiteboard-canvas-surface");
 		this.container.appendChild(this.canvasMount);
 		outer.append(this.container);
 		parent.appendChild(outer);
@@ -644,7 +644,7 @@ export class WhiteboardCanvasEditorPane extends EditorPane {
 		try {
 			return await this.loadInstallContent();
 		} catch (error) {
-			this.logService.warn("Review agent setup status failed", error);
+			this.logService.warn("Whiteboard agent setup status failed", error);
 			return undefined;
 		}
 	}
@@ -1147,7 +1147,7 @@ function loadStylesheet(document: Document, url: string): Promise<void> {
 		link.href = url;
 		link.dataset["whiteboardCanvasStylesheet"] = "true";
 		link.addEventListener("load", () => resolve(), { once: true });
-		link.addEventListener("error", () => reject(new Error(`Review canvas stylesheet failed: ${url}`)), { once: true });
+		link.addEventListener("error", () => reject(new Error(`Whiteboard canvas stylesheet failed: ${url}`)), { once: true });
 		document.head.appendChild(link);
 	});
 }

@@ -8,7 +8,7 @@ The product becomes Whiteboard; authored reviews become sessions. Plans, specs, 
 2. **Public interface.** Use one session tool catalog and one request/response model. Expose `whiteboard`, `/sessions-api`, and `session_*` tools. `--session` selects a Whiteboard session; `--agent-session` selects an agent conversation. Retired interfaces return migration instructions and do not execute requests.
 3. **Managed installations.** Apply the user's committed skill text exactly. Recognize old installation ownership so updates can replace managed skills and MCP registrations. Upgrade enabled agent and Git trace hooks before retiring the old command, preserve custom hooks and tracing configuration, and leave disabled tracing disabled.
 4. **Visible product names.** Update app titles, navigation, session labels, and theme display names.
-5. **Packaging and release references.** Publish the Whiteboard package and artifact names, update public repository references, and document the coordinated release steps.
+5. **Private naming, packaging, and release references.** Rename private workspace packages, source paths, types, and canvas namespaces; publish the Whiteboard package and artifact names, update public repository references, and document the coordinated release steps.
 
 These are review boundaries, not supported intermediate releases. Build and test each layer; release only the complete stack. No runtime dual vocabulary or per-handler translation layer is needed.
 
@@ -31,7 +31,7 @@ Upgrades must stop the old app/headless server before replacing its executable a
 
 ## Subsequent installation-identity stage
 
-Profile directory names, OS bundle/application IDs, Linux package identities, URL schemes, and updater channels are a separate upgrade stage. The current release preserves those identities so the existing updater and profile discovery keep working. Renaming them requires a tested transfer of existing profiles and an old-to-new signed update, not just string replacement. Source directory/private package renames can follow mechanically without changing persisted identity.
+Profile directory names, OS bundle/application IDs, Linux package identities, URL schemes, and updater channels are a separate upgrade stage. The current release preserves those identities so the existing updater and profile discovery keep working. Renaming them requires a tested transfer of existing profiles and an old-to-new signed update, not just string replacement. Private packages and source directories are renamed in this stack without changing those persisted identities.
 
 Old share formats and ownership markers remain recognized only where old data or installations enter the app. Existing domains, artwork, telemetry identities, and required CI check names need their own coordinated changes. References to code review remain valid descriptions of an activity.
 

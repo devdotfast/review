@@ -351,7 +351,7 @@ describe("runInstall", () => {
     expect(existsSync(path.join(retired(editedHome), "SKILL.md"))).toBe(true);
   });
 
-  it("installs bundled Review documentation with the dev-review skill", async () => {
+  it("installs bundled Session documentation with the dev-review skill", async () => {
     const packageRoot = await makePackageRoot();
     const sourceDocs = path.join(packageRoot, "skills", "dev-review", "docs");
     await mkdir(path.join(sourceDocs, "assets"), { recursive: true });

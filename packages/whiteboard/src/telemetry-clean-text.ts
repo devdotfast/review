@@ -8,7 +8,7 @@
 //    `removePropertiesWithPossibleUserInfo`)
 // Licensed under the MIT License, Copyright (c) Microsoft Corporation.
 //
-// It lives here rather than being imported because the local Review server and
+// It lives here rather than being imported because the local Whiteboard server and
 // the canvas both need it and neither can reach into the vendored VS Code tree.
 // Keep it a FAITHFUL copy: upstream comments and expressions are preserved
 // verbatim so a later reader can diff this file against upstream and see at a

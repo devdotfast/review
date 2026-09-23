@@ -27,7 +27,7 @@ const BASE_MAP_FILE = "base-map.json";
 const MANIFEST_FILE = "manifest.json";
 
 // Version 1 wrote ES modules (head-map.js / base-map.js). Version 2 writes
-// JSON; a version-1 bundle reads as null and `review migrate apply` converts it.
+// JSON; a version-1 bundle reads as null and `whiteboard migrate apply` converts it.
 const MANIFEST_VERSION = 2;
 
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;

@@ -847,7 +847,7 @@ describe("migrateStoredWhiteboardData", () => {
 
     const documentRevision = await sealWhiteboardCandidate(
       created.dir,
-      "Published Review document",
+      "Published Session document",
     );
 
     await writeLegacySoftwareMapBundle(created.dir, {
@@ -908,7 +908,7 @@ describe("migrateStoredWhiteboardData", () => {
 
     const documentRevision = await sealWhiteboardCandidate(
       created.dir,
-      "Published Review document",
+      "Published Session document",
     );
 
     const model = defineSoftwareMap({

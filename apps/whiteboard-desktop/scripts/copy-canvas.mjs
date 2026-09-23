@@ -62,7 +62,7 @@ export async function copyCanvas(targets = canvasTargets([])) {
       outputRoot === path.join(appDirectory, "code-oss/out");
 
     if (
-      relativeTarget !== path.join("vs", "review", "canvas") ||
+      relativeTarget !== path.join("vs", "whiteboard", "canvas") ||
       (!(await isDirectory(outputRoot)) && !isDevelopmentOutput)
     ) {
       throw new Error(

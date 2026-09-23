@@ -123,7 +123,7 @@ async function rollbackWhiteboardArtifactPromotion(input: {
   } catch (rollbackError) {
     throw new AggregateError(
       [input.error, rollbackError],
-      `Review rollback could not complete. Original review files remain in ${input.whiteboardDir} and ${backup}.`,
+      `Whiteboard rollback could not complete. Original session files remain in ${input.whiteboardDir} and ${backup}.`,
     );
   }
 

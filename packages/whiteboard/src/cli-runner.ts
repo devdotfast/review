@@ -308,7 +308,7 @@ export async function runWhiteboardCli(
           input.stdout.write(
             options.json
               ? `${JSON.stringify({ event: "server.ready", url, serverPid, stateDir })}\n`
-              : `Review server ready at ${url}\nSaved reviews: ${stateDir}\n`,
+              : `Whiteboard server ready at ${url}\nSaved sessions: ${stateDir}\n`,
           );
         },
       });
@@ -342,7 +342,7 @@ export async function runWhiteboardCli(
     input.stdout.write(
       options.json
         ? `${JSON.stringify({ event: "server.status", ready: true, url, serverPid, stateDir })}\n`
-        : `Review server ready at ${url}\nSaved reviews: ${stateDir}\n`,
+        : `Whiteboard server ready at ${url}\nSaved sessions: ${stateDir}\n`,
     );
   });
 

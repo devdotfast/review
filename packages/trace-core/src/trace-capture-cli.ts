@@ -34,7 +34,7 @@ import {
 
 /**
  * The writer's commands: capture switches, hook installation, and the
- * detached sync. Nothing here reads the Review store.
+ * detached sync. Nothing here reads the Session store.
  */
 
 export { runTraceGitHook, runTraceHook };

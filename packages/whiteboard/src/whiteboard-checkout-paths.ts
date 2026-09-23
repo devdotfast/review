@@ -11,13 +11,13 @@ export function legacyWhiteboardWorktreesDir(gitCommonDir: string): string {
 }
 
 /**
- * Root for Review-owned checkouts. A Review UUID identifies one subtree.
+ * Root for Review-owned checkouts. A Session UUID identifies one subtree.
  */
 export function whiteboardManagedCheckoutsDir(gitCommonDir: string): string {
   return path.join(devFastGitDir(gitCommonDir), "reviews");
 }
 
-/** Return the checkout subtree owned by one Review UUID. */
+/** Return the checkout subtree owned by one Session UUID. */
 export function whiteboardManagedCheckoutRoot(
   gitCommonDir: string,
   sessionId: string,
@@ -28,7 +28,7 @@ export function whiteboardManagedCheckoutRoot(
   );
 }
 
-/** A detached checkout owned by one Review revision and source role. */
+/** A detached checkout owned by one Session revision and source role. */
 export function whiteboardManagedCheckoutDir(
   gitCommonDir: string,
   sessionId: string,

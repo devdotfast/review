@@ -243,7 +243,7 @@ function prepareImport(source: SourceCandidate, log: (message: string) => void):
 	const profilesDir = path.join(source.userDir, 'profiles');
 	const defaultProfileOnly = existsSync(profilesDir);
 	if (defaultProfileOnly) {
-		log(`Review user-config import found profiles under ${profilesDir}; importing the default profile only.`);
+		log(`Whiteboard user-config import found profiles under ${profilesDir}; importing the default profile only.`);
 	}
 
 	const keymap = detectKeymap(source.extensionsDir);
@@ -333,7 +333,7 @@ export function importWhiteboardUserConfig(options: WhiteboardUserConfigImportOp
 	}
 
 	const written = writeImport(prepared, targetUserDir, options.now ?? (() => new Date()));
-	log(`Review imported VS Code settings and keybindings from ${source.userDir}.`);
+	log(`Whiteboard imported VS Code settings and keybindings from ${source.userDir}.`);
 	return {
 		status: 'imported',
 		source: source.userDir,

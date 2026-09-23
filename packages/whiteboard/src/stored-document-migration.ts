@@ -5,7 +5,7 @@ import { migrateDiffSelections } from "./diff-selection-migration.js";
 import { label } from "./session-api/blocks/definition.js";
 import { type Lens, lensTargetsSchema } from "./session-api/diff-lenses.js";
 
-/** Upgrade a saved or shared Review document to the current block schema at the
+/** Upgrade a saved or shared Session document to the current block schema at the
  * read/import boundary. New edits use the strict schema and never accept these
  * retired forms. */
 // This is the decoder boundary for stored documents in retired wire formats.

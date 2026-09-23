@@ -10,7 +10,7 @@ import { CancellationError, ErrorNoTelemetry } from "../../base/common/errors.js
  * the Electron main process.
  *
  * The raw name, message, and stack packed here travel only to the loopback
- * Review server on the same machine. That server replaces the message with a
+ * Whiteboard server on the same machine. That server replaces the message with a
  * digest and keeps only the stack frames that resolve inside the shipped
  * bundle; see packages/whiteboard/src/error-telemetry.ts. Nothing in
  * this file is ever sent to a vendor as it stands.

@@ -9,7 +9,7 @@ export interface WhiteboardTelemetryAuth {
 }
 
 /**
- * The POST every telemetry sender makes to a Review server `telemetry/event`
+ * The POST every telemetry sender makes to a Whiteboard server `telemetry/event`
  * endpoint; callers pick the URL and how the request is dispatched.
  */
 export function whiteboardTelemetryEventRequest(

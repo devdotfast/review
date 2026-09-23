@@ -80,7 +80,7 @@ describe("Review Desktop health discovery", () => {
         ),
       }),
     ).rejects.toThrow(
-      "Review Desktop is not ready. Run `review app launch`, then retry `review info`.",
+      "Whiteboard is not ready. Run `whiteboard app launch`, then retry `review info`.",
     );
   });
 });

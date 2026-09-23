@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 /**
- * The Review server runs in a utility process and announces the endpoint it
+ * The Whiteboard server runs in a utility process and announces the endpoint it
  * bound as a single newline-delimited JSON object on stdout. The main process
  * is the only party that knows the credentials it generated, so it validates
  * that announcement here before handing a connection to any renderer.
@@ -104,7 +104,7 @@ export class WhiteboardReadyEventReader {
     const version = event["version"];
     if (version !== WHITEBOARD_DESKTOP_CONNECTION_VERSION) {
       throw new Error(
-        `The Review server announced an unsupported discovery version: ${String(version)}.`,
+        `The Whiteboard server announced an unsupported discovery version: ${String(version)}.`,
       );
     }
     const url = event["url"];
@@ -148,12 +148,12 @@ function loopbackOrigin(value: string): string {
     url = new URL(value);
   } catch {
     throw new Error(
-      `The Review server must listen on http loopback, got ${value}.`,
+      `The Whiteboard server must listen on http loopback, got ${value}.`,
     );
   }
   if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port) {
     throw new Error(
-      `The Review server must listen on http loopback, got ${value}.`,
+      `The Whiteboard server must listen on http loopback, got ${value}.`,
     );
   }
   return url.origin;

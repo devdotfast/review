@@ -114,7 +114,7 @@ export const whiteboardVcs: WhiteboardVcs = {
         if (mode === 0o120000) {
           if (process.platform === "win32") {
             throw new Error(
-              "Review symlink materialization is unsupported on Windows.",
+              "Whiteboard symlink materialization is unsupported on Windows.",
             );
           }
 

@@ -587,7 +587,7 @@ class ImportUserConfigAction extends Action2 {
 				{ mode: 'apply' },
 			) as WhiteboardUserConfigImportResult;
 			if (result.status !== 'imported') {
-				throw new Error(`Unexpected Review user-config import result: ${result.status}`);
+				throw new Error(`Unexpected Whiteboard user-config import result: ${result.status}`);
 			}
 
 			const reload = await dialogService.confirm({

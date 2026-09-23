@@ -152,7 +152,7 @@ function rewriteRuntimeSpecifier(bundleCode: string): string {
   const specifier = JSON.stringify(RUNTIME_SPECIFIER);
 
   if (!bundleCode.includes(specifier)) {
-    throw new Error("Review document bundle has no runtime import.");
+    throw new Error("Session document bundle has no runtime import.");
   }
 
   return bundleCode

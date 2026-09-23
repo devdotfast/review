@@ -26,10 +26,10 @@ import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 
 /**
  * The repository-scoped read commands. A caller that knows a Review passes
- * its change range as a value; this file never opens the Review store.
+ * its change range as a value; this file never opens the Session store.
  */
 
-/** A Review's change range, resolved by the caller from the Review store. */
+/** A Review's change range, resolved by the caller from the Session store. */
 export interface TraceWhiteboardScope {
   uuid: string;
   repoRoot: string;

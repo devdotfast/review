@@ -424,7 +424,7 @@ export class WhiteboardWorkbench extends Disposable implements IAgentWorkbenchLa
 	private whiteboardTelemetryService: IWhiteboardTelemetryService | undefined;
 
 	/**
-	 * Send the error to the loopback Review server, which strips the message and
+	 * Send the error to the loopback Whiteboard server, which strips the message and
 	 * every stack frame outside the shipped bundle before anything leaves this
 	 * machine. Errors raised before `startup()` have no service to report
 	 * through and are dropped rather than buffered: buffering would hold raw

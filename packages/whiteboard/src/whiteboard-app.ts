@@ -56,7 +56,7 @@ export async function runWhiteboardAppPick(
     ...overrides,
   };
 
-  // Only `review app launch` may recover a stale or incompatible pointer; the
+  // Only `whiteboard app launch` may recover a stale or incompatible pointer; the
   // other verbs report the diagnosis rather than start a second Desktop. A null
   // read means nothing is running, which launching does fix.
   let launched = false;

@@ -329,7 +329,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			});
-			await this.requireOk(response, "Review install status");
+			await this.requireOk(response, "Whiteboard install status");
 			return parseWhiteboardCliInstallStatus(await response.json());
 		})().finally(() => {
 			this.cliInstallStatusPromise = undefined;
@@ -368,7 +368,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 					? detail.output
 					: typeof detail.error === "string"
 						? detail.error
-						: `Review install returned ${response.status}.`,
+						: `Whiteboard install returned ${response.status}.`,
 			);
 		}
 		return parseWhiteboardCliInstallApplyResponse(payload);
@@ -396,7 +396,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) {
-			throw new Error(`Review install remove returned ${response.status}.`);
+			throw new Error(`Whiteboard install remove returned ${response.status}.`);
 		}
 	}
 
@@ -420,7 +420,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (!response.ok) {
-			throw new Error(`Review install ${verb} returned ${response.status}.`);
+			throw new Error(`Whiteboard install ${verb} returned ${response.status}.`);
 		}
 	}
 

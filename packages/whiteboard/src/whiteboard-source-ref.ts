@@ -12,7 +12,7 @@ const SOURCE_HEAD_REF_REGEX = new RegExp(
 
 export function whiteboardSourceHeadRef(uuid: string): string {
   if (!UUID_REGEX.test(uuid)) {
-    throw new Error(`Review UUID is invalid: ${uuid}`);
+    throw new Error(`Session UUID is invalid: ${uuid}`);
   }
 
   return `refs/dev-fast/reviews/${uuid}/head`;
@@ -41,6 +41,6 @@ async function updateRef(
 
 function assertWhiteboardSourceHeadRef(targetRef: string): void {
   if (!SOURCE_HEAD_REF_REGEX.test(targetRef)) {
-    throw new Error(`Review source head ref is invalid: ${targetRef}`);
+    throw new Error(`Session source head ref is invalid: ${targetRef}`);
   }
 }

@@ -76,7 +76,7 @@ export function requiredPackagedArtifacts(packagedRoot) {
 
   const entries = [
     "out/vs/whiteboard/whiteboard.desktop.main.js",
-    "out/vs/whiteboard/review.desktop.main.css",
+    "out/vs/whiteboard/whiteboard.desktop.main.css",
     "out/vs/whiteboard/electron-utility/whiteboardDesktopHostMain.js",
     "out/vs/whiteboard/canvas/canvas-loader.js",
     ...REQUIRED_RUNTIME_ENTRIES.map((entry) =>
@@ -216,11 +216,11 @@ export async function stageWhiteboardDocs(
 
 export async function stageDiffrBinary(
   runtimeRoot,
-  source = path.join(monorepoRoot, "packages", "review", "bin", "diffr"),
+  source = path.join(monorepoRoot, "packages", "whiteboard", "bin", "diffr"),
 ) {
   if (!(await stat(source).catch(() => null))?.isFile()) {
     throw new Error(
-      `Missing ${source}. Run pnpm --filter @dev.fast/review ensure:diffr before packaging.`,
+      `Missing ${source}. Run pnpm --filter @dev.fast/whiteboard ensure:diffr before packaging.`,
     );
   }
 

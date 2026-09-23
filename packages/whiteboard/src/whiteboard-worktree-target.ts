@@ -142,7 +142,7 @@ export function resolveWhiteboardRepoRootFromStore(
 
   if (!fs.existsSync(resolvedWorktreePath)) {
     throw new Error(
-      `Review worktree ${resolvedWorktreePath} no longer exists.`,
+      `Whiteboard worktree ${resolvedWorktreePath} no longer exists.`,
     );
   }
 
@@ -165,7 +165,7 @@ export function readWhiteboardStoreRecord(
 
     return parsed.data;
   } catch {
-    throw new Error(`Review store ${storePath} has no readable review.json.`);
+    throw new Error(`Session store ${storePath} has no readable review.json.`);
   }
 }
 

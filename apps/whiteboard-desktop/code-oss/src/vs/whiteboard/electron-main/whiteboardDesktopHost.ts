@@ -24,7 +24,7 @@ import {
 } from "./whiteboardUpdateTelemetry.js";
 
 /**
- * Binds the embedded Review server's lifetime to the application's. All of the
+ * Binds the embedded Whiteboard server's lifetime to the application's. All of the
  * supervision logic lives in `WhiteboardServerSupervisor`, which holds no Electron
  * dependency so it stays testable; this class only supplies the platform.
  */

@@ -267,7 +267,7 @@ export function createSessionApi(
 
     if (store.read(id).version !== snapshot.version)
       throw new SessionInputError(
-        "Review changed during this update. Try again.",
+        "Session changed during this update. Try again.",
         409,
       );
     store.updateViewedCoverage(id, files, input.viewed);

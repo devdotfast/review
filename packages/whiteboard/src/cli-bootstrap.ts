@@ -46,7 +46,7 @@ export async function runCliBootstrap(entryUrl: string): Promise<number> {
   }
 
   // An Electron-as-Node runtime (the app's) is trusted as-is: it is the same
-  // runtime the Review server runs on. Only a system Node gets the floor check,
+  // runtime the Whiteboard server runs on. Only a system Node gets the floor check,
   // so an old `node` fails with an instruction instead of a syntax or
   // missing-builtin crash deeper in.
   function supportedNodeRuntime(): boolean {

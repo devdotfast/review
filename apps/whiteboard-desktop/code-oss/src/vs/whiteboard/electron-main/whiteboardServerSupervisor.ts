@@ -158,7 +158,7 @@ function resolveRustAnalyzerSource(options: {
 }
 
 /**
- * Owns the embedded Review server's lifetime: resolving its entry point,
+ * Owns the embedded Whiteboard server's lifetime: resolving its entry point,
  * minting its credentials, waiting for it to announce a validated endpoint, and
  * restarting it without moving that endpoint.
  */
@@ -261,7 +261,7 @@ export class WhiteboardServerSupervisor extends Disposable {
     let ready = false;
     this.processListeners.add(
       serverProcess.onStdout((value) => {
-        this.options.logInfo(`[Review server] ${value.trimEnd()}`);
+        this.options.logInfo(`[Whiteboard server] ${value.trimEnd()}`);
         if (ready) return;
         this.armReadyTimeout();
         let connection: WhiteboardDesktopConnection | undefined;
@@ -285,7 +285,7 @@ export class WhiteboardServerSupervisor extends Disposable {
     );
     this.processListeners.add(
       serverProcess.onStderr((value) =>
-        this.options.logError(`[Review server] ${value.trimEnd()}`),
+        this.options.logError(`[Whiteboard server] ${value.trimEnd()}`),
       ),
     );
 
@@ -365,7 +365,7 @@ export class WhiteboardServerSupervisor extends Disposable {
       if (epoch !== this.readyTimeoutEpoch || this.stopping || this.connected.isSettled) return;
       this.failStartup(
         new Error(
-          `The Review server did not become ready within ${this.readyTimeout}ms.`,
+          `The Whiteboard server did not become ready within ${this.readyTimeout}ms.`,
         ),
       );
     });

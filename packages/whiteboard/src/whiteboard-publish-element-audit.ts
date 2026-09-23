@@ -340,7 +340,7 @@ export function auditWhiteboardDocumentComponent(input: {
     tree = input.Component({ components: Object.fromEntries(components) });
   } catch (error) {
     input.reportError(
-      `Review document did not evaluate for validation: ${errorMessage(error)}`,
+      `Session document did not evaluate for validation: ${errorMessage(error)}`,
     );
 
     return null;

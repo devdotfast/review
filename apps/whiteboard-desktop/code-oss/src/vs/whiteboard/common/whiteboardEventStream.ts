@@ -103,7 +103,7 @@ class IncompleteEventSizeGuard {
   private assertWithinLimit(length: number): void {
     if (length <= this.maximum) return;
     throw new Error(
-      `Review event exceeded ${this.maximum} characters before its terminator.`,
+      `Whiteboard event exceeded ${this.maximum} characters before its terminator.`,
     );
   }
 }

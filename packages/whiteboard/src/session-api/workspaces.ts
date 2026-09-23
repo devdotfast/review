@@ -150,7 +150,7 @@ export class WhiteboardWorkspaces {
 
   private assertWhiteboard(id: string) {
     if (!this.hasWhiteboard(id))
-      throw new SessionInputError("Review not found.", 404);
+      throw new SessionInputError("Session not found.", 404);
   }
 
   async remove(sessionId: string) {

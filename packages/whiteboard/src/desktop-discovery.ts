@@ -21,7 +21,7 @@ export class WhiteboardDesktopProtocolMismatchError extends Error {
     readonly expectedVersion = WHITEBOARD_DESKTOP_DISCOVERY_VERSION,
   ) {
     super(
-      `Review Desktop uses protocol ${actualVersion}, but this Review CLI needs protocol ${expectedVersion}. Update Review and Review Desktop to compatible versions, then try again.`,
+      `Whiteboard uses protocol ${actualVersion}, but this Whiteboard CLI needs protocol ${expectedVersion}. Update Whiteboard CLI and Desktop to compatible versions, then try again.`,
     );
   }
 }
@@ -134,6 +134,6 @@ export async function requireHealthyWhiteboardDesktop(
 
   if (discovery) return discovery;
   throw new Error(
-    `Review Desktop is not ready. Run \`review app launch\`, then retry \`${retryCommand}\`.`,
+    `Whiteboard is not ready. Run \`whiteboard app launch\`, then retry \`${retryCommand}\`.`,
   );
 }

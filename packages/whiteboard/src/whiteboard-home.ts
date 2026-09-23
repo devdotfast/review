@@ -165,7 +165,7 @@ export async function createWhiteboardDir(
   const uuid = binding.uuid ?? createWhiteboardUuid();
 
   if (!UUID_PATTERN.test(uuid)) {
-    throw new Error(`Review UUID is invalid: ${uuid}`);
+    throw new Error(`Session UUID is invalid: ${uuid}`);
   }
 
   const dir = path.join(reviewsHomeDir(binding.reviewsHomePath), uuid);
@@ -254,7 +254,7 @@ export async function touchWhiteboardAgentSession(
   now = new Date().toISOString(),
 ): Promise<StoredWhiteboard> {
   if (!parseAuthoringSessionKey(sessionKey)) {
-    throw new Error(`Review agent session key is invalid: ${sessionKey}`);
+    throw new Error(`Agent session key is invalid: ${sessionKey}`);
   }
 
   const recordPath = path.join(review.dir, "review.json");
@@ -342,7 +342,7 @@ export async function findWhiteboardForRepair(
   devHome?: string,
 ): Promise<StoredWhiteboard | null> {
   if (!UUID_PATTERN.test(uuid))
-    throw new Error(`Review UUID is invalid: ${uuid}`);
+    throw new Error(`Session UUID is invalid: ${uuid}`);
   const dir = path.join(reviewsHomeDir(devHome), uuid);
   let value: JsonValue;
 
@@ -376,7 +376,7 @@ export async function findWhiteboardForRepair(
     throw new WhiteboardHomeScanError([
       whiteboardHomeError(dir, jsonObject(value), {
         code: "MIGRATION_REQUIRED",
-        message: `Invalid review.json; run \`review migrate apply\`: ${errorMessage(error)}`,
+        message: `Invalid review.json; run \`whiteboard migrate apply\`: ${errorMessage(error)}`,
       }),
     ]);
   }
@@ -437,7 +437,7 @@ async function findWhiteboardRecord(
   devHome?: string,
 ): Promise<StoredWhiteboard | null> {
   if (!UUID_PATTERN.test(uuid)) {
-    throw new Error(`Review UUID is invalid: ${uuid}`);
+    throw new Error(`Session UUID is invalid: ${uuid}`);
   }
 
   const loaded = await readStoredWhiteboard(
@@ -670,7 +670,7 @@ async function mkdirWhiteboardDir(dir: string): Promise<void> {
     await mkdir(dir, { recursive: false, mode: 0o700 });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
-      throw new Error(`Review directory already exists: ${dir}`);
+      throw new Error(`Session directory already exists: ${dir}`);
     }
 
     throw error;
@@ -722,7 +722,7 @@ export async function readStoredWhiteboard(
     if (!parsed.success) {
       return {
         error: whiteboardHomeError(dir, jsonObject(value), {
-          message: `Invalid review.json; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
+          message: `Invalid review.json; run \`whiteboard migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
           code: "MIGRATION_REQUIRED",
         }),
       };

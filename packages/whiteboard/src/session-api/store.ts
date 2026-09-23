@@ -729,7 +729,7 @@ export class SessionStore {
   /** The 404 check alone, without loading a snapshot. */
   assertExists(id: string) {
     if (!this.db.prepare("SELECT 1 FROM sessions WHERE id=?").get(id))
-      throw new SessionInputError("Review not found.", 404);
+      throw new SessionInputError("Session not found.", 404);
   }
   read(id: string, version?: number): Snapshot {
     const row =
@@ -745,7 +745,7 @@ export class SessionStore {
             )
             .get(id, version);
 
-    if (!row) throw new SessionInputError("Review or version not found.", 404);
+    if (!row) throw new SessionInputError("Session or version not found.", 404);
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
     const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
@@ -966,7 +966,7 @@ export class SessionStore {
     initial?: { document: Block[]; origin: SnapshotOrigin },
   ): Promise<Result> {
     if (this.closing)
-      return Promise.reject(new Error("Review store is closing."));
+      return Promise.reject(new Error("Session store is closing."));
     const command = commandSchema.parse(input);
 
     if (initial && command.operation.type !== "create")
@@ -1065,7 +1065,7 @@ export class SessionStore {
         : fromPullRequest;
 
       if (requestedTarget && !resolvedTarget)
-        throw new SessionInputError("Review targets are unavailable.");
+        throw new SessionInputError("Session targets are unavailable.");
 
       if (
         op.type === "create" &&
@@ -1544,7 +1544,7 @@ export class SessionStore {
 
     if ((current ? Number(current.version) : undefined) !== version)
       throw new SessionInputError(
-        "Review changed during validation. Reread it and retry the edit.",
+        "Session changed during validation. Reread it and retry the edit.",
         409,
       );
   }
@@ -1590,7 +1590,7 @@ export class SessionStore {
     options: { preserveCurrent?: Snapshot; revision?: string } = {},
   ): Promise<{ version: number; warnings: string[] }> {
     if (this.closing)
-      return Promise.reject(new Error("Review store is closing."));
+      return Promise.reject(new Error("Session store is closing."));
 
     const sessionId =
       inputs[0]?.sessionId ?? options.preserveCurrent?.sessionId;
@@ -1670,7 +1670,7 @@ export class SessionStore {
       // Keep all existing version numbers and element IDs stable.
       if (existing && options.preserveCurrent) {
         if (options.preserveCurrent.version !== Number(existing.version))
-          throw new SessionInputError("Review changed during migration.", 409);
+          throw new SessionInputError("Session changed during migration.", 409);
 
         const document = documentSchema.parse(
           migrateStoredDocument(options.preserveCurrent.document),

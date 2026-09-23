@@ -402,7 +402,7 @@ async function applyCliInstallUnlocked(
       chunks.push(
         input.shim === true
           ? "This server has no built CLI to install the command from.\n"
-          : "Review did not install the review command because this server has no built CLI. The skills were installed.\n",
+          : "Whiteboard did not install the whiteboard command because this server has no built CLI. The skills were installed.\n",
       );
 
       if (input.shim === true) {
@@ -671,7 +671,7 @@ async function removeCliInstallUnlocked(
 
     if (kept.length || Object.values(remaining).some(Boolean)) {
       chunks.push(
-        "[skip] kept trace capture for another Review installation\n",
+        "[skip] kept trace capture for another Whiteboard installation\n",
       );
     } else {
       await disableTraceMachine({ homeDir, env });

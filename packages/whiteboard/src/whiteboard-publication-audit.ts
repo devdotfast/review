@@ -127,7 +127,7 @@ export async function evaluateWhiteboardDocumentForPublish(
   // references publishes without touching a pinned worktree.
   const evidence = () => {
     if (!input.prepareEvidence) {
-      throw new Error("Review source preparation is unavailable.");
+      throw new Error("Session source preparation is unavailable.");
     }
 
     return (evidencePromise ??= input.prepareEvidence());
@@ -297,7 +297,7 @@ export async function evaluateWhiteboardDocumentForPublish(
           failures.push(...assembled.errors);
         }
       } catch (error) {
-        failures.push(`Review document data: ${errorMessage(error)}`);
+        failures.push(`Session document data: ${errorMessage(error)}`);
       }
     }
   }
@@ -477,7 +477,7 @@ function assembleWhiteboardDocument(input: {
     : {
         errors: parsed.error.issues.map(
           (issue) =>
-            `Review document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
+            `Session document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
         ),
       };
 }
@@ -560,7 +560,7 @@ function validationRuntimeExports(input: {
     },
     createActiveWhiteboardDocument: (document: PublishDocumentInput) => {
       if (!isPublishAuditComponent(document.Component)) {
-        throw new Error("Review document has no component export.");
+        throw new Error("Session document has no component export.");
       }
 
       const audit = auditWhiteboardDocumentComponent({

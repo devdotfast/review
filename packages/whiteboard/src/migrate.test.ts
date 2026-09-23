@@ -42,7 +42,7 @@ type TestRunProcess = (input: {
 
 afterEach(cleanupTempDirs);
 
-describe("review migrate apply", () => {
+describe("whiteboard migrate apply", () => {
   it("leaves retired draft MDX untouched without reporting authoring blockers", async () => {
     const { whiteboardHome, whiteboardDir } = await canonicalWhiteboard();
 
@@ -351,12 +351,12 @@ describe("review migrate apply", () => {
     expect(code).toBe(1);
     expect(io.out.join("")).toContain("1 old Review dropped");
     expect(io.err.join("")).toContain(
-      "Review migration blocker: one legacy Review could not migrate",
+      "Whiteboard migration blocker: one legacy Review could not migrate",
     );
   });
 });
 
-describe("jj Review repository migration", () => {
+describe("jj Session repository migration", () => {
   it("preserves current pointers and every private historical commit for colocated jj reviews", async () => {
     const { whiteboardHome, whiteboardDir } = await canonicalWhiteboard();
 

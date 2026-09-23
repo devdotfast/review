@@ -146,7 +146,7 @@ export async function enableTraceRepository(input: {
     managedHooksPath: hooksPath,
     previousHooksPath,
     command: whiteboardCommand,
-    message: "Review trace hooks are enabled for this repository.",
+    message: "Whiteboard trace hooks are enabled for this repository.",
   };
 }
 
@@ -180,7 +180,7 @@ export async function disableTraceRepository(input: {
       repository: true,
       enabled: false,
       root: resolved.root,
-      message: "Review trace hooks are not enabled for this repository.",
+      message: "Whiteboard trace hooks are not enabled for this repository.",
     };
   }
 
@@ -213,7 +213,7 @@ export async function disableTraceRepository(input: {
     repository: true,
     enabled: false,
     root: resolved.root,
-    message: "Review trace hooks are disabled for this repository.",
+    message: "Whiteboard trace hooks are disabled for this repository.",
   };
 }
 
@@ -246,8 +246,8 @@ export async function traceRepositoryStatus(
     enabled,
     root: resolved.root,
     message: enabled
-      ? "Review trace hooks are enabled for this repository."
-      : "Review trace hooks are not enabled for this repository.",
+      ? "Whiteboard trace hooks are enabled for this repository."
+      : "Whiteboard trace hooks are not enabled for this repository.",
   };
 
   if (state) {

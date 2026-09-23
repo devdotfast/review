@@ -135,6 +135,7 @@ exports.activate = function (context) {
             line: active.selection.active.line,
             character: active.selection.active.character,
           },
+          workspace: vscode.workspace.workspaceFile?.toString(),
           roots: (vscode.workspace.workspaceFolders ?? []).map((folder) =>
             folder.uri.toString(),
           ),

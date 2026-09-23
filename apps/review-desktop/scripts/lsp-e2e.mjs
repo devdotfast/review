@@ -515,16 +515,7 @@ async function navigatorPage(sourceUri) {
     "POST",
   );
 
-  const workspaceFile = JSON.parse(
-    await readFile(destination.workspacePath, "utf8"),
-  );
-
-  const folder = pathToFileURL(
-    path.resolve(
-      path.dirname(destination.workspacePath),
-      workspaceFile.folders[0].path,
-    ),
-  ).href;
+  const workspaceUri = pathToFileURL(destination.workspacePath).href;
 
   const targetPage = await until(async () => {
     for (const candidate of browser
@@ -534,7 +525,7 @@ async function navigatorPage(sourceUri) {
         continue;
       const state = await probe({}, candidate);
 
-      if (state.roots.includes(folder)) return candidate;
+      if (state.workspace === workspaceUri) return candidate;
     }
 
     return false;

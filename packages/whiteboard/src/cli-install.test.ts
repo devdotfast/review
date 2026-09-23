@@ -20,7 +20,10 @@ import {
   traceScope,
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
-import type { WhiteboardCliInstallStamp } from "@dev.fast/whiteboard-protocol";
+import {
+  type WhiteboardCliInstallStamp,
+  whiteboardCliInstallResyncRequest,
+} from "@dev.fast/whiteboard-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -396,7 +399,7 @@ describe("skill and review command installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: ["codex"],
+      targets: ["pi"],
       cliPath,
       homeDir,
       env,
@@ -414,10 +417,10 @@ describe("skill and review command installation", () => {
     );
     expect(
       await readFile(
-        path.join(homeDir, ".agents", "skills", "dev-review", "SKILL.md"),
+        path.join(homeDir, ".agents", "skills", "whiteboard", "SKILL.md"),
         "utf8",
       ),
-    ).toContain("name: dev-review");
+    ).toContain("name: whiteboard");
     await rm(cliInstallStampPath(env), { force: true });
     const status = await resolveCliInstallStatus({ packageRoot, homeDir, env });
     expect(status.shim).toMatchObject({
@@ -460,7 +463,7 @@ describe("skill and review command installation", () => {
     });
 
     expect(applied.code).toBe(0);
-    expect(applied.output).toContain("The skills were installed");
+    expect(applied.output).toContain("Agent setup completed");
   });
 
   it("fails when an explicit shim has no CLI", async () => {
@@ -574,6 +577,10 @@ describe("resolveInstalledWhiteboardAgentStatus", () => {
       path.join(homeDir, ".claude", "skills", "dev-review", "SKILL.md"),
       "---\nname: dev-review\n---\n",
     );
+    await writeFile(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { whiteboard: { command: "custom-whiteboard" } } }),
+    );
     const executable = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> "$AGENT_PROBE_LOG"\nexit 1\n`;
     await Promise.all(
       ["claude", "codex"].map((name) =>
@@ -601,6 +608,118 @@ describe("resolveInstalledWhiteboardAgentStatus", () => {
     await expect(readFile(probeLog, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+});
+
+async function seedManagedSkill(
+  homeDir: string,
+  root: string,
+  name = "dev-review",
+) {
+  const file = path.join(homeDir, root, "skills", name, "SKILL.md");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(
+    file,
+    `---\nname: ${name}\ndescription: managed\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "generated"\n  review-version: "1.0.0"\n---\n`,
+  );
+
+  return file;
+}
+
+describe("legacy skill cleanup", () => {
+  it("removes owned legacy skills on resync without changing MCP readiness", async () => {
+    const homeDir = await temporaryHome("whiteboard-skill-migration-");
+    const env = profileEnvironment(homeDir, "/bin/sh");
+    const input = {
+      packageRoot,
+      homeDir,
+      env,
+      cliPath: path.join(packageRoot, "dist/whiteboard-cli.js"),
+      shim: false,
+      targets: ["claude"] as const,
+    };
+
+    expect((await applyCliInstall({ ...input, targets: [...input.targets] })).code).toBe(0);
+    const skill = await seedManagedSkill(homeDir, ".claude");
+    const before = await resolveCliInstallStatus(input);
+    expect(before.stale).toBe(true);
+    expect(before.agents.find((agent) => agent.target === "claude")?.installed).toBe(true);
+
+    expect(
+      (
+        await applyCliInstall({
+          ...input,
+          targets: [...input.targets],
+          autoUpdate: true,
+        })
+      ).code,
+    ).toBe(0);
+    expect((await resolveCliInstallStatus(input)).stale).toBe(false);
+    await expect(readFile(skill)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves the Pi skill while connecting and removing Codex", async () => {
+    const homeDir = await temporaryHome("whiteboard-pi-codex-");
+    const env = profileEnvironment(homeDir, "/bin/sh");
+    const input = {
+      packageRoot,
+      homeDir,
+      env,
+      cliPath: path.join(packageRoot, "dist/whiteboard-cli.js"),
+      shim: false,
+    };
+
+    expect((await applyCliInstall({ ...input, targets: ["pi"] })).code).toBe(0);
+    const file = path.join(homeDir, ".agents/skills/whiteboard/SKILL.md");
+    const initial = await readFile(file, "utf8");
+    expect((await applyCliInstall({ ...input, targets: ["codex"] })).code).toBe(0);
+    expect(await readFile(file, "utf8")).toBe(initial);
+    expect((await resolveCliInstallStatus(input)).stale).toBe(false);
+    await removeCliInstall({ ...input, targets: ["codex"] });
+    expect(await readFile(file, "utf8")).toBe(initial);
+    expect((await resolveCliInstallStatus(input)).stamp?.targets).toEqual(["pi"]);
+    await removeCliInstall({ ...input, targets: ["pi"] });
+    await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("migrates old consent from managed skills without treating them as connected agents", async () => {
+    const homeDir = await temporaryHome("whiteboard-legacy-consent-");
+    const env = profileEnvironment(homeDir, "/bin/sh");
+    const input = {
+      packageRoot,
+      homeDir,
+      env,
+      cliPath: path.join(packageRoot, "dist/whiteboard-cli.js"),
+      shim: false,
+    };
+    const claudeSkill = await seedManagedSkill(homeDir, ".claude");
+    const codexSkill = await seedManagedSkill(homeDir, ".agents");
+    await writePrivateJsonAtomic(cliInstallStampPath(env), {
+      consent: "granted",
+      updatedAt: new Date().toISOString(),
+    });
+
+    const before = await resolveCliInstallStatus(input);
+    expect(before.stale).toBe(true);
+    expect(before.agents.find((agent) => agent.target === "claude")?.installed).toBe(false);
+    expect(
+      [...(whiteboardCliInstallResyncRequest(before)?.targets ?? [])].sort(),
+    ).toEqual(["claude", "codex"]);
+
+    expect(
+      (
+        await applyCliInstall({
+          ...input,
+          targets: [],
+          autoUpdate: true,
+        })
+      ).code,
+    ).toBe(0);
+    const after = await resolveCliInstallStatus(input);
+    expect(after.stale).toBe(false);
+    expect(after.stamp?.targets?.sort()).toEqual(["claude", "codex"]);
+    for (const file of [claudeSkill, codexSkill])
+      await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

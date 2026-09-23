@@ -33,7 +33,6 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
-import { syncScratchpadSkills } from "../install";
 import { legacyWhiteboardApi } from "../legacy-rename.js";
 import { readWhiteboardPackageVersion } from "../package-paths";
 import { SessionInputError } from "../session-api/document.js";
@@ -223,8 +222,7 @@ export function createGlobalWhiteboardServer(
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );
-  // Turning the pad on or off also installs or removes its skill for every
-  // agent already set up, as trace capture does with its own skill.
+  // Home watches the catalog; the pad appears or goes without a store write.
   app.put("/preferences/scratchpad", async (context) => {
     const request = z
       .object({ enabled: z.boolean() })
@@ -234,12 +232,6 @@ export function createGlobalWhiteboardServer(
       throw new WhiteboardServerError("enabled must be a boolean.", 400);
 
     scratchpadEnabled = await writeScratchpadEnabled(request.data.enabled);
-    await syncScratchpadSkills({
-      enabled: scratchpadEnabled,
-      packageRoot: input.packageRoot,
-    });
-
-    // Home watches the catalog; the pad appears or goes without a store write.
     if (scratchpadEnabled) await whiteboardStore.ensureScratchpad();
     whiteboardStore.invalidateCatalog();
 

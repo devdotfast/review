@@ -1,4 +1,4 @@
-import { type JsonValue, isJsonObject } from "@dev.fast/json";
+import { type JsonValue, isJsonObject, isStringValue } from "@dev.fast/json";
 
 import {
   type AuthoringTool,
@@ -7,9 +7,37 @@ import {
 } from "./agent-client.js";
 import type { ReviewApiClient } from "./client.js";
 
+function publicDescription(text: string): string {
+  return text
+    .replace(/\breview_(\w+)/g, "session_$1")
+    .replace(/\breviewId\b/g, "sessionId")
+    .replace(/\bReview\b/g, "Whiteboard")
+    .replace("The result carries review,", "The result carries session,");
+}
+
+/** Rewrite schema prose without changing property names, enum values or examples. */
+function translateSchemaDescriptions(value: JsonValue): void {
+  if (Array.isArray(value)) {
+    value.forEach(translateSchemaDescriptions);
+
+    return;
+  }
+
+  if (!isJsonObject(value)) return;
+
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "description" && isStringValue(item))
+      value[key] = publicDescription(item);
+    else if (!["examples", "default", "const", "enum"].includes(key))
+      translateSchemaDescriptions(item);
+  }
+}
+
 /** Public vocabulary belongs to the agent boundary, not stored documents. */
 export function publicTool(tool: AuthoringTool): AuthoringTool {
-  const inputSchema = { ...tool.inputSchema };
+  const inputSchema = structuredClone(tool.inputSchema);
+
+  if (isJsonObject(inputSchema)) translateSchemaDescriptions(inputSchema);
 
   inputSchema.properties = Object.fromEntries(
     Object.entries(inputSchema.properties ?? {}).map(([key, value]) => [
@@ -26,10 +54,7 @@ export function publicTool(tool: AuthoringTool): AuthoringTool {
   return {
     ...tool,
     name: tool.name.replace(/^review_/, "session_"),
-    description: tool.description
-      .replace(/\breview_(\w+)/g, "session_$1")
-      .replace(/\breviewId\b/g, "sessionId")
-      .replace(/\bReview\b/g, "Whiteboard"),
+    description: publicDescription(tool.description),
     inputSchema,
   };
 }

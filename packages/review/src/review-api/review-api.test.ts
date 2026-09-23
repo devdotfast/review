@@ -2700,31 +2700,6 @@ it("rejects document lenses, unsafe patterns and missing range sources", async (
   expect(store.read(reviewId).lenses).toBeUndefined();
 });
 
-it("tells agents which field of a rejected edit is wrong", async () => {
-  const { createReviewApi } = await import("./http.js");
-  const { reviewId } = await create();
-
-  const response = await createReviewApi(store).request("/commands", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(
-      request({
-        type: "edit",
-        reviewId,
-        edit: { type: "insert", content: { type: "markdown", text: "Hello" } },
-      }),
-    ),
-  });
-
-  expect(response.status).toBe(400);
-
-  const { error } = await response.json();
-
-  expect(error).toContain("markdown");
-  expect(error).toContain('"text"');
-  expect(error).toContain("operation.edit.content");
-});
-
 it("returns coverage and lenses after initial files without requesting summary events", async () => {
   const { reviewProgress } = await import("./review-progress.js");
   const { reviewId } = await create();

@@ -952,8 +952,8 @@ export function createReviewApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
-        `Review ID: ${snapshot.reviewId}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from Whiteboard: ${snapshot.title}`,
+        `Session ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
@@ -970,11 +970,11 @@ export function createReviewApi(
         ...(snapshot.pins
           ? [
               `Repository ID: ${snapshot.pins.repositoryId}`,
-              `Review base: ${snapshot.pins.base}`,
-              `Review head: ${snapshot.pins.head}`,
+              `Session base: ${snapshot.pins.base}`,
+              `Session head: ${snapshot.pins.head}`,
             ]
           : []),
-        `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+        `Read this version with session_get({"sessionId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
         "",

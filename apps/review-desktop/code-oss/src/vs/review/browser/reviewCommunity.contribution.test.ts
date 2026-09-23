@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { IConfirmation, IConfirmationResult } from '../../platform/dialogs/common/dialogs.js';
+import { REVIEW_DISCORD_URL } from '../common/reviewProtocol.js';
 import { setFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { DISMISSED_KEY, ReviewCommunityContribution } from './reviewCommunity.contribution.js';
 
@@ -19,7 +20,7 @@ function setup(answer: Promise<IConfirmationResult>, reviews: Array<{ kind?: "sc
 	const opened: unknown[] = [];
 	const invite = () => new ReviewCommunityContribution(
 		{ confirm: (confirmation: IConfirmation) => { asked.push(confirmation); return answer; } } as never,
-		{ getBoolean: () => dismissed, store: (key: string, value: unknown) => stored.push({ key, value }) } as never,
+		{ getBoolean: () => dismissed, store: (key: string, value: unknown) => { stored.push({ key, value }); dismissed = Boolean(value); } } as never,
 		{ open: async (target: unknown) => { opened.push(target); return true; } } as never,
 		catalog as never,
 	);
@@ -35,15 +36,20 @@ test('skips the invitation when the first-run seeding reload is pending', async 
 	assert.deepEqual(stored, []);
 });
 
-test('records "Don\'t show again" once the seeding reload is settled', async () => {
-	setFirstRunReloadPending(false);
-	const { asked, stored, opened, invite } = setup(Promise.resolve({ confirmed: false, checkboxChecked: true }));
-	invite();
-	await settle();
-	assert.equal(asked.length, 1);
-	assert.deepEqual(stored, [{ key: DISMISSED_KEY, value: true }]);
-	assert.deepEqual(opened, []);
-});
+for (const confirmed of [false, true]) {
+	test(`permanently dismisses the invitation after ${confirmed ? 'joining' : 'declining'}`, async () => {
+		setFirstRunReloadPending(false);
+		const { asked, stored, opened, invite } = setup(Promise.resolve({ confirmed }));
+		invite();
+		await settle();
+		assert.equal(asked.length, 1);
+		assert.deepEqual(stored, [{ key: DISMISSED_KEY, value: true }]);
+		assert.deepEqual(opened, confirmed ? [REVIEW_DISCORD_URL] : []);
+		invite();
+		await settle();
+		assert.equal(asked.length, 1, 'subsequent launches must not ask again');
+	});
+}
 
 for (const reviews of [[], [{}], [{}, { kind: "scratchpad" as const }]]) {
 	test(`skips the invitation with fewer than two reviews: ${JSON.stringify(reviews)}`, async () => {

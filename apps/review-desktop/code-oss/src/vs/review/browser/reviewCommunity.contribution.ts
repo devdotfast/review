@@ -45,11 +45,8 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 			detail: 'Meet the team, ask questions, and share feedback in the /dev/fast Discord. You can also join anytime using the Discord link next to Report a bug.',
 			primaryButton: 'Join Discord',
 			cancelButton: 'Not now',
-			checkbox: { label: "Don't show again" },
 		});
-		if (result.confirmed || result.checkboxChecked) {
-			storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
-		}
+		storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		if (result.confirmed) {
 			await openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
 		}

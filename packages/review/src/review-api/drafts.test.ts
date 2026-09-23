@@ -67,7 +67,7 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
-it("keeps a new draft out of the catalog and commits one recursively completed snapshot with durable retries", async () => {
+it("keeps a new draft out of the catalog and commits one snapshot with durable retries", async () => {
   const notified: string[] = [];
   const unsubscribe = a.subscribe((result) => notified.push(result.reviewId));
   const d = await draft(a);
@@ -80,7 +80,6 @@ it("keeps a new draft out of the catalog and commits one recursively completed s
       {
         type: "section",
         title: "Outer",
-        status: "pending",
         children: [
           {
             type: "section",
@@ -103,7 +102,7 @@ it("keeps a new draft out of the catalog and commits one recursively completed s
   unsubscribe();
   expect(b.history(d.reviewId)).toHaveLength(1);
   expect(b.read(d.reviewId).document).toMatchObject([
-    { status: "complete", children: [{ status: "complete" }] },
+    { title: "Outer", children: [{ title: "Inner" }] },
   ]);
   await a.close();
   a = new ReviewStore(database, providers);
@@ -115,6 +114,73 @@ it("keeps a new draft out of the catalog and commits one recursively completed s
   await expect(
     a.executeDraft({ ...request, draftId: randomUUID() }),
   ).rejects.toMatchObject({ status: 409 });
+});
+
+it("begins and commits a draft from a review saved with the retired section status, and rejects status in draft writes", async () => {
+  const { reviewId } = await a.execute(
+    command({ type: "create", title: "Saved", pins }),
+  );
+
+  await a.execute(
+    command({
+      type: "edit",
+      reviewId,
+      edit: {
+        type: "insert",
+        content: { type: "section", title: "Old", children: [] },
+      },
+    }),
+  );
+  await a.close();
+  await b.close();
+  const db = new DatabaseSync(database);
+  db.prepare(
+    `UPDATE versions SET snapshot=json_set(snapshot,'$.document[0].status','complete') WHERE review_id=?`,
+  ).run(reviewId);
+  db.close();
+  a = new ReviewStore(database, providers);
+  b = new ReviewStore(database, providers);
+
+  const d = await draft(a, reviewId);
+  expect(d.document).toEqual([
+    expect.not.objectContaining({ status: expect.anything() }),
+  ]);
+  const sectionId = d.document[0]!.id;
+
+  await expect(
+    a.executeDraft({
+      type: "edit",
+      draftId: d.draftId,
+      edit: {
+        type: "update",
+        targetId: sectionId,
+        changes: { status: "complete" },
+      },
+    }),
+  ).rejects.toThrow(/Unrecognized key/);
+  await expect(async () =>
+    a.executeDraft({
+      type: "write",
+      draftId: d.draftId,
+      document: [
+        { type: "section", title: "New", status: "pending", children: [] },
+      ],
+    }),
+  ).rejects.toThrow(/Unrecognized key/);
+
+  await a.executeDraft({
+    type: "edit",
+    draftId: d.draftId,
+    edit: {
+      type: "update",
+      targetId: sectionId,
+      changes: { title: "Revised" },
+    },
+  });
+  await a.executeDraft(commit(d));
+  expect(b.read(reviewId).document).toEqual([
+    { id: sectionId, type: "section", title: "Revised", children: [] },
+  ]);
 });
 
 it("isolates updates, reserves discarded IDs, and releases on abort and shutdown", async () => {

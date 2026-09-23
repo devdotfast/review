@@ -12,7 +12,7 @@ Status: agreed design, implemented in this change.
 1. CI installs the Review npm package and prepares a local checkout with the requested base and head revisions.
 2. CI starts `review server start --authoring-mode batch` as a foreground process and checks readiness with `review server status`.
 3. CI sets `DEV_REVIEW_SERVER_DIR` to the server state directory (or passes `--state-dir` to each client command). The CI-provided agent authors through `review api` or `review mcp`, following the shared `dev-review` skill.
-4. The batch skill validates a scratch draft and commits one snapshot. Commit sets all sections complete. Interactive mode remains available for immediate committed edits.
+4. The batch skill validates a scratch draft and commits one snapshot. Interactive mode remains available for immediate committed edits.
 5. A later sharing step can consume the saved review through the server. Portable export and upload are separate work.
 6. CI stops the server process.
 
@@ -29,7 +29,7 @@ can still select isolated profile directories. Portable sharing remains separate
 - Headless startup owns its foreground lifecycle independently of desktop startup and its app PID.
 - Each connection serializes its writes and shares cross-process authoring ownership through SQLite. Short transactions fence commits against concurrent ownership or version changes.
 - The store retains review versions and resource bytes. Repository registrations refer to local checkout paths; saving the state directory alone does not make a review portable.
-- Sections optionally carry `pending`, `in_progress`, or `complete`; transitions are not enforced. `review_activity` acquires one exclusive authoring session per review; mutations carry its lease ID and renewal keeps it alive. Ownership expires after 60 seconds without renewal and is checked again when edits commit. Reads remain available. There is no overall review completion state.
+- `review_activity` acquires one exclusive authoring session per review; mutations carry its lease ID and renewal keeps it alive. Ownership expires after 60 seconds without renewal and is checked again when edits commit. Reads remain available. A review with content and no live session reads as ready; there is no other completion state.
 - The shared skill calls `review_capabilities` to discover desktop availability and permission for map generation independently of opening a review.
 - The traces CLI demonstrates standalone npm installation and JSON output conventions, but has no local server lifecycle to reuse.
 

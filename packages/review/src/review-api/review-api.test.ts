@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1489,77 +1490,69 @@ it("serves the experiment through the real desktop HTTP server and existing auth
   }
 });
 
-it("preserves unfinished section status after authoring stops and restores it from history", async () => {
+it("reads, updates and restores a section saved with the retired status field, and rejects new status writes", async () => {
   const { reviewId } = await create();
 
   const inserted = await edit(reviewId, {
     type: "insert",
-    content: {
-      type: "section",
-      title: "Design",
-      status: "pending",
-      children: [],
-    },
+    content: { type: "section", title: "Design", children: [] },
   });
 
-  const leaseId = randomUUID();
-  store.activity.update(reviewId, { action: "begin", leaseId });
-
-  const started = await store.execute({
-    commandId: randomUUID(),
-    leaseId,
-    operation: {
-      type: "edit",
-      reviewId,
-      edit: {
-        type: "update",
-        targetId: inserted.targetId,
-        changes: { status: "in_progress" },
-      },
-    },
-  });
-
-  store.activity.update(reviewId, { action: "end", leaseId });
   await store.close();
+  // A version saved while sections still carried a status.
+  const db = new DatabaseSync(database);
+  db.prepare(
+    `UPDATE versions SET snapshot=json_set(snapshot,'$.document[0].status','in_progress') WHERE review_id=?`,
+  ).run(reviewId);
+  db.close();
   store = new ReviewStore(database, providers);
-  expect(store.read(reviewId).document[0]).toMatchObject({
-    id: inserted.targetId,
-    status: "in_progress",
-  });
-  expect(documentText(store.read(reviewId))).toContain("Status: in_progress");
-  expect(store.read(reviewId, inserted.version).document[0]).toMatchObject({
-    status: "pending",
-  });
+
+  expect(store.read(reviewId).document[0]).not.toHaveProperty("status");
+  expect(documentText(store.read(reviewId))).not.toContain("Status");
+
   await edit(reviewId, {
     type: "update",
     targetId: inserted.targetId,
-    changes: { status: "complete" },
+    changes: { title: "Design notes" },
   });
-  expect(store.read(reviewId).document[0]).toMatchObject({
-    status: "complete",
+  expect(store.read(reviewId).document[0]).toEqual({
+    id: inserted.targetId,
+    type: "section",
+    title: "Design notes",
+    children: [],
   });
+
+  await store.execute(
+    request({ type: "restore", reviewId, version: inserted.version }),
+  );
+  expect(store.read(reviewId).document[0]).toEqual({
+    id: inserted.targetId,
+    type: "section",
+    title: "Design",
+    children: [],
+  });
+
+  const version = store.read(reviewId).version;
+
   await expect(
     edit(reviewId, {
       type: "update",
       targetId: inserted.targetId,
-      changes: { status: "done" },
+      changes: { status: "complete" },
     }),
-  ).rejects.toThrow(/Invalid/);
-  expect(store.read(reviewId).document[0]).toMatchObject({
-    status: "complete",
-  });
-  await store.execute(
-    request({ type: "restore", reviewId, version: started.version }),
-  );
-  expect(store.read(reviewId).document[0]).toMatchObject({
-    status: "in_progress",
-  });
-  await edit(reviewId, {
-    type: "update",
-    targetId: inserted.targetId,
-    changes: { status: null },
-  });
-  expect(store.read(reviewId).document[0]).not.toHaveProperty("status");
+  ).rejects.toThrow(/Unrecognized key/);
+  await expect(async () =>
+    edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "section",
+        title: "Plan",
+        status: "pending",
+        children: [],
+      },
+    }),
+  ).rejects.toThrow(/Unrecognized key/);
+  expect(store.read(reviewId).version).toBe(version);
 });
 
 it("persists partial coverage outside document versions and resets it for a changed file", async () => {

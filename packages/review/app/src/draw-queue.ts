@@ -125,14 +125,14 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
 }
 
 /** Fields a reader cannot see change; a patch of only these draws nothing. */
-const INVISIBLE_FIELDS = new Set(["status", "defaultCollapsed"]);
+const INVISIBLE_FIELDS = new Set(["defaultCollapsed"]);
 
 /** Fields on a container that only its heading shows. */
 const HEADING_FIELDS = new Set(["title", "tone"]);
 
 const CONTAINERS = new Set(["section", "callout", "tutorial"]);
 
-/** A block update draws what changed: nothing for a status patch, the
+/** A block update draws what changed: nothing for a collapse patch, the
  * heading for a retitle, and never a container's children. */
 function updateSteps(edit: EditSummary): DrawStep[] {
   const fields = edit.fields?.filter((field) => !INVISIBLE_FIELDS.has(field));

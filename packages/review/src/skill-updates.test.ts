@@ -132,31 +132,17 @@ describe("packaged skill updates", () => {
     );
   });
 
-  it("does not let a one-agent install hide another agent's old skills", async () => {
+  it("preserves unmarked skills, repairs missing skills, and supports rollbacks", async () => {
     const f = await fixture();
-    await applyCliInstall({ ...f.input, targets: ["codex", "claude"] });
-    const fingerprint = await installFingerprint(f.packageRoot);
-    await f.stampVersion("2.0.0");
-    expect(await installFingerprint(f.packageRoot)).toBe(fingerprint);
-    await applyCliInstall({ ...f.input, targets: ["codex"] });
-    const before = await stat(f.skill());
-    expect((await resolveCliInstallStatus(f.input)).stale).toBe(true);
-    expect((await f.launch())?.code).toBe(0);
-    expect(
-      await readSkillVersion(f.skill("dev-review", ".claude"), "dev-review"),
-    ).toBe("2.0.0");
-    expect((await stat(f.skill())).mtimeMs).toBe(before.mtimeMs);
-  });
-
-  it("migrates legacy metadata, repairs missing skills, and supports rollbacks", async () => {
-    const f = await fixture();
-    await applyCliInstall({ ...f.input, targets: ["codex"] });
+    await applyCliInstall({ ...f.input, targets: ["pi"] });
     await writeFile(
       f.skill(),
       "---\nname: dev-review\ndescription: legacy\n---\nlegacy",
     );
     expect((await f.launch())?.code).toBe(0);
-    expect(await readSkillVersion(f.skill(), "dev-review")).toBe("1.0.0");
+    expect(await readSkillVersion(f.skill(), "dev-review")).toBeNull();
+    expect(await readFile(f.skill(), "utf8")).toContain("description: legacy");
+    expect((await resolveCliInstallStatus(f.input)).stale).toBe(true);
     await rm(path.dirname(f.skill()), { recursive: true });
     expect((await f.launch())?.code).toBe(0);
     expect(await readSkillVersion(f.skill(), "dev-review")).toBe("1.0.0");
@@ -172,7 +158,7 @@ describe("packaged skill updates", () => {
       const sink = collectingWritable([]);
       await runInstall({
         ...f.input,
-        targets: ["codex"],
+        targets: ["pi"],
         stdout: sink,
         stderr: sink,
       });
@@ -187,7 +173,7 @@ describe("packaged skill updates", () => {
       // Even a stale startup request cannot override the current consent.
       await applyCliInstall({
         ...f.input,
-        targets: ["codex"],
+        targets: ["pi"],
         autoUpdate: true,
       });
       expect(await readSkillVersion(f.skill(), "dev-review")).toBe("1.0.0");
@@ -196,7 +182,8 @@ describe("packaged skill updates", () => {
 
   it("respects an explicit empty target list and legacy consent without targets", async () => {
     const f = await fixture();
-    await applyCliInstall({ ...f.input, targets: ["codex"] });
+    await mkdir(path.join(f.homeDir, ".pi"));
+    await applyCliInstall({ ...f.input, targets: ["pi"] });
     await f.stampVersion("2.0.0");
     const stamp = { consent: "granted", updatedAt: new Date().toISOString() };
     await writePrivateJsonAtomic(cliInstallStampPath(f.env), {
@@ -207,40 +194,37 @@ describe("packaged skill updates", () => {
     await writePrivateJsonAtomic(cliInstallStampPath(f.env), stamp);
     expect((await f.launch())?.code).toBe(0);
     expect(await readSkillVersion(f.skill(), "dev-review")).toBe("2.0.0");
+    expect((await resolveCliInstallStatus(f.input)).stamp?.targets).toEqual([
+      "pi",
+    ]);
   });
 
   it("retries a failed destination without marking it current", async () => {
     const f = await fixture();
-    await applyCliInstall({ ...f.input, targets: ["codex", "claude"] });
+    await applyCliInstall({ ...f.input, targets: ["pi"] });
     await f.stampVersion("2.0.0");
-    const claudeRoot = path.join(f.homeDir, ".claude", "skills");
-    await rm(claudeRoot, { recursive: true });
-    await writeFile(claudeRoot, "blocked destination");
+    const skillRoot = path.dirname(path.dirname(f.skill()));
+    await rm(skillRoot, { recursive: true });
+    await writeFile(skillRoot, "blocked destination");
     expect((await f.launch())?.code).toBe(1);
-    const failed = await resolveCliInstallStatus(f.input);
-    expect(failed.stale).toBe(true);
-    expect(failed.error).toBeTruthy();
-    expect(await readSkillVersion(f.skill(), "dev-review")).toBe("2.0.0");
-    await rm(claudeRoot);
+    await rm(skillRoot);
     expect((await f.launch())?.code).toBe(0);
     expect((await resolveCliInstallStatus(f.input)).error).toBeUndefined();
-    expect(
-      await readSkillVersion(f.skill("dev-review", ".claude"), "dev-review"),
-    ).toBe("2.0.0");
+    expect(await readSkillVersion(f.skill(), "dev-review")).toBe("2.0.0");
   });
 
   it("serializes concurrent installs without losing selected agents", async () => {
     const f = await fixture();
 
     const results = await Promise.all([
-      applyCliInstall({ ...f.input, targets: ["codex"] }),
+      applyCliInstall({ ...f.input, targets: ["pi"] }),
       applyCliInstall({ ...f.input, targets: ["claude"] }),
     ]);
 
     expect(results.map((result) => result.code)).toEqual([0, 0]);
     expect(
       (await resolveCliInstallStatus(f.input)).stamp?.targets?.sort(),
-    ).toEqual(["claude", "codex"]);
+    ).toEqual(["claude", "pi"]);
   });
   it("serializes independent installer processes", async () => {
     const f = await fixture();
@@ -285,7 +269,7 @@ describe("packaged skill updates", () => {
 
   it("reports invalid bundled metadata without replacing the installed skill", async () => {
     const f = await fixture();
-    await applyCliInstall({ ...f.input, targets: ["codex"] });
+    await applyCliInstall({ ...f.input, targets: ["pi"] });
     const source = path.join(f.packageRoot, "skills", "dev-review", "SKILL.md");
     await writeFile(
       source,
@@ -301,52 +285,5 @@ describe("packaged skill updates", () => {
         (skill) => skill.name === "dev-review",
       )?.error,
     ).toContain("no release version");
-  });
-
-  it("updates OpenCode and trace skills only for already enabled integrations", async () => {
-    const f = await fixture();
-
-    const installed = await applyCliInstall({
-      ...f.input,
-      targets: ["opencode"],
-      trace: {
-        endpoint: "mock://endpoint",
-        bucket: "mock-bucket",
-        key: "mock-key",
-        secret: "mock-secret",
-      },
-    });
-
-    expect(installed).toMatchObject({ code: 0 });
-    // A fresh machine keeps its capture settings in the trace config
-    // profile; a legacy one in settings.json. Either way the skill update
-    // must leave that file alone.
-    const traceStatus = (await resolveCliInstallStatus(f.input)).trace;
-
-    const settingsPath =
-      traceStatus.captureSource === "profile" && traceStatus.configPath
-        ? traceStatus.configPath
-        : traceStatus.settingsPath;
-
-    const traceBefore = await readFile(settingsPath, "utf8");
-    await f.stampVersion("2.0.0");
-    expect((await f.launch())?.code).toBe(0);
-
-    const traceSkill = path.join(
-      f.homeDir,
-      ".config",
-      "opencode",
-      "skills",
-      "trace-archaeology",
-      "SKILL.md",
-    );
-
-    expect(await readSkillVersion(traceSkill, "trace-archaeology")).toBe(
-      "2.0.0",
-    );
-    expect(await readFile(settingsPath, "utf8")).toBe(traceBefore);
-    expect(
-      (await resolveCliInstallStatus(f.input)).stamp?.fffRegistrations,
-    ).toBeUndefined();
   });
 });

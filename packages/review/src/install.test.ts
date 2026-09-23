@@ -16,13 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installFile, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review", "dev-review-batch"] as const;
-
-const ALL_SKILLS = [
-  ...REQUIRED_SKILLS,
-  "trace-archaeology",
-  "scratchpad",
-] as const;
+const ALL_SKILLS = ["dev-review"] as const;
 
 const tempRoots: string[] = [];
 
@@ -80,6 +74,74 @@ function silentStreams() {
 }
 
 describe("runInstall", () => {
+  it("removes only owned legacy skills and keeps the Pi pointer", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+
+    for (const [root, name] of [
+      [".claude", "dev-review"],
+      [".claude", "trace-archaeology"],
+      [".cursor", "scratchpad"],
+      [".agents", "dev-review-batch"],
+    ]) {
+      await writeSkill(
+        path.join(homeDir, root),
+        name,
+        `---\nname: ${name}\ndescription: managed\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "generated"\n  review-version: "1.0.0"\n---\n`,
+      );
+    }
+
+    await writeSkill(path.join(homeDir, ".claude"), "my-own");
+    await mkdir(path.join(homeDir, ".claude/skills/review"), {
+      recursive: true,
+    });
+    const streams = silentStreams();
+    expect(
+      await runInstall({
+        targets: ["claude", "codex", "cursor", "pi"],
+        homeDir,
+        packageRoot,
+        ...streams,
+      }),
+    ).toBe(0);
+
+    for (const relative of [
+      ".claude/skills/dev-review",
+      ".claude/skills/trace-archaeology",
+      ".cursor/skills/scratchpad",
+      ".agents/skills/dev-review-batch",
+    ])
+      expect(existsSync(path.join(homeDir, relative))).toBe(false);
+
+    for (const relative of [
+      ".agents/skills/dev-review/SKILL.md",
+      ".claude/skills/my-own",
+      ".claude/skills/review",
+    ])
+      expect(existsSync(path.join(homeDir, relative))).toBe(true);
+    expect(streams.out.join("")).toContain("not created by Review");
+  });
+
+  it("does not require a skill bundle or create skills roots for MCP targets", async () => {
+    const packageRoot = await makePackageRoot();
+    await rm(path.join(packageRoot, "skills"), { recursive: true });
+    const homeDir = await makeTempDir();
+    expect(
+      await runInstall({
+        targets: ["claude", "codex", "cursor", "opencode"],
+        homeDir,
+        packageRoot,
+        ...silentStreams(),
+      }),
+    ).toBe(0);
+
+    for (const root of [".claude", ".agents", ".cursor", ".config/opencode"])
+      expect(existsSync(path.join(homeDir, root, "skills"))).toBe(false);
+    expect(
+      existsSync(path.join(homeDir, ".config/opencode/plugins/review.ts")),
+    ).toBe(true);
+  });
+
   it("replaces an installed-file symlink without changing its target", async () => {
     const packageRoot = await makePackageRoot();
     const source = path.join(packageRoot, "plugins", "review.ts");
@@ -97,214 +159,6 @@ describe("runInstall", () => {
       "Managed by Review Desktop",
     );
     expect(await readFile(external, "utf8")).toBe("external\n");
-  });
-
-  it("installs Review skills to Claude Code, Codex, and Cursor by default", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["claude", "codex", "cursor"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(0);
-
-    for (const name of REQUIRED_SKILLS) {
-      expect(
-        await readFile(
-          path.join(homeDir, ".claude", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-      expect(
-        await readFile(
-          path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-      expect(
-        await readFile(
-          path.join(homeDir, ".cursor", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-    }
-
-    // Trace capture is off by default: no agent hooks, no trace skill.
-    expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
-      false,
-    );
-    expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(false);
-    expect(
-      existsSync(path.join(homeDir, ".claude", "skills", "trace-archaeology")),
-    ).toBe(false);
-
-    // The scratchpad is off by default: no scratchpad skill either.
-    expect(
-      existsSync(path.join(homeDir, ".claude", "skills", "scratchpad")),
-    ).toBe(false);
-
-    // Legacy prompt/command locations should stay empty.
-    await expect(
-      readFile(
-        path.join(homeDir, ".claude", "commands", "pr-review.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(path.join(homeDir, ".codex", "prompts", "pr-review.md"), "utf8"),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".claude", "skills", "review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".agents", "skills", "review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-
-    for (const staleName of ["review-map", "review-stop"]) {
-      await expect(
-        readFile(
-          path.join(homeDir, ".claude", "skills", staleName, "SKILL.md"),
-          "utf8",
-        ),
-      ).rejects.toThrow(/ENOENT/);
-      await expect(
-        readFile(
-          path.join(homeDir, ".agents", "skills", staleName, "SKILL.md"),
-          "utf8",
-        ),
-      ).rejects.toThrow(/ENOENT/);
-    }
-  });
-
-  it("installs only the requested target", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["codex"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(0);
-    await expect(
-      readFile(
-        path.join(homeDir, ".claude", "skills", "review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".claude", "commands", "pr-review.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".cursor", "skills", "dev-review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-
-    for (const name of REQUIRED_SKILLS) {
-      expect(
-        await readFile(
-          path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-    }
-
-    await expect(
-      readFile(
-        path.join(homeDir, ".codex", "prompts", "review-stop.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".agents", "skills", "review-stop", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".agents", "skills", "review-map", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-  });
-
-  it("replaces a stale existing skill install", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const skillDest = path.join(homeDir, ".claude", "skills", "dev-review");
-    await mkdir(skillDest, { recursive: true });
-    await writeFile(path.join(skillDest, "stale.md"), "old\n");
-    const staleOldNameDest = path.join(homeDir, ".claude", "skills", "review");
-    await mkdir(staleOldNameDest, { recursive: true });
-    await writeFile(path.join(staleOldNameDest, "SKILL.md"), "# old-name\n");
-
-    const staleMapDest = path.join(
-      homeDir,
-      ".claude",
-      "skills",
-      "dev-review-map",
-    );
-
-    await mkdir(staleMapDest, { recursive: true });
-    await writeFile(path.join(staleMapDest, "SKILL.md"), "# old-map\n");
-
-    const staleStopDest = path.join(
-      homeDir,
-      ".claude",
-      "skills",
-      "review-stop",
-    );
-
-    await mkdir(staleStopDest, { recursive: true });
-    await writeFile(path.join(staleStopDest, "SKILL.md"), "# old-stop\n");
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["claude"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(0);
-    await expect(
-      readFile(path.join(skillDest, "stale.md"), "utf8"),
-    ).rejects.toThrow(/ENOENT/);
-    expect(await readFile(path.join(skillDest, "SKILL.md"), "utf8")).toContain(
-      "# dev-review",
-    );
-    await expect(
-      readFile(path.join(staleOldNameDest, "SKILL.md"), "utf8"),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(path.join(staleMapDest, "SKILL.md"), "utf8"),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(path.join(staleStopDest, "SKILL.md"), "utf8"),
-    ).rejects.toThrow(/ENOENT/);
   });
 
   it("installs bundled Review documentation with the dev-review skill", async () => {
@@ -325,11 +179,15 @@ describe("runInstall", () => {
     );
 
     await mkdir(destination, { recursive: true });
+    await writeFile(
+      path.join(path.dirname(destination), "SKILL.md"),
+      '---\nname: dev-review\ndescription: managed\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "generated"\n  review-version: "1.0.0"\n---\n',
+    );
     await writeFile(path.join(destination, "stale.md"), "stale\n");
     const streams = silentStreams();
 
     const code = await runInstall({
-      targets: ["codex"],
+      targets: ["pi"],
       homeDir,
       packageRoot,
       stdout: streams.stdout,
@@ -348,77 +206,7 @@ describe("runInstall", () => {
     ).rejects.toThrow(/ENOENT/);
   });
 
-  it("installs only Cursor when requested", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["cursor"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(0);
-
-    for (const name of REQUIRED_SKILLS) {
-      expect(
-        await readFile(
-          path.join(homeDir, ".cursor", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-    }
-
-    await expect(
-      readFile(
-        path.join(homeDir, ".claude", "skills", "dev-review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    await expect(
-      readFile(
-        path.join(homeDir, ".agents", "skills", "dev-review", "SKILL.md"),
-        "utf8",
-      ),
-    ).rejects.toThrow(/ENOENT/);
-    expect(streams.out.join("")).toContain("In Cursor, invoke the skills");
-  });
-
-  it("installs only Pi when requested", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["pi"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(0);
-
-    for (const name of REQUIRED_SKILLS) {
-      expect(
-        await readFile(
-          path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain(`# ${name}`);
-    }
-
-    expect(
-      existsSync(
-        path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
-      ),
-    ).toBe(false);
-  });
-
-  it("installs trace hooks and the trace skill once capture is enabled", async () => {
+  it("installs trace hooks once capture is enabled", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();
     const streams = silentStreams();
@@ -443,15 +231,6 @@ describe("runInstall", () => {
 
     expect(code).toBe(0);
 
-    for (const root of [".claude", ".agents"]) {
-      expect(
-        await readFile(
-          path.join(homeDir, root, "skills", "trace-archaeology", "SKILL.md"),
-          "utf8",
-        ),
-      ).toContain("# trace-archaeology");
-    }
-
     expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
       true,
     );
@@ -463,51 +242,13 @@ describe("runInstall", () => {
     ).toBe(true);
   });
 
-  it("installs the scratchpad skill only while the preference is on", async () => {
-    const packageRoot = await makePackageRoot();
-    const homeDir = await makeTempDir();
-    const devHome = await makeTempDir();
-    const skill = path.join(homeDir, ".claude", "skills", "scratchpad");
-    const env = { DEV_REVIEW_HOME: devHome };
-
-    const install = async () => {
-      const streams = silentStreams();
-
-      return runInstall({
-        targets: ["claude"],
-        homeDir,
-        packageRoot,
-        env,
-        stdout: streams.stdout,
-        stderr: streams.stderr,
-      });
-    };
-
-    await writeFile(
-      path.join(devHome, "preferences.json"),
-      JSON.stringify({ scratchpadEnabled: true }),
-    );
-    expect(await install()).toBe(0);
-    expect(await readFile(path.join(skill, "SKILL.md"), "utf8")).toContain(
-      "# scratchpad",
-    );
-
-    // Turning the preference off retires the skill on the next install.
-    await writeFile(
-      path.join(devHome, "preferences.json"),
-      JSON.stringify({ scratchpadEnabled: false }),
-    );
-    expect(await install()).toBe(0);
-    expect(existsSync(skill)).toBe(false);
-  });
-
   it("fails clearly when the bundled skill is missing", async () => {
     const packageRoot = await makeTempDir();
     const homeDir = await makeTempDir();
     const streams = silentStreams();
 
     const code = await runInstall({
-      targets: ["claude", "codex", "cursor"],
+      targets: ["pi"],
       homeDir,
       packageRoot,
       stdout: streams.stdout,
@@ -516,44 +257,11 @@ describe("runInstall", () => {
 
     expect(code).toBe(1);
     expect(streams.err.join("")).toContain("Bundled skills not found");
-  });
-
-  it("fails when the bundle is missing required Review action skills", async () => {
-    const packageRoot = await makeTempDir();
-    await writeSkill(packageRoot, "trace-archaeology");
-    const invalidSkillDir = path.join(packageRoot, "skills", "dev-review");
-    await mkdir(invalidSkillDir, { recursive: true });
-    await writeFile(path.join(invalidSkillDir, "SKILL.md"), "# dev-review\n");
-    const homeDir = await makeTempDir();
-    const streams = silentStreams();
-
-    const code = await runInstall({
-      targets: ["claude"],
-      homeDir,
-      packageRoot,
-      stdout: streams.stdout,
-      stderr: streams.stderr,
-    });
-
-    expect(code).toBe(1);
-    expect(streams.err.join("")).toContain("Bundled skills not found");
-    expect(streams.err.join("")).toContain("dev-review");
-    // Both agents use the same skill set, so Codex should fail too.
-    const codexStreams = silentStreams();
-    expect(
-      await runInstall({
-        targets: ["codex"],
-        homeDir,
-        packageRoot,
-        stdout: codexStreams.stdout,
-        stderr: codexStreams.stderr,
-      }),
-    ).toBe(1);
   });
 
   it("keeps the previous skill install when staging the new one fails", async () => {
     const homeDir = await makeTempDir();
-    const skillDest = path.join(homeDir, ".claude", "skills", "dev-review");
+    const skillDest = path.join(homeDir, ".agents", "skills", "dev-review");
     await mkdir(skillDest, { recursive: true });
     await writeFile(path.join(skillDest, "SKILL.md"), "# existing\n");
 
@@ -565,7 +273,7 @@ describe("runInstall", () => {
     const streams = silentStreams();
 
     const code = await runInstall({
-      targets: ["claude"],
+      targets: ["pi"],
       homeDir,
       packageRoot: brokenRoot,
       stdout: streams.stdout,

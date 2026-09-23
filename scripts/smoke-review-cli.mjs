@@ -148,6 +148,9 @@ try {
   }
 
   assert.ok(ready, "Headless server must become ready");
+  const guidance = await run(["api", "review_get_instructions", "{}"]);
+  assert.ok(guidance.includes("review_draft_begin"));
+  assert.ok(guidance.includes("## Self-review before completion"));
   const repository = path.join(root, "repository");
   await mkdir(repository);
   const git = (...args) => exec("git", args, { cwd: repository });

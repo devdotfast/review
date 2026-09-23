@@ -33,7 +33,6 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
-import { syncScratchpadSkills } from "../install";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
@@ -232,10 +231,6 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("enabled must be a boolean.", 400);
 
     scratchpadEnabled = await writeScratchpadEnabled(request.data.enabled);
-    await syncScratchpadSkills({
-      enabled: scratchpadEnabled,
-      packageRoot: input.packageRoot,
-    });
 
     // Home watches the catalog; the pad appears or goes without a store write.
     if (scratchpadEnabled) await reviewStore.ensureScratchpad();

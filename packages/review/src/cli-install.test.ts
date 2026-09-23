@@ -12,7 +12,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
+import {
+  type ReviewCliInstallStamp,
+  reviewCliInstallResyncRequest,
+} from "@dev.fast/review-protocol";
 import {
   installClaudeTraceHook,
   traceMachineStatus,
@@ -393,7 +396,7 @@ describe("skill and review command installation", () => {
 
     const applied = await applyCliInstall({
       packageRoot,
-      targets: ["codex"],
+      targets: ["pi"],
       cliPath,
       homeDir,
       env,
@@ -458,7 +461,7 @@ describe("skill and review command installation", () => {
     });
 
     expect(applied.code).toBe(0);
-    expect(applied.output).toContain("The skills were installed");
+    expect(applied.output).toContain("Agent setup completed");
   });
 
   it("fails when an explicit shim has no CLI", async () => {
@@ -585,6 +588,11 @@ describe("resolveInstalledReviewAgentStatus", () => {
       DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
       PATH: binDir,
     };
+
+    await writeFile(
+      path.join(homeDir, ".claude.json"),
+      JSON.stringify({ mcpServers: { review: { command: "custom-review" } } }),
+    );
 
     const status = await resolveInstalledReviewAgentStatus({
       homeDir,
@@ -808,4 +816,119 @@ it("Desktop removal preserves hooks and capture owned by an npm installation", a
   });
   expect(await readFile(hook.path, "utf8")).toBe(before);
   expect((await traceMachineStatus({ homeDir, env })).enabled).toBe(true);
+});
+
+async function seedManagedSkill(
+  homeDir: string,
+  root: string,
+  name = "dev-review",
+) {
+  const file = path.join(homeDir, root, "skills", name, "SKILL.md");
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(
+    file,
+    `---\nname: ${name}\ndescription: managed\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "generated"\n  review-version: "1.0.0"\n---\n`,
+  );
+
+  return file;
+}
+
+it("resyncs owned legacy skills once without changing MCP readiness", async () => {
+  const homeDir = await temporaryHome("review-skill-migration-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  const input = {
+    packageRoot,
+    homeDir,
+    env,
+    cliPath: path.join(packageRoot, "dist/cli.js"),
+    shim: false,
+    targets: ["claude"] as const,
+  };
+
+  expect(
+    (await applyCliInstall({ ...input, targets: [...input.targets] })).code,
+  ).toBe(0);
+  const skill = await seedManagedSkill(homeDir, ".claude");
+  const before = await resolveCliInstallStatus(input);
+  expect(before.stale).toBe(true);
+  expect(
+    before.agents.find((agent) => agent.target === "claude")?.installed,
+  ).toBe(true);
+  expect(
+    (
+      await applyCliInstall({
+        ...input,
+        targets: [...input.targets],
+        autoUpdate: true,
+      })
+    ).code,
+  ).toBe(0);
+  expect((await resolveCliInstallStatus(input)).stale).toBe(false);
+  await expect(readFile(skill)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("keeps the managed Pi skill when connecting and removing Codex", async () => {
+  const homeDir = await temporaryHome("review-pi-codex-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  const input = {
+    packageRoot,
+    homeDir,
+    env,
+    cliPath: path.join(packageRoot, "dist/cli.js"),
+    shim: false,
+  };
+
+  expect((await applyCliInstall({ ...input, targets: ["pi"] })).code).toBe(0);
+  const file = path.join(homeDir, ".agents/skills/dev-review/SKILL.md");
+  const initial = await readFile(file, "utf8");
+  expect((await applyCliInstall({ ...input, targets: ["codex"] })).code).toBe(
+    0,
+  );
+  expect(await readFile(file, "utf8")).toBe(initial);
+  expect((await resolveCliInstallStatus(input)).stale).toBe(false);
+  await removeCliInstall({ ...input, targets: ["codex"] });
+  expect(await readFile(file, "utf8")).toBe(initial);
+  expect((await resolveCliInstallStatus(input)).stamp?.targets).toEqual(["pi"]);
+  await removeCliInstall({ ...input, targets: ["pi"] });
+  await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("migrates legacy consent without targets using owned MCP skills only", async () => {
+  const homeDir = await temporaryHome("review-legacy-consent-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  const input = {
+    packageRoot,
+    homeDir,
+    env,
+    cliPath: path.join(packageRoot, "dist/cli.js"),
+    shim: false,
+  };
+
+  const claudeSkill = await seedManagedSkill(homeDir, ".claude");
+  const codexSkill = await seedManagedSkill(homeDir, ".agents");
+  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    consent: "granted",
+    updatedAt: new Date().toISOString(),
+  });
+  const before = await resolveCliInstallStatus(input);
+  expect(before.stale).toBe(true);
+  expect(
+    before.agents.find((agent) => agent.target === "claude")?.installed,
+  ).toBe(false);
+  expect(
+    [...(reviewCliInstallResyncRequest(before)?.targets ?? [])].sort(),
+  ).toEqual(["claude", "codex"]);
+
+  expect(
+    (await applyCliInstall({ ...input, targets: [], autoUpdate: true })).code,
+  ).toBe(0);
+  const after = await resolveCliInstallStatus(input);
+  expect(after.stale).toBe(false);
+  expect(after.stamp?.targets?.sort()).toEqual(["claude", "codex"]);
+
+  for (const file of [claudeSkill, codexSkill])
+    await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
 });

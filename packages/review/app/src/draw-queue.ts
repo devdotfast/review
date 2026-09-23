@@ -88,6 +88,8 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
 
   if (!edit) return [{ phase: null, ms: 300 }];
 
+  if (edit.kind === "lens") return lensSteps(edit);
+
   if (edit.units?.length) return quickSteps(edit.units);
 
   switch (edit.type) {
@@ -123,6 +125,21 @@ export function stepsFor(cursor: AuthoringCursor): DrawStep[] {
         : [{ phase: "erasing", ms: 660 }];
     case "move":
       return [{ phase: null, ms: 300 }];
+  }
+}
+
+/** A lens row in the Diffs sidebar: an insert lands the row, a retitle
+ * relabels it, a remove erases it. A targets-only update draws nothing. */
+function lensSteps(edit: EditSummary): DrawStep[] {
+  switch (edit.type) {
+    case "insert":
+      return [{ phase: "landing", ms: 520 }];
+    case "remove":
+      return [{ phase: "erasing", ms: 520 }];
+    default:
+      return edit.fields?.includes("title")
+        ? [{ phase: "relabel", ms: 420 }]
+        : [];
   }
 }
 
@@ -327,4 +344,39 @@ export function phases(state: DrawState): Map<string, MotionPhase> {
   }
 
   return map;
+}
+
+/** The current items (blocks, lens rows), plus any item from the list
+ * before that is being erased, put back after the nearest survivor that
+ * preceded it. */
+export function withErasedBlocks<Item extends { id?: string }>(
+  nodes: Item[],
+  before: Item[],
+  phases: Map<string, string>,
+): Item[] {
+  const ids = new Set(nodes.map((node) => node.id));
+
+  const erased = before.filter(
+    (node) =>
+      node.id !== undefined &&
+      !ids.has(node.id) &&
+      phases.get(node.id) === "erasing",
+  );
+
+  if (!erased.length) return nodes;
+  const shown = [...nodes];
+
+  for (const node of erased) {
+    const index = before.indexOf(node);
+    const survivor = before.slice(0, index).findLast((b) => ids.has(b.id));
+
+    const at =
+      survivor === undefined
+        ? 0
+        : shown.findIndex((b) => b.id === survivor.id) + 1;
+
+    shown.splice(at, 0, node);
+  }
+
+  return shown;
 }

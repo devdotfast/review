@@ -1,4 +1,5 @@
 import {
+  type Context,
   createContext,
   useContext,
   useEffect,
@@ -7,8 +8,13 @@ import {
   useState,
 } from "react";
 
+import type { LeaseScope } from "../../src/review-api/activity";
 import { AuthoringActivityContext } from "./authoring-activity";
-import type { AuthoringCursor } from "./authoring-cursor";
+import {
+  type AuthoringCursor,
+  scopeFocus,
+  scopeLive,
+} from "./authoring-cursor";
 import { CourierFigure } from "./courier-figure";
 import { cursorElement } from "./cursor-element";
 import { useReviewRoots } from "./review-root-context";
@@ -17,6 +23,28 @@ import { useReviewRoots } from "./review-root-context";
 export const AuthoringCursorContext = createContext<
   AuthoringCursor | null | undefined
 >(undefined);
+
+/** The cursor for the lenses on the Diffs page; undefined while viewing
+ * history. */
+export const LensCursorContext = createContext<
+  AuthoringCursor | null | undefined
+>(undefined);
+
+export const cursorContext = (
+  scope: LeaseScope,
+): Context<AuthoringCursor | null | undefined> =>
+  scope === "lenses" ? LensCursorContext : AuthoringCursorContext;
+
+/** The lens row a lens cursor names, when it is on screen. */
+export function lensRowElement(
+  container: HTMLElement,
+  cursor: AuthoringCursor,
+): Element | null {
+  const quoted = `"${cursor.targetId.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  const row = container.querySelector(`[data-lens-id=${quoted}]`);
+
+  return row?.getClientRects().length ? row : null;
+}
 
 const HOP_MS = 340;
 
@@ -27,11 +55,18 @@ const LEAVE_MS = 440;
 const SIT_AFTER_MS = 3000;
 
 /** Where he stands on an element: its top edge, centered on a small thing,
- * a little in from the left on a wide one. */
-function standingPoint(target: DOMRect, article: DOMRect) {
+ * a little in from the left on a wide one. A container that scrolls (the
+ * lens list) carries him with its content. */
+function standingPoint(target: DOMRect, container: HTMLElement) {
+  const box = container.getBoundingClientRect();
+
   return {
-    x: target.left - article.left + Math.min(target.width / 2, 96),
-    y: target.top - article.top,
+    x:
+      target.left -
+      box.left +
+      container.scrollLeft +
+      Math.min(target.width / 2, 96),
+    y: target.top - box.top + container.scrollTop,
   };
 }
 
@@ -44,13 +79,26 @@ type Idle = "none" | "march" | "sit";
  * Stands on whatever the cursor names, hops when it moves, marches in place
  * while the lease is live and nothing is arriving, sits down after a while,
  * and hops up and out when the lease ends. Click him and he jumps. He is
- * absolutely positioned inside the document article and measured against it,
- * so scrolling costs nothing; layout changes re-measure him.
+ * absolutely positioned inside his container and measured against it, so
+ * scrolling costs nothing; layout changes re-measure him.
+ *
+ * The document's courier lives in the article and follows the document
+ * lease; the lenses' courier lives in the Diffs page's lens list and follows
+ * the lenses lease. Both can be out at once.
  */
-export function Courier() {
+export function Courier({
+  scope = "document",
+  container,
+  find = cursorElement,
+}: {
+  scope?: LeaseScope;
+  /** Where he stands, once mounted; the document article by default. */
+  container?: HTMLElement | null;
+  find?: (container: HTMLElement, cursor: AuthoringCursor) => Element | null;
+}) {
   const roots = useReviewRoots();
   const activity = useContext(AuthoringActivityContext);
-  const cursor = useContext(AuthoringCursorContext);
+  const cursor = useContext(cursorContext(scope));
   const node = useRef<HTMLDivElement>(null);
 
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
@@ -64,17 +112,15 @@ export function Courier() {
   const [idle, setIdle] = useState<Idle>("none");
   const [gone, setGone] = useState(false);
 
-  const live =
-    activity !== undefined &&
-    activity !== "unknown" &&
-    activity.workingCount > 0;
+  const live = scopeLive(activity, scope);
 
   const unknown = activity === "unknown";
 
   // Follow the cursor: resolve its element, measure, and keep measuring
   // while the document reflows around it. No cursor, no courier.
   useLayoutEffect(() => {
-    const article = roots?.articleRef.current;
+    const article =
+      container === undefined ? roots?.articleRef.current : container;
 
     if (!article || !cursor || gone) {
       setPosition(null);
@@ -87,14 +133,11 @@ export function Courier() {
 
     const measure = () => {
       frame = 0;
-      const element = cursorElement(article, cursor);
+      const element = find(article, cursor);
 
       if (!element) return;
 
-      const next = standingPoint(
-        element.getBoundingClientRect(),
-        article.getBoundingClientRect(),
-      );
+      const next = standingPoint(element.getBoundingClientRect(), article);
 
       setPosition((current) => {
         if (
@@ -124,7 +167,7 @@ export function Courier() {
 
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [roots, cursor, gone]);
+  }, [roots, container, cursor, gone, find]);
 
   // A new cursor is a hop; the same spot re-measured after a reflow is a
   // slide. The first placement is neither.
@@ -208,12 +251,15 @@ export function Courier() {
   if (!position || gone || activity === undefined) return null;
 
   const description =
-    activity !== "unknown" ? activity.focuses?.[0]?.description : undefined;
+    activity !== "unknown"
+      ? scopeFocus(activity, scope)?.description
+      : undefined;
 
   return (
     <div
       ref={node}
       className="courier"
+      data-scope={scope}
       data-state={unknown ? "unknown" : live ? "live" : "ended"}
       data-idle={idle}
       data-motion={motion ?? undefined}

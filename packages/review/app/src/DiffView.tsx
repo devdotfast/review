@@ -4,14 +4,28 @@ import type {
   ReviewDiffProgress,
   ReviewDiffViewHandle,
 } from "@dev.fast/review-protocol";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import type { Lens } from "../../src/review-api/diff-lenses";
 import {
   type CoverageProgress,
   coverageProgress,
   coverageSources,
 } from "../../src/viewed-coverage";
+import { AuthoringActivityContext } from "./authoring-activity";
+import { scopeLive } from "./authoring-cursor";
+import { Courier, LensCursorContext, lensRowElement } from "./courier";
 import { compactDiffCount } from "./diff-count";
+import { withErasedBlocks } from "./draw-queue";
+import { useMotionPhases } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
 import { ViewedButton, useReviewLenses } from "./review-lenses";
 import {
@@ -67,6 +81,11 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
 
   const lenses = useReviewLenses();
   const lens = scope ? undefined : lenses?.active;
+  const [lensList, setLensList] = useState<HTMLDivElement | null>(null);
+  const rows = useLensRows(lenses?.lenses ?? []);
+  const lensCursor = useContext(LensCursorContext);
+
+  const lensesLive = scopeLive(useContext(AuthoringActivityContext), "lenses");
   const [fullTree, setFullTree] = useState<HTMLDivElement | null>(null);
   const [lensTree, setLensTree] = useState<HTMLDivElement | null>(null);
 
@@ -192,17 +211,21 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
           <div
             className="diff-sidebar-lenses"
             aria-label="Lenses"
+            ref={setLensList}
             style={{ flexBasis: `${(1 - cabinetsResize.fraction) * 100}%` }}
           >
             <div className="diff-sidebar-heading">Lenses</div>
-            {lenses.lenses.map((item) => {
+            {rows.items.map((item) => {
               const selected = lens?.id === item.id,
-                stats = lenses.stats(item.sources);
+                stats = lenses.stats(item.sources),
+                phase = rows.phases.get(item.id);
 
               return (
                 <section
                   key={item.id}
                   className={`diff-lens-section ${selected ? "is-expanded" : ""}`}
+                  data-lens-id={item.id}
+                  data-motion={phase}
                 >
                   <div className="diff-lens-row">
                     <button
@@ -247,6 +270,11 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                 </section>
               );
             })}
+            <Courier
+              scope="lenses"
+              container={lensList}
+              find={lensRowElement}
+            />
           </div>
           <div
             {...cabinetsResize.separatorProps}
@@ -392,6 +420,20 @@ function NativeDiffView({
       )}
     </>
   );
+}
+
+/** The lens rows on screen: the current lenses plus a removed one while the
+ * lens draw queue erases it, and each row's phase. */
+function useLensRows<Item extends { id: string }>(items: Item[]) {
+  const phases = useMotionPhases("lenses");
+  const previous = useRef(items);
+  const shown = withErasedBlocks(items, previous.current, phases);
+
+  useEffect(() => {
+    previous.current = shown;
+  });
+
+  return { items: shown, phases };
 }
 
 function LensIcon() {

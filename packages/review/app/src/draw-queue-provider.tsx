@@ -1,4 +1,5 @@
 import {
+  type Context,
   type ReactNode,
   createContext,
   useContext,
@@ -7,8 +8,9 @@ import {
   useState,
 } from "react";
 
+import type { LeaseScope } from "../../src/review-api/activity";
 import type { AuthoringCursor } from "./authoring-cursor";
-import { AuthoringCursorContext } from "./courier";
+import { cursorContext } from "./courier";
 import {
   type DrawState,
   EMPTY_QUEUE,
@@ -38,18 +40,29 @@ const defaultClock: DrawQueueClock = {
   clearTimeout: (handle) => window.clearTimeout(handle),
 };
 
-const MotionPhasesContext = createContext<Map<string, MotionPhase>>(new Map());
+/** One queue per lease scope: the document's blocks, the Diffs page's lens
+ * rows. */
+const MotionPhasesContexts: Record<
+  LeaseScope,
+  Context<Map<string, MotionPhase>>
+> = {
+  document: createContext<Map<string, MotionPhase>>(new Map()),
+  lenses: createContext<Map<string, MotionPhase>>(new Map()),
+};
 
 /** Every element's phase, for a list that must keep an erased block around. */
-export function useMotionPhases(): Map<string, MotionPhase> {
-  return useContext(MotionPhasesContext);
+export function useMotionPhases(
+  scope: LeaseScope = "document",
+): Map<string, MotionPhase> {
+  return useContext(MotionPhasesContexts[scope]);
 }
 
 /** The phase an element is being drawn in, for its `data-motion`. */
 export function useMotionPhase(
   id: string | undefined,
+  scope: LeaseScope = "document",
 ): MotionPhase | undefined {
-  const map = useContext(MotionPhasesContext);
+  const map = useContext(MotionPhasesContexts[scope]);
 
   return id === undefined ? undefined : map.get(id);
 }
@@ -62,10 +75,13 @@ export function useMotionPhase(
  */
 export function DrawQueueProvider({
   cursor,
+  scope = "document",
   clock = defaultClock,
   children,
 }: {
   cursor: AuthoringCursor | null | undefined;
+  /** Which courier this queue drives; each scope has its own contexts. */
+  scope?: LeaseScope;
   /** Defaults to `performance`/window timers; browser tests inject a
    * manual clock so phase transitions land on the test's schedule. */
   clock?: DrawQueueClock;
@@ -106,14 +122,12 @@ export function DrawQueueProvider({
 
   const standing = standingCursor(state);
   const map = useMemo(() => phases(state), [state]);
+  const CursorContext = cursorContext(scope);
+  const PhasesContext = MotionPhasesContexts[scope];
 
   return (
-    <AuthoringCursorContext.Provider
-      value={cursor === undefined ? undefined : standing}
-    >
-      <MotionPhasesContext.Provider value={map}>
-        {children}
-      </MotionPhasesContext.Provider>
-    </AuthoringCursorContext.Provider>
+    <CursorContext.Provider value={cursor === undefined ? undefined : standing}>
+      <PhasesContext.Provider value={map}>{children}</PhasesContext.Provider>
+    </CursorContext.Provider>
   );
 }

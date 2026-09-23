@@ -22,6 +22,7 @@ import {
   stored,
 } from "./blocks";
 import { Courier } from "./courier";
+import { withErasedBlocks } from "./draw-queue";
 import { useMotionPhase, useMotionPhases } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
@@ -302,40 +303,6 @@ function DocumentBlocks({
       softwareMapEnabled={softwareMapEnabled}
     />
   ));
-}
-
-/** The current blocks, plus any block from the list before that is being
- * erased, put back after the nearest survivor that preceded it. */
-export function withErasedBlocks(
-  nodes: Block[],
-  before: Block[],
-  phases: Map<string, string>,
-): Block[] {
-  const ids = new Set(nodes.map((node) => node.id));
-
-  const erased = before.filter(
-    (node) =>
-      node.id !== undefined &&
-      !ids.has(node.id) &&
-      phases.get(node.id) === "erasing",
-  );
-
-  if (!erased.length) return nodes;
-  const shown = [...nodes];
-
-  for (const node of erased) {
-    const index = before.indexOf(node);
-    const survivor = before.slice(0, index).findLast((b) => ids.has(b.id));
-
-    const at =
-      survivor === undefined
-        ? 0
-        : shown.findIndex((b) => b.id === survivor.id) + 1;
-
-    shown.splice(at, 0, node);
-  }
-
-  return shown;
 }
 
 // Memoized: unrelated App renders must not rebuild every block's view models.

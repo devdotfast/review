@@ -642,7 +642,7 @@ function ReviewLayoutContent({
                   </button>
                 )}
                 <AuthoringActivityBadge
-                  onLocate={() => applyReviewView("review")}
+                  onLocate={(view) => applyReviewView(view)}
                 />
               </div>
               {!scratchpad && <ShareControl />}

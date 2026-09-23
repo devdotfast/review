@@ -4,10 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from "../../base/common/lifecycle.js";
+import { URI } from "../../base/common/uri.js";
 import { createDecorator, IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
+import { IHostService } from "../../workbench/services/host/browser/host.js";
 import {
 	ReviewCanvasEditorInput,
 	type ReviewCanvasEditorTarget,
@@ -15,6 +17,7 @@ import {
 
 import type { ReviewSourceSelection } from "../common/reviewProtocol.js";
 import { sourceSelectionIdentity } from "../common/reviewSourceView.js";
+import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
 
 export const IReviewCanvasEditorTabsService = createDecorator<IReviewCanvasEditorTabsService>(
 	"reviewCanvasEditorTabsService",
@@ -24,7 +27,7 @@ export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
 	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput;
 	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
-	openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput>;
+	openApiSource(selection: ReviewSourceSelection, title: string): Promise<void>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -44,6 +47,9 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService
 		private readonly editorGroupsService: IEditorGroupsService,
+		@IReviewDesktopConnectionService
+		private readonly desktopConnection: IReviewDesktopConnectionService,
+		@IHostService private readonly host: IHostService,
 	) {
 		super();
 		this._register(
@@ -87,10 +93,17 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		return this.openSingleton({ kind: "welcome" }, active);
 	}
 
-	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput> {
-		const input = this.inputFor({ kind: "api-source", reviewId: selection.reviewId, selection, title });
-		await this.openReviewInput(input, true);
-		return input;
+	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<void> {
+		const { serverUrl, token } = await this.desktopConnection.getConnection();
+		const query = selection.kind === "version" ? `?version=${selection.version}` : "";
+		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(selection.reviewId)}/navigator${query}`, {
+			method: "POST",
+			headers: { "x-review-token": token },
+			signal: AbortSignal.timeout(60_000),
+		});
+		if (!response.ok) throw await reviewResponseError(response, "Could not open the code navigator.");
+		const result: { workspacePath: string } = await response.json();
+		await this.host.openWindow([{ workspaceUri: URI.file(result.workspacePath), label: title }], { forceNewWindow: true });
 	}
 
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput> {

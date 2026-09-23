@@ -565,6 +565,15 @@ export function createReviewApi(
 
       return context.json(result);
     });
+    app.post("/:id/navigator", async (context) => {
+      const { version } = readQuerySchemas.maps.parse(context.req.query());
+
+      return context.json(
+        await data.navigatorWorkspace(
+          readReview(context.req.param("id"), version),
+        ),
+      );
+    });
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 

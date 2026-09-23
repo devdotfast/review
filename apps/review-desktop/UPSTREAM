@@ -301,8 +301,12 @@ one of these entries:
   or shipping the Copilot SDK runtime. The normal Review build excludes
   upstream `vs/**/test/**` directories while retaining their source; the
   production-imported agent-host mock remains part of the program.
-- `src/vs/code/electron-browser/workbench/workbench.ts`: load the Review
-  workbench entry.
+- `src/vs/code/electron-browser/workbench/workbench.ts`: load the native code
+  navigator entry for workspace windows and the Review entry for empty windows,
+  with the matching stylesheet. Both entries share the curated editor services.
+- `src/vs/platform/menubar/electron-main/menubar.ts`: expose `install` and
+  `windowsMainService` to the fork's subclass so native menus install only while
+  a workspace window is active; Review windows keep their application menu.
 - `src/main.ts`: import VS Code-family settings and keybindings into Review's
   user-data profile before the configuration service starts, expose the
   explicit re-import IPC handler, and record a crash that happens before

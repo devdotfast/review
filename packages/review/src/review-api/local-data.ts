@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -21,6 +22,7 @@ import {
   readFileAtCommit,
   splitGitPatchFiles,
 } from "@dev.fast/local-vcs";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { structuralChangeCounts } from "@dev.fast/review-protocol";
 import type {
   ReviewLanguageEnvironment,
@@ -30,7 +32,6 @@ import type {
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
-import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import { StructuralComparisons } from "../server/structural-comparisons.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
@@ -44,6 +45,8 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "../source.js";
+import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
+import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import {
   type ComparisonCoverage,
   type CoverageMode,
@@ -298,6 +301,75 @@ export class LocalReviewData {
       : await this.comparison(await this.documentPins(snapshot), commit);
 
     return { snapshot, pins };
+  }
+
+  /** Resolve a native workspace without replacing the selected source with today's HEAD. */
+  async navigatorWorkspace(
+    snapshot: Snapshot,
+  ): Promise<{ workspacePath: string }> {
+    const pins = await this.documentPins(snapshot);
+    const repository = this.store.repositoryPath(pins.repositoryId);
+    const live = snapshot.target?.kind === "worktree";
+
+    // Keep navigation separate from language preparation, which may modify
+    // tracked files. Retain these checkouts across window closes and restarts.
+    const rootPath = live
+      ? await realpath(repository)
+      : await ensureReviewPinnedCheckout({
+          rootPath: repository,
+          ref: pins.head,
+          reviewUuid: snapshot.reviewId,
+          role: "navigator",
+        });
+
+    const commonDir = await gitCommonDir(repository);
+
+    if (!rootPath || !commonDir)
+      throw new ReviewInputError(
+        "Could not open the selected source checkout.",
+        409,
+      );
+
+    if (!live) {
+      const { stdout } = await promisify(execFile)("git", [
+        "-C",
+        rootPath,
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+      ]);
+
+      if (stdout.trim())
+        throw new ReviewInputError(
+          "The navigator checkout has local changes. Restore those files before browsing this pinned revision.",
+          409,
+        );
+    }
+
+    const workspacePath = path.join(
+      reviewManagedCheckoutRoot(commonDir, snapshot.reviewId),
+      "navigator",
+      `${live ? "worktree" : pins.head}.code-workspace`,
+    );
+
+    // A native workspace gives VS Code stable restoration, search scope and
+    // editor read-only behavior without changing files in the source checkout.
+    // Leave subsequent workspace preferences to VS Code and the user.
+    if (!existsSync(workspacePath))
+      await writePrivateJsonAtomic(workspacePath, {
+        folders: [
+          {
+            path: rootPath,
+            name: `${path.basename(repository)} (${live ? "live" : pins.head.slice(0, 8)})`,
+          },
+        ],
+        settings: {
+          "files.readonlyInclude": { "**/*": true },
+          "window.title": `${snapshot.title} — ${live ? "Live source" : pins.head.slice(0, 8)} — Review`,
+        },
+      });
+
+    return { workspacePath };
   }
 
   /** A document read that needs default pins; 409 when the document has none. */

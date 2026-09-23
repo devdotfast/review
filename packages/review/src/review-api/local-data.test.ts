@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -991,6 +992,110 @@ it("serves a historical version's file at the pins that version was saved with",
     commit: later.head,
     text: "export const value = 3;\n",
   });
+});
+
+it("opens a stable native workspace at the selected version, separate from prepared language files", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Navigator", pins }),
+  );
+
+  await local.data.languageEnvironment(local.store.read(reviewId), "head");
+  await local.data.workspaces.idle();
+
+  const language = await local.data.languageEnvironment(
+    local.store.read(reviewId),
+    "head",
+  );
+
+  expect(language.rootPath).not.toBeNull();
+  writeFileSync(path.join(language.rootPath!, source.file), "prepared code\n");
+  writeFileSync(path.join(repository, source.file), "new HEAD\n");
+  git("add", ".");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "New HEAD");
+
+  const later = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  await local.store.execute(command({ type: "repin", reviewId, pins: later }));
+  const app = createReviewApi(local.store, local.data);
+
+  const open = async (query = "") => {
+    const response = await app.request(`/${reviewId}/navigator${query}`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    const { workspacePath } = await response.json();
+    const workspace = JSON.parse(readFileSync(workspacePath, "utf8"));
+
+    return { workspacePath, workspace, root: workspace.folders[0].path };
+  };
+
+  const old = await open("?version=0");
+  const current = await open();
+  expect(old.workspacePath).not.toBe(current.workspacePath);
+  old.workspace.settings["editor.wordWrap"] = "on";
+  writeFileSync(old.workspacePath, JSON.stringify(old.workspace));
+  expect((await open("?version=0")).workspacePath).toBe(old.workspacePath);
+  expect((await open("?version=0")).workspace.settings["editor.wordWrap"]).toBe(
+    "on",
+  );
+  expect(readFileSync(path.join(old.root, source.file), "utf8")).toBe(
+    "export const value = 2;\nexport const saved = true;\n",
+  );
+  expect(readFileSync(path.join(current.root, source.file), "utf8")).toBe(
+    "new HEAD\n",
+  );
+  expect(old.root).not.toBe(language.rootPath);
+  writeFileSync(path.join(old.root, source.file), "unexpected edit\n");
+  expect(
+    (await app.request(`/${reviewId}/navigator?version=0`, { method: "POST" }))
+      .status,
+  ).toBe(409);
+  expect(readFileSync(path.join(old.root, source.file), "utf8")).toBe(
+    "unexpected edit\n",
+  );
+  expect(
+    (
+      await app.request(`/${reviewId}/navigator?version=999`, {
+        method: "POST",
+      })
+    ).status,
+  ).toBe(404);
+});
+
+it("keeps a live navigator attached to the live checkout without preparing it", async () => {
+  const { reviewId } = await local.store.execute(
+    command({
+      type: "create",
+      title: "Live navigator",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  git("config", "devfast.prepare", "echo unexpected > prepared");
+  const before = git("worktree", "list", "--porcelain");
+
+  const { workspacePath } = await local.data.navigatorWorkspace(
+    local.store.read(reviewId),
+  );
+
+  const workspace = JSON.parse(readFileSync(workspacePath, "utf8"));
+  const root = workspace.folders[0].path;
+  expect(root).toBe(realpathSync(repository));
+  writeFileSync(path.join(repository, source.file), "live edit\n");
+  expect(readFileSync(path.join(root, source.file), "utf8")).toBe(
+    "live edit\n",
+  );
+  expect(git("worktree", "list", "--porcelain")).toBe(before);
+  expect(existsSync(path.join(root, "prepared"))).toBe(false);
 });
 
 it("browses committed directories, including history, without listing untracked files", async () => {

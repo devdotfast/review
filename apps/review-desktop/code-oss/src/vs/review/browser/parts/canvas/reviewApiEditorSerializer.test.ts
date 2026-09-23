@@ -9,6 +9,34 @@ import { ReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEdi
 import { ReviewApiEditorSerializer } from "./reviewApiEditorSerializer.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 
+test("opening historical source requests its version and opens a separate native workspace only after success", async (t) => {
+	const opened: unknown[][] = [];
+	const requests: string[] = [];
+	let ok = true;
+	t.mock.method(globalThis, "fetch", async (url: string) => {
+		requests.push(url);
+		return ok
+			? Response.json({ workspacePath: "/pinned/review.code-workspace" })
+			: Response.json({ error: "Source unavailable" }, { status: 409 });
+	});
+	const tabs = new ReviewCanvasEditorTabsService(
+		{} as never,
+		{ onDidCloseEditor: Event.None } as never,
+		{} as never,
+		{ async getConnection() { return { serverUrl: "http://localhost", token: "test" }; } } as never,
+		{} as never,
+		{ async openWindow(...args: unknown[]) { opened.push(args); } } as never,
+	);
+	t.after(() => tabs.dispose());
+	await tabs.openApiSource({ reviewId: "review-a", kind: "version", version: 7 }, "Historical Review");
+	assert.equal(requests[0], "http://localhost/reviews-api/review-a/navigator?version=7");
+	assert.equal(opened.length, 1);
+	assert.deepEqual(opened[0]![1], { forceNewWindow: true });
+	ok = false;
+	await assert.rejects(tabs.openApiSource({ reviewId: "review-a", kind: "current" }, "Review"));
+	assert.equal(opened.length, 1);
+});
+
 test("native group restoration preserves both reviews, order and pinned source versions without duplicate tabs", async (t) => {
 	const inputs: ReviewCanvasEditorInput[] = [];
 	let tabs: ReviewCanvasEditorTabsService;
@@ -32,7 +60,7 @@ test("native group restoration preserves both reviews, order and pinned source v
 	};
 	const groupService = { groups, mainPart: { activeGroup: undefined as EditorGroupModel | undefined } };
 	const createTabs = () =>
-		new ReviewCanvasEditorTabsService(instantiation as never, editors as never, groupService as never);
+		new ReviewCanvasEditorTabsService(instantiation as never, editors as never, groupService as never, {} as never, {} as never);
 	tabs = createTabs();
 	const registry = Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory);
 	registry.start({ get: () => instantiation } as never);
@@ -99,7 +127,7 @@ test("current Source tabs retain identity and main version tabs still restore", 
     },
     invokeFunction(fn: (accessor: { get(): ReviewCanvasEditorTabsService }) => unknown) { return fn({ get: () => tabs }); },
   };
-  tabs = new ReviewCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never);
+  tabs = new ReviewCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never, {} as never, {} as never);
   try {
     const serializer = new ReviewApiEditorSerializer();
     const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }));

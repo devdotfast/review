@@ -71,6 +71,13 @@ if [[ "$(cat "$EXTENSIONS_SELECTION_STAMP" 2>/dev/null)" != "$EXTENSIONS_SELECTI
   echo "$EXTENSIONS_SELECTION" >"$EXTENSIONS_SELECTION_STAMP"
 fi
 
+# Development launches use the checkout runtime, not the staged release bundle.
+# Check the pinned binary even when all compiled outputs are already current.
+# An explicit developer override supplies its own executable.
+if [[ -z "$PACKAGED_ROOT" && -z "${WHITEBOARD_DIFFR_BINARY:-}" ]]; then
+  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/whiteboard ensure:diffr --required
+fi
+
 rebuild_review_desktop_outputs "$MONOREPO_ROOT" "$WHITEBOARD_PACKAGE"
 if [[ -z "$PACKAGED_ROOT" ]]; then
   node "$APP_DIR/scripts/copy-canvas.mjs"

@@ -1,7 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import {
   access,
-  lstat,
   mkdir,
   readFile,
   realpath,
@@ -29,11 +28,7 @@ import {
 } from "@dev.fast/whiteboard-protocol";
 
 import { readDirectory } from "./fs-utils";
-import {
-  RETIRED_SKILL_NAMES,
-  defaultPackageRoot,
-  isWhiteboardOwnedSkill,
-} from "./install";
+import { defaultPackageRoot } from "./install";
 import { migrateStoredWhiteboardData } from "./stored-review-migration";
 import {
   ensureWhiteboardPinnedCheckout,
@@ -51,8 +46,6 @@ const PACKAGE_NAME = "@dev.fast/review";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const CURRENT_SKILL_NAMES = ["whiteboard"] as const;
 
 const execFilePromise = promisify(execFile);
 
@@ -82,7 +75,6 @@ interface RunWhiteboardMigrationRuntime {
   migrateJjWhiteboardRepositories: typeof migrateJjWhiteboardRepositories;
   migrateWhiteboardManagedCheckouts: typeof migrateWhiteboardManagedCheckouts;
   removeLegacyDesktopCatalog: typeof removeLegacyDesktopCatalog;
-  removeLegacyWhiteboardSkills: typeof removeLegacyWhiteboardSkills;
   removeLegacyGlobalWhiteboardInstalls: typeof removeLegacyGlobalWhiteboardInstalls;
 }
 
@@ -107,7 +99,6 @@ export async function runWhiteboardMigration(input: {
     migrateJjWhiteboardRepositories,
     migrateWhiteboardManagedCheckouts,
     removeLegacyDesktopCatalog,
-    removeLegacyWhiteboardSkills,
     removeLegacyGlobalWhiteboardInstalls,
     ...input.runtime,
   };
@@ -163,17 +154,6 @@ export async function runWhiteboardMigration(input: {
     blockers,
   );
 
-  const skills = await runMigrationPhase(
-    "legacy skill cleanup",
-    { checked: 0, removed: 0, blockers: [] },
-    () =>
-      runtime.removeLegacyWhiteboardSkills({
-        homeDir,
-        packageRoot,
-      }),
-    blockers,
-  );
-
   const globalCli = await runMigrationPhase(
     "legacy global CLI cleanup",
     { checked: 0, removed: 0, blockers: [] },
@@ -193,7 +173,6 @@ export async function runWhiteboardMigration(input: {
     ...jj.blockers,
     ...managedCheckouts.blockers,
     ...catalog.blockers,
-    ...skills.blockers,
     ...globalCli.blockers,
   );
 
@@ -206,7 +185,6 @@ export async function runWhiteboardMigration(input: {
       `${count(managedCheckouts.created, "managed checkout")} created;`,
       `${count(stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved, "legacy checkout")} removed;`,
       `${count(catalog.removed, "catalog entry", "catalog entries")} removed;`,
-      `${count(skills.removed, "skill")} removed;`,
       `${count(globalCli.removed, "global CLI installation")} removed;`,
       `${count(blockers.length, "blocker")}.`,
     ].join(" ") + "\n",
@@ -226,7 +204,6 @@ export async function runWhiteboardMigration(input: {
     legacyCheckouts:
       stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved,
     catalogEntries: catalog.removed,
-    skills: skills.removed,
     globalCliInstallations: globalCli.removed,
     issues: [],
     blockers,
@@ -588,73 +565,6 @@ function isLegacyDesktopCatalogRecord(
       record.outcome === "submitted" ||
       record.outcome === "dismissed")
   );
-}
-
-export async function removeLegacyWhiteboardSkills(input: {
-  homeDir: string;
-  packageRoot: string;
-}): Promise<CleanupResult> {
-  const roots = [
-    path.join(input.homeDir, ".claude", "skills"),
-    path.join(input.homeDir, ".agents", "skills"),
-    path.join(input.homeDir, ".cursor", "skills"),
-  ];
-
-  const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
-
-  for (const root of roots) {
-    for (const name of RETIRED_SKILL_NAMES) {
-      const skillDir = path.join(root, name);
-
-      if (!(await pathExists(skillDir))) continue;
-      result.checked += 1;
-
-      if (!(await isWhiteboardOwnedSkill(skillDir, name))) {
-        result.blockers.push(
-          `${skillDir} is not a positively identified Whiteboard-owned skill.`,
-        );
-        continue;
-      }
-
-      await rm(skillDir, { recursive: true, force: false });
-      result.removed += 1;
-    }
-
-    for (const name of CURRENT_SKILL_NAMES) {
-      const skillDir = path.join(root, name);
-
-      if (!(await pathExists(skillDir))) continue;
-      const installed = await readSkillSource(skillDir);
-
-      const bundled = await readSkillSource(
-        path.join(input.packageRoot, "skills", name),
-      );
-
-      if (
-        installed === undefined ||
-        bundled === undefined ||
-        installed !== bundled
-      ) {
-        result.blockers.push(
-          `${skillDir} is a current skill with unclear ownership; it was not removed.`,
-        );
-      }
-    }
-  }
-
-  return result;
-}
-
-async function readSkillSource(skillDir: string): Promise<string | undefined> {
-  try {
-    const metadata = await lstat(skillDir);
-
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return undefined;
-
-    return await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-  } catch {
-    return undefined;
-  }
 }
 
 type RunCommand = (

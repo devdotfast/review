@@ -16,7 +16,6 @@ import { resolveWhiteboardStackLayers } from "../whiteboard-stack.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { SessionInputError, fileLineRangeSchema } from "./document.js";
-import type { AuthoringMode } from "./drafts.js";
 import {
   instructionsQuerySchema,
   renderInstructions,
@@ -73,7 +72,8 @@ export function createSessionApi(
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
-  authoringMode: AuthoringMode = "interactive",
+  // Read per request: capture can change from outside this server.
+  traceEnabled: () => Promise<boolean> = async () => false,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -190,27 +190,30 @@ export function createSessionApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) =>
-    context.json(
+
+  // Server-owned state only: asking the Desktop canvas would let a stalled
+  // renderer block tool listing and the first instructions call.
+  const instructionContext = async () => ({
+    desktopAvailable: Boolean(open),
+    scratchpadEnabled: scratchpadEnabled(),
+    traceEnabled: await traceEnabled(),
+  });
+
+  app.get("/authoring", async (context) => {
+    const instructions = await instructionContext();
+
+    return context.json(
       authoringTools(
-        authoringMode,
-        scratchpadAvailable({
-          authoringMode,
-          desktopAvailable: Boolean(open),
-          scratchpadEnabled: scratchpadEnabled(),
-        }),
+        scratchpadAvailable(instructions),
+        instructions.traceEnabled,
       ),
-    ),
-  );
+    );
+  });
   app.get("/instructions", async (context) => {
     const { topic } = instructionsQuerySchema.parse(context.req.query());
 
     return context.json(
-      await renderInstructions(topic, {
-        ...(await capabilities()),
-        authoringMode,
-        scratchpadEnabled: scratchpadEnabled(),
-      }),
+      await renderInstructions(topic, await instructionContext()),
     );
   });
   app.get("/:id/progress", async (context) => {
@@ -332,7 +335,6 @@ export function createSessionApi(
   app.get("/capabilities", async (context) =>
     context.json({
       ...(await capabilities()),
-      authoringMode,
       scratchpadEnabled: scratchpadEnabled(),
     }),
   );

@@ -4,12 +4,10 @@ import path from "node:path";
 import { z } from "zod";
 
 import { findWhiteboardPackageRoot } from "../package-paths.js";
-import type { AuthoringMode } from "./drafts.js";
 
 export const INSTRUCTION_TOPICS = [
   "authoring",
-  "headless",
-  "prepared-worktrees",
+  "file-lenses",
   "scratchpad",
   "trace-archaeology",
 ] as const;
@@ -21,17 +19,13 @@ export const instructionsQuerySchema = z.strictObject({
 });
 
 export interface InstructionContext {
-  authoringMode: AuthoringMode;
   desktopAvailable: boolean;
   scratchpadEnabled: boolean;
+  traceEnabled: boolean;
 }
 
 export function scratchpadAvailable(context: InstructionContext): boolean {
-  return (
-    context.authoringMode === "interactive" &&
-    context.desktopAvailable &&
-    context.scratchpadEnabled
-  );
+  return context.desktopAvailable && context.scratchpadEnabled;
 }
 
 const cache = new Map<string, Promise<string>>();
@@ -57,30 +51,34 @@ export async function renderInstructions(
   root = findWhiteboardPackageRoot(import.meta.url),
 ): Promise<string> {
   if (topic === "scratchpad" && !scratchpadAvailable(context)) {
-    return "The Review scratchpad is turned off or Review Desktop is not running. Answer in chat; the scratchpad can be turned on in Review Desktop Settings.";
+    return "The Whiteboard scratchpad is turned off or Whiteboard Desktop is not running. Answer in chat; the scratchpad can be turned on in Whiteboard Desktop Settings.";
   }
+
+  if (topic === "trace-archaeology" && !context.traceEnabled)
+    return "Trace capture is off on this machine, so no agent traces are available. It can be turned on in Whiteboard Desktop Settings under Experimental Features.";
 
   if (topic !== "authoring") return read(root, topic);
 
-  const workflow = await read(
-    root,
-    context.authoringMode === "batch" ? "authoring-batch" : "authoring-live",
-  );
-
   const more = [
-    '- Headless servers and CI: `review_get_instructions({topic:"headless"})`',
-    '- Reviews of prepared worktrees: `review_get_instructions({topic:"prepared-worktrees"})`',
     ...(scratchpadAvailable(context)
       ? [
-          '- Explaining code visually outside a review: `review_get_instructions({topic:"scratchpad"})`',
+          '- Explaining code visually outside a whiteboard: `session_get_instructions({topic:"scratchpad"})`',
         ]
       : []),
-    '- Why code exists / past agent sessions: `review_get_instructions({topic:"trace-archaeology"})`',
+    ...(context.traceEnabled
+      ? [
+          '- Why code exists / past agent sessions: `session_get_instructions({topic:"trace-archaeology"})`',
+        ]
+      : []),
   ];
 
   return [
-    workflow,
-    await read(root, "document-authoring"),
-    `## More guidance\n\n${more.join("\n")}`,
+    await read(root, "authoring"),
+    ...(context.traceEnabled
+      ? [
+          '## Traces\n\nAt the end, check if traces are available via `session_get_instructions({topic:"trace-archaeology"})`, and rewrite as much as possible of the what/why, design, and requirements sections in terms of literal trace quotes from the user.',
+        ]
+      : []),
+    ...(more.length ? [`## More guidance\n\n${more.join("\n")}`] : []),
   ].join("\n\n");
 }

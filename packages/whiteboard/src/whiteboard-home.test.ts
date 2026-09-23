@@ -845,12 +845,6 @@ describe("legacy records on read", () => {
       code: "REPAIR_REQUIRED",
       sessionId: created.review.uuid,
     });
-    expect(listed.errors[0]?.message).toContain(
-      "Delete it from Home and recreate it with the Whiteboard skill.",
-    );
-    await expect(findWhiteboard(created.review.uuid)).rejects.toThrow(
-      "Delete it from Home and recreate it with the Whiteboard skill.",
-    );
     await expect(findWhiteboard(created.review.uuid)).rejects.toMatchObject({
       errors: [{ code: "REPAIR_REQUIRED" }],
     });

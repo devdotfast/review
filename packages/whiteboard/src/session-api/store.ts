@@ -59,7 +59,7 @@ import { migrateSessionStorage } from "./session-storage-migration.js";
 
 const sessionId = z.string().min(1);
 
-/** There is one scratchpad. Its id is fixed so a skill can name it. */
+/** There is one scratchpad. Its id is fixed so an agent can name it. */
 export const SCRATCHPAD_ID = SCRATCHPAD_SESSION_ID;
 
 const DIAGRAM_TYPES = new Set([

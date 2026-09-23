@@ -11,6 +11,7 @@ import {
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
+  emitJsonEvent,
   humanStream,
   jsonRequestedInArgv,
   registerTraceCommands,
@@ -26,28 +27,18 @@ import {
   runTraceStoreDelete,
   runTraceStoreInfo,
   traceHomeDir,
+  traceMachineEnabled,
   traceScope,
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { WHITEBOARD_MCP_TARGETS } from "./agent-whiteboard-mcp";
-import {
-  cliInstallStampPath,
-  installWhiteboardCommand,
-  pathShimPath,
-  readCliInstallStamp,
-  registerWhiteboardMcp,
-} from "./cli-install";
+import { isOwnedShim, pathShimPath } from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
-import { readWhiteboardDesktopDiscovery } from "./desktop-discovery";
-import { isFile } from "./fs-utils";
+import { connectPrompts } from "./connect-prompts";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
-  type RunInstallInput,
-  defaultPackageRoot,
   isInstallTarget,
-  runInstall,
 } from "./install";
 import { runWhiteboardMigration } from "./migrate";
 import { readWhiteboardPackageVersion } from "./package-paths";
@@ -100,10 +91,7 @@ interface WhiteboardCliRuntime {
   runWhiteboardAppLaunch: typeof runWhiteboardAppLaunch;
   runWhiteboardAppPick: typeof runWhiteboardAppPick;
   runWhiteboardInfo: typeof runWhiteboardInfo;
-  runInstall: typeof runInstall;
-  installWhiteboardCommand: typeof installWhiteboardCommand;
   runWhiteboardMigration: typeof runWhiteboardMigration;
-  registerWhiteboardMcp: typeof registerWhiteboardMcp;
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
   runTraceDisable: typeof runTraceDisable;
@@ -485,12 +473,14 @@ export async function runWhiteboardCli(
       state.exitCode = 0;
     });
 
-  const install = configureJsonOutput(
+  const connect = configureJsonOutput(
     program
-      .command("install")
-      .description("Connect coding agents to Whiteboard")
+      .command("connect")
+      .description(
+        "Print the prompt that connects a coding agent to Whiteboard",
+      )
       .addArgument(
-        new Argument("[target...]", "coding agent target").choices([
+        new Argument("[target...]", "coding agent").choices([
           "claude",
           "claude-code",
           "codex",
@@ -499,138 +489,47 @@ export async function runWhiteboardCli(
           "pi",
           "all",
         ]),
-      )
-      .option(
-        "--trace-endpoint <url>",
-        "S3/R2 endpoint URL (experimental trace capture)",
-      )
-      .option(
-        "--trace-bucket <name>",
-        "S3/R2 bucket name (experimental trace capture)",
-      )
-      .option(
-        "--trace-key <id>",
-        "S3/R2 access key ID (experimental trace capture)",
-      )
-      .option(
-        "--trace-secret <key>",
-        "S3/R2 secret access key (experimental trace capture)",
-      )
-      .option(
-        "--trace-region <region>",
-        "SigV4 signing region; default auto for R2, set the bucket region for S3",
-      )
-      .option(
-        "--without-traces",
-        "Deprecated: trace capture is off unless --trace-* options are given",
-      )
-      .option(
-        "--no-shim",
-        "Set up agents without the whiteboard command or PATH changes",
-      )
-      .addHelpText("after", whiteboardInstallHelp()),
+      ),
     "plain",
   );
 
-  install.action(
-    async (
-      targets: string[],
-      options: {
-        json?: boolean;
-        traces?: boolean;
-        traceEndpoint?: string;
-        traceBucket?: string;
-        traceKey?: string;
-        traceSecret?: string;
-        traceRegion?: string;
-        shim?: boolean;
-      },
-    ) => {
-      const selectedTargets = installTargets(targets);
-      const installShim = options.shim !== false;
+  connect.action(async (targets: string[], options: { json?: boolean }) => {
+    const selected = parseTargets(targets);
 
-      const cliSource = await resolveInstallCliSource(env);
+    const { homeDir, devHome } = scope;
 
-      const installInput: RunInstallInput = {
-        targets: selectedTargets,
-        env,
-        fff: traceCredentialsRequested(options) && options.traces !== false,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      };
+    const prompts = connectPrompts({
+      hasShim: await isOwnedShim(pathShimPath(homeDir)),
+      traceEnabled: await traceMachineEnabled({ homeDir, env }),
+      fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),
+      fffCorpusRoot: path.join(devHome, "trace-search"),
+    });
 
-      if (installShim) installInput.whiteboardCommand = pathShimPath();
+    const output = {
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    };
 
-      // Trace capture is experimental and opt-in: only a request that names
-      // R2 credentials configures it. --without-traces stays accepted so
-      // existing scripts keep working.
-      if (traceCredentialsRequested(options) && options.traces !== false) {
-        installInput.trace = {
-          credentials: {
-            endpoint: options.traceEndpoint,
-            bucket: options.traceBucket,
-            key: options.traceKey,
-            secret: options.traceSecret,
-            region: options.traceRegion,
-          },
-        };
-      }
-
-      state.exitCode = await runtime.runInstall(installInput);
-
-      if (state.exitCode !== 0) return;
-
-      const human = humanStream({
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
+    if (options.json) {
+      emitJsonEvent(output, {
+        event: "connect",
+        prompts: Object.fromEntries(
+          selected.map((target) => [target, prompts[target]]),
+        ),
       });
 
-      const mcpTargets = selectedTargets.filter((target) =>
-        WHITEBOARD_MCP_TARGETS.some((item) => item === target),
-      );
+      return;
+    }
 
-      if (mcpTargets.length > 0) {
-        if (env.DEV_WHITEBOARD_SERVER_DIR?.trim()) {
-          // A headless selection is for this shell; Desktop MCP entries
-          // would point agents at the wrong server.
-          human.write(
-            "A headless Whiteboard server is selected, so no agent MCP entries were written. Agents can use `whiteboard api` or `whiteboard mcp` in this environment.\n",
-          );
-        } else if (cliSource) {
-          const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+    const sections = selected.map((target) =>
+      selected.length > 1
+        ? `## ${TARGET_LABELS[target]}\n\n${prompts[target]}`
+        : prompts[target],
+    );
 
-          human.write(
-            await runtime.registerWhiteboardMcp({
-              targets: mcpTargets,
-              ...cliSource,
-              env,
-              managed:
-                stamp?.consent === "granted" ? stamp.mcpRegistrations : [],
-            }),
-          );
-        }
-      }
-
-      if (!installShim) return;
-
-      if (!cliSource) {
-        human.write(
-          "Whiteboard could not install the command or MCP entries because no built CLI was found.\n",
-        );
-
-        return;
-      }
-
-      const installed = await runtime.installWhiteboardCommand({
-        ...cliSource,
-        env,
-      });
-
-      human.write(installed.output);
-    },
-  );
+    humanStream(output).write(`${sections.join("\n\n")}\n`);
+  });
 
   const migrate = configureOutput(
     program.command("migrate").description("Migrate legacy Whiteboard data"),
@@ -1054,7 +953,15 @@ export async function runWhiteboardCli(
   }
 }
 
-function installTargets(targets: readonly string[]): InstallTarget[] {
+const TARGET_LABELS: Record<InstallTarget, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  pi: "Pi",
+};
+
+function parseTargets(targets: readonly string[]): InstallTarget[] {
   if (targets.length === 0 || targets.includes("all")) {
     return [...ALL_INSTALL_TARGETS];
   }
@@ -1076,10 +983,7 @@ function whiteboardCliRuntime(
     runWhiteboardAppLaunch,
     runWhiteboardAppPick,
     runWhiteboardInfo,
-    runInstall,
-    installWhiteboardCommand,
     runWhiteboardMigration,
-    registerWhiteboardMcp,
     runTraceStatus,
     runTraceEnable,
     runTraceDisable,
@@ -1107,49 +1011,6 @@ function whiteboardCliRuntime(
   };
 }
 
-interface InstallCliSource {
-  cliPath: string;
-  cliRuntimePath?: string;
-}
-
-async function resolveInstallCliSource(
-  env: NodeJS.ProcessEnv,
-): Promise<InstallCliSource | undefined> {
-  try {
-    const discovery = await readWhiteboardDesktopDiscovery(
-      whiteboardDesktopDiscoveryPath(env),
-    );
-
-    const cliPath =
-      discovery?.cliPath &&
-      (path.basename(discovery.cliPath) === "cli.js"
-        ? path.join(path.dirname(discovery.cliPath), "whiteboard-cli.js")
-        : discovery.cliPath);
-
-    if (cliPath && (await isFile(cliPath))) {
-      const source: InstallCliSource = { cliPath };
-
-      if (discovery?.cliRuntimePath) {
-        source.cliRuntimePath = discovery.cliRuntimePath;
-      }
-
-      return source;
-    }
-  } catch {
-    // A packaged CLI remains a valid fallback when discovery is stale.
-  }
-
-  const packageCliPath = path.join(
-    defaultPackageRoot(),
-    "dist",
-    "whiteboard-cli.js",
-  );
-
-  return (await isFile(packageCliPath))
-    ? { cliPath: packageCliPath }
-    : undefined;
-}
-
 function whiteboardTopLevelHelp(): string {
   return [
     "",
@@ -1163,7 +1024,7 @@ function whiteboardTopLevelHelp(): string {
     "",
     "Example agent prompt (for a repository that provides a CI/CD system):",
     "",
-    "  Can you use $whiteboard to explain this repository's CI/CD system to me?",
+    "  Can you use Whiteboard to explain this repository's CI/CD system to me?",
     "",
     "  My current understanding:",
     "",
@@ -1183,47 +1044,6 @@ function whiteboardTopLevelHelp(): string {
     "     with walkthroughs linked to the relevant code.",
     "",
     "  Start concise and let me dig deeper through the canvas.",
-  ].join("\n");
-}
-
-function traceCredentialsRequested(options: {
-  traceEndpoint?: string;
-  traceBucket?: string;
-  traceKey?: string;
-  traceSecret?: string;
-}): boolean {
-  return Boolean(
-    options.traceEndpoint ||
-    options.traceBucket ||
-    options.traceKey ||
-    options.traceSecret,
-  );
-}
-
-function whiteboardInstallHelp(): string {
-  return [
-    "",
-    "When no target is provided, Whiteboard installs for every supported agent.",
-    "",
-    "Whiteboard Desktop is the primary setup path: it connects detected",
-    "agents to Whiteboard's MCP tools and keeps that setup in sync with the app.",
-    "Agents read Whiteboard instructions from the running server.",
-    "",
-    "Targets:",
-    "  claude   Claude Code (MCP in ~/.claude.json)",
-    "  codex    Codex (MCP in ~/.codex/config.toml)",
-    "  cursor   Cursor (MCP in ~/.cursor/mcp.json)",
-    "  opencode OpenCode (MCP in ~/.config/opencode/opencode.json)",
-    "  pi       Pi (pointer skill in ~/.agents/skills; uses the whiteboard command)",
-    "  all      Every supported agent (default)",
-    "",
-    "Examples:",
-    "  whiteboard install codex",
-    "  whiteboard install claude cursor",
-    "  whiteboard install all",
-    "",
-    "Trace capture (experimental) is off unless S3/R2 credentials are given:",
-    "  whiteboard install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
   ].join("\n");
 }
 
@@ -1321,13 +1141,13 @@ function telemetryCommandPath(
 
   if (name === "login" || name === "logout" || name === "whoami") return name;
 
-  if (name === "api" || name === "mcp") return name;
+  if (name === "api" || name === "mcp" || name === "connect") return name;
 
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;
   }
 
-  if (name === "version" || name === "info" || name === "install") {
+  if (name === "version" || name === "info") {
     return name;
   }
 

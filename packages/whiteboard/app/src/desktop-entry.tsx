@@ -112,7 +112,6 @@ function Home({
           ? (whiteboard) => restoreWhiteboard(whiteboard.sessionId)
           : undefined
       }
-      setup={content.setup}
       install={content.install}
       setupActions={content.setupActions}
       onboarding={content.onboarding}

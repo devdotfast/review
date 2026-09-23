@@ -69,24 +69,12 @@ try {
 
   for (const file of [
     "dist/whiteboard-cli.js",
-    "skills/whiteboard/docs/README.md",
-    "skills/trace-archaeology/SKILL.md",
-    "instructions/authoring-live.md",
-    "instructions/authoring-batch.md",
-    "instructions/document-authoring.md",
-    "instructions/headless.md",
-    "instructions/prepared-worktrees.md",
-    "instructions/scratchpad.md",
-    "instructions/trace-archaeology.md",
+    "docs/README.md",
+    "instructions/authoring.md",
   ])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));
-  assert.match(
-    await readFile(path.join(pkgRoot, "skills/whiteboard/SKILL.md"), "utf8"),
-    new RegExp(
-      `whiteboard-version: "${expectedVersion.replaceAll(".", "\\.")}"`,
-    ),
-  );
+  await assert.rejects(access(path.join(pkgRoot, "skills")));
   const cli = path.join(prefix, "node_modules/.bin/whiteboard");
 
   const env = {
@@ -110,6 +98,11 @@ try {
         maxBuffer: 8 * 1024 * 1024,
       })
     ).stdout;
+
+  assert.match(
+    await run(["connect", "codex"]),
+    /MCP server named "whiteboard"/,
+  );
 
   const api = async (name, value = {}) =>
     JSON.parse(await run(["api", name, JSON.stringify(value)]));
@@ -157,9 +150,8 @@ try {
   }
 
   assert.ok(ready, "Headless server must become ready");
-  const guidance = await run(["api", "review_get_instructions", "{}"]);
-  assert.ok(guidance.includes("review_draft_begin"));
-  assert.ok(guidance.includes("## Self-review before completion"));
+  const guidance = await run(["api", "session_get_instructions", "{}"]);
+  assert.ok(guidance.includes("session_activity"));
   const repository = path.join(root, "repository");
   await mkdir(repository);
   const git = (...args) => exec("git", args, { cwd: repository });

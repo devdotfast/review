@@ -12,27 +12,56 @@ import {
   callAuthoringTool,
   toolResultText,
 } from "./agent-client.js";
+import { authoringTools } from "./authoring-tools.js";
 import type { SessionApiClient } from "./client.js";
 import { SessionApiError } from "./client.js";
-import { authoringTools } from "./authoring-tools.js";
 import { RECOVERY } from "./recovery.js";
 
-const INSTRUCTIONS_TOOL = authoringTools().find(
-  (tool) => tool.name === "session_get_instructions",
-)!;
+// Some hosts ignore tools/list_changed, so the agent itself has to reload.
+const RELOAD_TOOLS =
+  "Whiteboard is running now, but this session listed Whiteboard's tools before it started, so you may see only session_get_instructions. Before authoring, reload the `whiteboard` MCP server's tools (reconnect it in your agent, or start a new agent session). If you can already see tools such as session_create, carry on.";
+
+export function mcpServerInstructions(context: {
+  scratchpadAvailable: boolean;
+  traceEnabled: boolean;
+}): string {
+  return [
+    "Whiteboard explains code in documents the user reads in Whiteboard Desktop. Call session_get_instructions before creating or editing a Whiteboard and follow it. Read session_capabilities before authoring; session_create opens the new whiteboard in Desktop when it is available, so call session_open only for an existing whiteboard, and generate software maps only when softwareMapEnabled is true. When the user asks for a Whiteboard or to use Whiteboard (for example to review a branch, a change or a pull request, or to explain a system in Whiteboard), author a Whiteboard with the default topic.",
+    ...(context.scratchpadAvailable
+      ? [
+          'When the user asks in conversation to be shown how code works or wants a diagram, without asking for a Whiteboard, call session_capabilities; if it reports scratchpadEnabled and desktopAvailable, draw on the Whiteboard scratchpad rather than answering only in chat, starting with session_get_instructions({topic:"scratchpad"}).',
+        ]
+      : []),
+    ...(context.traceEnabled
+      ? [
+          'For why code exists, what an agent was thinking, or whether an agent solved something before, call session_get_instructions({topic:"trace-archaeology"}).',
+        ]
+      : []),
+    "Never read or write Whiteboard files or SQL. Reuse commandId and identical input after a lost response.",
+  ].join(" ");
+}
 
 export async function serveWhiteboardMcp(
   connect: () => Promise<SessionApiClient>,
   stdin: Readable,
   stdout: Writable,
   stderr: Writable = process.stderr,
+  traceEnabled = false,
 ) {
+  const instructionsTool = authoringTools(false, traceEnabled).find(
+    (tool) => tool.name === "session_get_instructions",
+  )!;
+
   const server = new Server(
     { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions:
-        'Whiteboard explains code in sessions the user reads in Whiteboard Desktop. Call session_get_instructions before authoring and follow it. Read session_capabilities before authoring. When the user asks to see how code works or wants a diagram, and session_capabilities reports authoringMode interactive, desktopAvailable true, and scratchpadEnabled true, call session_get_instructions({topic:"scratchpad"}) instead of drawing ASCII in chat. For why code exists or whether an agent solved something before, call session_get_instructions({topic:"trace-archaeology"}). Never read or write Whiteboard files or SQL.',
+      // Initialize comes before Desktop can be asked; the scratchpad
+      // sentence defers to session_capabilities.
+      instructions: mcpServerInstructions({
+        scratchpadAvailable: true,
+        traceEnabled,
+      }),
     },
   );
 
@@ -41,6 +70,7 @@ export async function serveWhiteboardMcp(
   // changed list once the host can be reached.
   let catalog: AuthoringTool[] = [];
   let announceCatalog = false;
+  let listedWhileDown = false;
 
   const load = async (signal?: AbortSignal) => {
     const client = await connect();
@@ -59,8 +89,10 @@ export async function serveWhiteboardMcp(
 
     try {
       ({ tools } = await load(extra.signal));
+      listedWhileDown = false;
     } catch (error) {
       announceCatalog = true;
+      listedWhileDown = true;
       stderr.write(
         `whiteboard mcp: ${error instanceof Error ? error.message : String(error)}\n`,
       );
@@ -68,9 +100,9 @@ export async function serveWhiteboardMcp(
 
     return {
       tools: [
-        tools.find((tool) => tool.name === INSTRUCTIONS_TOOL.name) ??
-          INSTRUCTIONS_TOOL,
-        ...tools.filter((tool) => tool.name !== INSTRUCTIONS_TOOL.name),
+        tools.find((tool) => tool.name === instructionsTool.name) ??
+          instructionsTool,
+        ...tools.filter((tool) => tool.name !== instructionsTool.name),
       ].map(({ name, description, inputSchema }) => ({
         name,
         description,
@@ -89,7 +121,7 @@ export async function serveWhiteboardMcp(
         announceCatalog = true;
 
         if (
-          request.params.name === INSTRUCTIONS_TOOL.name &&
+          request.params.name === instructionsTool.name &&
           !(error instanceof SessionApiError)
         )
           return { content: [{ type: "text" as const, text: RECOVERY }] };
@@ -109,11 +141,16 @@ export async function serveWhiteboardMcp(
         extra.signal,
       );
 
+      const text = toolResultText(tool, result);
+
       return {
         content: [
           {
             type: "text",
-            text: toolResultText(tool, result),
+            text:
+              listedWhileDown && tool.name === instructionsTool.name
+                ? `${RELOAD_TOOLS}\n\n${text}`
+                : text,
           },
         ],
       };

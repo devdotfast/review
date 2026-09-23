@@ -19,13 +19,44 @@ import { type TutorialBlock, tutorial } from "./tutorial.js";
 
 /** Lenses left the document; say where they went instead of listing every
  * block type the input did not match. */
-export function fileLensMoved(issue: { input?: unknown }) {
+function fileLensMoved(issue: { input?: unknown }) {
   return retiredFileLens.safeParse(issue.input).success
     ? FILE_LENS_MOVED
     : undefined;
 }
 
 const retiredFileLens = z.object({ type: z.literal("file_lens") });
+
+const typedInput = z.object({ type: z.string() });
+
+/** A failed union names the type it tried and that type's field errors,
+ * instead of zod's bare "Invalid input". */
+export function unionError(kinds: () => Record<string, z.ZodType>) {
+  return (issue: { input?: unknown }) => {
+    const moved = fileLensMoved(issue);
+
+    if (moved) return moved;
+
+    const typed = typedInput.safeParse(issue.input);
+
+    if (!typed.success) return undefined;
+
+    const { type } = typed.data;
+    const all = kinds();
+    const schema = Object.hasOwn(all, type) ? all[type] : undefined;
+
+    if (!schema)
+      return `Unknown content type "${type}". Use one of: ${Object.keys(all).join(", ")}.`;
+
+    const result = schema.safeParse(issue.input);
+
+    if (result.success) return undefined;
+
+    return `Invalid ${type}: ${result.error.issues
+      .map((i) => (i.path.length ? `${i.path.join(".")}: ` : "") + i.message)
+      .join("; ")}`;
+  };
+}
 
 /** Leaf kinds share one discriminated union so unknown types read as they always have. */
 export const leafSchema = z.discriminatedUnion(
@@ -74,9 +105,18 @@ export const blocks = {
   tutorial,
 } satisfies Definitions;
 
+/** Every block type and its schema. */
+export const blockKinds = (): Record<string, z.ZodType> =>
+  Object.fromEntries(
+    Object.entries(blocks).map(([type, definition]) => [
+      type,
+      definition.schema,
+    ]),
+  );
+
 export const blockSchema: z.ZodType<Block> = z.lazy(() =>
   z.union([leafSchema, section.schema, callout.schema, tutorial.schema], {
-    error: fileLensMoved,
+    error: unionError(blockKinds),
   }),
 );
 

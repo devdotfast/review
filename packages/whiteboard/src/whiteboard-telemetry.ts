@@ -41,7 +41,7 @@ export type WhiteboardCliCommandPath =
   | "app.launch"
   | "app.pick"
   | "info"
-  | "install"
+  | "connect"
   | "migrate.apply"
   | "map.open"
   | "map.check"

@@ -17,9 +17,9 @@
     "README.md",
     "onboarding.md",
     "dist",
-    "skills",
+    "docs",
+    "!docs/review-actions-redesign",
     "instructions",
-    "plugins",
     "tutorial",
     "!tutorial/.bundle",
     "src",
@@ -72,7 +72,6 @@
     "es-module-lexer": "2.1.0",
     "fuzzysort": "4.0.2",
     "hono": "4.13.5",
-    "jsonc-parser": "3.3.1",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm": "3.1.0",
     "micromark-extension-gfm": "3.0.0",
@@ -106,6 +105,6 @@
   "intent": {
     "version": 1,
     "repo": "devdotfast/whiteboard",
-    "docs": "packages/whiteboard/instructions/authoring-live.md"
+    "docs": "packages/whiteboard/instructions/authoring.md"
   }
 }

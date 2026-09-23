@@ -1,97 +1,55 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import {
-  access,
-  chmod,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { access, chmod, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  AGENT_TRACE_HOOK_AGENTS,
   type TraceCredentialsInput,
-  collectingWritable,
+  configureTraceMachine,
   describeTraceHookOwners,
   devWhiteboardHome,
   disableAllTraceRepositories,
   disableTraceMachine,
+  enableTraceRepository,
+  installHarnessHooks,
+  listTraceRepositoryRoots,
   removeAgentTraceHook,
   traceMachineEnabled,
   traceMachineStatus,
+  traceRepositoryStatus,
   traceScope,
   withFileLock,
   writeFileAtomicAsync,
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 import {
-  type WhiteboardMcpRegistration,
   type WhiteboardCliInstallStamp,
   WhiteboardCliInstallStampSchema,
   type WhiteboardCliInstallStatus,
-  type WhiteboardFffInstallTarget,
-  type WhiteboardFffManagedRegistration,
 } from "@dev.fast/whiteboard-protocol";
 
-import {
-  FFF_SERVER_NAME,
-  FFF_TARGETS,
-  fffBinaryPath,
-  fffCorpusRoot,
-  fffRegistration,
-  fffRegistrationMatches,
-  isFffTarget,
-  readFffRegistration,
-  removeFffRegistration,
-} from "./agent-fff";
-import {
-  WHITEBOARD_MCP_TARGETS,
-  whiteboardMcpLauncher,
-  whiteboardMcpRegistration,
-  whiteboardMcpStatus,
-  writeWhiteboardMcpRegistration,
-} from "./agent-whiteboard-mcp";
+import { connectPrompts, whiteboardMcpLaunch } from "./connect-prompts";
+import { cursorInstallDeeplink } from "./cursor-deeplink";
 import { isDirectory, isFile } from "./fs-utils";
-import {
-  ALL_INSTALL_TARGETS,
-  type InstallTarget,
-  hasManagedSkillsToRemove,
-  keptSkillNames,
-  removeInstalledSkills,
-  resolveInstalledSkills,
-  runInstall,
-  skillsDestRoot,
-} from "./install";
+import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
 import { readWhiteboardPackageVersion } from "./package-paths";
 import { whiteboardDesktopStateDir } from "./whiteboard-home-paths";
 
 const installErrors = new Map<string, string>();
 
-const AGENT_HOME_DIR: Record<InstallTarget, string> = {
-  claude: ".claude",
-  codex: ".codex",
-  cursor: ".cursor",
-  opencode: ".config/opencode",
-  pi: ".pi",
-};
-
 const SHIM_MARKER = "Managed by Whiteboard";
 
-const LEGACY_SHIM_MARKER = "Managed by Review Desktop";
-
 function hasManagedShimMarker(source: string): boolean {
-  return source.includes(SHIM_MARKER) || source.includes(LEGACY_SHIM_MARKER);
+  return (
+    source.includes(SHIM_MARKER) || source.includes("Managed by Review Desktop")
+  );
 }
 
 const PROFILE_MARKER =
-  "# Managed by Whiteboard: whiteboard command PATH. Do not edit.";
-
-const LEGACY_PROFILE_MARKER =
-  "# Managed by Review Desktop: review command PATH. Do not edit.";
+  "# Managed by Whiteboard Desktop: whiteboard command PATH. Do not edit.";
 
 const PROFILE_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
 
@@ -100,7 +58,9 @@ const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
 const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
 
 const SHADOWING_HELP_URL =
-  "https://github.com/devdotfast/whiteboard/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
+  "https://github.com/devdotfast/review/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
+
+type ApplyResult = { code: number; output: string; shimPath?: string };
 
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,
@@ -108,90 +68,19 @@ export function cliInstallStampPath(
   return path.join(whiteboardDesktopStateDir(env), "cli-install.json");
 }
 
+/**
+ * Present once this build's setup is current. It sits beside the stamp, not in
+ * it, because older builds parse the stamp strictly and would drop a stamp
+ * carrying a new key.
+ */
+export function cliInstallUpdateMarkerPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(whiteboardDesktopStateDir(env), "cli-install-updated");
+}
+
 export function pathShimPath(homeDir = os.homedir()): string {
   return path.join(homeDir, ".local", "bin", "whiteboard");
-}
-
-/** Reads filesystem-backed agent state without creating any agent config. */
-export async function resolveInstalledWhiteboardAgentStatus(
-  input: {
-    homeDir?: string;
-    env?: NodeJS.ProcessEnv;
-  } = {},
-): Promise<Pick<WhiteboardCliInstallStatus, "agents" | "stamp">> {
-  const homeDir = input.homeDir ?? os.homedir();
-  const env = input.env ?? process.env;
-  const { agents, stamp } = await resolveAgentState(homeDir, env);
-
-  return { agents, stamp };
-}
-
-async function resolveAgentState(homeDir: string, env: NodeJS.ProcessEnv) {
-  const [present, stamp, piInstalled] = await Promise.all([
-    detectPresentAgents(homeDir),
-    readCliInstallStamp(cliInstallStampPath(env)),
-    isFile(path.join(skillsDestRoot(homeDir, "pi"), "whiteboard", "SKILL.md")),
-  ]);
-  const launcherExists = await isFile(whiteboardMcpLauncher(env));
-  const mcp = await Promise.all(
-    WHITEBOARD_MCP_TARGETS.map(async (target) => {
-      const result = await whiteboardMcpStatus(
-        await whiteboardMcpRegistration(target, homeDir, env),
-        stamp?.mcpRegistrations?.find((item) => item.target === target),
-      );
-
-      return result.state === "ready" && !launcherExists
-        ? { ...result, state: "missing" as const }
-        : result;
-    }),
-  );
-  const agents = ALL_INSTALL_TARGETS.map((target) => ({
-    target,
-    present: present.has(target),
-    installed:
-      target === "pi"
-        ? piInstalled
-        : mcp.some(
-            (item) =>
-              item.target === target &&
-              (item.state === "ready" || item.state === "custom"),
-          ),
-  }));
-  let managedTargets: InstallTarget[] = [];
-
-  if (stamp?.consent === "granted") {
-    managedTargets =
-      stamp.targets ??
-      agents
-        .filter(
-          (agent) =>
-            agent.installed && (agent.target !== "pi" || present.has("pi")),
-        )
-        .map((agent) => agent.target);
-
-    if (!stamp.targets) {
-      for (const target of WHITEBOARD_MCP_TARGETS) {
-        if (
-          target === "codex" &&
-          managedTargets.includes("pi") &&
-          !present.has("codex")
-        )
-          continue;
-
-        if (
-          !managedTargets.includes(target) &&
-          (await hasManagedSkillsToRemove(
-            homeDir,
-            [target],
-            managedTargets.includes("pi"),
-          ))
-        )
-          managedTargets.push(target);
-      }
-    }
-  }
-
-  return { agents, stamp, mcp, managedTargets };
 }
 
 export async function resolveCliInstallStatus(input: {
@@ -199,157 +88,68 @@ export async function resolveCliInstallStatus(input: {
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<WhiteboardCliInstallStatus> {
-  return (await resolveCliInstallState(input)).status;
-}
-
-async function resolveCliInstallState(input: {
-  packageRoot: string;
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
-}): Promise<{
-  status: WhiteboardCliInstallStatus;
-  managedTargets: InstallTarget[];
-}> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
-  const [agentStatus, fingerprint, trace] = await Promise.all([
-    resolveAgentState(homeDir, env),
-    installFingerprint(input.packageRoot),
-    traceMachineStatus({ homeDir, env }),
-  ]);
-  const { agents, stamp, mcp, managedTargets } = agentStatus;
-  const skills = await resolveInstalledSkills({
-    packageRoot: input.packageRoot,
-    homeDir,
-    targets: managedTargets,
-  });
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "whiteboard-cli.js");
-  const fffBinary = fffBinaryPath(homeDir);
-  const fffCorpus = fffCorpusRoot(homeDir);
-  const fffRegistrations = await Promise.all(
-    FFF_TARGETS.map(async (target) => {
-      const current = await readFffRegistration(target, homeDir, env);
-      const managedRecord = stamp?.fffRegistrations?.find(
-        (registration) => registration.target === target,
-      );
 
-      return {
-        target,
-        present: current.present,
-        managed: Boolean(
-          current.present &&
-          managedRecord &&
-          fffRegistrationMatches(current.output, managedRecord),
-        ),
-      };
-    }),
-  );
+  const [fingerprint, stamp, updated, trace, legacySkills, cliBuilt, hasShim] =
+    await Promise.all([
+      installFingerprint(input.packageRoot),
+      readCliInstallStamp(cliInstallStampPath(env)),
+      isFile(cliInstallUpdateMarkerPath(env)),
+      traceMachineStatus({ homeDir, env }),
+      scanLegacySkills(homeDir),
+      isFile(cliPath),
+      isOwnedShim(shimPath),
+    ]);
+
+  const granted = stamp?.consent === "granted";
+
   const status: WhiteboardCliInstallStatus = {
-    agents,
     fingerprint,
-    stamp:
-      stamp?.consent === "granted" && !stamp.targets
-        ? { ...stamp, targets: managedTargets }
-        : stamp,
-    stale:
-      stamp?.consent === "granted" &&
-      (stamp.fingerprint !== fingerprint ||
-        skills.some((skill) => skill.stale) ||
-        (await hasManagedSkillsToRemove(homeDir, managedTargets)) ||
-        ((await isFile(cliPath)) &&
-          mcp.some(
-            (item) =>
-              managedTargets.includes(item.target) && item.state === "missing",
-          ))),
-    skills,
-    mcp,
+    stamp,
+    stale: granted && stamp.fingerprint !== fingerprint,
+    updateNeeded: granted && !updated,
     shim: {
       path: shimPath,
-      installed: await isOwnedShim(shimPath),
+      installed: hasShim,
       profileConfigured: await isShellProfileConfigured(homeDir),
       onPath: pathContainsDirectory(env.PATH, path.dirname(shimPath)),
     },
-    fff: {
-      serverName: FFF_SERVER_NAME,
-      corpusRoot: fffCorpus,
-      binary: { path: fffBinary, installed: await isFile(fffBinary) },
-      registrations: fffRegistrations,
-    },
     trace,
-    cli: (await isFile(cliPath))
+    cli: cliBuilt
       ? {
           path: cliPath,
           version: readWhiteboardPackageVersion(pathToFileURL(cliPath).href),
         }
       : null,
+    connect: {
+      ...whiteboardMcpLaunch(hasShim),
+      prompts: connectPrompts({
+        hasShim,
+        traceEnabled: trace.enabled,
+        fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),
+        fffCorpusRoot: path.join(
+          devWhiteboardHome(env, homeDir),
+          "trace-search",
+        ),
+      }),
+      plugins: connectPlugins(hasShim),
+    },
+    legacySkills: legacySkills.map((skillPath) => ({ path: skillPath })),
   };
+
   const error = installErrors.get(homeDir);
 
   if (error) status.error = error;
 
-  return { status, managedTargets };
-}
-
-/** Writes the Whiteboard MCP launcher and selected agent registrations. */
-export async function registerWhiteboardMcp(
-  input: {
-    targets: InstallTarget[];
-    cliPath: string;
-    cliRuntimePath?: string;
-    homeDir?: string;
-    env?: NodeJS.ProcessEnv;
-    managed?: WhiteboardMcpRegistration[];
-  },
-  onRegistered: (
-    registration: WhiteboardMcpRegistration,
-  ) => Promise<void> = async () => {},
-): Promise<string> {
-  const homeDir = input.homeDir ?? os.homedir();
-  const env = input.env ?? process.env;
-  const targets = WHITEBOARD_MCP_TARGETS.filter((target) =>
-    input.targets.includes(target),
-  );
-
-  if (targets.length === 0) return "";
-
-  await writePathShim(
-    whiteboardMcpLauncher(env),
-    input.cliPath,
-    input.cliRuntimePath,
-    devWhiteboardHome(env, homeDir),
-  );
-
-  const output: string[] = [];
-
-  for (const target of targets) {
-    const registration = await whiteboardMcpRegistration(target, homeDir, env);
-    const installed = await writeWhiteboardMcpRegistration(
-      registration,
-      input.managed?.find((item) => item.target === target),
-    );
-
-    if (!installed) {
-      output.push(
-        `The ${target} Whiteboard MCP entry was customized; left unchanged.\n`,
-      );
-      continue;
-    }
-
-    await onRegistered(registration);
-    output.push(
-      `[ok] Whiteboard MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
-    );
-  }
-
-  return output.join("");
+  return status;
 }
 
 interface ApplyCliInstallInput {
   packageRoot: string;
-  targets: InstallTarget[];
   shim?: boolean;
-  fff?: boolean;
   autoUpdate?: boolean;
   trace?: true | TraceCredentialsInput;
   cliPath?: string;
@@ -360,42 +160,18 @@ interface ApplyCliInstallInput {
 
 export async function applyCliInstall(
   input: ApplyCliInstallInput,
-): Promise<{ code: number; output: string; shimPath?: string }> {
+): Promise<ApplyResult> {
+  if (!input.autoUpdate && input.shim !== true && input.trace === undefined)
+    return { code: 0, output: "" };
+
   const homeDir = input.homeDir ?? os.homedir();
 
-  if (input.cliPath && path.basename(input.cliPath) === "cli.js")
-    input = {
-      ...input,
-      cliPath: path.join(path.dirname(input.cliPath), "whiteboard-cli.js"),
-    };
-
   try {
-    const result = await withDesktopInstallLock(input.env, async () => {
-      if (input.autoUpdate) {
-        // Re-read consent under the mutation lock: a stale UI snapshot must
-        // never reinstall a target the user has since removed or declined.
-        const { status, managedTargets } = await resolveCliInstallState(input);
-        const stamp = status.stamp;
-
-        if (stamp?.consent !== "granted" || !status.stale)
-          return { code: 0, output: "" };
-
-        const targets = managedTargets;
-
-        if (targets.length === 0 && !stamp.shimPath)
-          return { code: 0, output: "" };
-
-        return applyCliInstallUnlocked({
-          ...input,
-          targets,
-          shim: Boolean(stamp.shimPath),
-          fff: false,
-          trace: undefined,
-        });
-      }
-
-      return applyCliInstallUnlocked(input);
-    });
+    const result = await withDesktopInstallLock(input.env, () =>
+      input.autoUpdate
+        ? resyncCliInstallUnlocked(input)
+        : applyCliInstallUnlocked(input),
+    );
 
     if (result.code === 0) installErrors.delete(homeDir);
     else installErrors.set(homeDir, result.output);
@@ -427,188 +203,210 @@ async function withDesktopInstallLock<T>(
   return outcome.result;
 }
 
+/**
+ * Silent app-update resync: rewrites the shim for the new build. Consent is
+ * re-read under the lock, so a stale UI snapshot never reinstalls a command
+ * the user has since removed or declined.
+ */
+async function resyncCliInstallUnlocked(
+  input: ApplyCliInstallInput,
+): Promise<ApplyResult> {
+  const env = input.env ?? process.env;
+  const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+  const fingerprint = await installFingerprint(input.packageRoot);
+
+  if (stamp?.consent !== "granted" || stamp.fingerprint === fingerprint)
+    return { code: 0, output: "" };
+
+  const chunks: string[] = [];
+  let shimPath: string | undefined;
+
+  if (stamp.shimPath && !stamp.commandDisabled) {
+    const installed = await installShim(input, chunks);
+
+    if (installed.code !== 0) return installed;
+    shimPath = installed.shimPath;
+  }
+
+  // The update marker stays as it was: an upgrader keeps `updateNeeded` until
+  // Done.
+  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    ...stamp,
+    fingerprint,
+    updatedAt: new Date().toISOString(),
+  } satisfies WhiteboardCliInstallStamp);
+
+  return withShimPath({ code: 0, output: chunks.join("") }, shimPath);
+}
+
 async function applyCliInstallUnlocked(
   input: ApplyCliInstallInput,
-): Promise<{ code: number; output: string; shimPath?: string }> {
+): Promise<ApplyResult> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
-  const previousTargets =
-    previous?.consent === "granted"
-      ? (previous.targets ??
-        (await resolveAgentState(homeDir, env)).managedTargets)
-      : [];
-  const wantShim = input.shim ?? input.targets.length > 0;
+  const granted = previous?.consent === "granted";
   const chunks: string[] = [];
-  const sink = collectingWritable(chunks);
-  const fffTargets = input.fff ? input.targets.filter(isFffTarget) : [];
+  let traceEnabled = false;
 
-  const fffPresentBefore = new Map(
-    await Promise.all(
-      fffTargets.map(
-        async (target) =>
-          [
-            target,
-            (await readFffRegistration(target, homeDir, env)).present,
-          ] as const,
-      ),
-    ),
-  );
-
-  if (
-    input.targets.length > 0 ||
-    input.trace !== undefined ||
-    (wantShim && (await traceMachineEnabled({ homeDir, env })))
-  ) {
-    const installInput: Parameters<typeof runInstall>[0] = {
-      targets: input.targets,
-      homeDir,
-      packageRoot: input.packageRoot,
-      env,
-      fff: input.fff,
-      skipCurrentSkills: input.autoUpdate,
-      preservePiSkill: previousTargets.includes("pi"),
-      whiteboardCommand:
-        wantShim || (await isFile(pathShimPath(homeDir)))
-          ? pathShimPath(homeDir)
-          : "whiteboard",
-      stdout: sink,
-      stderr: sink,
-    };
-
-    if (input.trace !== undefined) {
-      installInput.trace = {
+  // Configure the machine before any other mutation, so a request with
+  // missing credentials fails without a partial install.
+  if (input.trace !== undefined) {
+    try {
+      const status = await configureTraceMachine({
+        homeDir,
+        env,
         credentials: input.trace === true ? undefined : input.trace,
-      };
+      });
+
+      traceEnabled = status.enabled;
+      chunks.push(`[ok] trace capture -> ${status.envPath}\n`);
+
+      if (status.error)
+        chunks.push(`Trace storage check failed: ${status.error}\n`);
+    } catch (cause) {
+      chunks.push(
+        `${cause instanceof Error ? cause.message : String(cause)}\n`,
+      );
+
+      return { code: 1, output: chunks.join("") };
     }
-
-    const code = await runInstall(installInput);
-
-    if (code !== 0) return { code, output: chunks.join("") };
   }
 
   let shimPath: string | undefined;
 
-  if (wantShim) {
-    if (!input.cliPath) {
-      chunks.push(
-        input.shim === true
-          ? "This server has no built CLI to install the command from.\n"
-          : "Whiteboard did not install the whiteboard command because this server has no built CLI. Agent setup completed.\n",
-      );
+  if (input.shim === true) {
+    const installed = await installShim(input, chunks);
 
-      if (input.shim === true) {
-        return { code: 1, output: chunks.join("") };
-      }
-    } else {
-      const installed = await installWhiteboardCommand({
-        cliPath: input.cliPath,
-        cliRuntimePath: input.cliRuntimePath,
-        homeDir,
-        env,
-      });
-
-      shimPath = installed.shimPath;
-      chunks.push(installed.output);
-    }
+    if (installed.code !== 0) return installed;
+    shimPath = installed.shimPath;
   }
 
-  const createdFffRegistrations: WhiteboardFffManagedRegistration[] = [];
+  if (traceEnabled) {
+    const executable = (await isOwnedShim(pathShimPath(homeDir)))
+      ? pathShimPath(homeDir)
+      : undefined;
 
-  for (const target of fffTargets) {
-    if (fffPresentBefore.get(target)) continue;
-    const current = await readFffRegistration(target, homeDir, env);
+    const hooks = await installHarnessHooks({ homeDir, env, executable });
 
-    if (current.present) {
-      createdFffRegistrations.push(
-        fffRegistration(target, fffBinaryPath(homeDir), fffCorpusRoot(homeDir)),
-      );
-    }
+    for (const hook of hooks.installed)
+      chunks.push(`[ok] ${hook.agent} trace hook -> ${hook.path}\n`);
   }
-
-  // The stamp is cumulative app-managed state: installing skills for one
-  // agent must not drop other stamped agents or the command from re-sync.
-  const previousShimPath =
-    previous?.consent === "granted" ? previous.shimPath : undefined;
-
-  const previousFffRegistrations =
-    previous?.consent === "granted" ? (previous.fffRegistrations ?? []) : [];
-
-  const createdFffTargets = new Set(
-    createdFffRegistrations.map((registration) => registration.target),
-  );
-
-  const fffRegistrations = [
-    ...previousFffRegistrations.filter(
-      (registration) => !createdFffTargets.has(registration.target),
-    ),
-    ...createdFffRegistrations,
-  ];
-
-  const stampShimPath = shimPath ?? previousShimPath;
-
-  const traceManaged =
-    input.trace !== undefined ||
-    (previous?.consent === "granted" && previous.traceManaged === true);
 
   const stamp: WhiteboardCliInstallStamp = {
     consent: "granted",
     fingerprint: await installFingerprint(input.packageRoot),
-    targets: [...new Set([...previousTargets, ...input.targets])],
     updatedAt: new Date().toISOString(),
   };
 
+  const stampShimPath = shimPath ?? (granted ? previous.shimPath : undefined);
+
   if (stampShimPath) stamp.shimPath = stampShimPath;
 
-  if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
+  if (granted && previous.commandDisabled && input.shim !== true)
+    stamp.commandDisabled = true;
 
-  if (traceManaged) stamp.traceManaged = true;
-  stamp.mcpRegistrations = previous?.mcpRegistrations ?? [];
-  // Save ownership as each target succeeds, so a later failure remains repairable.
-  await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+  if (input.trace !== undefined || (granted && previous.traceManaged))
+    stamp.traceManaged = true;
 
-  if (input.cliPath) {
-    chunks.push(
-      await registerWhiteboardMcp(
-        {
-          targets: input.targets,
-          cliPath: input.cliPath,
-          cliRuntimePath: input.cliRuntimePath,
-          homeDir,
-          env,
-          managed: stamp.mcpRegistrations,
-        },
-        async (registration) => {
-          stamp.mcpRegistrations = [
-            ...(stamp.mcpRegistrations ?? []).filter(
-              (item) => item.target !== registration.target,
-            ),
-            registration,
-          ];
-          await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
-        },
-      ),
-    );
+  await writeCurrentStamp(env, stamp);
+
+  return withShimPath({ code: 0, output: chunks.join("") }, shimPath);
+}
+
+async function installShim(
+  input: ApplyCliInstallInput,
+  chunks: string[],
+): Promise<ApplyResult> {
+  if (!input.cliPath) {
+    chunks.push("This server has no built CLI to install the command from.\n");
+
+    return { code: 1, output: chunks.join("") };
   }
 
-  const result: Awaited<ReturnType<typeof applyCliInstall>> = {
-    code: 0,
-    output: chunks.join(""),
-  };
+  const installed = await installWhiteboardCommand({
+    cliPath: input.cliPath,
+    cliRuntimePath: input.cliRuntimePath,
+    homeDir: input.homeDir,
+    env: input.env,
+  });
 
+  chunks.push(installed.output);
+
+  return { code: 0, output: "", shimPath: installed.shimPath };
+}
+
+function withShimPath(
+  result: ApplyResult,
+  shimPath: string | undefined,
+): ApplyResult {
   if (shimPath) result.shimPath = shimPath;
 
   return result;
+}
+
+/** The published plugin per harness; Cursor's link needs the shim it launches. */
+function connectPlugins(
+  hasShim: boolean,
+): WhiteboardCliInstallStatus["connect"]["plugins"] {
+  return {
+    claude: {
+      label: "Install the Claude Code plugin",
+      command:
+        "/plugin marketplace add devdotfast/review\n/plugin install whiteboard@devfast",
+    },
+    codex: {
+      label: "Install the Codex plugin",
+      command:
+        "codex plugin marketplace add devdotfast/review\ncodex plugin add whiteboard@devfast",
+    },
+    cursor: hasShim
+      ? {
+          label: "Install in Cursor",
+          url: cursorInstallDeeplink(whiteboardMcpLaunch(true)),
+        }
+      : { label: "Install in Cursor" },
+    opencode: {
+      label: "Install the OpenCode plugin",
+      command:
+        'Add "@dev.fast/opencode-whiteboard" to "plugin" in ~/.config/opencode/opencode.json',
+    },
+    pi: {
+      label: "Install the Pi package",
+      command: "pi install npm:@dev.fast/pi-whiteboard",
+    },
+  };
+}
+
+/** Removes the skills Whiteboard Desktop installed before it connected over MCP. */
+export async function removeLegacyWhiteboardSkills(
+  input: { homeDir?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ removed: string[] }> {
+  return withDesktopInstallLock(input.env, () =>
+    removeLegacySkills(input.homeDir ?? os.homedir()),
+  );
+}
+
+/** Marks an upgrader's setup as current, which ends the update screen. */
+export async function finishCliInstallUpdate(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  await withDesktopInstallLock(env, async () => {
+    const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+
+    if (stamp?.consent !== "granted") return;
+    await writeUpdateMarker(env);
+  });
 }
 
 export async function declineCliInstall(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   await withDesktopInstallLock(env, () =>
-    writePrivateJsonAtomic(cliInstallStampPath(env), {
+    writeCurrentStamp(env, {
       consent: "declined",
       updatedAt: new Date().toISOString(),
-    } satisfies WhiteboardCliInstallStamp),
+    }),
   );
 }
 
@@ -619,10 +417,10 @@ export async function skipCliInstall(
     const stampPath = cliInstallStampPath(env);
 
     if (await readCliInstallStamp(stampPath)) return;
-    await writePrivateJsonAtomic(stampPath, {
+    await writeCurrentStamp(env, {
       consent: "skipped",
       updatedAt: new Date().toISOString(),
-    } satisfies WhiteboardCliInstallStamp);
+    });
   });
 }
 
@@ -630,15 +428,30 @@ export async function skipCliInstall(
 export async function resetCliInstall(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  await withDesktopInstallLock(env, () =>
-    rm(cliInstallStampPath(env), { force: true }),
-  );
+  await withDesktopInstallLock(env, async () => {
+    await rm(cliInstallStampPath(env), { force: true });
+    await rm(cliInstallUpdateMarkerPath(env), { force: true });
+  });
+}
+
+/** Writes a stamp this build decided, which also makes the setup current. */
+async function writeCurrentStamp(
+  env: NodeJS.ProcessEnv,
+  stamp: WhiteboardCliInstallStamp,
+): Promise<void> {
+  await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+  await writeUpdateMarker(env);
+}
+
+async function writeUpdateMarker(env: NodeJS.ProcessEnv): Promise<void> {
+  await writeFileAtomicAsync(cliInstallUpdateMarkerPath(env), "", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 interface RemoveCliInstallInput {
-  targets: InstallTarget[];
   shim?: boolean;
-  fff?: boolean;
   trace?: boolean;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
@@ -664,50 +477,6 @@ async function removeCliInstallUnlocked(
     : "";
 
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
-  let keepMcpLauncher = false;
-
-  for (const registration of previous?.mcpRegistrations ?? []) {
-    if (!input.targets.includes(registration.target)) continue;
-
-    const removed = await writeWhiteboardMcpRegistration(
-      registration,
-      registration,
-      true,
-    );
-
-    if (!removed) keepMcpLauncher = true;
-    chunks.push(
-      removed
-        ? `[ok] removed ${registration.target} Whiteboard MCP\n`
-        : `The ${registration.target} Whiteboard MCP entry changed after installation; left in place.\n`,
-    );
-  }
-
-  const managedTargets =
-    previous?.consent === "granted"
-      ? (previous.targets ??
-        (await resolveAgentState(homeDir, env)).managedTargets)
-      : [];
-  for (const target of input.targets) {
-    const { kept } = await removeInstalledSkills(
-      target,
-      homeDir,
-      keptSkillNames(
-        skillsDestRoot(homeDir, target),
-        homeDir,
-        managedTargets.includes("pi") && !input.targets.includes("pi"),
-      ),
-    );
-
-    for (const dest of kept)
-      chunks.push(`Left ${dest}: not created by Whiteboard.\n`);
-
-    if (target !== "cursor") {
-      await removeAgentTraceHook(target, homeDir, env, expectedTraceCommand);
-    }
-
-    chunks.push(`[ok] removed managed skills for ${target}\n`);
-  }
 
   if (input.shim) {
     const shimPath = pathShimPath(homeDir);
@@ -720,7 +489,7 @@ async function removeCliInstallUnlocked(
       chunks.push(`[ok] removed whiteboard command ${shimPath}\n`);
     } else if (contents) {
       chunks.push(
-        `${shimPath} was not installed by Whiteboard; left in place.\n`,
+        `${shimPath} was not installed by Whiteboard Desktop; left in place.\n`,
       );
     }
 
@@ -735,13 +504,8 @@ async function removeCliInstallUnlocked(
       expectedTraceCommand,
     );
 
-    // Disabling capture also retires the per-agent pieces that exist only
-    // for it, regardless of which targets this request named.
-    for (const target of ALL_INSTALL_TARGETS) {
-      if (target !== "cursor") {
-        await removeAgentTraceHook(target, homeDir, env, expectedTraceCommand);
-      }
-    }
+    for (const agent of AGENT_TRACE_HOOK_AGENTS)
+      await removeAgentTraceHook(agent, homeDir, env, expectedTraceCommand);
 
     const remaining = await describeTraceHookOwners(homeDir, env);
 
@@ -755,112 +519,37 @@ async function removeCliInstallUnlocked(
     }
   }
 
-  const removedFffTargets = new Set<WhiteboardFffInstallTarget>();
-  const fffRemovalTargets = input.fff ? input.targets.filter(isFffTarget) : [];
-
-  if (fffRemovalTargets.length > 0 && previous?.consent === "granted") {
-    for (const target of fffRemovalTargets) {
-      const managed = previous.fffRegistrations?.find(
-        (registration) => registration.target === target,
-      );
-
-      if (!managed) {
-        chunks.push(
-          `The ${target} ${FFF_SERVER_NAME} registration is not managed by Whiteboard; left in place.\n`,
-        );
-        continue;
-      }
-
-      const current = await readFffRegistration(target, homeDir, env);
-
-      if (
-        !current.present ||
-        !fffRegistrationMatches(current.output, managed)
-      ) {
-        chunks.push(
-          `The ${target} ${FFF_SERVER_NAME} registration changed after installation; left in place.\n`,
-        );
-        removedFffTargets.add(target);
-        continue;
-      }
-
-      const result = await removeFffRegistration(target, homeDir, env);
-
-      if (!result.ok) {
-        chunks.push(result.output);
-
-        return { output: chunks.join("") };
-      }
-
-      chunks.push(`[ok] removed ${target} FFF integration\n`);
-      removedFffTargets.add(target);
-    }
-  }
-
   if (previous?.consent === "granted") {
-    const removed = new Set(input.targets);
-
-    const targets = (previous.targets ?? []).filter(
-      (target) => !removed.has(target),
-    );
-
-    const shimPath = input.shim ? undefined : previous.shimPath;
-
-    const fffRegistrations = (previous.fffRegistrations ?? []).filter(
-      (registration) => !removedFffTargets.has(registration.target),
-    );
-
     const stamp: WhiteboardCliInstallStamp = {
       consent: "granted",
-      targets,
       updatedAt: new Date().toISOString(),
     };
 
     if (previous.fingerprint) stamp.fingerprint = previous.fingerprint;
 
-    if (shimPath) stamp.shimPath = shimPath;
+    if (!input.shim && previous.shimPath) stamp.shimPath = previous.shimPath;
 
-    if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
-    stamp.mcpRegistrations = previous.mcpRegistrations?.filter(
-      (item) => !removed.has(item.target),
-    );
-
-    if (
-      !keepMcpLauncher &&
-      !stamp.mcpRegistrations?.length &&
-      previous.mcpRegistrations?.length &&
-      (await isOwnedShim(whiteboardMcpLauncher(env)))
-    ) {
-      await rm(whiteboardMcpLauncher(env), { force: true });
-    }
+    if (input.shim || previous.commandDisabled) stamp.commandDisabled = true;
 
     if (!input.trace && previous.traceManaged) stamp.traceManaged = true;
-    await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+    await writeCurrentStamp(env, stamp);
   }
 
   return { output: chunks.join("") };
 }
 
 /**
- * Fingerprint of the CLI and agent integrations. Skills are compared
- * independently through their release versions. Content-based so it works
- * identically in a dev checkout and a packaged review-runtime, with no
+ * Fingerprint of the package manifest and built CLI. Content-based so it
+ * works identically in a dev checkout and a packaged whiteboard-runtime, with no
  * build-time stamping.
  */
 export async function installFingerprint(packageRoot: string): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await readTextIfExists(path.join(packageRoot, "package.json")));
-  const cliPath = path.join(packageRoot, "dist", "whiteboard-cli.js");
-  hash.update("dist/cli.js\0");
-  hash.update(await readTextIfExists(cliPath));
-
-  for (const file of await listFilesRecursive(
-    path.join(packageRoot, "plugins"),
-  )) {
-    hash.update(`${file.relPath}\0`);
-    hash.update(await readFile(file.absPath));
-    hash.update("\0");
-  }
+  hash.update("dist/whiteboard-cli.js\0");
+  hash.update(
+    await readTextIfExists(path.join(packageRoot, "dist", "whiteboard-cli.js")),
+  );
 
   return hash.digest("hex").slice(0, 20);
 }
@@ -881,24 +570,13 @@ export async function readCliInstallStamp(
   return parsed.success ? parsed.data : null;
 }
 
-async function detectPresentAgents(
-  homeDir: string,
-): Promise<Set<InstallTarget>> {
-  const present = new Set<InstallTarget>();
-  await Promise.all(
-    ALL_INSTALL_TARGETS.map(async (target) => {
-      if (await isDirectory(path.join(homeDir, AGENT_HOME_DIR[target]))) {
-        present.add(target);
-      }
-    }),
-  );
-
-  return present;
+export async function isOwnedShim(shimPath: string): Promise<boolean> {
+  return hasManagedShimMarker(await readTextIfExists(shimPath));
 }
 
 /**
- * The shim is POSIX sh, so running `review` needs no Node.js at all to start.
- * It prefers the CLI and runtime the running Review Desktop advertises in its
+ * The shim is POSIX sh, so running `whiteboard` needs no Node.js at all to start.
+ * It prefers the CLI and runtime the running Whiteboard Desktop advertises in its
  * discovery file, falls back to the paths baked in by the app that wrote it,
  * and runs the CLI under the app's Electron binary as Node
  * (ELECTRON_RUN_AS_NODE) — the exact runtime the server uses. System Node is
@@ -1003,6 +681,22 @@ export async function installWhiteboardCommand(input: {
     input.cliRuntimePath,
     devWhiteboardHome(env, homeDir),
   );
+
+  if (await traceMachineEnabled({ homeDir, env })) {
+    const scope = traceScope({ homeDir, env });
+
+    for (const cwd of await listTraceRepositoryRoots(homeDir)) {
+      if (!(await isDirectory(cwd))) continue;
+
+      if ((await traceRepositoryStatus(cwd)).enabled)
+        await enableTraceRepository({
+          cwd,
+          scope,
+          whiteboardCommand: shimPath,
+        });
+    }
+  }
+
   const legacyShim = path.join(path.dirname(shimPath), "review");
 
   if (await isOwnedShim(legacyShim)) await rm(legacyShim, { force: true });
@@ -1045,15 +739,6 @@ export async function ensureShellProfilePath(input: {
   const profilePath = path.join(input.homeDir, profileName);
   const source = await readTextIfExists(profilePath);
 
-  if (source.includes(LEGACY_PROFILE_MARKER)) {
-    await writeTextAtomic(
-      profilePath,
-      source.replaceAll(LEGACY_PROFILE_MARKER, PROFILE_MARKER),
-    );
-
-    return "";
-  }
-
   if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
     return "";
   }
@@ -1072,16 +757,8 @@ export async function removeShellProfilePath(
     const profilePath = path.join(homeDir, profileName);
     const source = await readTextIfExists(profilePath);
 
-    const oldBlock = PROFILE_BLOCK.replace(
-      PROFILE_MARKER,
-      LEGACY_PROFILE_MARKER,
-    );
-
-    if (!source.includes(PROFILE_BLOCK) && !source.includes(oldBlock)) continue;
-    await writeTextAtomic(
-      profilePath,
-      source.replaceAll(PROFILE_BLOCK, "").replaceAll(oldBlock, ""),
-    );
+    if (!source.includes(PROFILE_BLOCK)) continue;
+    await writeTextAtomic(profilePath, source.replaceAll(PROFILE_BLOCK, ""));
     removed.push(profilePath);
   }
 
@@ -1133,10 +810,6 @@ function pathContainsDirectory(
     );
 }
 
-async function isOwnedShim(shimPath: string): Promise<boolean> {
-  return hasManagedShimMarker(await readTextIfExists(shimPath));
-}
-
 async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
   const profiles = await Promise.all(
     SHELL_PROFILE_NAMES.map((profileName) =>
@@ -1144,10 +817,7 @@ async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
     ),
   );
 
-  return profiles.some(
-    (source) =>
-      source.includes(PROFILE_MARKER) || source.includes(LEGACY_PROFILE_MARKER),
-  );
+  return profiles.some((source) => source.includes(PROFILE_MARKER));
 }
 
 async function writeTextAtomic(
@@ -1163,35 +833,6 @@ async function writeTextAtomic(
   }
 
   await writeFileAtomicAsync(filePath, source, { encoding: "utf8", mode });
-}
-
-async function listFilesRecursive(
-  root: string,
-): Promise<{ relPath: string; absPath: string }[]> {
-  const files: { relPath: string; absPath: string }[] = [];
-
-  async function walk(dir: string): Promise<void> {
-    let entries;
-
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      const absPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) await walk(absPath);
-      else if (entry.isFile()) {
-        files.push({ relPath: path.relative(root, absPath), absPath });
-      }
-    }
-  }
-
-  await walk(root);
-
-  return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
 }
 
 async function readTextIfExists(filePath: string): Promise<string> {

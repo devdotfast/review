@@ -1,12 +1,14 @@
 import type { Readable, Writable } from "node:stream";
 
+import { traceMachineEnabled } from "@dev.fast/trace-core";
+
 import {
   type AuthoringTool,
   callAuthoringTool,
   connectSessionApi,
   toolResultText,
 } from "./agent-client.js";
-import { SessionApiError } from "./client.js";
+import { type SessionApiClient, SessionApiError } from "./client.js";
 import { RECOVERY } from "./recovery.js";
 
 interface AgentCliInput {
@@ -53,12 +55,13 @@ export async function runWhiteboardAgentCli(
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
+        await traceMachineEnabled({ env: input.env }),
       );
 
       return 0;
     }
 
-    let client: Awaited<ReturnType<typeof connect>>;
+    let client: SessionApiClient;
     let tools: AuthoringTool[];
 
     try {

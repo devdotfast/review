@@ -6,9 +6,9 @@ import type {
 } from "@dev.fast/whiteboard-protocol";
 import { type ReactNode, useState } from "react";
 
-import { AgentSetupCard, TARGET_LABELS } from "./agent-setup-card";
-import { DisclosureChevron, RefreshIcon } from "./icons";
-import { PromptCard, promptAgent } from "./prompt-card";
+import { ConnectCard, LegacySkillsRow } from "./connect-card";
+import { DisclosureChevron } from "./icons";
+import { PromptCard } from "./prompt-card";
 
 /**
  * The Welcome pane: the whole first-run experience in one place. It opens
@@ -16,9 +16,13 @@ import { PromptCard, promptAgent } from "./prompt-card";
  * application menu or the command palette.
  *
  * The three steps are the product's own order — connect an agent, read the
- * bundled tutorial, publish a review of your own repo. Step one embeds the
- * agent install card, so this pane is also where agents are managed later;
+ * bundled tutorial, publish a whiteboard of your own repo. Step one embeds the
+ * connect prompts, so this pane is also where agents are connected later;
  * there is no separate setup surface. `onClose` closes the tab.
+ *
+ * An install from before Whiteboard connected over MCP opens this pane in update
+ * mode: step one also lists the skills that version installed, and Done
+ * records that the update is finished.
  *
  * Only one step is open at a time, and each one checks off from a real
  * signal rather than a manual checkbox.
@@ -56,20 +60,14 @@ export function WelcomePage({
     }
   };
 
-  /* The host renders this pane once per open, so an install or uninstall
-     that happens while it is on screen has to advance the rail itself. The
-     card hands back the refreshed status after every action; until the
-     first one, the host's copy is correct. */
+  /* The host renders this pane once per open, so an action taken while it is
+     on screen has to advance the rail itself. Each action hands back the
+     refreshed status; until the first one, the host's copy is correct. */
   const [cardStatus, setCardStatus] = useState<
     WhiteboardCliInstallStatus | undefined
   >(undefined);
 
   const status = cardStatus ?? install?.status;
-
-  const hasAgents =
-    status?.agents.some((agent) => agent.present || agent.installed) ?? false;
-
-  const compactRefresh = hasAgents && !setupError;
 
   const refreshInstall = async () => {
     if (!setupActions) return;
@@ -81,6 +79,8 @@ export function WelcomePage({
     ? onboardingSetupComplete(status)
     : (onboarding?.installed ?? false);
 
+  const updating = status?.updateNeeded ?? false;
+
   const tourChecked = onboarding?.tutorialChecked ?? 0;
   const tourTotal = onboarding?.tutorialTotal ?? 0;
 
@@ -88,63 +88,42 @@ export function WelcomePage({
     {
       title: "Connect your agents",
       done: installed,
-      note: installedLabels(status) ?? "not installed yet",
+      note: "paste a prompt into each agent",
       body: (
         <>
-          {install && hasAgents ? (
-            <AgentSetupCard
-              install={{ ...install, status: status ?? install.status }}
-              onStatusChange={setCardStatus}
-            />
-          ) : (
+          {install && status ? (
             <>
-              <p className="whiteboard-home-empty">
-                {install
-                  ? "No coding agents detected."
-                  : "Agent setup is unavailable."}{" "}
-                Install <code>whiteboard</code> to get started.
-              </p>
-              {status?.shim.installed ? (
-                <p>
-                  <code>whiteboard</code> command installed.
-                </p>
-              ) : null}
-              {setupActions ? (
-                <button
-                  type="button"
-                  disabled={setupBusy}
-                  onClick={() =>
-                    void runSetup(async () => {
-                      await setupActions.installCli();
-                      await refreshInstall();
-                    })
-                  }
-                >
-                  {status?.shim.installed
-                    ? "Reinstall whiteboard in PATH"
-                    : "Install whiteboard in PATH"}
-                </button>
-              ) : null}
+              <LegacySkillsRow
+                install={{ ...install, status }}
+                onStatusChange={setCardStatus}
+              />
+              <ConnectCard install={{ ...install, status }} />
             </>
+          ) : (
+            <p className="whiteboard-home-empty">Agent setup is unavailable.</p>
           )}
-          {setupActions ? (
+          {setupActions &&
+          (!status || (status.cli && !status.shim.installed)) ? (
             <button
               type="button"
               disabled={setupBusy}
-              className={
-                compactRefresh ? "whiteboard-onboarding-refresh" : undefined
+              onClick={() =>
+                void runSetup(async () => {
+                  await setupActions.installCli();
+                  await refreshInstall();
+                })
               }
-              aria-label={setupBusy ? "Refreshing agents" : "Refresh agents"}
-              title="Refresh agents"
+            >
+              Install whiteboard in PATH
+            </button>
+          ) : null}
+          {setupActions && !install ? (
+            <button
+              type="button"
+              disabled={setupBusy}
               onClick={() => void runSetup(refreshInstall)}
             >
-              {compactRefresh ? (
-                <RefreshIcon />
-              ) : setupBusy ? (
-                "Refreshing…"
-              ) : (
-                "Refresh agents"
-              )}
+              {setupBusy ? "Refreshing…" : "Refresh"}
             </button>
           ) : null}
           {setupError ? (
@@ -178,14 +157,15 @@ export function WelcomePage({
       title: "Create your first session",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
-      body: <PromptCard agent={promptAgent(status)} />,
+      body: <PromptCard />,
     },
   ];
 
-  // Pick the initial step from progress, then let the reader navigate. An
-  // installation must leave its confirmation visible and other agents usable.
+  // Pick the initial step from progress, then let the reader navigate, so an
+  // action never collapses the step it happened in. An update opens on step
+  // one, where the old skills and the prompts are.
   const [activeStep, setOpenStep] = useState(() =>
-    steps.findIndex((step) => !step.done),
+    updating ? 0 : steps.findIndex((step) => !step.done),
   );
 
   return (
@@ -197,13 +177,42 @@ export function WelcomePage({
               <span className="whiteboard-onboarding-kicker">
                 Welcome to Whiteboard
               </span>
-              <h1 className="whiteboard-onboarding-headline">
-                Your codebase, explained by your agent.
-              </h1>
-              <p className="whiteboard-onboarding-sub">
-                Connect your agent. Explore a session. Create your own.
-              </p>
-              {onClose ? (
+              {updating ? (
+                <>
+                  <h1 className="whiteboard-onboarding-headline">
+                    Whiteboard now connects to your agents over MCP
+                  </h1>
+                  <p className="whiteboard-onboarding-sub">
+                    Whiteboard no longer installs skills. Paste a prompt into
+                    each agent you use, and remove the skills earlier versions
+                    installed.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="whiteboard-onboarding-headline">
+                    Your codebase, explained by your agent.
+                  </h1>
+                  <p className="whiteboard-onboarding-sub">
+                    Connect your agent. Explore a whiteboard. Create your own.
+                  </p>
+                </>
+              )}
+              {updating && install ? (
+                <button
+                  type="button"
+                  className="whiteboard-welcome-dismiss"
+                  disabled={setupBusy}
+                  onClick={() =>
+                    void runSetup(async () => {
+                      setCardStatus(await install.finishUpdate());
+                      onClose?.();
+                    })
+                  }
+                >
+                  Done
+                </button>
+              ) : onClose ? (
                 <button
                   type="button"
                   className="whiteboard-welcome-dismiss"
@@ -257,12 +266,6 @@ export function WelcomePage({
 }
 
 function onboardingSetupComplete(status: WhiteboardCliInstallStatus): boolean {
-  const installedAgents = status.agents.filter((agent) => agent.installed);
-
-  if (installedAgents.length === 0) return false;
-
-  // Optional trace-search registrations are managed in Settings and do not
-  // determine whether Whiteboard skills are installed.
   return !status.cli || status.shim.installed;
 }
 
@@ -271,18 +274,6 @@ interface WelcomeStep {
   done: boolean;
   note: string;
   body: ReactNode;
-}
-
-/** Names the agents that are set up, so the collapsed row says something the
- * expanded rows do not repeat. */
-function installedLabels(
-  status: WhiteboardCliInstallStatus | undefined,
-): string | null {
-  const installed = (status?.agents ?? []).filter((agent) => agent.installed);
-
-  if (installed.length === 0) return null;
-
-  return installed.map((agent) => TARGET_LABELS[agent.target]).join(", ");
 }
 
 function StepBadge({ done, label }: { done: boolean; label: string }) {

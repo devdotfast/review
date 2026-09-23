@@ -5896,33 +5896,148 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 
 /* CodePeek loading while the resolve request is in flight. */
 
-/* Home: agent setup card */
+/* Connect card: one paste-in prompt per agent */
 
-.whiteboard-agent-setup {
-  margin-top: 32px;
-  padding: 14px 16px;
+.whiteboard-connect-agents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whiteboard-connect-agents li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--whiteboard-home-rule);
+}
+
+.whiteboard-connect-agents li:first-child {
+  border-top: none;
+}
+
+.whiteboard-connect-name {
+  flex: 1;
+  min-width: 110px;
+}
+
+.whiteboard-connect-plugin {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.whiteboard-connect-plugin pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: 12px/18px var(--font-mono);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.whiteboard-connect-or {
+  flex: 1;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-connect button,
+.whiteboard-connect-legacy button {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  white-space: nowrap;
   border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+}
+
+.whiteboard-connect-legacy button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard-connect-copy {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.whiteboard-connect-copy svg {
+  width: 12px;
+  height: 12px;
+}
+
+.whiteboard-connect-copy rect,
+.whiteboard-connect-copy path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+}
+
+.whiteboard-connect-prompt {
+  flex-basis: 100%;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-connect-prompt summary {
+  cursor: pointer;
+}
+
+.whiteboard-connect-prompt pre {
+  margin: 6px 0 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--whiteboard-home-rule-soft);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.whiteboard-connect-note {
+  margin: 0 0 8px;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-connect-legacy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--whiteboard-home-rule-soft);
+  font-size: 12px;
+}
+
+.whiteboard-connect-legacy p {
+  margin: 0;
+}
+
+.whiteboard-connect-legacy ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--whiteboard-home-meta);
+}
+
+.whiteboard-connect-legacy code {
+  font-family: var(--font-mono);
 }
 
 .whiteboard-agent-setup-cli {
   color: var(--whiteboard-home-meta);
   font-size: 12px;
-}
-
-.whiteboard-agent-setup-agents {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.whiteboard-agent-setup-agents li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-top: 1px solid var(--whiteboard-home-rule);
 }
 
 .whiteboard-agent-setup-name {
@@ -5931,50 +6046,22 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 
 .whiteboard-agent-setup-state {
   flex: 1;
+  min-width: 0;
   color: var(--whiteboard-home-meta);
   font-size: 12px;
 }
 
-/* Installed is the one state worth colouring: it is what the step is asking
-   the reader to achieve. */
+/* Enabled is the one state worth colouring. */
 .whiteboard-agent-setup-state[data-installed="true"] {
   color: var(--change-added);
 }
 
-.whiteboard-agent-setup button {
-  padding: 3px 10px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 5px;
-  color: inherit;
-  background: var(--transparent);
-  cursor: pointer;
-}
-
-.whiteboard-agent-setup button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.whiteboard-agent-setup-error {
+.whiteboard-agent-setup-error,
+.whiteboard-connect-error {
   margin: 10px 0 0;
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.whiteboard-agent-setup-disclosure {
-  margin: 10px 0 0;
-  color: var(--whiteboard-home-meta);
-  font-size: 12px;
-}
-
-.whiteboard-agent-setup-disclosure code {
-  padding: 1px 4px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 4px;
-  color: var(--ink);
-  background: var(--whiteboard-home-card-active);
-  font-family: inherit;
 }
 
 .whiteboard-agent-setup-terminal {
@@ -6024,45 +6111,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   background: var(--control-bg);
 }
 
-.whiteboard-agent-setup-trace-search {
-  flex-basis: 100%;
-  width: 100%;
-}
-
-.whiteboard-agent-setup-trace-search .whiteboard-agent-setup-terminal-info {
-  flex-basis: auto;
-}
-
-.whiteboard-agent-setup button.whiteboard-agent-setup-subtle {
-  border-color: var(--transparent);
-  color: var(--whiteboard-home-meta);
-}
-
-.whiteboard-agent-setup-page .whiteboard-agent-setup,
-.whiteboard-welcome-page .whiteboard-agent-setup {
-  margin-top: 0;
-}
-
-/* The Settings page is flat rows, not cards, so the agent list drops the
-   card chrome and lines up with every other section. */
-.whiteboard-settings-page .whiteboard-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.whiteboard-settings-page .whiteboard-agent-setup-agents li:first-child {
-  border-top: none;
-}
-
-.whiteboard-agent-setup-lede {
-  margin: 0 0 20px;
-  color: var(--whiteboard-home-meta);
-  font-size: 13px;
-}
-
 /* The Welcome pane: an intro column beside the three-step rail that owns the
    whole first-run flow. Colors come from the themed --whiteboard-home-* / --ink
    vars, so light mode follows without a second block. */
@@ -6110,6 +6158,23 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Below this the fixed intro column would squeeze the steps until the agent
+   rows overflow; stack the intro above them instead. */
+@media (max-width: 960px) {
+  .whiteboard-onboarding-columns {
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .whiteboard-onboarding-intro {
+    width: auto;
+  }
+
+  .whiteboard-onboarding-steps {
+    align-self: stretch;
+  }
 }
 
 .whiteboard-welcome-dismiss {
@@ -6192,23 +6257,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   font-size: 12px;
 }
 
-.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh {
-  align-self: flex-end;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 4px;
-  color: var(--ink-muted);
-  border: none;
-}
-
-.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh:hover {
-  color: var(--ink);
-  background: var(--surface-raised);
-}
-
 .whiteboard-onboarding-step-body > button + button {
   margin-left: 8px;
 }
@@ -6237,19 +6285,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 .whiteboard-onboarding-step-title {
   color: var(--ink);
   font-size: 13px;
-}
-
-/* The onboarding step supplies the frame for the setup card. */
-.whiteboard-onboarding-step-body .whiteboard-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.whiteboard-onboarding-step-body .whiteboard-agent-setup-agents li:first-child {
-  border-top: none;
 }
 
 .whiteboard-onboarding-step-note {
@@ -6284,18 +6319,14 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 }
 
 /* Agent brand marks. Sized in a fixed slot so the name column stays in one
-   lane across rows (the dimmed state marks an undetected agent). */
-.whiteboard-agent-setup-logo-slot {
+   lane across rows. */
+.whiteboard-connect-logo-slot {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 20px;
   height: 20px;
   flex-shrink: 0;
-}
-
-.whiteboard-agent-setup-logo-slot[data-present="false"] {
-  opacity: 0.4;
 }
 
 .whiteboard-agent-logo {
@@ -6424,30 +6455,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.whiteboard-home-setup-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 6px;
-  color: var(--whiteboard-home-meta);
-  background: var(--whiteboard-home-card-active);
-  font-size: 12px;
-}
-
-.whiteboard-home-setup-banner button {
-  flex-shrink: 0;
-  padding: 3px 10px;
-  border: 1px solid var(--whiteboard-home-comment);
-  border-radius: 5px;
-  color: var(--whiteboard-home-comment);
-  background: var(--transparent);
-  cursor: pointer;
 }
 
 /* Map settings float over the map canvas instead of sitting behind a topbar

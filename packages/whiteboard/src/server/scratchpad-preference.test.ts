@@ -13,13 +13,12 @@ const token = "scratchpad-test-token";
 
 afterEach(() => vi.unstubAllEnvs());
 
-/**
- * The scratchpad preference controls whether the server makes and lists the
- * pad; existing content survives while the pad is hidden.
- */
 it("makes and lists the scratchpad only while its preference is on", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "review-scratchpad-pref-"));
-  const devHome = path.join(root, "dev-review");
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "whiteboard-scratchpad-pref-"),
+  );
+
+  const devHome = path.join(root, "whiteboard");
   const packageRoot = path.join(root, "package");
   vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
   await mkdir(devHome, { recursive: true });
@@ -91,7 +90,7 @@ it("makes and lists the scratchpad only while its preference is on", async () =>
     expect(created.status).toBe(409);
     expect(local.store.has(SCRATCHPAD_SESSION_ID)).toBe(false);
 
-    // On: the pad exists and is listed.
+    // On: the pad exists, is listed, and is accessible.
     expect(await setEnabled(server.url, true)).toEqual({ enabled: true });
     expect((await readWhiteboardPreferences(devHome)).scratchpadEnabled).toBe(
       true,
@@ -105,6 +104,7 @@ it("makes and lists the scratchpad only while its preference is on", async () =>
     expect(
       (await get(server.url, `/sessions-api/${SCRATCHPAD_SESSION_ID}`)).status,
     ).toBe(200);
+
     // Off again: hidden and refused, but not deleted.
     expect(await setEnabled(server.url, false)).toEqual({ enabled: false });
     expect(await (await get(server.url, "/sessions-api")).json()).toEqual([]);

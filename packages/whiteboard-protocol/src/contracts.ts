@@ -342,16 +342,14 @@ export interface WhiteboardCanvasSetupActions {
 }
 
 /**
- * Install state and actions the workbench hands to the Home canvas. `apply`,
- * `skip`, and `enablePrompts` resolve with the refreshed status so the card can
- * re-render without a full canvas update.
+ * Install state and actions the workbench hands to the Home canvas. Every
+ * action resolves with the refreshed status so the card can re-render without
+ * a full canvas update.
  */
 export interface WhiteboardCanvasInstallContent {
   status: WhiteboardCliInstallStatus;
   apply(request: {
-    targets: readonly WhiteboardCliInstallTarget[];
     shim?: boolean;
-    fff?: boolean;
     trace?:
       | true
       | {
@@ -363,24 +361,14 @@ export interface WhiteboardCanvasInstallContent {
         };
   }): Promise<WhiteboardCliInstallStatus>;
   remove(request: {
-    targets: readonly WhiteboardCliInstallTarget[];
     shim?: boolean;
-    fff?: boolean;
     trace?: true;
   }): Promise<WhiteboardCliInstallStatus>;
+  removeLegacySkills(): Promise<WhiteboardCliInstallStatus>;
+  finishUpdate(): Promise<WhiteboardCliInstallStatus>;
   decline(): Promise<WhiteboardCliInstallStatus>;
   skip(): Promise<WhiteboardCliInstallStatus>;
   enablePrompts(): Promise<WhiteboardCliInstallStatus>;
-}
-
-/**
- * Install status handed to the Home canvas so it can show a one-line setup
- * banner when the install needs attention. `open` navigates to the Agent
- * Setup page.
- */
-export interface WhiteboardCanvasHomeSetup {
-  status: WhiteboardCliInstallStatus;
-  open(): void;
 }
 
 /**
@@ -521,10 +509,10 @@ export interface WhiteboardCanvasSettingsContent {
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   structuralDiffEnabled: boolean;
   setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
-  // Not a workbench setting: the review server and `review install` both
-  // read it, so it lives in the server preferences file. Off by default.
-  // Turning it on makes the pad and installs its skill for set-up agents;
-  // turning it off hides the pad and removes the skill.
+  // Not a workbench setting: the whiteboard server reads it, so it lives in the
+  // server preferences file. Off by default. Turning it on shows the pad and
+  // tells connected agents over MCP that they can draw on it; turning it off
+  // hides the pad.
   scratchpadEnabled: boolean;
   setScratchpadEnabled(enabled: boolean): Promise<boolean>;
   // Shared CLI configuration, read when its disclosure opens.
@@ -677,9 +665,7 @@ export type WhiteboardCanvasContent =
       // Opens the review and pins its read-only source tree open. Absent when
       // the host cannot show the tree.
       openSourceTree?(uuid: string): void;
-      // Absent when the install status endpoint is unavailable.
-      setup?: WhiteboardCanvasHomeSetup;
-      // With no reviews, Home renders the Welcome rail instead of a zero
+      // With no whiteboards, Home renders the Welcome rail instead of a zero
       // state of its own, so it needs what Welcome needs. Both absent when
       // the install status endpoint is unavailable.
       install?: WhiteboardCanvasInstallContent;
@@ -901,107 +887,37 @@ export type WhiteboardCliInstallTarget = z.infer<
   typeof WhiteboardCliInstallTargetSchema
 >;
 
-export const WhiteboardFffInstallTargetSchema = z.enum(
-  ["claude", "codex", "pi"],
-  {
-    error: "must be claude, codex, or pi",
-  },
-);
-
-export type WhiteboardFffInstallTarget = z.infer<
-  typeof WhiteboardFffInstallTargetSchema
->;
-
-export const WhiteboardFffManagedRegistrationSchema = z.strictObject({
-  target: WhiteboardFffInstallTargetSchema,
-  command: requiredString,
-  args: z.array(requiredString),
-});
-
-export type WhiteboardFffManagedRegistration = z.infer<
-  typeof WhiteboardFffManagedRegistrationSchema
->;
-
-export const WhiteboardMcpRegistrationSchema = z.strictObject({
-  name: z.enum(["review", "whiteboard"]).optional(),
-  target: z.enum(["codex", "claude", "cursor", "opencode"]),
-  configPath: requiredString,
-  command: requiredString,
-  args: z.array(z.string()),
-  env: z.record(z.string(), z.string()),
-});
-
-export type WhiteboardMcpRegistration = z.infer<
-  typeof WhiteboardMcpRegistrationSchema
->;
-
-export const WhiteboardCliInstallStampSchema = z.strictObject({
+export const WhiteboardCliInstallStampSchema = z.object({
   consent: z.enum(["granted", "declined", "skipped"], {
     error: "must be granted, declined, or skipped",
   }),
   fingerprint: requiredString.optional(),
-  targets: z.array(WhiteboardCliInstallTargetSchema).optional(),
   shimPath: requiredString.optional(),
-  fffRegistrations: z.array(WhiteboardFffManagedRegistrationSchema).optional(),
-  mcpRegistrations: z.array(WhiteboardMcpRegistrationSchema).optional(),
+  /** The user removed the whiteboard command; the shim resync must not reinstall it. */
+  commandDisabled: z.literal(true).optional(),
   traceManaged: z.boolean().optional(),
   updatedAt: requiredString,
 });
+// z.object (not strictObject) so stamps from earlier versions parse; their
+// extra fields (targets, fffRegistrations, mcpRegistrations) are dropped.
 
 export type WhiteboardCliInstallStamp = z.infer<
   typeof WhiteboardCliInstallStampSchema
 >;
 
 export const WhiteboardCliInstallStatusSchema = z.strictObject({
-  agents: z.array(
-    z.strictObject({
-      target: WhiteboardCliInstallTargetSchema,
-      present: z.boolean(),
-      installed: z.boolean(),
-    }),
-  ),
   fingerprint: requiredString,
   stamp: WhiteboardCliInstallStampSchema.nullable(),
+  /** The stamp fingerprint differs from the running package: rewrite the shim. */
   stale: z.boolean(),
-  skills: z
-    .array(
-      z.strictObject({
-        target: WhiteboardCliInstallTargetSchema,
-        name: requiredString,
-        installedVersion: requiredString.nullable(),
-        bundledVersion: requiredString.nullable(),
-        stale: z.boolean(),
-        error: requiredString.optional(),
-      }),
-    )
-    .optional(),
+  /** A granted stamp without this build's update marker: show the update screen. */
+  updateNeeded: z.boolean(),
   error: requiredString.optional(),
-  mcp: z
-    .array(
-      z.strictObject({
-        target: WhiteboardMcpRegistrationSchema.shape.target,
-        state: z.enum(["ready", "missing", "custom", "error"]),
-        error: requiredString.optional(),
-      }),
-    )
-    .optional(),
   shim: z.strictObject({
     path: requiredString,
     installed: z.boolean(),
     profileConfigured: z.boolean(),
     onPath: z.boolean(),
-  }),
-  fff: z.strictObject({
-    serverName: z.literal("fff"),
-    corpusRoot: requiredString,
-    binary: z.strictObject({ path: requiredString, installed: z.boolean() }),
-    registrations: z.array(
-      z.strictObject({
-        target: WhiteboardFffInstallTargetSchema,
-        present: z.boolean(),
-        managed: z.boolean(),
-      }),
-    ),
   }),
   trace: z.strictObject({
     enabled: z.boolean(),
@@ -1027,43 +943,47 @@ export const WhiteboardCliInstallStatusSchema = z.strictObject({
   cli: z
     .strictObject({ path: requiredString, version: requiredString })
     .nullable(),
+  connect: z.strictObject({
+    // "sh", or "whiteboard" when Desktop has no built CLI.
+    command: requiredString,
+    // ["-c", "exec \"$HOME/.local/bin/whiteboard\" mcp"], or ["mcp"].
+    args: z.array(z.string()),
+    prompts: z.record(WhiteboardCliInstallTargetSchema, requiredString),
+    // The published plugin per harness: an install command, or Cursor's link.
+    plugins: z.record(
+      WhiteboardCliInstallTargetSchema,
+      z.strictObject({
+        label: requiredString,
+        command: requiredString.optional(),
+        url: requiredString.optional(),
+      }),
+    ),
+  }),
+  legacySkills: z.array(z.strictObject({ path: requiredString })),
 });
 
 export type WhiteboardCliInstallStatus = z.infer<
   typeof WhiteboardCliInstallStatusSchema
 >;
 
-// Skills and FFF integrations are per-agent. Skill requests install the review
-// command by default. The command, FFF binary, and trace configuration are
-// per-machine. Silent app updates omit `fff` and `trace`, so they do not run an
-// FFF installer or contact R2.
-export const WhiteboardCliInstallApplyRequestSchema = z
-  .strictObject({
-    targets: z.array(WhiteboardCliInstallTargetSchema),
-    shim: z.boolean().optional(),
-    autoUpdate: z.boolean().optional(),
-    fff: z.boolean().optional(),
-    trace: z
-      .union([
-        z.literal(true),
-        z.strictObject({
-          endpoint: requiredString.optional(),
-          bucket: requiredString.optional(),
-          key: requiredString.optional(),
-          secret: requiredString.optional(),
-          region: requiredString.optional(),
-        }),
-      ])
-      .optional(),
-  })
-  .refine(
-    (request) =>
-      request.targets.length > 0 ||
-      request.shim === true ||
-      request.fff === true ||
-      request.trace !== undefined,
-    { message: "must install skills, the command, FFF, or trace capture" },
-  );
+// The command and trace configuration are per-machine. Silent app updates
+// omit `trace`, so they do not contact R2.
+export const WhiteboardCliInstallApplyRequestSchema = z.strictObject({
+  shim: z.boolean().optional(),
+  autoUpdate: z.boolean().optional(),
+  trace: z
+    .union([
+      z.literal(true),
+      z.strictObject({
+        endpoint: requiredString.optional(),
+        bucket: requiredString.optional(),
+        key: requiredString.optional(),
+        secret: requiredString.optional(),
+        region: requiredString.optional(),
+      }),
+    ])
+    .optional(),
+});
 
 export type WhiteboardCliInstallApplyRequest = z.infer<
   typeof WhiteboardCliInstallApplyRequestSchema

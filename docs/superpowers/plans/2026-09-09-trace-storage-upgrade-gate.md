@@ -25,6 +25,9 @@ process made no non-loopback network request.
 ### Procedure and observations
 
 1. **Pre-upgrade setup** with the original flow: `review install claude --trace-endpoint … --trace-bucket … --trace-key … --trace-secret … --trace-region us-east-1`, then `review trace enable .` in a scratch repository with a local bare `origin` and `GITHUB_REPOSITORY=acme/gate`.
+
+   `review install` was removed on 2026-09-23. On current builds the equivalent setup is `review trace storage use s3 …` followed by `review trace install`; the pre-upgrade phase still runs the historical command against the old build.
+
 2. **Pre-upgrade capture**: a synthetic session transcript under `~/.claude/projects`, a commit made with `AGENT_SESSION_ID` (the `prepare-commit-msg` hook added the `Agent-Session` trailer), and `git push` (the `pre-push` hook wrote `by-commit/<sha>.json` and uploaded `by-session/<id>/trace.jsonl` and `meta.json`). `review trace sync` reported `unchanged`; `trace list --commit HEAD`, `trace show`, `trace status`, and `review scaffold` (the Desktop discovery and materialization path) all read the session back.
 3. **Config file hashes and modes recorded** for `env`, `settings.json`, and `repositories.json` (all `0600`).
 4. **Upgrade in place**: the `review` wrapper's target was switched to the new build. Nothing else changed.

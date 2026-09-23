@@ -1,15 +1,7 @@
-import { existsSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough, Readable, Writable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 
 import {
   StoreClient,
@@ -17,22 +9,13 @@ import {
 } from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  installWhiteboardCommand as installWhiteboardCommandActual,
-  pathShimPath,
-  registerWhiteboardMcp as registerWhiteboardMcpActual,
-} from "./cli-install";
 import { runWhiteboardCli } from "./cli-runner";
-import { runInstall as runInstallActual } from "./install";
 import { runWhiteboardMigration as runWhiteboardMigrationActual } from "./migrate";
 import {
   PostHogCaptureClient,
   type PostHogCaptureProperties,
 } from "./posthog-capture-client";
-import {
-  runTracePull as runTracePullActual,
-  runTraceStatus as runTraceStatusActual,
-} from "./trace-cli";
+import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 import { runWhiteboardAppPick as runWhiteboardAppActual } from "./whiteboard-app";
 import { runWhiteboardAppLaunch as runWhiteboardAppLaunchActual } from "./whiteboard-app-launcher";
 import { runWhiteboardInfo as runWhiteboardInfoActual } from "./whiteboard-info";
@@ -42,105 +25,35 @@ import {
 } from "./whiteboard-telemetry";
 
 describe("Whiteboard CLI", () => {
-  it.each([[], ["codex"]])(
-    "sets up agents and PATH without agent executables: %j",
-    async (...targets) => {
-      const homeDir = await mkdtemp(
-        path.join(os.tmpdir(), "review-no-agents-"),
-      );
+  it("prints the connect prompt for one harness", async () => {
+    const { code, stdout } = await runConnect(["connect", "codex"]);
 
-      const cliPath = path.join(homeDir, "whiteboard-cli.js");
-      const discoveryDir = path.join(homeDir, ".dev", "review-desktop");
+    expect(code).toBe(0);
+    expect(stdout).toContain('MCP server named "whiteboard"');
+    expect(stdout).toContain("~/.codex/AGENTS.md");
+    expect(stdout).not.toContain("## Codex");
+  });
 
-      const env = {
-        HOME: homeDir,
-        PATH: "/usr/bin:/bin",
-        SHELL: "/bin/zsh",
-        DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
-      };
+  it("prints every prompt with headings by default", async () => {
+    const { code, stdout } = await runConnect(["connect"]);
 
-      try {
-        await mkdir(discoveryDir, { recursive: true });
-        await writeFile(cliPath, "// fixture CLI\n");
-        await writeFile(
-          path.join(discoveryDir, "server.json"),
-          JSON.stringify({
-            version: 3,
-            instanceId: "test-instance",
-            url: "http://127.0.0.1:43819",
-            appPid: 100,
-            serverPid: 101,
-            token: "test-token",
-            startedAt: 1,
-            cliPath,
-            cliRuntimePath: process.execPath,
-          }),
-        );
-        const stderr = outputStream();
+    expect(code).toBe(0);
+    expect(stdout).toContain("## Claude Code");
+    expect(stdout).toContain("## Pi");
+  });
 
-        const code = await runWhiteboardCli({
-          argv: ["install", ...targets],
-          cwd: homeDir,
-          env,
-          stdout: outputStream(),
-          stderr,
-          runtime: {
-            runInstall: (input) =>
-              runInstallActual({ ...input, homeDir, cwd: homeDir }),
-            installWhiteboardCommand: (input) =>
-              installWhiteboardCommandActual({ ...input, homeDir }),
-            registerWhiteboardMcp: (input) =>
-              registerWhiteboardMcpActual({ ...input, homeDir }),
-          },
-        });
+  it("emits the selected prompts as one JSON event", async () => {
+    const { code, stdout } = await runConnect([
+      "connect",
+      "claude-code",
+      "--json",
+    ]);
 
-        expect(code).toBe(0);
-        expect(
-          await readFile(path.join(homeDir, ".codex/config.toml"), "utf8"),
-        ).toContain('args = [ "mcp" ]');
-        expect(
-          existsSync(path.join(homeDir, ".agents/skills/whiteboard")),
-        ).toBe(targets.length === 0);
-        expect(await readFile(pathShimPath(homeDir), "utf8")).toContain(
-          cliPath,
-        );
-        expect(
-          await readFile(path.join(homeDir, ".zprofile"), "utf8"),
-        ).toContain(".local/bin");
-      } finally {
-        await rm(homeDir, { recursive: true, force: true });
-      }
-    },
-  );
+    const event = JSON.parse(stdout);
 
-  it("writes no Desktop MCP entries while a headless server is selected", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-headless-"));
-    const registerWhiteboardMcp = vi.fn<typeof registerWhiteboardMcpActual>();
-    const stderr = outputStream();
-
-    try {
-      const code = await runWhiteboardCli({
-        argv: ["install", "claude", "--no-shim"],
-        cwd: homeDir,
-        env: {
-          HOME: homeDir,
-          DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
-          DEV_WHITEBOARD_SERVER_DIR: path.join(homeDir, ".dev"),
-        },
-        stdout: outputStream(),
-        stderr,
-        runtime: {
-          runInstall: (input) =>
-            runInstallActual({ ...input, homeDir, cwd: homeDir }),
-          registerWhiteboardMcp,
-        },
-      });
-
-      expect(code).toBe(0);
-      expect(registerWhiteboardMcp).not.toHaveBeenCalled();
-    } finally {
-      await rm(homeDir, { recursive: true, force: true });
-    }
+    expect(code).toBe(0);
+    expect(event.event).toBe("connect");
+    expect(Object.keys(event.prompts)).toEqual(["claude"]);
   });
 
   it("routes own-upload status filters without requesting trace content", async () => {
@@ -168,140 +81,6 @@ describe("Whiteboard CLI", () => {
         session: "my-upload-session",
         limit: 5,
         cursor: "cursor-value",
-      }),
-    );
-  });
-
-  it("installs the review command with headless skills", async () => {
-    const rootPath = await mkdtemp(
-      path.join(os.tmpdir(), "review-cli-shim-install-"),
-    );
-
-    const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
-    const cliPath = path.join(rootPath, "whiteboard-cli.js");
-    const cliRuntimePath = path.join(rootPath, "runtime");
-
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      DEV_WHITEBOARD_HOME: path.join(rootPath, ".dev"),
-    };
-
-    await mkdir(discoveryDir, { recursive: true });
-    await Promise.all([
-      writeFile(cliPath, "// test CLI\n"),
-      writeFile(
-        path.join(discoveryDir, "server.json"),
-        `${JSON.stringify({
-          version: 3,
-          instanceId: "test-instance",
-          url: "http://127.0.0.1:43819",
-          appPid: 100,
-          serverPid: 101,
-          token: "test-token",
-          startedAt: 1,
-          cliPath,
-          cliRuntimePath,
-        })}\n`,
-      ),
-    ]);
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-
-    const installWhiteboardCommand = vi.fn<
-      typeof installWhiteboardCommandActual
-    >(async () => ({
-      shimPath: pathShimPath(),
-      output: "[ok] installed review command\n",
-    }));
-
-    try {
-      await expect(
-        runWhiteboardCli({
-          argv: ["install", "codex"],
-          env,
-          stdout: outputStream(),
-          stderr: outputStream(),
-          runtime: { runInstall, installWhiteboardCommand },
-        }),
-      ).resolves.toBe(0);
-
-      expect(runInstall).toHaveBeenCalledWith(
-        expect.objectContaining({
-          targets: ["codex"],
-          whiteboardCommand: pathShimPath(),
-        }),
-      );
-      expect(installWhiteboardCommand).toHaveBeenCalledExactlyOnceWith({
-        cliPath,
-        cliRuntimePath,
-        env,
-      });
-    } finally {
-      await rm(rootPath, { force: true, recursive: true });
-    }
-  });
-
-  it("supports a headless shim opt-out", async () => {
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-
-    const installWhiteboardCommand =
-      vi.fn<typeof installWhiteboardCommandActual>();
-
-    await expect(
-      runWhiteboardCli({
-        argv: ["install", "codex", "--no-shim"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runInstall, installWhiteboardCommand },
-      }),
-    ).resolves.toBe(0);
-
-    expect(runInstall).toHaveBeenCalledOnce();
-    expect(runInstall.mock.calls[0]?.[0]).not.toHaveProperty(
-      "whiteboardCommand",
-    );
-    expect(installWhiteboardCommand).not.toHaveBeenCalled();
-  });
-
-  it("routes trace configuration through the shared installer", async () => {
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
-
-    // install also writes the review command; a stub keeps it out of $HOME.
-    const installWhiteboardCommand = vi.fn<
-      typeof installWhiteboardCommandActual
-    >(async () => ({ shimPath: "", output: "" }));
-
-    await expect(
-      runWhiteboardCli({
-        argv: [
-          "install",
-          "codex",
-          "--trace-endpoint",
-          "mock://endpoint",
-          "--trace-bucket",
-          "mock-bucket",
-          "--trace-key",
-          "mock-key",
-          "--trace-secret",
-          "mock-value",
-        ],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runInstall, installWhiteboardCommand },
-      }),
-    ).resolves.toBe(0);
-
-    expect(runInstall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targets: ["codex"],
-        fff: true,
-        trace: {
-          credentials: {
-            endpoint: "mock://endpoint",
-            bucket: "mock-bucket",
-            key: "mock-key",
-            secret: "mock-value",
-          },
-        },
       }),
     );
   });
@@ -341,8 +120,8 @@ describe("Whiteboard CLI", () => {
     const runWhiteboardApp = vi.fn<typeof runWhiteboardAppActual>(async () => ({
       event: "app" as const,
       action: "pick" as const,
-      sessionId: "review-uuid",
-      title: "Review",
+      sessionId: "whiteboard-uuid",
+      title: "Whiteboard",
     }));
 
     const runWhiteboardInfo = vi.fn<typeof runWhiteboardInfoActual>(
@@ -353,25 +132,45 @@ describe("Whiteboard CLI", () => {
     );
 
     await runWhiteboardCli({
-      argv: ["app", "pick", "--session", "review-uuid"],
+      argv: ["app", "pick", "--session", "whiteboard-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runWhiteboardAppPick: runWhiteboardApp },
     });
     await runWhiteboardCli({
-      argv: ["info", "--session", "review-uuid"],
+      argv: ["info", "--session", "whiteboard-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runWhiteboardInfo },
     });
 
     expect(runWhiteboardApp).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "review-uuid" }),
+      expect.objectContaining({ sessionId: "whiteboard-uuid" }),
     );
     expect(runWhiteboardInfo).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "review-uuid" }),
+      expect.objectContaining({ sessionId: "whiteboard-uuid" }),
     );
   });
+
+  // The JSON authoring verbs are the only remaining surface no other case
+  // drives; both print the agent CLI help without contacting the Desktop.
+  it.each([["api"], ["mcp", "--help"]])(
+    "registers the JSON authoring verb %j",
+    async (...argv) => {
+      const stdout = outputStream();
+      let output = "";
+      stdout.on("data", (chunk) => (output += String(chunk)));
+
+      await expect(
+        runWhiteboardCli({
+          argv,
+          stdout,
+          stderr: outputStream(),
+        }),
+      ).resolves.toBe(0);
+      expect(output).toContain("whiteboard api tools");
+    },
+  );
 
   it.each([
     [["app", "launch"], "launched", undefined],
@@ -419,14 +218,21 @@ describe("Whiteboard CLI", () => {
       async () => ({
         event: "app",
         action: "pick",
-        sessionId: "review-uuid",
+        sessionId: "whiteboard-uuid",
         title: "Picked",
       }),
     );
 
     await expect(
       runWhiteboardCli({
-        argv: ["app", "pick", "--session", "review-uuid", "--focus", "--json"],
+        argv: [
+          "app",
+          "pick",
+          "--session",
+          "whiteboard-uuid",
+          "--focus",
+          "--json",
+        ],
         cwd: "/outside-a-repository",
         stdin: Readable.from([]),
         stdout: outputStream(),
@@ -435,14 +241,14 @@ describe("Whiteboard CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runWhiteboardAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "review-uuid", focus: true }),
+      expect.objectContaining({ sessionId: "whiteboard-uuid", focus: true }),
     );
   });
 
   it.each([
     ["app launch", ["app", "launch"], "app.launch"],
     ["bare app", ["app"], "app.launch"],
-    ["app pick", ["app", "pick", "--session", "review-uuid"], "app.pick"],
+    ["app pick", ["app", "pick", "--session", "whiteboard-uuid"], "app.pick"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -481,8 +287,8 @@ describe("Whiteboard CLI", () => {
           runWhiteboardAppPick: async () => ({
             event: "app",
             action: "pick",
-            sessionId: "review-uuid",
-            title: "Review",
+            sessionId: "whiteboard-uuid",
+            title: "Whiteboard",
           }),
         },
       }),
@@ -493,7 +299,10 @@ describe("Whiteboard CLI", () => {
   });
 
   it("persists command start before an unresolved handler and completes the same run", async () => {
-    const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-cli-run-"));
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "whiteboard-cli-run-"),
+    );
+
     const queueDir = path.join(rootPath, "queue");
     let queueId = 0;
 
@@ -645,14 +454,14 @@ describe("Whiteboard CLI", () => {
   });
 
   it("supports the app pick subcommand", async () => {
-    const argv = ["app", "pick", "--session", "review-uuid"];
+    const argv = ["app", "pick", "--session", "whiteboard-uuid"];
 
     const runWhiteboardAppPick = vi.fn<typeof runWhiteboardAppActual>(
       async () => ({
         event: "app",
         action: "pick",
-        sessionId: "review-uuid",
-        title: "Review",
+        sessionId: "whiteboard-uuid",
+        title: "Whiteboard",
       }),
     );
 
@@ -669,19 +478,26 @@ describe("Whiteboard CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runWhiteboardAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "review-uuid" }),
+      expect.objectContaining({ sessionId: "whiteboard-uuid" }),
     );
     expect(JSON.parse(output)).toMatchObject({
       event: "app",
       action: "pick",
-      sessionId: "review-uuid",
+      sessionId: "whiteboard-uuid",
     });
   });
 
   it("rejects an invalid --view for app pick", async () => {
     await expect(
       runWhiteboardCli({
-        argv: ["app", "pick", "--session", "review-uuid", "--view", "files"],
+        argv: [
+          "app",
+          "pick",
+          "--session",
+          "whiteboard-uuid",
+          "--view",
+          "files",
+        ],
         stdout: outputStream(),
         stderr: outputStream(),
       }),
@@ -809,6 +625,39 @@ function outputStream(): PassThrough {
   return new PassThrough();
 }
 
+async function runConnect(
+  argv: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const homeDir = await mkdtemp(path.join(os.tmpdir(), "whiteboard-connect-"));
+
+  const stdout = outputStream();
+  const stderr = outputStream();
+
+  let stdoutText = "";
+  let stderrText = "";
+
+  stdout.on("data", (chunk) => (stdoutText += String(chunk)));
+  stderr.on("data", (chunk) => (stderrText += String(chunk)));
+
+  try {
+    const code = await runWhiteboardCli({
+      argv,
+      cwd: homeDir,
+      env: {
+        HOME: homeDir,
+        TRACE_HOME_DIR: homeDir,
+        DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
+      },
+      stdout,
+      stderr,
+    });
+
+    return { code, stdout: stdoutText, stderr: stderrText };
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+}
+
 it("emits one JSON error when a trace command needs repository authorization", async () => {
   const stdout = outputStream();
   let output = "";
@@ -824,7 +673,7 @@ it("emits one JSON error when a trace command needs repository authorization", a
         {
           error: {
             code: "repository_authorization_required",
-            message: "Run review login --traces.",
+            message: "Run whiteboard login --traces.",
           },
         },
         { status: 403 },
@@ -855,113 +704,9 @@ it("emits one JSON error when a trace command needs repository authorization", a
   expect(events[0]).toMatchObject({
     event: "error",
     error: {
-      message: "Run review login --traces.",
+      message: "Run whiteboard login --traces.",
       code: "repository_authorization_required",
       remedy: "whiteboard login --traces",
     },
   });
-});
-
-it("keeps Whiteboard sessions and agent conversations distinct with a single command interface", async () => {
-  const runTracePull = vi.fn<typeof runTracePullActual>(async () => 0);
-  const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
-
-  const runWhiteboardInfo = vi.fn<typeof runWhiteboardInfoActual>(async () => ({
-    event: "info",
-    sessions: [],
-  }));
-
-  const invoke = (argv: string[]) =>
-    runWhiteboardCli({
-      argv,
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runTracePull, runTraceStatus, runWhiteboardInfo },
-    });
-
-  expect(await invoke(["trace", "pull", "--session", "board"])).toBe(0);
-  expect(runTracePull).toHaveBeenLastCalledWith(
-    expect.objectContaining({ sessionId: "board", session: undefined }),
-  );
-  expect(await invoke(["trace", "pull", "--agent-session", "agent"])).toBe(0);
-  expect(runTracePull).toHaveBeenLastCalledWith(
-    expect.objectContaining({ sessionId: undefined, session: "agent" }),
-  );
-  expect(
-    await invoke([
-      "trace",
-      "pull",
-      "--session",
-      "board",
-      "--agent-session",
-      "agent",
-    ]),
-  ).toBe(1);
-  expect(runTracePull).toHaveBeenCalledTimes(2);
-  expect(await invoke(["trace", "status", "--agent-session", "agent"])).toBe(0);
-  expect(runTraceStatus).toHaveBeenLastCalledWith(
-    expect.objectContaining({ session: "agent" }),
-  );
-  expect(await invoke(["info", "--session", "board"])).toBe(0);
-  expect(runWhiteboardInfo).toHaveBeenLastCalledWith(
-    expect.objectContaining({ sessionId: "board" }),
-  );
-});
-
-it("uses session identifiers in Whiteboard discovery and picker output", async () => {
-  const summary = {
-    sessionId: "saved-id",
-    version: 4,
-    title: "Review my sessionId field",
-    viewedAt: null,
-    dismissedAt: null,
-    pins: { repositoryId: "repo", base: "base", head: "head" },
-    createdAt: "2026-09-21T00:00:00Z",
-    repositoryName: "repo",
-  };
-
-  const runWhiteboardInfo = vi.fn<typeof runWhiteboardInfoActual>(async () => ({
-    event: "info",
-    sessions: [summary],
-  }));
-
-  const runWhiteboardAppPick = vi.fn<typeof runWhiteboardAppActual>(
-    async () => ({
-      event: "app",
-      action: "pick",
-      sessionId: summary.sessionId,
-      title: summary.title,
-    }),
-  );
-
-  for (const argv of [
-    ["info", "--session", "saved-id"],
-    ["app", "pick", "--session", "saved-id", "--json"],
-  ]) {
-    let output = "";
-
-    const stdout = new Writable({
-      write(chunk, _encoding, callback) {
-        output += chunk;
-        callback();
-      },
-    });
-
-    expect(
-      await runWhiteboardCli({
-        argv,
-        stdout,
-        stderr: outputStream(),
-        runtime: { runWhiteboardInfo, runWhiteboardAppPick },
-      }),
-    ).toBe(0);
-    const result = JSON.parse(output);
-    const session = result.sessions?.[0] ?? result;
-    expect(session).toMatchObject({
-      sessionId: "saved-id",
-      title: summary.title,
-    });
-    expect(session).not.toHaveProperty("reviewId");
-    expect(session).not.toHaveProperty("whiteboardUuid");
-  }
 });

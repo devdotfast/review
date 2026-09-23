@@ -5,7 +5,11 @@ import { createServer } from "node:http";
 import path from "node:path";
 
 import { isObjectValue } from "@dev.fast/json";
-import { withFileLock, writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import {
+  traceMachineEnabled,
+  withFileLock,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import { Hono } from "hono";
 
 import { legacyWhiteboardApi } from "../legacy-rename.js";
@@ -92,6 +96,7 @@ async function serve(input: HeadlessServerInput) {
       softwareMapEnabled: input.softwareMapEnabled ?? false,
     }),
     () => scratchpadEnabled,
+    () => traceMachineEnabled(),
   );
 
   mountSharingPublisher(api, local.store, local.data);

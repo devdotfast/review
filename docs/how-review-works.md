@@ -43,12 +43,14 @@ See [session targets](cli-reference.md#session-targets) for the API options.
 
 ## Every edit saves immediately
 
-Authoring goes through the JSON API: `whiteboard api`, the Whiteboard MCP tools, or
-the whiteboard skill. Every accepted edit is saved as soon as it is applied;
-there is no publish, checkpoint, or render-report step. See
-`packages/whiteboard/skills/whiteboard/SKILL.md`
-and `packages/whiteboard/src/session-api/README.md`
+Authoring goes through the JSON API: `whiteboard api` or the Whiteboard MCP tools.
+Every accepted edit is saved as soon as it is applied; there is no publish,
+checkpoint, or render-report step. See `packages/whiteboard/src/session-api/README.md`
 for the full authoring workflow.
+
+Agents connect to the MCP tools by registering `whiteboard mcp` themselves, from a
+prompt that Whiteboard gives you; Whiteboard does not edit agent configuration. See
+[Coding agents](agents.md#connect-an-agent).
 
 The published document is `.bundle/document/whiteboard-document.json`, with format
 `whiteboard-document/1` and a version-2 manifest. Software-map bundles contain
@@ -91,9 +93,9 @@ a reason to repair.
 If sealed conversion fails, the record, authoring inputs, candidates, and
 private refs stay unchanged. Home lists an attention entry: the review was
 published with the removed MDX toolchain and its stored files are damaged, so
-it cannot be imported. Delete it from Home and recreate it with the Whiteboard
-skill. Malformed or unsupported records remain explicit list errors. A
-current-schema session with broken artifacts shows the same guidance in its
+it cannot be imported. Delete it from Home and recreate it with your coding
+agent. Malformed or unsupported records remain explicit list errors. A
+current-schema Whiteboard with broken artifacts shows the same guidance in its
 document or map load state.
 
 Already-JSON historical revisions remain readable. Older pre-data revisions
@@ -110,8 +112,8 @@ ${DEV_WHITEBOARD_HOME:-~/.dev}/reviews/<uuid>/
 
 The directory contains the document, supporting TypeScript, pinned state,
 sealed revisions, and disposable build output. Whiteboard owns the infrastructure
-files; agents author content through the JSON API (`whiteboard api`, the Whiteboard
-MCP tools, or the whiteboard skill), never by editing files in this directory
+files; agents author content through the JSON API (`whiteboard api` or the Whiteboard
+MCP tools), never by editing files in this directory
 directly.
 
 `review.json` uses store schema 5 and records the independent document and map

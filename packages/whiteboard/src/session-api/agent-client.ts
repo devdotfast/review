@@ -11,8 +11,6 @@ import {
 import { whiteboardDesktopDiscoveryPath } from "../whiteboard-home-paths.js";
 import { SessionApiClient } from "./client.js";
 
-const TEXT_TOOLS = new Set(["session_get", "session_get_instructions"]);
-
 export interface AuthoringTool {
   name: string;
   description: string;
@@ -21,6 +19,8 @@ export interface AuthoringTool {
   path: string;
   commandType?: string;
 }
+
+const TEXT_TOOLS = new Set(["session_get", "session_get_instructions"]);
 
 export async function connectSessionApi(env = process.env) {
   const apiPath = "/sessions-api";

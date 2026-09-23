@@ -16,7 +16,11 @@ import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
 import type { AuthoringMode } from "./drafts.js";
-import { instructionsQuerySchema, renderInstructions } from "./instructions.js";
+import {
+  instructionsQuerySchema,
+  renderInstructions,
+  scratchpadAvailable,
+} from "./instructions.js";
 import type { LocalReviewData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -181,18 +185,18 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", async (context) => {
-    const { desktopAvailable } = await capabilities();
-
-    return context.json(
+  app.get("/authoring", (context) =>
+    context.json(
       authoringTools(
         authoringMode,
-        authoringMode === "interactive" &&
-          desktopAvailable &&
-          scratchpadEnabled(),
+        scratchpadAvailable({
+          authoringMode,
+          desktopAvailable: Boolean(open),
+          scratchpadEnabled: scratchpadEnabled(),
+        }),
       ),
-    );
-  });
+    ),
+  );
   app.get("/instructions", async (context) => {
     const { topic } = instructionsQuerySchema.parse(context.req.query());
 

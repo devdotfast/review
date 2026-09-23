@@ -5,6 +5,8 @@ import {
   callAuthoringTool,
   connectReviewApi,
 } from "./agent-client.js";
+import { type ReviewApiClient, ReviewApiError } from "./client.js";
+import { RECOVERY } from "./mcp.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -51,8 +53,24 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       return 0;
     }
 
-    const client = await connectReviewApi(input.env);
-    const tools = await client.read<AuthoringTool[]>("/authoring");
+    let client: ReviewApiClient;
+    let tools: AuthoringTool[];
+
+    try {
+      client = await connectReviewApi(input.env);
+      tools = await client.read<AuthoringTool[]>("/authoring");
+    } catch (error) {
+      if (
+        name === "review_get_instructions" &&
+        !(error instanceof ReviewApiError)
+      ) {
+        input.stderr.write(RECOVERY + "\n");
+
+        return 1;
+      }
+
+      throw error;
+    }
 
     if (name === "tools") {
       if (json) throw new Error("review api tools takes no input.");
@@ -83,7 +101,8 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (name === "review_get" && rest.includes("--json")) args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
     input.stdout.write(
-      (name === "review_get" && isStringValue(result)
+      ((name === "review_get" || name === "review_get_instructions") &&
+      isStringValue(result)
         ? result
         : JSON.stringify(result)) + "\n",
     );

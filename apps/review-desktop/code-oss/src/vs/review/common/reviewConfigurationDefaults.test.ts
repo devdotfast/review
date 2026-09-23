@@ -6,14 +6,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { REVIEW_KEYMAP_SETTING, reviewConfigurationDefaults } from './reviewConfigurationDefaults.js';
+import { reviewConfigurationDefaults } from './reviewConfigurationDefaults.js';
 
 test('turns off diff indicators for the indicator-free visual language', () => {
 	assert.equal(reviewConfigurationDefaults['diffEditor.renderIndicators'], false);
-});
-
-test('names the curated keymap setting review.keymap', () => {
-	assert.equal(REVIEW_KEYMAP_SETTING, 'review.keymap');
 });
 
 test('keeps the VSCodium-derived opt-out defaults', () => {

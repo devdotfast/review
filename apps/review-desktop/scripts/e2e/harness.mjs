@@ -37,7 +37,7 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const watchedPages = new WeakSet();
 
 const defaultSettings = {
-  "review.experimental.softwareMap.enabled": true,
+  "whiteboard.experimental.softwareMap.enabled": true,
   "security.workspace.trust.enabled": false,
   "telemetry.telemetryLevel": "off",
   "workbench.startupEditor": "none",

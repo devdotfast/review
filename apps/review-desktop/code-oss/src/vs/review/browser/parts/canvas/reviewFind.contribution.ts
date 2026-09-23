@@ -17,13 +17,13 @@ import { IEditorService } from "../../../../workbench/services/editor/common/edi
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
 
-const REVIEW_FIND_COMMAND_ID = "review.action.find";
+const REVIEW_FIND_COMMAND_ID = "whiteboard.action.find";
 
 class ReviewFindAction extends Action2 {
   constructor() {
     super({
       id: REVIEW_FIND_COMMAND_ID,
-      title: localize2("review.action.find", "Find in session"),
+      title: localize2("whiteboard.action.find", "Find in session"),
       keybinding: {
         weight: KeybindingWeight.WorkbenchContrib,
         primary: KeyMod.CtrlCmd | KeyCode.KeyF,

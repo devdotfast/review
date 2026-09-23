@@ -71,7 +71,7 @@ describe('ReviewUserConfigImport', () => {
 		assert.deepStrictEqual(settings, {
 			'editor.fontSize': 15,
 			'vim.useSystemClipboard': true,
-			'review.keymap': 'vim',
+			'whiteboard.keymap': 'vim',
 		});
 		assert.deepStrictEqual(
 			JSON.parse(readFileSync(path.join(fixture.target, 'User', '.review-import.json'), 'utf8')),

@@ -53,7 +53,7 @@ function macAppBundlePath(appRoot: string): string | undefined {
 class OpenWelcomeAction extends Action2 {
 	constructor() {
 		super({
-			id: "review.openWelcome",
+			id: "whiteboard.openWelcome",
 			title: localize2("review.welcome", "Whiteboard: Welcome..."),
 			f1: true,
 		});
@@ -69,8 +69,8 @@ registerAction2(OpenWelcomeAction);
 class OpenTutorialAction extends Action2 {
 	constructor() {
 		super({
-			id: "review.openTutorial",
-			title: localize2("review.openTutorial", "Whiteboard: Open Tutorial..."),
+			id: "whiteboard.openTutorial",
+			title: localize2("whiteboard.openTutorial", "Whiteboard: Open Tutorial..."),
 			f1: true,
 		});
 	}
@@ -95,8 +95,8 @@ registerAction2(OpenTutorialAction);
 class InstallReviewCliInPathAction extends Action2 {
 	constructor() {
 		super({
-			id: "review.installCliInPath",
-			title: localize2("review.installCliInPath", "Whiteboard: Install CLI in PATH"),
+			id: "whiteboard.installCliInPath",
+			title: localize2("whiteboard.installCliInPath", "Whiteboard: Install CLI in PATH"),
 			f1: true,
 		});
 	}
@@ -140,8 +140,8 @@ registerAction2(InstallReviewCliInPathAction);
 class UninstallReviewDesktopAction extends Action2 {
 	constructor() {
 		super({
-			id: "review.uninstallApp",
-			title: localize2("review.uninstallApp", "Whiteboard: Uninstall Whiteboard..."),
+			id: "whiteboard.uninstallApp",
+			title: localize2("whiteboard.uninstallApp", "Whiteboard: Uninstall Whiteboard..."),
 			f1: true,
 		});
 	}

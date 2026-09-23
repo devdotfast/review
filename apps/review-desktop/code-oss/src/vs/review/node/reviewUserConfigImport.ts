@@ -250,14 +250,14 @@ function prepareImport(source: SourceCandidate, log: (message: string) => void):
 	const keybindingsPath = path.join(source.userDir, 'keybindings.json');
 	const settings = readSettings(path.join(source.userDir, 'settings.json'));
 	if (settings && keymap !== 'none') {
-		settings['review.keymap'] = keymap;
+		settings['whiteboard.keymap'] = keymap;
 	}
 
 	return {
 		source,
 		keymap,
 		keybindings: existsSync(keybindingsPath) ? keybindingsPath : undefined,
-		settings: settings ?? (keymap !== 'none' ? { 'review.keymap': keymap } : undefined),
+		settings: settings ?? (keymap !== 'none' ? { 'whiteboard.keymap': keymap } : undefined),
 		defaultProfileOnly,
 	};
 }

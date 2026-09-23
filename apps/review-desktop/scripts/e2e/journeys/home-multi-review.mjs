@@ -155,7 +155,7 @@ export async function run(ctx) {
   const dismiss = async () => {
     await shellB.hover();
     await shellB.locator('[title="Dismiss review"]').click();
-    await home.locator('section[aria-label="Dismissed reviews"]').waitFor();
+    await home.locator('section[aria-label="Dismissed sessions"]').waitFor();
   };
 
   await dismiss();

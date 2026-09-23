@@ -359,7 +359,7 @@ function SearchBox({
 }
 
 /**
- * Dismissed reviews, collapsed by default and kept out of the workspace
+ * Dismissed sessions, collapsed by default and kept out of the workspace
  * grouping. Reviews stay saved until the reader deletes them.
  */
 function DismissedSection({
@@ -376,7 +376,7 @@ function DismissedSection({
   onDelete?(review: SessionSummary): Promise<void>;
 }) {
   return (
-    <section className="review-home-dismissed" aria-label="Dismissed reviews">
+    <section className="review-home-dismissed" aria-label="Dismissed sessions">
       <button
         type="button"
         className="review-home-dismissed-toggle"

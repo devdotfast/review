@@ -87,8 +87,8 @@ registerAction2(
 	class extends Action2 {
 		constructor() {
 			super({
-				id: "review.openSharedReview",
-				title: localize2("review.openSharedReview", "Open Shared Session"),
+				id: "whiteboard.openSharedSession",
+				title: localize2("whiteboard.openSharedSession", "Open Shared Session"),
 				f1: true,
 			});
 		}

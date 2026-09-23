@@ -636,7 +636,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private setupActions(): ReviewCanvasSetupActions {
 		return {
 			load: () => this.loadInstallContent(),
-			installCli: async () => { await this.commandService.executeCommand("review.installCliInPath"); },
+			installCli: async () => { await this.commandService.executeCommand("whiteboard.installCliInPath"); },
 		};
 	}
 
@@ -680,7 +680,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// The command opens and focuses the tutorial tab itself, and reports
 		// its own failures. Welcome stays open behind it: it is a hub the
 		// reader comes back to, not a one-shot wizard.
-		void this.commandService.executeCommand("review.openTutorial");
+		void this.commandService.executeCommand("whiteboard.openTutorial");
 	}
 
 	/**
@@ -716,7 +716,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					setting: "keymap",
 					enabled: true,
 				});
-				await this.commandService.executeCommand("review.setKeymap", choice);
+				await this.commandService.executeCommand("whiteboard.setKeymap", choice);
 				return this.currentKeymap();
 			},
 			softwareMapEnabled: this.currentSoftwareMapEnabled(),
@@ -758,7 +758,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					return this.desktopConnection.setDiffrConfigValue(key, value);
 				},
 			},
-			manageExtensions: () => void this.commandService.executeCommand("review.manageExtensions"),
+			manageExtensions: () => void this.commandService.executeCommand("whiteboard.manageExtensions"),
 		};
 	}
 
@@ -848,7 +848,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					/* The keymap command may reload the window before its promise can
 					   settle. Persist the completed step first so the restored tutorial
 					   advances from the choice the user already made. */
-					await this.commandService.executeCommand("review.setKeymap", keymap);
+					await this.commandService.executeCommand("whiteboard.setKeymap", keymap);
 				} catch (error) {
 					setStep("chooseKeymap", false);
 					throw error;

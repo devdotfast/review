@@ -6487,7 +6487,7 @@ button.review-stack-row:disabled .review-stack-relation {
   box-shadow: 0 12px 32px var(--shadow-color-strong);
 }
 
-/* Dismissed reviews sit below the active list, collapsed. Each row states its
+/* Dismissed sessions sit below the active list, collapsed. Each row states its
    own deadline so a reap never surprises. */
 .review-home-dismissed {
   display: flex;

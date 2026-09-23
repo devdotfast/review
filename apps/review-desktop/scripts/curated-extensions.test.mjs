@@ -551,7 +551,7 @@ test("keeps the keymaps mutually exclusive in the picker", () => {
     /REVIEW_KEYMAPS\s*=\s*\[([^\]]+)\]/,
   );
 
-  assert.ok(enumDeclaration, "review.keymap enum declaration");
+  assert.ok(enumDeclaration, "whiteboard.keymap enum declaration");
 
   const enumValues = [...enumDeclaration[1].matchAll(/'([^']+)'/g)].map(
     (match) => match[1],

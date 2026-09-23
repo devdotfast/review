@@ -103,8 +103,8 @@ export class ReviewMenubarMainService
       // macOS prints this in parentheses after the version. The commit is what
       // the update feed matches on, so it is the build identity that matters.
       version: commit ? commit.substring(0, 10) : "",
-      copyright: localize("review.about.copyright", "Copyright © 2026 /dev/fast"),
-      credits: localize("review.about.codeOss", "Code OSS {0}", version),
+      copyright: localize("whiteboard.about.copyright", "Copyright © 2026 /dev/fast"),
+      credits: localize("whiteboard.about.codeOss", "Code OSS {0}", version),
     });
   }
 
@@ -154,7 +154,7 @@ export class ReviewMenubarMainService
         // renderer resolve it. Tree, webview, notebook, source, and
         // Review each own a context-specific Find command.
         registerAccelerator: false,
-        click: () => this.runActionInFocusedWindow("review.action.find"),
+        click: () => this.runActionInFocusedWindow("whiteboard.action.find"),
       }),
     );
     menubar.append(editMenuItem);
@@ -191,14 +191,14 @@ export class ReviewMenubarMainService
 
     // The macOS settings slot. Every item runs the same renderer action as its
     // command palette entry. Electron consumes the accelerator before the web
-    // contents, so the workbench keybinding on review.openSettings and this
+    // contents, so the workbench keybinding on whiteboard.openSettings and this
     // item cannot both fire.
     const preferences = new Menu();
     preferences.append(
       new MenuItem({
         label: localize("review.menu.settings", "Settings..."),
         accelerator: "Command+,",
-        click: () => this.runActionInFocusedWindow("review.openSettings"),
+        click: () => this.runActionInFocusedWindow("whiteboard.openSettings"),
       }),
     );
     // The Welcome pane stays reachable after Home fills with reviews: first
@@ -206,7 +206,7 @@ export class ReviewMenubarMainService
     preferences.append(
       new MenuItem({
         label: localize("review.menu.gettingStarted", "Getting Started..."),
-        click: () => this.runActionInFocusedWindow("review.openWelcome"),
+        click: () => this.runActionInFocusedWindow("whiteboard.openWelcome"),
       }),
     );
     preferences.append(new MenuItem({ type: "separator" }));
@@ -216,7 +216,7 @@ export class ReviewMenubarMainService
           "review.menu.uninstall",
           "Uninstall Whiteboard...",
         ),
-        click: () => this.runActionInFocusedWindow("review.uninstallApp"),
+        click: () => this.runActionInFocusedWindow("whiteboard.uninstallApp"),
       }),
     );
 

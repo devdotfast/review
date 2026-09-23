@@ -17,8 +17,8 @@ import { IReviewCanvasEditorTabsService } from '../../services/reviewCanvasEdito
 class OpenReviewSettingsAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.openSettings',
-			title: localize2('review.openSettings', "Whiteboard: Settings..."),
+			id: 'whiteboard.openSettings',
+			title: localize2('whiteboard.openSettings', "Whiteboard: Settings..."),
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,

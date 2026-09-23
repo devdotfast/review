@@ -31,7 +31,7 @@ export type ReviewKeymap = typeof REVIEW_KEYMAPS[number];
 
 export const reviewConfigurationDefaults = {
 	[REVIEW_SOFTWARE_MAP_SETTING]: false,
-	[REVIEW_STRUCTURAL_DIFF_SETTING]: false,
+	[REVIEW_STRUCTURAL_DIFF_SETTING]: true,
 	[REVIEW_TELEMETRY_SETTING]: true,
 	'telemetry.telemetryLevel': 'off',
 	'telemetry.enableTelemetry': false,

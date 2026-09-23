@@ -45,6 +45,9 @@ interface Environment extends WorkspaceStatus {
   role: "base" | "head";
 }
 
+const OWNED_ELSEWHERE =
+  "Another Desktop is preparing this review's language workspaces. Close it there, or quit that Desktop, then retry.";
+
 /** Local lifecycle only: source and authored history never depend on preparation.
  * Status/queue/process lifecycle follows #334, retaining the legacy prepare config
  * and per-review managed checkout layout instead of a new settings system.
@@ -69,27 +72,18 @@ export class ReviewWorkspaces {
     this.db.exec(
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS pinned_environments(id TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
+    // Desktops sharing a profile each own the reviews they prepare; the
+    // lease stops a second process from preparing or collecting them.
     this.db.exec(
-      "CREATE TABLE IF NOT EXISTS workspace_owner(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,pid INTEGER NOT NULL)",
+      "DROP TABLE IF EXISTS workspace_owner; CREATE TABLE IF NOT EXISTS workspace_leases(review_id TEXT PRIMARY KEY,owner TEXT NOT NULL,pid INTEGER NOT NULL)",
     );
     this.db.exec("BEGIN IMMEDIATE");
 
     try {
-      const owner = this.db
-        .prepare("SELECT pid FROM workspace_owner WHERE id=1")
-        .get();
-
-      if (owner && processIsAlive(Number(owner.pid)))
-        throw new ReviewInputError(
-          "Another Desktop owns this profile's language workspaces. Close that Desktop before opening another instance.",
-          409,
-        );
-      this.db
-        .prepare("INSERT OR REPLACE INTO workspace_owner VALUES(1,?,?)")
-        .run(this.ownerId, process.pid);
-
       // Only the owning Desktop can invalidate generations or recover interrupted preparation.
       for (const environment of this.all()) {
+        if (this.leasedElsewhere(environment.reviewId)) continue;
+
         if (environment.state === "preparing") environment.state = "pending";
         environment.generation = randomUUID();
         this.save(environment);
@@ -136,6 +130,8 @@ export class ReviewWorkspaces {
   }
 
   async remove(reviewId: string) {
+    if (this.leasedElsewhere(reviewId))
+      throw new ReviewInputError(OWNED_ELSEWHERE, 409);
     await Promise.all(this.requests.values());
     this.collect(undefined, reviewId);
     await this.cleanup;
@@ -145,6 +141,38 @@ export class ReviewWorkspaces {
         "Could not remove the managed workspace. Retry deletion.",
         409,
       );
+  }
+
+  private leasedElsewhere(reviewId: string): boolean {
+    const lease = this.db
+      .prepare("SELECT owner,pid FROM workspace_leases WHERE review_id=?")
+      .get(reviewId);
+
+    return Boolean(
+      lease &&
+      lease.owner !== this.ownerId &&
+      processIsAlive(Number(lease.pid)),
+    );
+  }
+
+  /** Takes the review's lease unless another live Desktop holds it. */
+  private claim(reviewId: string): boolean {
+    this.db.exec("BEGIN IMMEDIATE");
+
+    try {
+      const free = !this.leasedElsewhere(reviewId);
+
+      if (free)
+        this.db
+          .prepare("INSERT OR REPLACE INTO workspace_leases VALUES(?,?,?)")
+          .run(reviewId, this.ownerId, process.pid);
+      this.db.exec("COMMIT");
+
+      return free;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   private all(): Environment[] {
@@ -231,6 +259,23 @@ export class ReviewWorkspaces {
     const current = this.requests.get(id);
 
     if (current) return current;
+
+    if (!this.claim(reviewId)) {
+      const environment = this.get(id);
+
+      return Promise.resolve(
+        environment
+          ? this.status(environment)
+          : {
+              id,
+              commit: pins[side],
+              rootPath: null,
+              generation: "",
+              state: "pending",
+              log: OWNED_ELSEWHERE,
+            },
+      );
+    }
 
     const request = this.acquire(id, reviewId, pins, side, retryFailed).finally(
       () => this.requests.delete(id),
@@ -394,7 +439,8 @@ export class ReviewWorkspaces {
     if (!environment || environment.reviewId !== reviewId)
       throw new ReviewInputError("Language environment not found.", 404);
 
-    if (this.jobs.has(id)) return this.status(environment);
+    if (this.jobs.has(id) || this.leasedElsewhere(reviewId))
+      return this.status(environment);
 
     if (environment.state === "cleanup-failed") {
       this.collect();
@@ -425,6 +471,7 @@ export class ReviewWorkspaces {
     // Capture ownership before awaiting, so shutdown never reads a closed store.
     const deleted = this.all().filter(
       (environment) =>
+        !this.leasedElsewhere(environment.reviewId) &&
         (environment.reviewId === removedReviewId ||
           !this.hasReview(environment.reviewId)) &&
         (environment.state !== "cleanup-failed" ||
@@ -467,6 +514,11 @@ export class ReviewWorkspaces {
           this.db
             .prepare("DELETE FROM pinned_environments WHERE id=?")
             .run(environment.id);
+          this.db
+            .prepare(
+              "DELETE FROM workspace_leases WHERE review_id=? AND owner=? AND NOT EXISTS(SELECT 1 FROM pinned_environments WHERE value->>'reviewId'=?)",
+            )
+            .run(environment.reviewId, this.ownerId, environment.reviewId);
         } catch (error) {
           environment.state = "cleanup-failed";
           environment.log = errorMessage(error);
@@ -497,7 +549,7 @@ export class ReviewWorkspaces {
     for (const job of this.jobs.values()) job.abort.abort();
     await this.idle();
     this.db
-      .prepare("DELETE FROM workspace_owner WHERE owner=?")
+      .prepare("DELETE FROM workspace_leases WHERE owner=?")
       .run(this.ownerId);
     this.db.close();
   }

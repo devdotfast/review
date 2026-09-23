@@ -549,7 +549,7 @@ class ImportUserConfigAction extends Action2 {
 			if (preview.status === 'disabled') {
 				await dialogService.info(
 					localize('review.importUserConfig.disabled', "VS Code settings import is disabled."),
-					localize('review.importUserConfig.disabledDetail', "Unset DEV_REVIEW_IMPORT_FROM=none and restart Review to enable imports."),
+					localize('review.importUserConfig.disabledDetail', "Unset DEV_REVIEW_IMPORT_FROM=none and restart Whiteboard to enable imports."),
 				);
 				return;
 			}

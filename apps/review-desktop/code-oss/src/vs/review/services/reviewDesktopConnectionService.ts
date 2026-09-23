@@ -322,7 +322,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			});
-			await this.requireOk(response, "Review install status");
+			await this.requireOk(response, "Whiteboard install status");
 			return parseReviewCliInstallStatus(await response.json());
 		})().finally(() => {
 			this.cliInstallStatusPromise = undefined;

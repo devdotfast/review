@@ -339,7 +339,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				this.setCanvasState("active", reviewId);
 				void this.apiCatalog
 					.attention(reviewId, "view")
-					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
+					.catch((error) => this.logService.warn("[Whiteboard] Could not mark session viewed:", error));
 				let sourceSelection: ReviewSourceSelection = { reviewId, kind: "current" };
 				let sourceView: ReviewSourceView = resolveReviewSourceView({ reviewId, version: 0, pins: {} });
 				const source = this.apiSource.canvas(() => sourceView, this.inlineEditors, this.diffViews);
@@ -490,7 +490,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (input.target.kind === "welcome") {
 			void this.desktopConnection
 				.prepareTutorial()
-				.catch((error) => this.logService.warn("[Review] Tutorial preparation did not complete:", error));
+				.catch((error) => this.logService.warn("[Whiteboard] Tutorial preparation did not complete:", error));
 			this.renderedInput = input;
 			this.setCanvasState("home");
 			/* Same stale-resume guard as Home: the install fetch suspends, and
@@ -637,7 +637,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			return await this.loadInstallContent();
 		} catch (error) {
-			this.logService.warn("Review install status failed", error);
+			this.logService.warn("Whiteboard install status failed", error);
 			return undefined;
 		}
 	}
@@ -1026,7 +1026,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					delete this.targetDocument?.body.dataset["reviewCanvasReady"];
 				}
 				const method = diagnostic.level === "error" ? console.error : console.warn;
-				method(`[Review canvas ${diagnostic.source}] ${diagnostic.message}`, diagnostic.stack ?? "");
+				method(`[Whiteboard canvas ${diagnostic.source}] ${diagnostic.message}`, diagnostic.stack ?? "");
 				lifecycle?.reportDiagnostic(diagnostic);
 			},
 		};
@@ -1133,7 +1133,7 @@ function loadStylesheet(document: Document, url: string): Promise<void> {
 		link.href = url;
 		link.dataset["reviewCanvasStylesheet"] = "true";
 		link.addEventListener("load", () => resolve(), { once: true });
-		link.addEventListener("error", () => reject(new Error(`Review canvas stylesheet failed: ${url}`)), { once: true });
+		link.addEventListener("error", () => reject(new Error(`Whiteboard canvas stylesheet failed: ${url}`)), { once: true });
 		document.head.appendChild(link);
 	});
 }

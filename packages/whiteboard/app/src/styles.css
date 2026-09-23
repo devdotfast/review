@@ -7322,7 +7322,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 /* Event-ruler scrollbar: a left-edge column of uniform dashes mapping the
    whole session at even pitch. Brightness marks the events currently in the
    viewport; hovering bulges nearby ticks toward the content and shows a
-   pwhiteboard card. Strictly grayscale via the ink tokens. */
+   preview card. Strictly grayscale via the ink tokens. */
 
 .whiteboard-trace-ruler {
   height: 0;

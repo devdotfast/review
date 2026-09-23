@@ -167,7 +167,7 @@ jobs:
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
 
       - name: Bundled diffr integration
-        run: pnpm --filter @dev.fast/review test:integration:diffr
+        run: pnpm --filter @dev.fast/whiteboard test:integration:diffr
 
       - name: Configure Electron sandbox
         run: |

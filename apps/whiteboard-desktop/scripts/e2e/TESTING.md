@@ -20,7 +20,7 @@ only for the phase-2 journeys.
 pnpm --filter @dev.fast/whiteboard-desktop app:build
 (cd packages/whiteboard && pnpm pack --pack-destination /tmp/review-pack)
 mkdir -p /tmp/review-runtime && (cd /tmp/review-runtime && npm init -y >/dev/null && npm install --omit=dev /tmp/review-pack/dev.fast-review-*.tgz)
-export WHITEBOARD_E2E_RUNTIME=/tmp/review-runtime/node_modules/@dev.fast/review
+export WHITEBOARD_E2E_RUNTIME=/tmp/review-runtime/node_modules/@dev.fast/whiteboard
 ```
 
 ## Running

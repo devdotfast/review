@@ -80,7 +80,7 @@ node "$APP_DIR/scripts/curated-extensions.mjs" \
 # build.sh produces the server dist in local mode. In precompiled mode, the
 # server dist arrives in the darwin payload.
 # Fetch on Darwin: precompiled payloads were built on Linux.
-pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review ensure:diffr --required
+pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/whiteboard ensure:diffr --required
 node "$APP_DIR/scripts/stage-whiteboard-runtime.mjs" --packaged-root "$PACKAGED_APP"
 
 # Installs Assets.car and rewrites CFBundleIconName, which invalidates any

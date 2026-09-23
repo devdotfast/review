@@ -32,6 +32,7 @@ async function closeWelcome(updateNeeded: boolean): Promise<number> {
 		editors as never,
 		groups as never,
 		connection as never,
+		{} as never,
 		{ warn() {} } as never,
 	);
 	try {

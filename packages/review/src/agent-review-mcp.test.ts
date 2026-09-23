@@ -13,6 +13,7 @@ import {
   applyCliInstall,
   cliInstallStampPath,
   readCliInstallStamp,
+  registerReviewMcp,
   removeCliInstall,
   resolveCliInstallStatus,
 } from "./cli-install";
@@ -426,4 +427,32 @@ it("uses OpenCode's existing JSONC config under XDG_CONFIG_HOME", async () => {
   ).toBe(file);
   await removeCliInstall({ targets: ["opencode"], homeDir, env });
   expect(parseJsonc(await readFile(file, "utf8")).mcp.review).toBeUndefined();
+});
+
+it("disconnects an entry written by review install, which records no ownership", async () => {
+  await registerReviewMcp({
+    targets: ["claude", "codex"],
+    cliPath,
+    homeDir,
+    env,
+  });
+
+  const claudeFile = path.join(homeDir, ".claude.json");
+  const codexFile = path.join(homeDir, ".codex/config.toml");
+
+  await writeFile(
+    codexFile,
+    (await readFile(codexFile, "utf8")).replace(
+      'args = [ "mcp" ]',
+      'args = [ "custom" ]',
+    ),
+  );
+  await removeCliInstall({ targets: ["claude", "codex"], homeDir, env });
+
+  expect(
+    JSON.parse(await readFile(claudeFile, "utf8")).mcpServers?.review,
+  ).toBeUndefined();
+  expect(parse(await readFile(codexFile, "utf8")).mcp_servers).toMatchObject({
+    review: { args: ["custom"] },
+  });
 });

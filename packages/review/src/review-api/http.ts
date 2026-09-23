@@ -185,28 +185,24 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
+
+  // Server-owned state only: asking the Desktop canvas would let a stalled
+  // renderer block tool listing and the first instructions call.
+  const instructionContext = () => ({
+    authoringMode,
+    desktopAvailable: Boolean(open),
+    scratchpadEnabled: scratchpadEnabled(),
+  });
+
   app.get("/authoring", (context) =>
     context.json(
-      authoringTools(
-        authoringMode,
-        scratchpadAvailable({
-          authoringMode,
-          desktopAvailable: Boolean(open),
-          scratchpadEnabled: scratchpadEnabled(),
-        }),
-      ),
+      authoringTools(authoringMode, scratchpadAvailable(instructionContext())),
     ),
   );
   app.get("/instructions", async (context) => {
     const { topic } = instructionsQuerySchema.parse(context.req.query());
 
-    return context.json(
-      await renderInstructions(topic, {
-        ...(await capabilities()),
-        authoringMode,
-        scratchpadEnabled: scratchpadEnabled(),
-      }),
-    );
+    return context.json(await renderInstructions(topic, instructionContext()));
   });
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);

@@ -254,7 +254,7 @@ export async function writeReviewMcpRegistration(
   )
     return false;
 
-  if (remove && !managed) return false;
+  if (remove && !managed && !matches(config, desired)) return false;
 
   if (!remove && matches(config, desired)) return true;
 

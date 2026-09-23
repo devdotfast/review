@@ -1050,3 +1050,39 @@ it("cleans the shared skills root at startup when the stamp never named its agen
   expect(existsSync(trace)).toBe(false);
   expect(existsSync(custom)).toBe(true);
 });
+
+it("keeps legacy-consent agents connectable when startup cleanup runs before the resync", async () => {
+  const homeDir = await temporaryHome("review-legacy-cleanup-order-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  const input = {
+    packageRoot,
+    homeDir,
+    env,
+    cliPath: path.join(packageRoot, "dist/cli.js"),
+    shim: false,
+  };
+
+  await seedManagedSkill(homeDir, ".claude");
+  await seedManagedSkill(homeDir, ".agents");
+  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    consent: "granted",
+    updatedAt: new Date().toISOString(),
+  });
+
+  await removeRetiredReviewSkills({ homeDir, env });
+
+  const status = await resolveCliInstallStatus(input);
+  expect(
+    [...(reviewCliInstallResyncRequest(status)?.targets ?? [])].sort(),
+  ).toEqual(["claude", "codex"]);
+  expect(
+    (await applyCliInstall({ ...input, targets: [], autoUpdate: true })).code,
+  ).toBe(0);
+  expect(
+    (await resolveCliInstallStatus(input)).mcp
+      ?.filter((item) => item.state === "ready")
+      .map((item) => item.target)
+      .sort(),
+  ).toEqual(["claude", "codex"]);
+});

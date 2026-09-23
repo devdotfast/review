@@ -287,7 +287,7 @@ describe("review_get_instructions", () => {
     }
   });
 
-  it("builds the catalog without querying renderer capabilities", async () => {
+  it("lists tools and serves instructions without querying renderer capabilities", async () => {
     const store = new ReviewStore(":memory:", {
       validatePins: async () => {},
       validateSource: async () => {},
@@ -314,6 +314,15 @@ describe("review_get_instructions", () => {
           (tool: AuthoringTool) => tool.name === "review_get_instructions",
         ).description,
       ).toContain('topic:"scratchpad"');
+
+      for (const topic of ["authoring", "scratchpad", "trace-archaeology"]) {
+        const instructions = await app.request(`/instructions?topic=${topic}`);
+        expect(instructions.status).toBe(200);
+      }
+
+      expect(
+        await (await app.request("/instructions?topic=scratchpad")).json(),
+      ).toContain("# Scratchpad");
     } finally {
       store.close();
     }

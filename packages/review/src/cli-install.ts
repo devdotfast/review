@@ -363,15 +363,28 @@ export async function removeRetiredReviewSkills(
 ): Promise<string[]> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
-  const stamp = await readCliInstallStamp(cliInstallStampPath(env));
 
-  return removeReviewSkillsEverywhere(
-    homeDir,
-    await pointerSkillTargetsInUse(
+  return withDesktopInstallLock(env, async () => {
+    let stamp = await readCliInstallStamp(cliInstallStampPath(env));
+
+    // Stamps from before per-target records name their agents only through
+    // the skills this removes. Record them first so the resync still connects
+    // those agents over MCP.
+    if (stamp?.consent === "granted" && !stamp.targets) {
+      const { managedTargets } = await resolveAgentState(homeDir, env);
+
+      stamp = { ...stamp, targets: managedTargets };
+      await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+    }
+
+    return removeReviewSkillsEverywhere(
       homeDir,
-      stamp?.consent === "granted" ? (stamp.targets ?? []) : [],
-    ),
-  );
+      await pointerSkillTargetsInUse(
+        homeDir,
+        stamp?.consent === "granted" ? (stamp.targets ?? []) : [],
+      ),
+    );
+  });
 }
 
 interface ApplyCliInstallInput {
@@ -692,20 +705,32 @@ async function removeCliInstallUnlocked(
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
   let keepMcpLauncher = false;
 
-  for (const registration of previous?.mcpRegistrations ?? []) {
-    if (!input.targets.includes(registration.target)) continue;
+  // Entries from `review install` are not recorded in the stamp, but one
+  // identical to what Review writes is Review's to remove.
+  for (const target of REVIEW_MCP_TARGETS.filter((item) =>
+    input.targets.includes(item),
+  )) {
+    const recorded = previous?.mcpRegistrations?.find(
+      (item) => item.target === target,
+    );
+
+    const registration =
+      recorded ?? (await reviewMcpRegistration(target, homeDir, env));
+
+    if (!recorded && (await reviewMcpStatus(registration)).state !== "ready")
+      continue;
 
     const removed = await writeReviewMcpRegistration(
       registration,
-      registration,
+      recorded,
       true,
     );
 
     if (!removed) keepMcpLauncher = true;
     chunks.push(
       removed
-        ? `[ok] removed ${registration.target} Review MCP\n`
-        : `The ${registration.target} Review MCP entry changed after installation; left in place.\n`,
+        ? `[ok] removed ${target} Review MCP\n`
+        : `The ${target} Review MCP entry changed after installation; left in place.\n`,
     );
   }
 

@@ -10,7 +10,10 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { findReviewPackageRoot } from "./package-paths";
-import type { PostHogCaptureInput } from "./posthog-capture-client";
+import type {
+  PostHogCaptureInput,
+  PostHogCaptureProperties,
+} from "./posthog-capture-client";
 import {
   REVIEW_APP_SESSION_ID_ENV,
   REVIEW_APP_VERSION_ENV,
@@ -506,6 +509,15 @@ describe("ReviewTelemetry", () => {
     await expect(telemetry.getInstallationId()).resolves.toBe("install-123");
     expect(events).toEqual([]);
   });
+
+  it("hands the envelope to the capture client for its own diagnostics", async () => {
+    const { rootPath, telemetry, captureClient } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureCommandStarted({ command: "info", commandRunId: "run-12345678" });
+
+    expect(captureClient.defaults).toMatchObject({ surface: "cli", channel: "stable" });
+  });
 });
 
 function createTelemetry(input?: {
@@ -523,10 +535,15 @@ function createTelemetry(input?: {
   const legacyConfigPath = path.join(rootPath, "legacy.json");
   const events: PostHogCaptureInput[] = [];
 
-  const captureClient: ReviewTelemetryCaptureClient = {
+  const captureClient: ReviewTelemetryCaptureClient & {
+    defaults?: PostHogCaptureProperties;
+  } = {
     enabled: true,
     capture: async (event) => {
       events.push(event);
+    },
+    setDefaultProperties(properties) {
+      captureClient.defaults = properties;
     },
   };
 
@@ -545,7 +562,7 @@ function createTelemetry(input?: {
   if (commandRunId) options.randomUUID = () => commandRunId;
   const telemetry = new ReviewTelemetry(options);
 
-  return { configPath, events, legacyConfigPath, rootPath, telemetry };
+  return { captureClient, configPath, events, legacyConfigPath, rootPath, telemetry };
 }
 
 function storedConfig(

@@ -91,6 +91,7 @@ export class PostHogCaptureClient {
   private memoryDrops: Partial<Record<DropReason, number>> = {};
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private queuedSinceFlush = 0;
+  private defaultProperties: PostHogCaptureProperties = {};
 
   constructor(options: PostHogCaptureClientOptions = {}) {
     this.apiKey = options.apiKey?.trim() || undefined;
@@ -130,6 +131,11 @@ export class PostHogCaptureClient {
 
   get enabled(): boolean {
     return Boolean(this.apiKey && this.fetchImpl);
+  }
+
+  /** Properties for events the client emits itself, such as drop diagnostics. */
+  setDefaultProperties(properties: PostHogCaptureProperties): void {
+    this.defaultProperties = { ...properties };
   }
 
   async capture(input: PostHogCaptureInput): Promise<void> {
@@ -306,6 +312,7 @@ export class PostHogCaptureClient {
     const diagnosticEvents = droppedEvents(
       drops,
       eligible[0]!.event.distinctId,
+      this.defaultProperties,
     );
 
     const sentEligible = eligible.slice(
@@ -389,6 +396,7 @@ export class PostHogCaptureClient {
           batch: events.map((event) => ({
             event: event.event,
             properties: {
+              $process_person_profile: false,
               ...compactProperties(event.properties ?? {}),
               distinct_id: event.distinctId,
             },
@@ -467,6 +475,7 @@ export class PostHogCaptureClient {
 function droppedEvents(
   drops: Partial<Record<DropReason, number>>,
   distinctId: string,
+  defaults: PostHogCaptureProperties,
 ): QueuedPostHogEvent[] {
   return DROP_REASONS.flatMap((reason) => {
     const count = drops[reason];
@@ -477,7 +486,7 @@ function droppedEvents(
       {
         event: "review_telemetry_dropped",
         distinctId,
-        properties: { reason, count },
+        properties: { ...defaults, reason, count },
         createdAt: Date.now(),
         attempts: 0,
         nextAttemptAt: 0,

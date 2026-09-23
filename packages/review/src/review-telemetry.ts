@@ -161,6 +161,7 @@ export interface ReviewTelemetryCaptureClient {
    */
   readonly ignoresOptOut?: boolean;
   capture(input: PostHogCaptureInput): Promise<void>;
+  setDefaultProperties?(properties: PostHogCaptureProperties): void;
   flush?(deadlineMs?: number): Promise<void>;
   shutdown?(deadlineMs?: number): Promise<void>;
   discard?(): Promise<void>;
@@ -433,11 +434,13 @@ export class ReviewTelemetry {
     context?: ReviewTelemetryContext,
   ): Promise<void> {
     await this.withTelemetry(async (config) => {
+      const common = await this.commonProperties(config);
+      this.captureClient.setDefaultProperties?.(common);
       await this.captureClient.capture({
         event,
         distinctId: config.installationId,
         properties: {
-          ...(await this.commonProperties(config)),
+          ...common,
           ...properties,
           ...correlationProperties(config.installationId, context),
         },

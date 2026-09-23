@@ -511,7 +511,7 @@ function uri(whiteboard, side = "head", file = "main.ts", commit) {
   if (commit) query.set("commit", commit);
 
   return locationUri(
-    `review-api-source://${review.sessionId}/${file}?${query}`,
+    `review-api-source://${whiteboard.sessionId}/${file}?${query}`,
   );
 }
 
@@ -553,10 +553,10 @@ function locationUri(value) {
 async function readyEnvironment(whiteboard, side = "head") {
   return until(async () => {
     const result = await api(
-      `/${review.sessionId}/language-context?version=${review.version}&side=${side}`,
+      `/${whiteboard.sessionId}/language-context?version=${whiteboard.version}&side=${side}`,
     );
 
-    const environments = await api(`/${review.sessionId}/workspaces`);
+    const environments = await api(`/${whiteboard.sessionId}/workspaces`);
 
     const prepared = environments.find(
       (item) => item.generation === result.identity,
@@ -642,7 +642,7 @@ try {
   const whiteboard = await createWhiteboard(first, "Local LSP regression");
   const other = await createWhiteboard(second, "Other repository");
   await until(async () => {
-    await api(`/${review.sessionId}/open`, "POST");
+    await api(`/${whiteboard.sessionId}/open`, "POST");
     await page
       .locator(".whiteboard-canvas-root")
       .filter({ hasText: "Local LSP regression" })
@@ -885,7 +885,7 @@ try {
   assert.equal(
     (
       await api(
-        `/${review.sessionId}/file?version=${review.version}&side=head&file=main.ts`,
+        `/${whiteboard.sessionId}/file?version=${whiteboard.version}&side=head&file=main.ts`,
       )
     ).text,
     mainText("head"),
@@ -1007,8 +1007,8 @@ try {
 
   for (const source of [
     uri(whiteboard, "base", "deleted.ts"),
-    `${uri(review, "base", "added.ts")}&empty=true`,
-    `${uri(review, "head", "deleted.ts")}&empty=true`,
+    `${uri(whiteboard, "base", "added.ts")}&empty=true`,
+    `${uri(whiteboard, "head", "deleted.ts")}&empty=true`,
   ]) {
     const result = await probe({
       uri: source,
@@ -1043,7 +1043,7 @@ try {
     sessionId: whiteboard.sessionId,
     pins: newerPins,
   });
-  const newerWhiteboard = await api(`/${review.sessionId}?full=true`);
+  const newerWhiteboard = await api(`/${whiteboard.sessionId}?full=true`);
   const historical = await expectHover(uri(whiteboard), greetAt, "string");
   assert.equal(historical.active.text, mainText("head"));
   const repinned = await expectHover(uri(newerWhiteboard), greetAt, "string");
@@ -1084,7 +1084,7 @@ try {
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  await api(`/${review.sessionId}/open`, "POST");
+  await api(`/${whiteboard.sessionId}/open`, "POST");
   await until(async () => {
     await page
       .locator(".whiteboard-canvas-root")
@@ -1094,7 +1094,7 @@ try {
 
     return true;
   }, "reopened review");
-  const restoredWhiteboard = await api(`/${review.sessionId}?full=true`);
+  const restoredWhiteboard = await api(`/${whiteboard.sessionId}?full=true`);
 
   if (structuralDiffAvailable) {
     // Document code views use the native unified diff editor. The modified

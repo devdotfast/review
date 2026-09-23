@@ -507,6 +507,7 @@ async function probe(request, targetPage = page) {
 // Review window, and exercise rendered navigation in its destination window.
 async function navigatorPage(sourceUri) {
   const source = new URL(sourceUri);
+  source.searchParams.delete("generation");
   source.searchParams.set("file", decodeURIComponent(source.pathname.slice(1)));
 
   const destination = await api(
@@ -1527,21 +1528,27 @@ try {
       );
     }
 
-    assert.equal(
-      (
-        await probe(
-          { edit: { uri: workspaceMain, text: "forbidden" } },
-          liveNavigator.page,
-        )
-      ).result,
-      false,
+    // Native read-only settings block input and saves. Extension APIs can
+    // still alter a model, so verify that those edits cannot reach disk.
+    await probe(
+      { edit: { uri: workspaceMain, text: "forbidden" } },
+      liveNavigator.page,
     );
+    await probe({ command: "workbench.action.files.save" }, liveNavigator.page);
     assert.equal(
       (await probe({ edit: { uri: uri(live), text: "forbidden" } })).result,
       false,
     );
     assert.equal(
       await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
+      mainText("head"),
+    );
+    await probe(
+      { command: "workbench.action.files.revert" },
+      liveNavigator.page,
+    );
+    assert.equal(
+      (await probe({}, liveNavigator.page)).active.text,
       mainText("head"),
     );
   }

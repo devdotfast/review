@@ -63,7 +63,7 @@ describe("Review CLI", () => {
       argv: [
         "trace",
         "status",
-        "--session",
+        "--agent-session",
         "my-upload-session",
         "--limit",
         "5",

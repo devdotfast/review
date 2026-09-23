@@ -1157,29 +1157,8 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   color: var(--change-removed);
 }
 
-.viewed-check {
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 3px;
-  background: var(--surface);
-  color: var(--surface);
-  font-size: 10px;
-}
-
-.viewed-check--viewed {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  opacity: 1;
-}
-
 .diff-workspace .is-viewed {
   opacity: 0.55;
-}
-
-.diff-workspace .is-viewed .viewed-check--viewed {
-  opacity: 1;
 }
 
 /* ---------------------------------------------------------------------------

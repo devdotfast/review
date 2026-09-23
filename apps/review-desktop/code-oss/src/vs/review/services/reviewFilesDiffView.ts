@@ -21,6 +21,7 @@ import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/mult
 import { IDiffEditorOptions } from "../../editor/common/config/editorOptions.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
+import { IHoverService } from "../../platform/hover/browser/hover.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { MultiDiffEditorInput } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js";
 import {
@@ -31,6 +32,7 @@ import { IEditorGroupsService } from "../../workbench/services/editor/common/edi
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
 import { ReviewChangedFilesTree } from "../browser/reviewChangedFilesTree.js";
+import { REVIEW_COUNTS_PENDING_TOOLTIP, reviewChangesTooltip, reviewCountsTooltip, ReviewTooltip, type ReviewTooltipContent } from "../browser/reviewTooltip.js";
 import { type ReviewDiffFileWire, type StructuralLineCounts } from "../common/reviewProtocol.js";
 import type { ReviewDiffLayoutSetting } from "./reviewDiffLayout.js";
 import { reviewMultiDiffLabelUris, ReviewMultiDiffUIElementFactory } from "./reviewMultiDiff.js";
@@ -180,10 +182,11 @@ export class ReviewFilesDiffView extends Disposable {
 	/** Full structural counts for views without persisted coverage. */
 	private readonly streamStats = new Map<
 		string,
-		{ counts: StructuralLineCounts; title: string }
+		{ counts: StructuralLineCounts; tooltip: ReviewTooltipContent }
 	>();
 	private readonly headerFactory: ReviewMultiDiffUIElementFactory;
 	private readonly summary: HTMLElement;
+	private readonly summaryTooltip: ReviewTooltip;
 	/** Files the stream says start hidden, with the reason shown in their header. */
 	private readonly hiddenFiles = new Map<string, string>();
 	private readonly hiddenApplied = new Set<string>();
@@ -209,6 +212,7 @@ export class ReviewFilesDiffView extends Disposable {
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService
 		private readonly editorGroupService: IEditorGroupsService,
+		@IHoverService hoverService: IHoverService,
 	) {
 		super();
 		this.root = append(container, $(".review-files-editor"));
@@ -226,7 +230,7 @@ export class ReviewFilesDiffView extends Disposable {
 							modified: entry.modified,
 							additions: entry.file.status === "unchanged" ? undefined : this.entryProgress(entry)?.remaining.additions ?? (this.fileTreeContainer || this.document ? undefined : this.streamStats.get(entry.file.path)?.counts.added),
 							deletions: entry.file.status === "unchanged" ? undefined : this.entryProgress(entry)?.remaining.deletions ?? (this.fileTreeContainer || this.document ? undefined : this.streamStats.get(entry.file.path)?.counts.removed),
-						countsTitle: this.progressTitle(entry) ?? this.streamStats.get(entry.file.path)?.title,
+						countsTooltip: this.progressTooltip(entry) ?? this.streamStats.get(entry.file.path)?.tooltip,
 						viewedState: this.entryProgress(entry)?.state,
 						onToggleViewed: entry.file.status !== "unchanged" && this.onToggleViewed ? () => this.onToggleViewed!(entry.file.path, entry.sectionId) : undefined,
 						sectionId: entry.sectionId,
@@ -283,6 +287,7 @@ export class ReviewFilesDiffView extends Disposable {
 		this._register(this.widget.onDidChangeActiveItem(() => this.syncFileSelectionFromWidget()));
 		this.summary = append(fileTree, $(".review-files-editor-summary"));
 		this.summary.hidden = true;
+		this.summaryTooltip = this._register(new ReviewTooltip(hoverService, this.summary));
 		this.changedFilesTree = document ? undefined : this._register(
 			this.reviewInstantiationService.createInstance(ReviewChangedFilesTree, fileTree),
 		);
@@ -424,7 +429,7 @@ export class ReviewFilesDiffView extends Disposable {
 	fileCounts(path: string, counts: StructuralLineCounts): void {
 		this.streamStats.set(path, {
 			counts,
-			title: `Changes +${counts.added} −${counts.removed}`,
+			tooltip: reviewChangesTooltip(counts.added, counts.removed),
 		});
 		if (!this.fileTreeContainer) this.changedFilesTree?.setCounts(path, counts);
 		this.headerFactory.refreshHeaders();
@@ -448,7 +453,7 @@ export class ReviewFilesDiffView extends Disposable {
 			append(this.summary, $("span.review-files-editor-summary-added")).textContent = `+${format.format(total.added).toLowerCase()}`;
 			append(this.summary, $("span.review-files-editor-summary-removed")).textContent = `−${format.format(total.removed).toLowerCase()}`;
 		} else append(this.summary, $("span")).textContent = "Counting changes…";
-		this.summary.title = complete ? `Changes +${total.added} −${total.removed}` : "Waiting for structural coverage";
+		this.summaryTooltip.content = complete ? reviewChangesTooltip(total.added, total.removed) : REVIEW_COUNTS_PENDING_TOOLTIP;
 		const wasHidden = this.summary.hidden;
 		this.summary.hidden = false;
 		if (wasHidden) this.layout();
@@ -491,9 +496,9 @@ export class ReviewFilesDiffView extends Disposable {
 	private entryProgress(entry: ReviewFilesEditorEntry) {
 		return (entry.sectionId ? this.progress?.sections?.find(section => section.id === entry.sectionId)?.files : this.progress?.files)?.find(file => file.path === entry.file.path);
 	}
-	private progressTitle(entry: ReviewFilesEditorEntry): string | undefined {
+	private progressTooltip(entry: ReviewFilesEditorEntry): ReviewTooltipContent | undefined {
 		const file = this.entryProgress(entry);
-		return file ? `Remaining +${file.remaining.additions} −${file.remaining.deletions} · Total +${file.total.additions} −${file.total.deletions}` : undefined;
+		return file ? reviewCountsTooltip(file) : undefined;
 	}
 	setProgress(progress: ReviewDiffProgress): void {
 		this.progress = progress;

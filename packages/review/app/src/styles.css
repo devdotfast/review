@@ -7605,26 +7605,8 @@ button.review-stack-row:disabled .review-stack-relation {
 .diff-count-removed {
   color: var(--change-removed);
 }
-.viewed-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  border: 1px solid var(--ink-faint);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--ink);
-  font: 12px/1 var(--font-mono);
-  cursor: pointer;
-}
-.viewed-check:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-.viewed-check--viewed,
+/* The viewed box (.review-viewed-check) is styled once, in the workbench's
+   review.css, so the canvas and the diff headers share one look. */
 .diff-workspace .is-viewed {
   opacity: 0.42;
 }

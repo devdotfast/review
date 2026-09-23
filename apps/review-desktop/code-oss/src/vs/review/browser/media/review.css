@@ -1107,8 +1107,97 @@ body
 @media (prefers-reduced-motion: reduce) {
   .review-structural-stream-status.loading::before { animation: none; }
 }
-.review-header-viewed { width: 16px; height: 16px; padding: 0; margin: 0 8px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; color: var(--vscode-editor-foreground); background: transparent; font: 12px/14px sans-serif; cursor: pointer; }
-.review-header-viewed[aria-checked="true"], .review-counts-viewed { opacity: .45; }
+.review-counts-viewed { opacity: .45; }
+
+/* The viewed box: one look for the canvas lens rows and the diff headers.
+   The canvas mounts into this document, so inside it the canvas tokens win;
+   elsewhere the box falls back to the theme's own colors. */
+.review-viewed-check {
+  --review-check-ink: var(--ink, var(--vscode-editor-foreground));
+  --review-check-board: var(--surface, var(--vscode-editor-background));
+  --review-check-line: var(--rule-soft, var(--vscode-editorWidget-border, var(--vscode-descriptionForeground)));
+  --review-check-marker: var(--accent, var(--vscode-button-background));
+  --review-check-on-marker: var(--on-accent, var(--vscode-button-foreground, #ffffff));
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--review-check-line);
+  border-radius: 3px;
+  background: var(--review-check-board);
+  cursor: pointer;
+}
+/* The headers give the box the 32px column their old 16px box had. */
+.review-multidiff-open-container + .review-viewed-check,
+.review-diff-group > .review-viewed-check { margin: 0 9px; }
+.review-viewed-check:hover:not(:disabled) { border-color: var(--review-check-ink); }
+.review-viewed-check:focus-visible { outline: 1px solid var(--review-check-marker); outline-offset: 1px; }
+.review-viewed-check:disabled { cursor: default; opacity: .4; }
+/* Nothing to view: the box hides but keeps its slot, so columns stay aligned. */
+.review-viewed-check.is-empty { visibility: hidden; }
+.review-viewed-check[aria-checked="mixed"]::after {
+  content: "";
+  position: absolute;
+  top: 5.25px;
+  left: 3px;
+  width: 6px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--review-check-ink);
+}
+.review-viewed-check[aria-checked="true"] {
+  border-color: var(--review-check-marker);
+  background: var(--review-check-marker);
+}
+.review-viewed-check[aria-checked="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--review-check-on-marker);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 6.2 5.1 8.3 9 3.9' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 12px 12px no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 6.2 5.1 8.3 9 3.9' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 12px 12px no-repeat;
+}
+
+/* The Whiteboard tooltip (ReviewTooltip): a raised card in the page's own ink,
+   11/16 mono. Scoped by its `review-tooltip` class so no other hover changes.
+   Colors live in these variables, one block per theme. */
+.workbench-hover-container:has(> .review-tooltip) {
+  --review-tooltip-bg: var(--vscode-editorWidget-background, #1a1f29);
+  --review-tooltip-fg: var(--vscode-editor-foreground, #eef0f4);
+  --review-tooltip-fg-muted: var(--vscode-descriptionForeground, #9199a8);
+  --review-tooltip-border: var(--vscode-editorWidget-border, #39404d);
+  --review-tooltip-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.monaco-workbench.vs .workbench-hover-container:has(> .review-tooltip),
+.monaco-workbench.hc-light .workbench-hover-container:has(> .review-tooltip) {
+  --review-tooltip-bg: var(--vscode-editor-background, #ffffff);
+  --review-tooltip-fg: var(--vscode-editor-foreground, #15181e);
+  --review-tooltip-fg-muted: var(--vscode-descriptionForeground, #5d6472);
+  --review-tooltip-border: var(--vscode-panel-border, #d8dbe1);
+  --review-tooltip-shadow: 0 4px 12px rgba(21, 24, 30, 0.1);
+}
+.monaco-hover.workbench-hover.review-tooltip {
+  max-width: 240px;
+  border: 1px solid var(--review-tooltip-border);
+  border-radius: 4px;
+  background: var(--review-tooltip-bg);
+  color: var(--review-tooltip-fg);
+  box-shadow: var(--review-tooltip-shadow);
+  font: 11px/16px var(--review-chrome-font, "Geist Mono", ui-monospace, monospace);
+}
+.monaco-hover.workbench-hover.review-tooltip .hover-contents { padding: 4px 8px; }
+.review-tooltip-label,
+.review-tooltip-detail { display: block; }
+.review-tooltip-detail { color: var(--review-tooltip-fg-muted); }
+.workbench-hover-container:has(> .review-tooltip) > .workbench-hover-pointer::after {
+  background-color: var(--review-tooltip-bg);
+  border-right: 1px solid var(--review-tooltip-border);
+  border-bottom: 1px solid var(--review-tooltip-border);
+}
 .review-tree-counts { display:inline-flex; flex-shrink:0; gap:6px; margin-left:auto; padding-left:8px; padding-right:8px; font:11px/22px var(--review-chrome-font, monospace); font-variant-numeric:tabular-nums; }
 .review-tree-added { color:var(--vscode-gitDecoration-addedResourceForeground); }
 .review-tree-removed { color:var(--vscode-gitDecoration-deletedResourceForeground); }

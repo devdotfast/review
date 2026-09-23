@@ -15,9 +15,11 @@ import type {
 } from "../../editor/browser/widget/multiDiffEditor/workbenchUIElementFactory.js";
 import type { IDiffCodeEditorWidgetOptions } from "../../editor/browser/widget/diffEditor/diffEditorWidget.js";
 import { FileKind } from "../../platform/files/common/files.js";
+import { IHoverService } from "../../platform/hover/browser/hover.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { ResourceLabel } from "../../workbench/browser/labels.js";
 import type { ReviewDiffFileWire } from "../common/reviewProtocol.js";
+import { reviewCountsTooltip, ReviewTooltip, type ReviewTooltipContent, ReviewViewedCheckbox } from "../browser/reviewTooltip.js";
 
 export interface ReviewMultiDiffHeaderEntry {
   readonly original: URI | undefined;
@@ -26,8 +28,8 @@ export interface ReviewMultiDiffHeaderEntry {
   readonly deletions?: number;
 	/** Why the file starts collapsed, e.g. "Generated file · hidden by default". */
 	readonly note?: string;
-	/** Hover text for the counts: visible, structural and textual rows. */
-	readonly countsTitle?: string;
+	/** Tooltip for the counts: what is left of the file, then its whole. */
+	readonly countsTooltip?: ReviewTooltipContent;
 	readonly sectionId?: string;
 	readonly section?: ReviewDiffSection;
 	readonly sectionCollapsed?: boolean;
@@ -62,6 +64,7 @@ export class ReviewMultiDiffUIElementFactory
     readonly codeEditorWidgetOptions: IDiffCodeEditorWidgetOptions | undefined,
     @IInstantiationService
     private readonly instantiationService: IInstantiationService,
+    @IHoverService private readonly hoverService: IHoverService,
   ) {}
 
 	getResourceSectionId(uris: Parameters<IResourceHeaderMetadata["setUris"]>[0]): string | undefined {
@@ -73,8 +76,12 @@ export class ReviewMultiDiffUIElementFactory
 		const height = observableValue<number>(this, 0);
 		const bodyHidden = observableValue(this, false);
 		let uris: Parameters<IResourceHeaderMetadata['setUris']>[0];
+		let current: ReviewMultiDiffHeaderEntry | undefined;
+		const counts = document.createElement('span'); counts.className = 'review-diff-group-counts';
+		const countsTooltip = new ReviewTooltip(this.hoverService, counts);
+		const viewed = new ReviewViewedCheckbox(this.hoverService, element.ownerDocument, () => current?.onToggleSection?.());
 		const refresh = () => {
-			const entry = uris && this.entries().find(entry => sameResource(entry.original, uris!.original) && sameResource(entry.modified, uris!.modified));
+			const entry = current = uris && this.entries().find(entry => sameResource(entry.original, uris!.original) && sameResource(entry.modified, uris!.modified));
 			const section = sticky && entry?.sectionId
 				? this.entries().find(candidate => candidate.sectionId === entry.sectionId && candidate.section)?.section
 				: entry?.section;
@@ -88,20 +95,14 @@ export class ReviewMultiDiffUIElementFactory
 			toggle.onclick = () => entry?.onToggleSectionCollapsed?.();
 			const chevron = document.createElement('span'); chevron.className = `codicon codicon-chevron-${entry?.sectionCollapsed ? 'right' : 'down'}`;
 			const title = document.createElement('span'); title.className = 'review-diff-group-title'; title.textContent = section.label;
-			const counts = document.createElement('span'); counts.className = 'review-diff-group-counts';
 			counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? '✓' : section.state === 'folded' ? 'Folded' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
-			counts.title = `Remaining +${section.remaining.additions} −${section.remaining.deletions} · Total +${section.total.additions} −${section.total.deletions}`;
-			const button = document.createElement('button'); button.className = 'review-header-viewed'; button.setAttribute('role', 'checkbox');
-			button.setAttribute('aria-checked', section.state === 'partial' ? 'mixed' : String(section.state === 'viewed'));
-			button.setAttribute('aria-label', `${section.state === 'viewed' ? 'Mark unviewed' : 'Mark viewed'}: ${section.label}`);
-			button.textContent = section.state === 'viewed' ? '✓' : section.state === 'partial' ? '−' : '';
-			button.hidden = section.total.additions + section.total.deletions === 0;
-			button.onclick = () => entry?.onToggleSection?.();
+			countsTooltip.content = section.total.additions + section.total.deletions === 0 ? undefined : reviewCountsTooltip(section);
+			viewed.update(section.state, section.label, section.total.additions + section.total.deletions === 0);
 			element.classList.toggle('is-viewed', section.state === 'viewed');
-			toggle.append(chevron, title); element.append(toggle, counts, button);
+			toggle.append(chevron, title); element.append(toggle, counts, viewed.element);
 		};
 		this.headers.add(refresh);
-		return { height, bodyHidden, setUris: (value: typeof uris) => { uris = value; refresh(); }, dispose: () => { this.headers.delete(refresh); element.remove(); } };
+		return { height, bodyHidden, setUris: (value: typeof uris) => { uris = value; refresh(); }, dispose: () => { this.headers.delete(refresh); countsTooltip.dispose(); viewed.dispose(); element.remove(); } };
 	}
 
   createResourceLabel(element: HTMLElement): IResourceLabel {
@@ -163,12 +164,9 @@ export class ReviewMultiDiffUIElementFactory
     });
 		open.label = "Open file";
     open.element.classList.add("review-multidiff-open");
-		const viewed = ownerDocument.createElement("button");
-		viewed.className = "review-header-viewed";
-		viewed.setAttribute("role", "checkbox");
-		element.append(viewed);
-		const toggleViewed = (event: MouseEvent) => { event.stopPropagation(); current?.onToggleViewed?.(); };
-		viewed.addEventListener("click", toggleViewed);
+		const countsTooltip = new ReviewTooltip(this.hoverService, counts);
+		const viewed = new ReviewViewedCheckbox(this.hoverService, ownerDocument, () => current?.onToggleViewed?.());
+		element.append(viewed.element);
     let current: ReviewMultiDiffHeaderEntry | undefined;
 		let lastUris: Parameters<IResourceHeaderMetadata["setUris"]>[0];
     const openListener = open.onDidClick(() => current?.onDidOpen?.());
@@ -197,12 +195,9 @@ export class ReviewMultiDiffUIElementFactory
             `${current.additions} lines added, ${current.deletions} lines removed`,
           );
         }
-			counts.title = current.countsTitle ?? "";
-			viewed.hidden = !current.onToggleViewed;
-			viewed.textContent = current.viewedState === "viewed" ? "✓" : current.viewedState === "partial" ? "−" : "";
-			viewed.setAttribute("aria-checked", current.viewedState === "partial" ? "mixed" : String(current.viewedState === "viewed"));
-			viewed.title = current.viewedState === "viewed" ? "Mark unviewed and unfold" : "Mark visible scope viewed";
-			viewed.setAttribute("aria-label", viewed.title);
+			countsTooltip.content = current.countsTooltip;
+			const path = current.modified ?? current.original;
+			viewed.update(current.viewedState, path ? reviewMultiDiffLabelPath(path) : "file", !current.onToggleViewed);
 			counts.classList.toggle("review-counts-viewed", current.viewedState === "viewed" || current.viewedState === "folded");
 			counts.classList.toggle("review-counts-folded", current.viewedState === "folded");
 			if (current.viewedState === "viewed") { additions.textContent = "✓"; deletions.textContent = ""; }
@@ -220,7 +215,8 @@ export class ReviewMultiDiffUIElementFactory
 			setUris,
 			dispose: () => {
 				this.headers.delete(refresh);
-				viewed.removeEventListener("click", toggleViewed);
+				countsTooltip.dispose();
+				viewed.dispose();
         openListener.dispose();
         open.dispose();
         element.replaceChildren();

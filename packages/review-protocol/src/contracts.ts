@@ -303,6 +303,16 @@ export interface ReviewCanvasDiagnostic {
   stack?: string;
 }
 
+/**
+ * `instant` shows the Whiteboard tooltip the moment the pointer lands, for
+ * small targets like the viewed box and the diff counts; `detail` is its
+ * fainter second line. Without options the host shows its delayed hover.
+ */
+export interface ReviewTooltipOptions {
+  instant?: boolean;
+  detail?: string;
+}
+
 export interface ReviewCanvasBridge {
   readonly appSessionId?: string;
   readonly config: ReviewRuntimeConfig;
@@ -321,7 +331,11 @@ export interface ReviewCanvasBridge {
     listener: (layout: ReviewDiffLayout) => void,
   ): ReviewDisposable;
   notify?(message: { kind: "success" | "error"; text: string }): void;
-  setupTooltip?(target: HTMLElement, text: string): ReviewDisposable;
+  setupTooltip?(
+    target: HTMLElement,
+    text: string,
+    options?: ReviewTooltipOptions,
+  ): ReviewDisposable;
   ready(): void;
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;
 }

@@ -13,7 +13,7 @@ import { z } from "zod";
 import { sourceAnchors } from "../lens-selection.js";
 import { markdownNodes, parseMarkdown } from "../markdown.js";
 import { lensSelections } from "../review-api/diff-lenses.js";
-import { ReviewInputError } from "../review-api/document.js";
+import { SessionInputError } from "../review-api/document.js";
 import {
   anchorPins,
   checkReferences,
@@ -23,8 +23,8 @@ import {
   resourceReferences,
   sourceReferences,
 } from "../review-api/document.js";
-import type { LocalReviewData } from "../review-api/local-data.js";
-import type { ReviewStore } from "../review-api/store.js";
+import type { LocalSessionData } from "../review-api/local-data.js";
+import type { SessionStore } from "../review-api/store.js";
 
 export interface ShareBundle {
   manifest: ShareManifest;
@@ -32,10 +32,10 @@ export interface ShareBundle {
   attribution?: { login: string; sharedAt: number };
 }
 
-export type ShareExportStore = Pick<ReviewStore, "read" | "resource">;
+export type ShareExportStore = Pick<SessionStore, "read" | "resource">;
 
 export type ShareExportData = Pick<
-  LocalReviewData,
+  LocalSessionData,
   "map" | "validateResource" | "validateSource"
 >;
 
@@ -47,7 +47,7 @@ export function digestBytes(bytes: Uint8Array): string {
 export async function exportShare(input: {
   store: ShareExportStore;
   data: ShareExportData;
-  reviewId: string;
+  sessionId: string;
   version?: number;
   repository: ShareManifest["repository"];
 }): Promise<ShareBundle> {
@@ -58,10 +58,12 @@ export async function exportShare(input: {
     sourceUnavailable: _sourceUnavailable,
     lastEdit: _lastEdit,
     ...snapshot
-  } = structuredClone(input.store.read(input.reviewId, input.version));
+  } = structuredClone(input.store.read(input.sessionId, input.version));
 
   if (target?.kind === "worktree")
-    throw new ReviewInputError("Pin this review to commits before sharing it.");
+    throw new SessionInputError(
+      "Pin this review to commits before sharing it.",
+    );
 
   documentSchema.parse(snapshot.document);
   checkReferences(snapshot.document);
@@ -70,14 +72,14 @@ export async function exportShare(input: {
 
   const add = (bytes: Uint8Array) => {
     if (bytes.byteLength > MAX_SHARE_OBJECT_BYTES)
-      throw new ReviewInputError("A shared object exceeds the upload limit.");
+      throw new SessionInputError("A shared object exceeds the upload limit.");
     const id = digestBytes(bytes);
 
     if (!objects.has(id)) {
       totalBytes += bytes.byteLength;
 
       if (totalBytes > MAX_SHARE_BYTES)
-        throw new ReviewInputError("Review exceeds the sharing limit.");
+        throw new SessionInputError("Review exceeds the sharing limit.");
       objects.set(id, Uint8Array.from(bytes));
     }
 
@@ -86,7 +88,7 @@ export async function exportShare(input: {
 
   const json = <Value>(value: Value) => add(Buffer.from(JSON.stringify(value)));
   const resources: ShareManifest["resources"] = [];
-  const maps: Record<string, Awaited<ReturnType<LocalReviewData["map"]>>> = {};
+  const maps: Record<string, Awaited<ReturnType<LocalSessionData["map"]>>> = {};
 
   // Lens ranges travel with the snapshot and must resolve at its pins too.
   const sources = [
@@ -103,7 +105,7 @@ export async function exportShare(input: {
   const pins = snapshot.pins;
 
   if (!pins)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "A document without source pins of its own cannot be shared.",
       409,
     );
@@ -113,7 +115,7 @@ export async function exportShare(input: {
 
     for (const node of markdownNodes(parseMarkdown(block.markdown)))
       if (node.type === "image")
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Convert Markdown images to managed image blocks before sharing.",
         );
   }
@@ -164,7 +166,7 @@ export async function exportShare(input: {
 
   const manifest = shareManifestSchema.parse({
     format: SHARE_FORMAT,
-    reviewId: snapshot.reviewId,
+    sessionId: snapshot.sessionId,
     version: snapshot.version,
     title: snapshot.title,
     snapshot: snapshotId,
@@ -179,7 +181,7 @@ export async function exportShare(input: {
   });
 
   if (Buffer.byteLength(JSON.stringify(manifest)) > MAX_SHARE_MANIFEST_BYTES)
-    throw new ReviewInputError("The share manifest exceeds the upload limit.");
+    throw new SessionInputError("The share manifest exceeds the upload limit.");
 
   return { manifest, objects };
 }

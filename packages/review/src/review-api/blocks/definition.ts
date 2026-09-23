@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ReviewInputError } from "../input-error.js";
+import { SessionInputError } from "../input-error.js";
 
 export const text = z.string();
 
@@ -10,7 +10,7 @@ export const identity = { id: text.optional() };
 
 /**
  * One block kind: the strict schema the store parses with, and the rules a
- * field schema cannot express. `check` throws ReviewInputError.
+ * field schema cannot express. `check` throws SessionInputError.
  */
 export interface BlockDefinition<Content extends { type: string }> {
   type: Content["type"];
@@ -29,5 +29,5 @@ export function defineBlock<
 /** Shared by every check that resolves a component-local name. */
 export function requireKey<T>(record: Record<string, T>, name: string): void {
   if (!Object.hasOwn(record, name))
-    throw new ReviewInputError(`Unknown component name: ${name}`);
+    throw new SessionInputError(`Unknown component name: ${name}`);
 }

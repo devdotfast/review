@@ -7,8 +7,8 @@ import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { documentSchema, resourceReferences } from "../review-api/document";
-import type { LocalReviewData } from "../review-api/local-data";
-import type { ReviewStore, Snapshot } from "../review-api/store";
+import type { LocalSessionData } from "../review-api/local-data";
+import type { SessionStore, Snapshot } from "../review-api/store";
 import { devReviewHome } from "../review-home-paths";
 
 const authoredSchema = z.strictObject({
@@ -23,7 +23,7 @@ const pinsSchema = z.strictObject({
 
 const stampSchema = z.object({
   version: z.literal(10),
-  reviewUuid: z.string(),
+  sessionId: z.string(),
   contentHash: z.string(),
 });
 
@@ -54,8 +54,8 @@ export async function readTutorialAssets(assetsRoot: string) {
 export async function createNativeTutorial(input: {
   assetsRoot: string;
   sampleRoot: string;
-  store: ReviewStore;
-  data: LocalReviewData;
+  store: SessionStore;
+  data: LocalSessionData;
 }) {
   const assets = await readTutorialAssets(input.assetsRoot);
   const repository = await input.data.register(input.sampleRoot);
@@ -107,15 +107,15 @@ export async function createNativeTutorial(input: {
   );
 
   return {
-    snapshot: input.store.read(result.reviewId),
+    snapshot: input.store.read(result.sessionId),
     contentHash: assets.contentHash,
   };
 }
 
 export function createTutorialService(input: {
   packageRoot: string;
-  store: ReviewStore;
-  data: LocalReviewData;
+  store: SessionStore;
+  data: LocalSessionData;
 }) {
   const tutorialRoot = path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
@@ -133,8 +133,8 @@ export function createTutorialService(input: {
     try {
       const stamp = await readStamp();
 
-      if (!stamp || !input.store.has(stamp.reviewUuid)) return null;
-      const snapshot = input.store.read(stamp.reviewUuid);
+      if (!stamp || !input.store.has(stamp.sessionId)) return null;
+      const snapshot = input.store.read(stamp.sessionId);
       const assets = await readTutorialAssets(assetsRoot);
 
       const [head, base] = await Promise.all([
@@ -158,10 +158,10 @@ export function createTutorialService(input: {
   }
 
   async function cleanup() {
-    for (const reviewId of input.store.tutorialIds())
+    for (const sessionId of input.store.tutorialIds())
       await input.store.execute({
         commandId: randomUUID(),
-        operation: { type: "delete", reviewId },
+        operation: { type: "delete", sessionId },
       });
     await rm(tutorialRoot, { recursive: true, force: true });
   }
@@ -171,7 +171,7 @@ export function createTutorialService(input: {
     async status() {
       return {
         version: 1 as const,
-        reviewUuid: (await find())?.reviewId ?? null,
+        sessionId: (await find())?.sessionId ?? null,
       };
     },
     async referencesReview(id: string) {
@@ -214,7 +214,7 @@ export function createTutorialService(input: {
 
         await writePrivateJsonAtomic(stampPath, {
           version: 10,
-          reviewUuid: snapshot.reviewId,
+          sessionId: snapshot.sessionId,
           contentHash,
         });
 

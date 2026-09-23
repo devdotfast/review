@@ -7,11 +7,11 @@ import { withFileLock } from "@dev.fast/trace-core";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
 import { openReviewProfile } from "./profile.js";
-import { ReviewStore } from "./store.js";
+import { SessionStore } from "./store.js";
 
 let home: string;
 
-const stores: ReviewStore[] = [];
+const stores: SessionStore[] = [];
 
 const providers = {
   validatePins: async () => {},
@@ -37,10 +37,10 @@ async function fixture() {
   const initial = await openReviewProfile(home, { manageWorkspaces: false });
   await initial.data.close();
   await initial.store.close();
-  const target = new ReviewStore(path.join(home, "review-api.db"), providers);
+  const target = new SessionStore(path.join(home, "review-api.db"), providers);
   await mkdir(path.join(home, "review-server"));
 
-  const source = new ReviewStore(
+  const source = new SessionStore(
     path.join(home, "review-server", "reviews.db"),
     providers,
   );
@@ -65,7 +65,7 @@ async function fixture() {
 
   const edit = command({
     type: "edit",
-    reviewId: created.reviewId,
+    sessionId: created.sessionId,
     edit: {
       type: "insert",
       content: { type: "image", assetId: resourceId, alt: "Retained image" },
@@ -81,16 +81,16 @@ it("merges preview headless history and resources without changing review IDs or
   const { source, target, created, existingRepo, resourceId, edit, result } =
     await fixture();
 
-  const before = source.read(created.reviewId);
+  const before = source.read(created.sessionId);
   const profile = await openReviewProfile(home, { manageWorkspaces: false });
 
   try {
-    expect(profile.store.read(created.reviewId)).toEqual({
+    expect(profile.store.read(created.sessionId)).toEqual({
       ...before,
       pins: { ...before.pins, repositoryId: existingRepo.id },
       target: { ...before.target, repositoryId: existingRepo.id },
     });
-    expect(profile.store.history(created.reviewId)).toHaveLength(2);
+    expect(profile.store.history(created.sessionId)).toHaveLength(2);
     expect(profile.store.resource(resourceId)).toMatchObject({
       repositoryId: existingRepo.id,
     });
@@ -98,9 +98,9 @@ it("merges preview headless history and resources without changing review IDs or
       Buffer.from("retained resource"),
     );
     expect(await profile.store.execute(edit)).toEqual(result);
-    expect(source.read(created.reviewId)).toEqual(before);
+    expect(source.read(created.sessionId)).toEqual(before);
     await profile.store.execute(
-      command({ type: "delete", reviewId: created.reviewId }),
+      command({ type: "delete", sessionId: created.sessionId }),
     );
   } finally {
     await profile.data.close();
@@ -142,7 +142,7 @@ it("refuses migration while the preview server owns its source, then succeeds af
   }
 
   const profile = await openReviewProfile(home, { manageWorkspaces: false });
-  expect(profile.store.read(created.reviewId).title).toBe("Headless draft");
+  expect(profile.store.read(created.sessionId).title).toBe("Headless draft");
   await profile.data.close();
   await profile.store.close();
 });

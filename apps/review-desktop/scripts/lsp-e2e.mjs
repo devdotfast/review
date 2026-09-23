@@ -433,10 +433,10 @@ async function createReview(fix, title, kind = "commits") {
       : { pins }),
   });
 
-  const reviewId = review.reviewId;
+  const sessionId = review.sessionId;
   await command({
     type: "edit",
-    reviewId,
+    sessionId,
     edit: {
       type: "insert",
       content: {
@@ -468,7 +468,7 @@ async function createReview(fix, title, kind = "commits") {
     },
   });
 
-  return api(`/${reviewId}?full=true`);
+  return api(`/${sessionId}?full=true`);
 }
 
 async function probe(request) {
@@ -510,7 +510,9 @@ function uri(review, side = "head", file = "main.ts", commit) {
 
   if (commit) query.set("commit", commit);
 
-  return locationUri(`review-api-source://${review.reviewId}/${file}?${query}`);
+  return locationUri(
+    `review-api-source://${review.sessionId}/${file}?${query}`,
+  );
 }
 
 function environmentUri(review, file) {
@@ -551,10 +553,10 @@ function locationUri(value) {
 async function readyEnvironment(review, side = "head") {
   return until(async () => {
     const result = await api(
-      `/${review.reviewId}/language-context?version=${review.version}&side=${side}`,
+      `/${review.sessionId}/language-context?version=${review.version}&side=${side}`,
     );
 
-    const environments = await api(`/${review.reviewId}/workspaces`);
+    const environments = await api(`/${review.sessionId}/workspaces`);
 
     const prepared = environments.find(
       (item) => item.generation === result.identity,
@@ -640,7 +642,7 @@ try {
   const review = await createReview(first, "Local LSP regression");
   const other = await createReview(second, "Other repository");
   await until(async () => {
-    await api(`/${review.reviewId}/open`, "POST");
+    await api(`/${review.sessionId}/open`, "POST");
     await page
       .locator(".review-canvas-root")
       .filter({ hasText: "Local LSP regression" })
@@ -883,7 +885,7 @@ try {
   assert.equal(
     (
       await api(
-        `/${review.reviewId}/file?version=${review.version}&side=head&file=main.ts`,
+        `/${review.sessionId}/file?version=${review.version}&side=head&file=main.ts`,
       )
     ).text,
     mainText("head"),
@@ -1036,15 +1038,19 @@ try {
     head: first.base,
   });
 
-  await command({ type: "repin", reviewId: review.reviewId, pins: newerPins });
-  const newerReview = await api(`/${review.reviewId}?full=true`);
+  await command({
+    type: "repin",
+    sessionId: review.sessionId,
+    pins: newerPins,
+  });
+  const newerReview = await api(`/${review.sessionId}?full=true`);
   const historical = await expectHover(uri(review), greetAt, "string");
   assert.equal(historical.active.text, mainText("head"));
   const repinned = await expectHover(uri(newerReview), greetAt, "string");
   assert.equal(repinned.active.text, mainText("base"));
   await command({
     type: "restore",
-    reviewId: review.reviewId,
+    sessionId: review.sessionId,
     version: review.version,
   });
   await record(
@@ -1078,7 +1084,7 @@ try {
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  await api(`/${review.reviewId}/open`, "POST");
+  await api(`/${review.sessionId}/open`, "POST");
   await until(async () => {
     await page
       .locator(".review-canvas-root")
@@ -1088,7 +1094,7 @@ try {
 
     return true;
   }, "reopened review");
-  const restoredReview = await api(`/${review.reviewId}?full=true`);
+  const restoredReview = await api(`/${review.sessionId}?full=true`);
 
   if (structuralDiffAvailable) {
     // Document code views use the native unified diff editor. The modified
@@ -1295,10 +1301,10 @@ try {
 
   const failedPreparation = await until(async () => {
     const environment = await api(
-      `/${exact.reviewId}/language-context?side=head&version=${exact.version}`,
+      `/${exact.sessionId}/language-context?side=head&version=${exact.version}`,
     );
 
-    const environments = await api(`/${exact.reviewId}/workspaces`);
+    const environments = await api(`/${exact.sessionId}/workspaces`);
 
     return environments.find(
       (item) =>
@@ -1307,9 +1313,9 @@ try {
   }, "preparation failure");
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  const opened = await api(`/${exact.reviewId}/open`, "POST");
+  const opened = await api(`/${exact.sessionId}/open`, "POST");
   assert.equal(opened.environmentIssues, undefined);
-  assert.deepEqual(await api(`/${exact.reviewId}/environment`, "POST", {}), {
+  assert.deepEqual(await api(`/${exact.sessionId}/environment`, "POST", {}), {
     issues: [],
   });
   assert.equal(
@@ -1326,7 +1332,7 @@ try {
     "node prepare.cjs",
   );
   await api(
-    `/${exact.reviewId}/workspaces/${failedPreparation.id}/retry`,
+    `/${exact.sessionId}/workspaces/${failedPreparation.id}/retry`,
     "POST",
   );
   await readyEnvironment(exact);
@@ -1351,7 +1357,7 @@ try {
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  await api(`/${live.reviewId}/open`, "POST");
+  await api(`/${live.sessionId}/open`, "POST");
 
   if (structuralDiffAvailable) {
     const liveInline = page
@@ -1510,7 +1516,7 @@ try {
   let environmentRequests = 0;
 
   const countEnvironment = (request) => {
-    if (request.url().includes(`/${live.reviewId}/language-context?`))
+    if (request.url().includes(`/${live.sessionId}/language-context?`))
       environmentRequests++;
   };
 
@@ -1621,7 +1627,7 @@ try {
       .every((entry) => entry.includes("/.git/dev-fast/reviews/")),
   );
   assert.ok(
-    (await api(`/${live.reviewId}/workspaces`)).every((workspace) =>
+    (await api(`/${live.sessionId}/workspaces`)).every((workspace) =>
       workspace.rootPath.includes("/.git/dev-fast/reviews/"),
     ),
   );
@@ -1631,7 +1637,7 @@ try {
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  await api(`/${live.reviewId}/open`, "POST");
+  await api(`/${live.sessionId}/open`, "POST");
   await writeFile(
     path.join(liveFixture.repo, "main.ts"),
     "// saved staged line\n" + mainText("head"),
@@ -1648,16 +1654,16 @@ try {
   await until(
     async () =>
       (
-        await api(`/${live.reviewId}/file?side=head&file=main.ts`)
+        await api(`/${live.sessionId}/file?side=head&file=main.ts`)
       ).text.startsWith("// saved unstaged line"),
     "saved worktree API bytes",
   );
-  const updated = await api(`/${live.reviewId}?full=true`);
+  const updated = await api(`/${live.sessionId}?full=true`);
   assert.equal(updated.version, live.version);
   assert.equal(updated.document[0].children[2].source.start.line, 3);
 
   const historicalWorktree = await api(
-    `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+    `/${live.sessionId}/file?side=head&file=main.ts&version=${live.version}`,
   );
 
   assert.equal(
@@ -1665,7 +1671,7 @@ try {
     "// saved unstaged line\n// saved staged line\n" + mainText("head"),
   );
   assert.ok(
-    (await api(`/${live.reviewId}/tree`)).some(
+    (await api(`/${live.sessionId}/tree`)).some(
       (file) => file.path === "fresh.ts",
     ),
   );
@@ -1694,7 +1700,7 @@ try {
   await git(liveFixture.repo, "add", ".");
   await git(liveFixture.repo, "commit", "-qm", "Current working files");
   await until(
-    async () => (await api(`/${whole.reviewId}/diff`)).length === 0,
+    async () => (await api(`/${whole.sessionId}/diff`)).length === 0,
     "working changes baseline follows commit",
   );
 
@@ -1704,17 +1710,17 @@ try {
     target: { kind: "commits", repositoryId, head: "HEAD" },
   });
 
-  assert.deepEqual(await api(`/${single.reviewId}/diff`), []);
+  assert.deepEqual(await api(`/${single.sessionId}/diff`), []);
   await git(liveFixture.repo, "checkout", "--detach", liveFixture.head);
   await until(
     async () =>
-      (await api(`/${live.reviewId}/file?side=head&file=main.ts`)).text ===
+      (await api(`/${live.sessionId}/file?side=head&file=main.ts`)).text ===
       mainText("head"),
     "worktree follows branch switch",
   );
   assert.ok(
     (
-      await api(`/${single.reviewId}/file?side=head&file=main.ts`)
+      await api(`/${single.sessionId}/file?side=head&file=main.ts`)
     ).text.startsWith("// saved unstaged line"),
   );
   await record(
@@ -1723,11 +1729,11 @@ try {
   await stop();
   await launch();
   await until(async () => {
-    await api(`/${live.reviewId}/open`, "POST");
+    await api(`/${live.sessionId}/open`, "POST");
 
     return true;
   }, "reopen live review");
-  const reopened = await api(`/${live.reviewId}?full=true`);
+  const reopened = await api(`/${live.sessionId}?full=true`);
 
   await expectDefinition(
     uri(reopened),
@@ -1738,7 +1744,7 @@ try {
   assert.equal(
     (
       await api(
-        `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+        `/${live.sessionId}/file?side=head&file=main.ts&version=${live.version}`,
       )
     ).text,
     mainText("head"),
@@ -1794,7 +1800,7 @@ try {
   await page.getByText("child.ts", { exact: true }).first().waitFor();
   await command({
     type: "rename",
-    reviewId: homeReview.reviewId,
+    sessionId: homeReview.sessionId,
     title: "Renamed live source",
   });
   await writeFile(

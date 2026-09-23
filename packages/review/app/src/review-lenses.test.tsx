@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it } from "vitest";
 
-import { ReviewApiClient } from "../../src/review-api/client";
+import { SessionApiClient } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
 import { ReviewDiffView } from "./DiffView";
 import { ReviewSessionProvider } from "./host/review-session";
@@ -45,10 +45,10 @@ it("clears a lens without destroying the full comparison's native state", async 
     },
   );
 
-  const client = new ReviewApiClient(session.config, session.bridge.request);
+  const client = new SessionApiClient(session.config, session.bridge.request);
 
   const snapshot: Snapshot = {
-    reviewId: "test-session",
+    sessionId: "test-session",
     version: 0,
     title: "Test",
     target: {

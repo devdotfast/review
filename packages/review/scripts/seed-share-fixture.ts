@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { openLocalReviewStore } from "../src/review-api/local-data.js";
+import { openLocalSessionStore } from "../src/review-api/local-data.js";
 import { exportShare } from "../src/sharing/export.js";
-import { SharedReviewStore } from "../src/sharing/import.js";
+import { SharedSessionStore } from "../src/sharing/import.js";
 import {
   fetchPinnedRepository,
   sharedGit,
@@ -23,7 +23,7 @@ const fixture = await createShareFixture(root, github);
 if (github)
   await verifyShareRepository(
     fixture.repo,
-    fixture.store.read(fixture.reviewId).pins!,
+    fixture.store.read(fixture.sessionId).pins!,
   );
 
 const bundle = await exportShare({
@@ -36,9 +36,9 @@ const home = path.join(root, "recipient");
 
 await mkdir(home, { recursive: true });
 
-const recipient = openLocalReviewStore(path.join(home, "review-api.db"));
+const recipient = openLocalSessionStore(path.join(home, "review-api.db"));
 
-const store = new SharedReviewStore(
+const store = new SharedSessionStore(
   path.join(home, "shared-reviews"),
   async (target, url, pins) => {
     await fetchPinnedRepository(target, github ? url : fixture.repo, pins);
@@ -52,7 +52,7 @@ store.connect(recipient.store, recipient.data);
 
 await store.load();
 
-const reviewId = await store.import(
+const sessionId = await store.import(
   "https://app.dev.fast",
   randomUUID(),
   bundle,
@@ -71,7 +71,7 @@ await rename(fixture.repo, path.join(root, "sender-unavailable"));
 await writeFile(
   path.join(root, "fixture.json"),
   JSON.stringify({
-    reviewId,
+    sessionId,
     home,
     version: bundle.manifest.version,
     sourceFile: fixture.sourceFile,

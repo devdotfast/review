@@ -44,7 +44,7 @@ describe("ReviewSessionProvider", () => {
     const postedB: ReviewVerbRequest[] = [];
 
     const sessionA = testReviewSession(
-      { reviewId: "a", token: "token-a" },
+      { sessionId: "a", token: "token-a" },
       {
         post: async (request) => {
           postedA.push(request);
@@ -55,7 +55,7 @@ describe("ReviewSessionProvider", () => {
     );
 
     const sessionB = testReviewSession(
-      { reviewId: "b", token: "token-b" },
+      { sessionId: "b", token: "token-b" },
       {
         post: async (request) => {
           postedB.push(request);

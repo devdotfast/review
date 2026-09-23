@@ -9,13 +9,13 @@ import { resolveReviewStackLayers } from "../review-stack.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
 import { mountSharingHost } from "../sharing/host.js";
-import type { SharedReviewStore } from "../sharing/import.js";
-import { SharedReviewData } from "../sharing/routes.js";
+import type { SharedSessionStore } from "../sharing/import.js";
+import { SharedSessionData } from "../sharing/routes.js";
 import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
-import { ReviewInputError, fileLineRangeSchema } from "./document.js";
-import type { LocalReviewData } from "./local-data.js";
+import { SessionInputError, fileLineRangeSchema } from "./document.js";
+import type { LocalSessionData } from "./local-data.js";
 import {
   inspectQuerySchema,
   queryAnchor,
@@ -30,8 +30,8 @@ import {
   uncategorizedReport,
 } from "./review-progress.js";
 import {
-  type ReviewStore,
   SCRATCHPAD_ID,
+  type SessionStore,
   type Snapshot,
   commandSchema,
   inspectSnapshot,
@@ -49,14 +49,14 @@ const SCRATCHPAD_DISABLED =
   "The scratchpad is off. Turn it on in Review Desktop Settings.";
 
 /** Both hosts mount this behind their token authentication. */
-export function createReviewApi(
-  store: ReviewStore,
-  data?: LocalReviewData,
+export function createSessionApi(
+  store: SessionStore,
+  data?: LocalSessionData,
   open?: (review: {
-    reviewId: string;
+    sessionId: string;
     title: string;
   }) => Promise<{ softwareMapEnabled: boolean }>,
-  shared?: SharedReviewStore,
+  shared?: SharedSessionStore,
   capabilities: () =>
     | Omit<AuthoringCapabilities, "scratchpadEnabled">
     | Promise<Omit<AuthoringCapabilities, "scratchpadEnabled">> = () => ({
@@ -72,7 +72,7 @@ export function createReviewApi(
     if (error instanceof HttpJsonError)
       return context.json({ error: error.message }, error.statusCode);
 
-    if (error instanceof ReviewInputError)
+    if (error instanceof SessionInputError)
       return context.json({ error: error.message }, error.status);
 
     // A readable message for agents and the canvas; issues stay for programs.
@@ -93,11 +93,11 @@ export function createReviewApi(
       await next();
     });
 
-  const sharedData = shared ? new SharedReviewData(shared) : undefined;
+  const sharedData = shared ? new SharedSessionData(shared) : undefined;
   const isShared = (id: string) => id.startsWith("shared-");
 
   const sharedCommandSchema = z.object({
-    operation: z.object({ reviewId: z.string().optional() }),
+    operation: z.object({ sessionId: z.string().optional() }),
   });
 
   // The host that can show the scratchpad keeps it: Desktop, while the
@@ -110,7 +110,7 @@ export function createReviewApi(
 
   const refuseDisabledScratchpad = (id?: string) => {
     if (id === SCRATCHPAD_ID && !scratchpadEnabled())
-      throw new ReviewInputError(SCRATCHPAD_DISABLED, 409);
+      throw new SessionInputError(SCRATCHPAD_DISABLED, 409);
   };
 
   const sharedGuard: MiddlewareHandler = async (context, next) => {
@@ -132,7 +132,7 @@ export function createReviewApi(
       !/\/(open|source|copy-context|environment)$/.test(context.req.path) &&
       !/\/workspaces\/[^/]+\/retry$/.test(context.req.path)
     )
-      throw new ReviewInputError("Shared reviews are read-only.", 409);
+      throw new SessionInputError("Shared reviews are read-only.", 409);
 
     return next();
   };
@@ -150,7 +150,7 @@ export function createReviewApi(
     const snapshot = shared?.get(id).snapshot;
 
     if (!snapshot || (version !== undefined && version !== snapshot.version))
-      throw new ReviewInputError("Shared review version is unavailable.", 404);
+      throw new SessionInputError("Shared review version is unavailable.", 404);
 
     return snapshot;
   };
@@ -175,7 +175,7 @@ export function createReviewApi(
   });
   app.get("/authoring", (context) => context.json(authoringTools()));
   app.get("/:id/progress", async (context) => {
-    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+    if (!data) throw new SessionInputError("Source data is unavailable.", 409);
 
     const query = readQuerySchemas.get
       .pick({ version: true })
@@ -194,7 +194,7 @@ export function createReviewApi(
 
     if (documentPins) {
       const state = data.coverageSnapshot(
-        snapshot.reviewId,
+        snapshot.sessionId,
         documentPins,
         query.mode,
       );
@@ -224,7 +224,7 @@ export function createReviewApi(
     );
   });
   app.post("/:id/progress", async (context) => {
-    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+    if (!data) throw new SessionInputError("Source data is unavailable.", 409);
 
     const input = progressUpdateSchema.parse(
       await readBoundedRequestJson(context.req.raw),
@@ -246,7 +246,7 @@ export function createReviewApi(
       const file = progress.files.find((file) => file.path === update.path);
 
       if (!file || file.fingerprint !== update.fingerprint)
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "This file changed. Reload before marking it viewed.",
           409,
         );
@@ -259,7 +259,7 @@ export function createReviewApi(
     });
 
     if (store.read(id).version !== snapshot.version)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Review changed during this update. Try again.",
         409,
       );
@@ -278,7 +278,7 @@ export function createReviewApi(
   // A lens author's cheap read: the lenses as authored, what each resolves
   // to, and the changed lines no lens selects yet.
   app.get("/:id/lenses", async (context) => {
-    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+    if (!data) throw new SessionInputError("Source data is unavailable.", 409);
 
     const snapshot = readReview(context.req.param("id"));
 
@@ -323,13 +323,13 @@ export function createReviewApi(
       try {
         input = JSON.parse(query);
       } catch {
-        throw new ReviewInputError("Invalid subscriptions.");
+        throw new SessionInputError("Invalid subscriptions.");
       }
 
       const subscriptions = z
         .array(
           z.strictObject({
-            reviewId: z.string().min(1).nullable(),
+            sessionId: z.string().min(1).nullable(),
             mode: coverageModeSchema,
           }),
         )
@@ -342,7 +342,7 @@ export function createReviewApi(
         let marked = false;
 
         subscriptions.forEach((item, index) => {
-          if (item.reviewId === id) {
+          if (item.sessionId === id) {
             dirty.add(index);
             marked = true;
           }
@@ -353,24 +353,24 @@ export function createReviewApi(
 
       return watch(
         () =>
-          subscriptions.map(({ reviewId, mode }, index) => {
+          subscriptions.map(({ sessionId, mode }, index) => {
             if (!dirty.delete(index)) return null;
 
             try {
               return {
                 value:
-                  reviewId === null
+                  sessionId === null
                     ? catalog(mode)
                     : {
-                        ...readReview(reviewId),
-                        activity: store.activity.read(reviewId),
+                        ...readReview(sessionId),
+                        activity: store.activity.read(sessionId),
                         coverageRevision: data?.coverageRevision ?? 0,
                       },
               };
             } catch (error) {
               return {
                 error:
-                  error instanceof ReviewInputError
+                  error instanceof SessionInputError
                     ? error.message
                     : "Could not read review.",
               };
@@ -383,12 +383,12 @@ export function createReviewApi(
             stopRefresh,
             data?.subscribeCoverage(() => {
               subscriptions.forEach((item, index) => {
-                if (item.reviewId !== null) dirty.add(index);
+                if (item.sessionId !== null) dirty.add(index);
               });
               notify();
             }) ?? (() => {}),
             store.subscribe((result) => {
-              if (mark(result.reviewId)) notify();
+              if (mark(result.sessionId)) notify();
             }),
             store.activity.subscribe((id) => {
               if (mark(id)) notify();
@@ -426,10 +426,11 @@ export function createReviewApi(
 
   /** Show a review in Desktop and start preparing its pinned checkouts. */
   const openReview = async (review: Snapshot) => {
-    if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
+    if (!open)
+      throw new SessionInputError("The desktop is not connected.", 409);
 
     const settings = await open({
-      reviewId: review.reviewId,
+      sessionId: review.sessionId,
       title: review.title,
     });
 
@@ -438,7 +439,7 @@ export function createReviewApi(
     try {
       if (review.target?.kind === "commits" && review.pins)
         void data?.workspaces
-          .open(review.reviewId, review.pins)
+          .open(review.sessionId, review.pins)
           .catch(() => {});
       environmentIssues = data?.currentEnvironmentIssues(review);
     } catch (error) {
@@ -461,12 +462,12 @@ export function createReviewApi(
    * A created or returned review is shown where Desktop can, unless the author asked
    * not to. The review is already saved, so a failed open is reported, not thrown.
    */
-  const openCreated = async (reviewId: string) => {
+  const openCreated = async (sessionId: string) => {
     try {
       if (!open || !(await capabilities()).desktopAvailable)
         return { opened: false };
 
-      return { opened: true, ...(await openReview(store.read(reviewId))) };
+      return { opened: true, ...(await openReview(store.read(sessionId))) };
     } catch (error) {
       return {
         opened: false,
@@ -499,7 +500,7 @@ export function createReviewApi(
         const stopRefresh = store.watchWorktrees();
 
         const stopDocument = store.subscribe((result) => {
-          if (result.reviewId === id) {
+          if (result.sessionId === id) {
             document = undefined;
             notify();
           }
@@ -529,7 +530,7 @@ export function createReviewApi(
       const { pins } = readReview(id, version);
 
       if (!pins)
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "This document has no source pins of its own.",
           409,
         );
@@ -639,7 +640,10 @@ export function createReviewApi(
 
       // A document with pins serves only its repository's resources.
       if (snapshot.pins && resource.repositoryId !== snapshot.pins.repositoryId)
-        throw new ReviewInputError("Resource is outside this repository.", 404);
+        throw new SessionInputError(
+          "Resource is outside this repository.",
+          404,
+        );
 
       return new Response(Buffer.from(resource.data), {
         headers: {
@@ -769,7 +773,7 @@ export function createReviewApi(
 
           try {
             for await (const event of data.structuralChanges({
-              reviewId: id,
+              sessionId: id,
               pins,
               signal: AbortSignal.any([context.req.raw.signal, abort.signal]),
               file: input.file,
@@ -802,7 +806,7 @@ export function createReviewApi(
       const input = readQuerySchemas.diff.parse({ ...query, paths });
 
       if (input.file !== undefined && (paths || "format" in query))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           'file cannot be combined with paths or format; use paths:["…"], format:"patch".',
         );
 
@@ -848,13 +852,13 @@ export function createReviewApi(
       await readBoundedRequestJson(context.req.raw),
     );
 
-    const reviewId = context.req.param("id");
+    const sessionId = context.req.param("id");
 
-    if (selection.apiSource && selection.apiSource.reviewId !== reviewId)
-      throw new ReviewInputError("Selection belongs to another review.");
+    if (selection.apiSource && selection.apiSource.sessionId !== sessionId)
+      throw new SessionInputError("Selection belongs to another review.");
 
     const snapshot = readReview(
-      reviewId,
+      sessionId,
       selection.apiSource?.version ?? query.version,
     );
 
@@ -862,7 +866,8 @@ export function createReviewApi(
     let excerpt = "";
 
     if (target.kind === "code" && !selection.selectedDiff) {
-      if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+      if (!data)
+        throw new SessionInputError("Source data is unavailable.", 409);
 
       const source = await data.quote(
         (
@@ -901,7 +906,7 @@ export function createReviewApi(
     return context.json({
       text: [
         `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
-        `Review ID: ${snapshot.reviewId}`,
+        `Review ID: ${snapshot.sessionId}`,
         `Version: ${snapshot.version}`,
         ...(selection.apiSource?.commit
           ? [`Selected commit: ${selection.apiSource.commit}`]
@@ -922,7 +927,7 @@ export function createReviewApi(
               `Review head: ${snapshot.pins.head}`,
             ]
           : []),
-        `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+        `Read this version with review_get({"sessionId":"${snapshot.sessionId}","version":${snapshot.version},"full":true}).`,
         "",
         text,
         "",
@@ -937,7 +942,7 @@ export function createReviewApi(
     const snapshot = readReview(id, query.version);
 
     if (!snapshot.pins)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "This document has no source pins of its own.",
         409,
       );
@@ -986,7 +991,7 @@ export function createReviewApi(
         pullRequestUrl: snapshot.origin?.pullRequestUrl,
       },
       store.list().map((review) => ({
-        uuid: review.reviewId,
+        uuid: review.sessionId,
         title: review.title,
         repoKey: repoKey(review),
         pullRequestNumber: review.origin?.pullRequestNumber,
@@ -1037,7 +1042,7 @@ export function createReviewApi(
 
         if (pins) snapshot.pins = pins;
       } catch (error) {
-        if (!(error instanceof ReviewInputError) || error.status !== 404)
+        if (!(error instanceof SessionInputError) || error.status !== 404)
           throw error;
         snapshot.sourceUnavailable = true;
       }
@@ -1052,7 +1057,7 @@ export function createReviewApi(
    * version, so the author can fill the gaps. A comparison that cannot be
    * read leaves a warning instead of failing the saved write. */
   const lensGaps = async (
-    reviewId: string,
+    sessionId: string,
     version: number,
     request: Request,
   ): Promise<{ uncategorized?: UncategorizedReport; warnings?: string[] }> => {
@@ -1064,7 +1069,7 @@ export function createReviewApi(
           await reviewProgress(
             store,
             data,
-            store.read(reviewId, version),
+            store.read(sessionId, version),
             request.signal,
           ),
         ),
@@ -1088,8 +1093,8 @@ export function createReviewApi(
     const command = sharedCommandSchema.safeParse(input);
 
     if (command.success) {
-      refuseDisabledScratchpad(command.data.operation.reviewId);
-      await ensureScratchpad(command.data.operation.reviewId);
+      refuseDisabledScratchpad(command.data.operation.sessionId);
+      await ensureScratchpad(command.data.operation.sessionId);
     }
 
     if (
@@ -1100,15 +1105,15 @@ export function createReviewApi(
 
     if (
       command.success &&
-      command.data.operation.reviewId?.startsWith("shared-")
+      command.data.operation.sessionId?.startsWith("shared-")
     ) {
       const parsed = commandSchema.parse(input);
 
       if (shared && parsed.operation.type === "delete") {
-        await shared.removeLocal(parsed.operation.reviewId);
+        await shared.removeLocal(parsed.operation.sessionId);
 
         return context.json({
-          reviewId: parsed.operation.reviewId,
+          sessionId: parsed.operation.sessionId,
           version: 0,
           deleted: true,
         });
@@ -1116,25 +1121,25 @@ export function createReviewApi(
 
       if (shared && parsed.operation.type === "attention") {
         await shared.setAttention(
-          parsed.operation.reviewId,
+          parsed.operation.sessionId,
           parsed.operation.action,
         );
 
         return context.json({
-          reviewId: parsed.operation.reviewId,
-          version: shared.get(parsed.operation.reviewId).snapshot.version,
+          sessionId: parsed.operation.sessionId,
+          version: shared.get(parsed.operation.sessionId).snapshot.version,
           attention: true,
         });
       }
 
-      throw new ReviewInputError("Shared reviews are read-only.", 409);
+      throw new SessionInputError("Shared reviews are read-only.", 409);
     }
 
     const result = await store.execute(input);
 
     if (input.operation.type === "lens") {
       const gaps = await lensGaps(
-        result.reviewId,
+        result.sessionId,
         result.version,
         context.req.raw,
       );
@@ -1152,10 +1157,10 @@ export function createReviewApi(
 
     return context.json({
       ...result,
-      review: store.summary(result.reviewId),
+      review: store.summary(result.sessionId),
       ...(requestedOpen === false
         ? { opened: false }
-        : await openCreated(result.reviewId)),
+        : await openCreated(result.sessionId)),
     });
   });
 

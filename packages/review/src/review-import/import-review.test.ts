@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectSource } from "../lens-selection";
 import type { Block } from "../review-api/document";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import { importLegacyReview, isMapSection } from "./import-review";
 import {
   el,
@@ -32,7 +32,7 @@ describe("importLegacyReview", () => {
 
     expect(outcome).toMatchObject({
       kind: "imported",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
       version: 2,
     });
     expect(store.read(record.uuid, 0).title).toBe(record.title);
@@ -56,7 +56,7 @@ describe("importLegacyReview", () => {
     expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
     expect(await importReview()).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
     });
   });
 
@@ -81,7 +81,7 @@ describe("importLegacyReview", () => {
       { overrides: { worktreePath: path.join(repo.root, "missing") } },
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(system.home, "review-api.db"),
     );
 
@@ -102,17 +102,17 @@ describe("importLegacyReview", () => {
       expect(outcomes).toEqual([
         {
           kind: "skipped",
-          reviewId: system.record.uuid,
+          sessionId: system.record.uuid,
           reason: "system review",
         },
         {
           kind: "skipped",
-          reviewId: never.record.uuid,
+          sessionId: never.record.uuid,
           reason: "never published",
         },
         {
           kind: "skipped",
-          reviewId: gone.record.uuid,
+          sessionId: gone.record.uuid,
           reason: `repository unavailable at ${path.join(repo.root, "missing")}`,
         },
       ]);
@@ -210,7 +210,7 @@ describe("importLegacyReview", () => {
     expect(store.read(record.uuid).document.at(-1)).toMatchObject({
       type: "markdown",
       markdown: expect.stringMatching(
-        /\[\^1\]: The agent \[agent said so\]\(review-trace:[\da-f-]{36}#2\)\.\n$/,
+        /\[\^1\]: The agent \[agent said so\]\(whiteboard-trace:[\da-f-]{36}#2\)\.\n$/,
       ),
     });
   });
@@ -303,7 +303,7 @@ describe("importLegacyReview", () => {
 
     await store.importVersions([
       {
-        reviewId: record.uuid,
+        sessionId: record.uuid,
         title: "partial",
         pins: {
           repositoryId: registered.id,
@@ -378,23 +378,23 @@ describe("importLegacyReview", () => {
     });
     await store.execute({
       commandId: randomUUID(),
-      operation: { type: "restore", reviewId: record.uuid, version: 0 },
+      operation: { type: "restore", sessionId: record.uuid, version: 0 },
     });
     expect(store.read(record.uuid).origin?.revision).toBe(oids[0]);
     expect(await importReview()).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
     });
     expect(store.read(record.uuid).version).toBe(2);
 
     await store.execute({
       commandId: randomUUID(),
-      operation: { type: "delete", reviewId: record.uuid },
+      operation: { type: "delete", sessionId: record.uuid },
     });
     expect(store.has(record.uuid)).toBe(false);
     expect(await importReview()).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
     });
     expect(store.has(record.uuid)).toBe(false);
     expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
@@ -411,7 +411,7 @@ describe("importLegacyReview", () => {
       },
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(fixture.home, "api.db"),
     );
 
@@ -451,7 +451,7 @@ describe("importLegacyReview", () => {
       { revisions: 2 },
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(fixture.home, "api.db"),
     );
 
@@ -473,7 +473,7 @@ describe("importLegacyReview", () => {
         commandId: randomUUID(),
         operation: {
           type: "edit",
-          reviewId: fixture.record.uuid,
+          sessionId: fixture.record.uuid,
           edit: {
             type: "insert",
             content: {
@@ -563,7 +563,7 @@ describe("importLegacyReview", () => {
       JSON.stringify(sealed),
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(fixture.home, "api.db"),
     );
 
@@ -659,7 +659,7 @@ describe("importLegacyReview", () => {
     expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
     expect(await importReview()).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
     });
     expect(store.read(record.uuid).version).toBe(0);
   });
@@ -684,7 +684,7 @@ describe("importLegacyReview", () => {
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId: record.uuid,
+        sessionId: record.uuid,
         edit: {
           type: "insert",
           content: { type: "markdown", markdown: "Mine.\n" },
@@ -717,7 +717,7 @@ describe("importLegacyReview", () => {
     expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[1]);
     expect(await importReview(republished)).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
     });
   });
 
@@ -771,7 +771,7 @@ describe("importLegacyReview", () => {
     expect(await importReview()).toMatchObject({ kind: "imported" });
     await store.execute({
       commandId: randomUUID(),
-      operation: { type: "delete", reviewId: record.uuid },
+      operation: { type: "delete", sessionId: record.uuid },
     });
 
     expect(
@@ -779,7 +779,7 @@ describe("importLegacyReview", () => {
         dir,
         review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
       }),
-    ).toEqual({ kind: "current", reviewId: record.uuid });
+    ).toEqual({ kind: "current", sessionId: record.uuid });
     expect(store.has(record.uuid)).toBe(false);
   });
 });

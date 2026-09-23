@@ -1,7 +1,7 @@
 import type { ReviewRuntimeConfig } from "@dev.fast/review-protocol";
 
 export type ReviewClientConfig = Partial<
-  Pick<ReviewRuntimeConfig, "serverUrl" | "reviewId" | "token" | "wasmUrl">
+  Pick<ReviewRuntimeConfig, "serverUrl" | "sessionId" | "token" | "wasmUrl">
 >;
 
 export interface ReviewRequestOptions {
@@ -10,12 +10,12 @@ export interface ReviewRequestOptions {
 
 export function jsonReviewApiUrl(
   config: ReviewClientConfig,
-  reviewId: string,
+  sessionId: string,
   endpoint: `/${string}`,
   options: { version?: number; tokenInQuery?: boolean } = {},
 ): string {
   const url = new URL(
-    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/reviews-api/${encodeURIComponent(reviewId)}${endpoint}`,
+    `${config.serverUrl?.replace(/\/$/, "") ?? browserOrigin()}/reviews-api/${encodeURIComponent(sessionId)}${endpoint}`,
   );
 
   if (options.version !== undefined)
@@ -53,7 +53,7 @@ export function reviewStorageKey(
   return [
     "progressive-review",
     namespace,
-    config?.reviewId ?? "server-render",
+    config?.sessionId ?? "server-render",
     ...parts.map((part) => String(part ?? "")),
   ].join(":");
 }

@@ -60,7 +60,7 @@ export async function run(ctx) {
       );
 
   const traces = await ctx.apiOk(
-    `/reviews-api/${review.reviewId}/agent-traces`,
+    `/reviews-api/${review.sessionId}/agent-traces`,
   );
 
   assert.ok(
@@ -168,7 +168,9 @@ export async function run(ctx) {
 
   await input.press("Escape");
   await find.waitFor({ state: "hidden" });
-  ctx.check("find handles plain, whole-word, regex and invalid regex, and wraps");
+  ctx.check(
+    "find handles plain, whole-word, regex and invalid regex, and wraps",
+  );
 
   const toc = page.locator("nav#review-toc");
 
@@ -221,13 +223,13 @@ export async function run(ctx) {
   }, "Risks to scroll to the top of the review");
   ctx.check("table of contents navigates");
 
-  const history = () => ctx.apiOk(`/reviews-api/${review.reviewId}/history`);
+  const history = () => ctx.apiOk(`/reviews-api/${review.sessionId}/history`);
 
   const before = await history();
 
   const renamed = await ctx.api("/reviews-api/commands", "POST", {
     commandId: randomUUID(),
-    operation: { type: "rename", reviewId: review.reviewId, title: RENAMED },
+    operation: { type: "rename", sessionId: review.sessionId, title: RENAMED },
   });
 
   assert.equal(renamed.status, 200, JSON.stringify(renamed.value));
@@ -276,7 +278,9 @@ export async function run(ctx) {
     .getByText("You are viewing an older version of this review.")
     .waitFor();
   await canvas.getByRole("heading", { name: TITLE, exact: true }).waitFor();
-  await canvas.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  await canvas
+    .getByRole("heading", { name: "Overview", exact: true })
+    .waitFor();
   await banner.getByRole("button", { name: "Back to latest" }).click();
   await banner.waitFor({ state: "hidden" });
   await canvas.getByRole("heading", { name: RENAMED, exact: true }).waitFor();

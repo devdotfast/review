@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { ReviewInputError } from "../input-error.js";
+import { SessionInputError } from "../input-error.js";
 import {
   type BlockDefinition,
   defineBlock,
@@ -17,7 +17,7 @@ describe("defineBlock", () => {
     schema,
     check(block: z.infer<typeof schema>) {
       if (block.body === "forbidden")
-        throw new ReviewInputError("Forbidden body.");
+        throw new SessionInputError("Forbidden body.");
     },
   } satisfies BlockDefinition<z.infer<typeof schema>>;
 
@@ -49,7 +49,7 @@ describe("defineBlock", () => {
 describe("requireKey", () => {
   it("names the missing key the way checkReferences always has", () => {
     expect(() => requireKey({ a: 1 }, "b")).toThrow(
-      new ReviewInputError("Unknown component name: b"),
+      new SessionInputError("Unknown component name: b"),
     );
     expect(() => requireKey({ a: 1 }, "a")).not.toThrow();
   });

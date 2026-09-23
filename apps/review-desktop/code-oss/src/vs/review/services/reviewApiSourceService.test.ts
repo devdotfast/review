@@ -9,7 +9,7 @@ import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
 import { resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison } from "../common/reviewProtocol.js";
 import type { ReviewDiffLens } from "../common/reviewProtocol.js";
 
-const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} });
+const view = (version: number) => resolveReviewSourceView({ sessionId: "review-a", version, pins: {} });
 
 function setup() {
 	let provider: ITextModelContentProvider;
@@ -48,8 +48,8 @@ function setup() {
 			},
 		} as never,
 		{
-			registerReviewEditor(reviewId: string) {
-				registered.push(reviewId);
+			registerReviewEditor(sessionId: string) {
+				registered.push(sessionId);
 			},
 		} as never,
 		{} as never,
@@ -112,7 +112,7 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	});
 	let source!: ReviewDiffViewSource;
 	const canvas = service.canvas(
-		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { worktreeRevision: generation } }),
+		() => resolveReviewSourceView({ sessionId: "review-a", version, pins: { worktreeRevision: generation } }),
 		{} as never,
 		{
 			openComparison: () => undefined,
@@ -198,7 +198,7 @@ test("a refreshed current tree keeps its root when a file from the newer version
   const { service } = setup();
   t.after(() => service.dispose());
   let version = 3;
-  const root = sourceTreeUri({ reviewId: "review-a", kind: "current" });
+  const root = sourceTreeUri({ sessionId: "review-a", kind: "current" });
   t.mock.method(globalThis, "fetch", async (value: string) => {
     const url = new URL(value);
     if (url.pathname.endsWith("/tree")) {
@@ -206,7 +206,7 @@ test("a refreshed current tree keeps its root when a file from the newer version
       return Response.json([{ path: "src", kind: "directory" }, { path: "file.ts", kind: "file" }]);
     }
     assert.equal(url.searchParams.has("version"), false);
-    return Response.json({ reviewId: "review-a", version, pins: { worktreeRevision: String(version).repeat(64) } });
+    return Response.json({ sessionId: "review-a", version, pins: { worktreeRevision: String(version).repeat(64) } });
   });
   const first = await service.children(root);
   version = 4;
@@ -215,7 +215,7 @@ test("a refreshed current tree keeps its root when a file from the newer version
   assert.notEqual(first[1]!.resource.toString(), refreshed[1]!.resource.toString());
   assert.equal(new URLSearchParams(refreshed[1]!.resource.query).get("version"), "4");
   assert.equal(sourceTreeRoot(refreshed[1]!.resource, root).toString(), root.toString());
-  const fixed = sourceTreeUri({ reviewId: "review-a", kind: "version", version: 3 });
+  const fixed = sourceTreeUri({ sessionId: "review-a", kind: "version", version: 3 });
   assert.notEqual(sourceTreeRoot(refreshed[1]!.resource, fixed).toString(), fixed.toString());
 });
 
@@ -226,7 +226,7 @@ test("a source at its own pins keeps them through its URI and reads them back fr
 	const anchored = reviewSourceAnchor(reviewSourceComparison(view(3), "c".repeat(40)), pins);
 	assert.equal(anchored.commit, undefined);
 	const uri = apiSourceUri({ view: anchored, side: "head", file: "src/a.ts" });
-	assert.deepEqual(sourceLocation(uri), { view: { reviewId: "review-a", version: 3, generation: undefined, commit: undefined, pins }, side: "head", file: "src/a.ts" });
+	assert.deepEqual(sourceLocation(uri), { view: { sessionId: "review-a", version: 3, generation: undefined, commit: undefined, pins }, side: "head", file: "src/a.ts" });
 	const inherited = sourceLocation(apiSourceUri({ view: view(3), side: "head", file: "src/a.ts" }));
 	assert.equal(inherited.view.pins, undefined);
 	t.mock.method(globalThis, "fetch", async (value: string) => {

@@ -76,7 +76,7 @@ export async function run(ctx) {
       root,
       path.relative(repo, commonDir),
       "dev-fast/reviews",
-      review.reviewId,
+      review.sessionId,
       "head",
       ctx.head,
     );
@@ -88,7 +88,7 @@ export async function run(ctx) {
 
   // The control for everything below: the same restart and open, with the repository still where it was registered.
   await ctx.restartDesktop();
-  await pickReview(ctx, review.reviewId);
+  await pickReview(ctx, review.sessionId);
 
   const control = await canvasUi(ctx)
     .heading.waitFor({ timeout: 60000 })
@@ -112,7 +112,7 @@ export async function run(ctx) {
     `the rename did not carry the pinned checkout to ${pinnedIn(moved)}`,
   );
   await ctx.restartDesktop();
-  await pickReview(ctx, review.reviewId, moved);
+  await pickReview(ctx, review.sessionId, moved);
 
   const { heading, unavailable } = canvasUi(ctx);
 
@@ -131,14 +131,14 @@ export async function run(ctx) {
   );
 
   const info = await ctx.cliRaw(
-    ["info", "--review", review.reviewId, "--json"],
+    ["info", "--review", review.sessionId, "--json"],
     moved,
   );
 
   assert.equal(info.code, 0, `review info: ${info.stdout}\n${info.stderr}`);
   assert.match(
     info.stdout,
-    new RegExp(review.reviewId),
+    new RegExp(review.sessionId),
     `review info named no review: ${info.stdout}`,
   );
   ctx.check("info resolves a review whose worktree moved");

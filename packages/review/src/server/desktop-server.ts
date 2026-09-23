@@ -35,17 +35,17 @@ import {
 } from "../cli-install";
 import { syncScratchpadSkills } from "../install";
 import { readReviewPackageVersion } from "../package-paths";
-import { ReviewInputError } from "../review-api/document.js";
-import { createReviewApi } from "../review-api/http.js";
-import type { LocalReviewData } from "../review-api/local-data.js";
-import type { ReviewStore } from "../review-api/store.js";
+import { SessionInputError } from "../review-api/document.js";
+import { createSessionApi } from "../review-api/http.js";
+import type { LocalSessionData } from "../review-api/local-data.js";
+import type { SessionStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import {
   readScratchpadEnabled,
   writeScratchpadEnabled,
 } from "../review-preferences";
 import { ReviewTelemetry } from "../review-telemetry";
-import type { SharedReviewStore } from "../sharing/import.js";
+import type { SharedSessionStore } from "../sharing/import.js";
 import {
   readDiffrConfig,
   saveDiffrSummarizer,
@@ -77,9 +77,9 @@ const UUID_PATTERN =
 
 export interface GlobalReviewServerInput {
   /** The desktop host owns this shared database and closes it after the server. */
-  reviewStore: ReviewStore;
-  sharedReviews?: SharedReviewStore;
-  reviewData: LocalReviewData;
+  reviewStore: SessionStore;
+  sharedReviews?: SharedSessionStore;
+  reviewData: LocalSessionData;
   appPid: number;
   packageRoot: string;
   toolingRoot: string;
@@ -182,7 +182,7 @@ export function createGlobalReviewServer(
 
   app.route(
     "/reviews-api",
-    createReviewApi(
+    createSessionApi(
       input.reviewStore,
       input.reviewData,
       async (review) => {
@@ -191,7 +191,7 @@ export function createGlobalReviewServer(
           args: review,
         });
 
-        if (!result.ok) throw new ReviewInputError(result.error, 409);
+        if (!result.ok) throw new SessionInputError(result.error, 409);
 
         return z
           .object({ softwareMapEnabled: z.boolean() })
@@ -207,7 +207,7 @@ export function createGlobalReviewServer(
           args: {},
         });
 
-        if (!result.ok) throw new ReviewInputError(result.error, 409);
+        if (!result.ok) throw new SessionInputError(result.error, 409);
 
         return {
           desktopAvailable: true,
@@ -287,7 +287,7 @@ export function createGlobalReviewServer(
 
     return globalJson(200, {
       ok: true,
-      reviewUuid: prepared.reviewId,
+      sessionId: prepared.sessionId,
     });
   });
   // The tutorial descriptor is not in `GET /reviews`, so tooling and
@@ -300,7 +300,7 @@ export function createGlobalReviewServer(
     }
 
     return globalJson(200, {
-      reviewId: stored.reviewId,
+      sessionId: stored.sessionId,
       title: stored.title,
       pins: stored.pins,
       version: stored.version,
@@ -530,7 +530,7 @@ export function createGlobalReviewServer(
 
     return {
       kind: "api",
-      reviewUuid: snapshot.reviewId,
+      sessionId: snapshot.sessionId,
       title: snapshot.title,
     };
   }
@@ -540,10 +540,10 @@ export function createGlobalReviewServer(
   }
 
   async function withReviewLock<T>(
-    reviewUuid: string,
+    sessionId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = reviewLocks.get(reviewUuid) ?? Promise.resolve();
+    const previous = reviewLocks.get(sessionId) ?? Promise.resolve();
     let release: () => void = () => {};
 
     const current = new Promise<void>((resolve) => {
@@ -551,7 +551,7 @@ export function createGlobalReviewServer(
     });
 
     const chain = previous.then(() => current);
-    reviewLocks.set(reviewUuid, chain);
+    reviewLocks.set(sessionId, chain);
     await previous;
 
     try {
@@ -559,7 +559,7 @@ export function createGlobalReviewServer(
     } finally {
       release();
 
-      if (reviewLocks.get(reviewUuid) === chain) reviewLocks.delete(reviewUuid);
+      if (reviewLocks.get(sessionId) === chain) reviewLocks.delete(sessionId);
     }
   }
 

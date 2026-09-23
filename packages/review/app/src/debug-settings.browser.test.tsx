@@ -172,7 +172,7 @@ function createTestSession(): ReviewSession {
   return testReviewSession(
     {
       serverUrl: "http://127.0.0.1:4100",
-      reviewId: "theme-test",
+      sessionId: "theme-test",
       token: "",
       theme,
     },

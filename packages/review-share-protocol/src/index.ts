@@ -86,7 +86,7 @@ export const gitHubRepositoryUrlSchema = z.string().refine((value) => {
 export const shareManifestSchema = z
   .strictObject({
     format: z.literal(SHARE_FORMAT),
-    reviewId: z.string().min(1).max(256),
+    sessionId: z.string().min(1).max(256),
     version: z.number().int().nonnegative(),
     title: z.string().min(1).max(4096),
     snapshot: objectIdSchema,
@@ -135,6 +135,20 @@ export const shareManifestSchema = z
       if ((resource.kind === "image") !== (resource.mimeType === "image/png"))
         fail("Resource MIME type does not match its kind.");
   });
+
+/** Only import/download paths accept manifests published before the rename. */
+export const importedShareManifestSchema = z.union([
+  shareManifestSchema,
+  z
+    .object({ reviewId: z.string() })
+    .passthrough()
+    .refine(
+      (value) => !("sessionId" in value),
+      "Conflicting session identifiers.",
+    )
+    .transform(({ reviewId, ...rest }) => ({ ...rest, sessionId: reviewId }))
+    .pipe(shareManifestSchema),
+]);
 
 export type ShareManifest = z.infer<typeof shareManifestSchema>;
 

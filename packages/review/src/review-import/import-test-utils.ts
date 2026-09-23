@@ -12,7 +12,7 @@ import {
 import { onTestFinished } from "vitest";
 
 import { LEGACY_REVIEW_FIXTURES_ROOT } from "../fixtures/legacy-reviews/legacy-review-fixture";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import type { ProseTag, ReviewNode } from "../review-document-data";
 import { type StoredReview, parseStoredReviewRecord } from "../review-home";
 import type { ReviewVcsLogEntry } from "../review-vcs";
@@ -192,7 +192,7 @@ export async function runImport(
   const repo = await scratchGitRepo();
   const review = await syntheticLegacyReview(fixture, repo, options);
 
-  const { store, data } = openLocalReviewStore(
+  const { store, data } = openLocalSessionStore(
     path.join(review.home, "review-api.db"),
   );
 

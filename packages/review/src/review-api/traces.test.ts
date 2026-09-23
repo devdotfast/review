@@ -8,14 +8,14 @@ import { parseReviewAgentTraceResponse } from "@dev.fast/review-protocol";
 import { clearTraceEnvCache, writeStoreAuth } from "@dev.fast/trace-core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { createReviewApi } from "./http.js";
-import { openLocalReviewStore } from "./local-data.js";
+import { createSessionApi } from "./http.js";
+import { openLocalSessionStore } from "./local-data.js";
 
 let root: string;
 
-let local: ReturnType<typeof openLocalReviewStore>;
+let local: ReturnType<typeof openLocalSessionStore>;
 
-let api: ReturnType<typeof createReviewApi>;
+let api: ReturnType<typeof createSessionApi>;
 
 let id: string;
 
@@ -73,7 +73,7 @@ beforeEach(async () => {
       .join("\n"),
   );
   clearTraceEnvCache();
-  local = openLocalReviewStore(path.join(root, "review.db"));
+  local = openLocalSessionStore(path.join(root, "review.db"));
   const repo = await local.data.register(root);
   const pins = await local.data.resolvePins(repo.id, "HEAD^", "HEAD");
 
@@ -82,8 +82,8 @@ beforeEach(async () => {
     operation: { type: "create", title: "Trace test", pins },
   });
 
-  id = result.reviewId;
-  api = createReviewApi(local.store, local.data);
+  id = result.sessionId;
+  api = createSessionApi(local.store, local.data);
 });
 
 afterEach(async () => {

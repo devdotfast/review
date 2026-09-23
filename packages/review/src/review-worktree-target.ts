@@ -49,7 +49,7 @@ export async function resolveReviewSourceTarget(input: {
   const sourceRootPath = await ensurePinnedReviewWorktreeAtCommit({
     repoRoot,
     commit: headRef,
-    reviewUuid: review.uuid,
+    sessionId: review.uuid,
     role: "head",
   });
 
@@ -72,7 +72,7 @@ export async function resolveReviewSourceTarget(input: {
 
 async function preparedBaseTarget(
   repoRoot: string,
-  reviewUuid: string,
+  sessionId: string,
   baseRef: string,
 ): Promise<PreparedReviewSourceTarget> {
   const ref = await resolveRevisionCommit(repoRoot, baseRef);
@@ -82,7 +82,7 @@ async function preparedBaseTarget(
     sourceRootPath: await ensurePinnedReviewWorktreeAtCommit({
       repoRoot,
       commit: ref,
-      reviewUuid,
+      sessionId,
       role: "base",
     }),
   };
@@ -91,13 +91,13 @@ async function preparedBaseTarget(
 async function ensurePinnedReviewWorktreeAtCommit(input: {
   repoRoot: string;
   commit: string;
-  reviewUuid: string;
+  sessionId: string;
   role: ReviewCheckoutRole;
 }): Promise<string> {
   const sourceRootPath = await ensureReviewPinnedCheckout({
     rootPath: input.repoRoot,
     ref: input.commit,
-    reviewUuid: input.reviewUuid,
+    sessionId: input.sessionId,
     role: input.role,
   });
 

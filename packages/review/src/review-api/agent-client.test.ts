@@ -4,36 +4,36 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 
-import { runReviewAgentCli } from "./agent-cli.js";
+import { runWhiteboardAgentCli } from "./agent-cli.js";
 import * as agentClient from "./agent-client.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
-import { ReviewApiClient } from "./client.js";
-import { createReviewApi } from "./http.js";
-import { serveReviewMcp } from "./mcp.js";
-import { ReviewStore } from "./store.js";
+import { SessionApiClient } from "./client.js";
+import { createSessionApi } from "./http.js";
+import { serveWhiteboardMcp } from "./mcp.js";
+import { SessionStore } from "./store.js";
 
-const store = new ReviewStore(":memory:", {
+const store = new SessionStore(":memory:", {
   validatePins: async () => {},
   validateSource: async () => {},
   validateResource: async () => {},
 });
 
-const app = createReviewApi(store);
+const app = createSessionApi(store);
 
 afterAll(() => store.close());
 
-const client = new ReviewApiClient(
+const client = new SessionApiClient(
   { serverUrl: "http://review.test", token: "test" },
   async (url, init) => app.request(url.replace("/reviews-api", ""), init),
 );
 
 afterEach(async () => {
   // The scratchpad cannot be deleted; every review can.
-  for (const { reviewId, kind } of store.list())
+  for (const { sessionId, kind } of store.list())
     if (kind !== "scratchpad")
       await store.execute({
         commandId: randomUUID(),
-        operation: { type: "delete", reviewId },
+        operation: { type: "delete", sessionId },
       });
 });
 
@@ -55,11 +55,11 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
     commandId: randomUUID(),
     title: "Authoring",
     pins: { repositoryId: "repo", base: "base", head: "head" },
-  })) as { reviewId: string };
+  })) as { sessionId: string };
 
   const input = {
     commandId: randomUUID(),
-    reviewId: created.reviewId,
+    sessionId: created.sessionId,
     edit: {
       type: "insert",
       content: {
@@ -80,10 +80,10 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
 
   const result = (await call("edit", input)) as { targetId: string };
   expect(await call("edit", input)).toEqual(result);
-  expect(store.read(created.reviewId).version).toBe(1);
+  expect(store.read(created.sessionId).version).toBe(1);
   expect(
     await call("get", {
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       targetId: result.targetId,
       format: "json",
     }),
@@ -99,10 +99,10 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
       },
     }),
   ).rejects.toThrow(Error);
-  expect(store.read(created.reviewId).version).toBe(1);
+  expect(store.read(created.sessionId).version).toBe(1);
   await call("edit", {
     commandId: randomUUID(),
-    reviewId: created.reviewId,
+    sessionId: created.sessionId,
     edit: {
       type: "update",
       targetId: result.targetId,
@@ -111,7 +111,7 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
   });
   expect(
     await call("get", {
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       full: true,
       format: "json",
     }),
@@ -121,23 +121,23 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
   });
   expect(
     await call("get", {
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       version: 1,
       full: true,
       format: "json",
     }),
   ).toMatchObject({ version: 1, document: [{ title: "Save" }] });
-  const text = await call("get", { reviewId: created.reviewId, full: true });
+  const text = await call("get", { sessionId: created.sessionId, full: true });
   expect(text).toContain(`[${result.targetId}] sequence: Saved`);
   expect(text).toContain("Validated before saving.");
   expect(
-    await call("get", { reviewId: created.reviewId, version: 1 }),
+    await call("get", { sessionId: created.sessionId, version: 1 }),
   ).toContain("sequence: Save");
   // IDs discovered in the reading view still identify the same editable nodes.
   const stepId = String(text).match(/\[(step-\d+)\]/)![1];
   await call("edit", {
     commandId: randomUUID(),
-    reviewId: created.reviewId,
+    sessionId: created.sessionId,
     edit: {
       type: "update",
       targetId: stepId,
@@ -145,14 +145,14 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
     },
   });
   expect(
-    await call("get", { reviewId: created.reviewId, targetId: stepId }),
+    await call("get", { sessionId: created.sessionId, targetId: stepId }),
   ).toContain("Updated through the reading view.");
 });
 
 it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const server = await serveReviewMcp(async () => client, stdin, stdout);
+  const server = await serveWhiteboardMcp(async () => client, stdin, stdout);
   let output = "";
   stdout.on("data", (chunk) => {
     output += chunk;
@@ -195,12 +195,12 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
       ).inputSchema,
     ).toMatchObject({
       type: "object",
-      required: expect.arrayContaining(["reviewId", "commandId", "edit"]),
+      required: expect.arrayContaining(["sessionId", "commandId", "edit"]),
     });
 
     const error = await request(3, "tools/call", {
       name: "review_get",
-      arguments: { reviewId: "missing" },
+      arguments: { sessionId: "missing" },
     });
 
     expect(error.result).toMatchObject({
@@ -226,7 +226,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
 
     const read = await request(5, "tools/call", {
       name: "review_get",
-      arguments: { reviewId: created.reviewId },
+      arguments: { sessionId: created.sessionId },
     });
 
     expect(read.result.content[0].text.startsWith("# Readable review\n")).toBe(
@@ -235,11 +235,11 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
 
     const raw = await request(6, "tools/call", {
       name: "review_get",
-      arguments: { reviewId: created.reviewId, full: true, format: "json" },
+      arguments: { sessionId: created.sessionId, full: true, format: "json" },
     });
 
     expect(JSON.parse(raw.result.content[0].text)).toMatchObject({
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       document: [],
     });
   } finally {
@@ -258,7 +258,7 @@ it("shows CLI help without requiring Desktop or touching review storage", async 
   });
 
   expect(
-    await runReviewAgentCli({
+    await runWhiteboardAgentCli({
       argv: ["api", "--help"],
       stdin: Readable.from([]),
       stdout: stream,
@@ -271,7 +271,7 @@ it("shows CLI help without requiring Desktop or touching review storage", async 
 
 it("prints readable CLI output by default and raw objects with --json", async () => {
   const connection = vi
-    .spyOn(agentClient, "connectReviewApi")
+    .spyOn(agentClient, "connectSessionApi")
     .mockResolvedValue(client);
 
   const created = await store.execute({
@@ -295,11 +295,11 @@ it("prints readable CLI output by default and raw objects with --json", async ()
       });
 
       expect(
-        await runReviewAgentCli({
+        await runWhiteboardAgentCli({
           argv: [
             "api",
             "review_get",
-            JSON.stringify({ reviewId: created.reviewId, full: true }),
+            JSON.stringify({ sessionId: created.sessionId, full: true }),
             ...flags,
           ],
           stdout,
@@ -312,7 +312,7 @@ it("prints readable CLI output by default and raw objects with --json", async ()
 
     expect((await read([])).startsWith("# CLI reading\n")).toBe(true);
     expect(JSON.parse(await read(["--json"]))).toMatchObject({
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       document: [],
     });
   } finally {
@@ -336,7 +336,7 @@ it("binds existing content through the host-advertised PR tool", async () => {
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       edit: {
         type: "insert",
         content: { type: "markdown", markdown: "Keep the authored review" },
@@ -344,21 +344,22 @@ it("binds existing content through the host-advertised PR tool", async () => {
     },
   });
 
-  const authored = store.read(created.reviewId).document;
+  const authored = store.read(created.sessionId).document;
 
   await callAuthoringTool(
     client,
     tools.find((tool) => tool.name === "review_repin")!,
     {
       commandId: randomUUID(),
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       pins: { repositoryId: "repo", base: "base", head: "head" },
       pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
     },
   );
-  expect(store.read(created.reviewId).document).toEqual(authored);
+  expect(store.read(created.sessionId).document).toEqual(authored);
   expect(
-    store.list().find((review) => review.reviewId === created.reviewId)?.origin,
+    store.list().find((review) => review.sessionId === created.sessionId)
+      ?.origin,
   ).toEqual({
     pullRequestNumber: 310,
     pullRequestUrl: "https://github.com/devdotfast/review/pull/310",

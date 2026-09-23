@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 
 import {
   gitHubRepositoryUrlSchema,
+  importedShareManifestSchema,
   normalizeGitHubRemote,
   parseShareLink,
   shareLink,
@@ -51,7 +52,7 @@ it("rejects references not declared by the immutable envelope", () => {
 
   const manifest = {
     format: "review-share/1",
-    reviewId: "review",
+    sessionId: "review",
     version: 1,
     title: "Title",
     snapshot: a,
@@ -122,7 +123,7 @@ it("requires repository identity and rejects the previous source envelope", () =
 
   const manifest = {
     format: "review-share/1",
-    reviewId: "review",
+    sessionId: "review",
     version: 1,
     title: "Review",
     snapshot: a,
@@ -141,5 +142,35 @@ it("requires repository identity and rejects the previous source envelope", () =
       repository: { cloneUrl: "https://github.com/owner/repo.git" },
       files: [],
     }).success,
+  ).toBe(false);
+});
+
+it("reads legacy manifests only on import and rejects conflicting identities", () => {
+  const a = "a".repeat(64),
+    b = "b".repeat(64);
+
+  const legacy = {
+    format: "review-share/1",
+    reviewId: "saved",
+    version: 4,
+    title: "Original",
+    snapshot: a,
+    presentation: b,
+    objects: [
+      { id: a, sha256: a, size: 1 },
+      { id: b, sha256: b, size: 1 },
+    ],
+    resources: [],
+    repository: { cloneUrl: "https://github.com/fixture/review.git" },
+  };
+
+  expect(shareManifestSchema.safeParse(legacy).success).toBe(false);
+  const imported = importedShareManifestSchema.parse(legacy);
+  expect(imported.sessionId).toBe("saved");
+  expect(imported).not.toHaveProperty("reviewId");
+  expect(importedShareManifestSchema.parse(imported)).toEqual(imported);
+  expect(
+    importedShareManifestSchema.safeParse({ ...legacy, sessionId: "other" })
+      .success,
   ).toBe(false);
 });

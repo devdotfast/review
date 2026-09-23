@@ -9,18 +9,18 @@ const sources = (markdown: string) =>
 it("finds actual source links in prose, reference links and tables, not code or unused definitions", () => {
   const references = sources(
     [
-      "See [**save**](review-source:head/src/save.ts#L2-L4).",
+      "See [**save**](whiteboard-source:head/src/save.ts#L2-L4).",
       "",
       "| Before | Why |",
       "| --- | --- |",
       "| [old][source] | unchanged |",
       "",
-      "[source]: review-source:base/src/a%20b.ts#L1",
-      "[unused]: review-source:invalid",
+      "[source]: whiteboard-source:base/src/a%20b.ts#L1",
+      "[unused]: whiteboard-source:invalid",
       "",
-      "`[example](review-source:invalid)`",
+      "`[example](whiteboard-source:invalid)`",
       "```md",
-      "[example](review-source:invalid)",
+      "[example](whiteboard-source:invalid)",
       "```",
       "[external](https://example.com/src/save.ts#L2)",
     ].join("\n"),
@@ -31,17 +31,17 @@ it("finds actual source links in prose, reference links and tables, not code or 
     { side: "base", file: "src/a b.ts", fromLine: 1, toLine: 1 },
   ]);
   expect(
-    sources("[new label](review-source:head/src/save.ts#L2-L4)")[0]!.id,
+    sources("[new label](whiteboard-source:head/src/save.ts#L2-L4)")[0]!.id,
   ).toBe(references[0]!.id);
 });
 
 it("rejects malformed source destinations instead of saving a broken peek", () => {
   for (const href of [
-    "review-source:main/file.ts#L1",
-    "review-source:head/file.ts",
-    "review-source:head/file.ts#L0",
-    "review-source:head/file.ts#L4-L2",
-    "review-source:head/%ZZ.ts#L1",
+    "whiteboard-source:main/file.ts#L1",
+    "whiteboard-source:head/file.ts",
+    "whiteboard-source:head/file.ts#L0",
+    "whiteboard-source:head/file.ts#L4-L2",
+    "whiteboard-source:head/%ZZ.ts#L1",
   ])
     expect(() => sources(`[bad](${href})`)).toThrow(Error);
 });
@@ -59,7 +59,7 @@ it("marks every source that renders as a peek, but not prose links", () => {
     {
       type: "markdown",
       id: "n-2",
-      markdown: "[save](review-source:head/src/save.ts#L3-L9)",
+      markdown: "[save](whiteboard-source:head/src/save.ts#L3-L9)",
     },
     {
       type: "sequence",
@@ -140,7 +140,7 @@ it("marks every source that renders as a peek, but not prose links", () => {
 
   expect(references.map(({ id, peek }) => [id, peek])).toEqual([
     ["peek-1", true],
-    ["n-2:review-source:head/src/save.ts#L3-L9", undefined],
+    ["n-2:whiteboard-source:head/src/save.ts#L3-L9", undefined],
     ["step-4", true],
     ["frame-7", true],
     ["op-10", true],
@@ -154,7 +154,7 @@ it("resolves a block's links at the block's own pins, and only where those pins 
     {
       type: "markdown",
       id: "n-2",
-      markdown: "[save](review-source:head/src/save.ts#L2-L4)",
+      markdown: "[save](whiteboard-source:head/src/save.ts#L2-L4)",
       pins,
     },
   ]);
@@ -171,7 +171,7 @@ it("resolves a block's links at the block's own pins, and only where those pins 
       {
         type: "markdown",
         id: "n-3",
-        markdown: "[old](review-source:base/src/save.ts#L2)",
+        markdown: "[old](whiteboard-source:base/src/save.ts#L2)",
         pins,
       },
     ]),
@@ -191,10 +191,10 @@ for (const href of [
 ]) {
   it(`rejects unsupported Markdown destination ${href} with authoring guidance`, () => {
     expect(() => sources(`[file](<${href}>)`)).toThrow(
-      "Use [label](review-source:head/path#L10-L24)",
+      "Use [label](whiteboard-source:head/path#L10-L24)",
     );
     expect(() => sources(`[file][ref]\n\n[ref]: <${href}>`)).toThrow(
-      "Use [label](review-source:head/path#L10-L24)",
+      "Use [label](whiteboard-source:head/path#L10-L24)",
     );
     expect(
       sourceReferences(

@@ -35,9 +35,9 @@ async function runCli(effectivePath: string): Promise<number> {
     return 1;
   }
 
-  const { runReviewCli } = await import("./cli-runner.js");
+  const { runWhiteboardCli } = await import("./cli-runner.js");
 
-  return runReviewCli({
+  return runWhiteboardCli({
     argv,
     cliPaths: { requestedPath: ownCliPath, effectivePath },
     stdin: process.stdin,

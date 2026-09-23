@@ -209,12 +209,12 @@ function ReviewStackSelector({
     layer: ReviewStackLayer,
     event: Pick<MouseEvent, "metaKey" | "ctrlKey" | "shiftKey" | "button">,
   ) => {
-    if (!layer.reviewUuid) return;
+    if (!layer.sessionId) return;
     detailsRef.current?.removeAttribute("open");
     void session.surface.post({
       name: "openReview",
       args: {
-        reviewUuid: layer.reviewUuid,
+        sessionId: layer.sessionId,
         active: !(
           event.metaKey ||
           event.ctrlKey ||
@@ -277,7 +277,7 @@ function ReviewStackLayerRow({
         <span className="review-stack-branch">{layer.branch}</span>
       </span>
       <span className="review-stack-relation">
-        {!layer.reviewUuid && !current ? "No Review" : layer.relation}
+        {!layer.sessionId && !current ? "No Review" : layer.relation}
       </span>
     </>
   );
@@ -295,9 +295,9 @@ function ReviewStackLayerRow({
       className="review-stack-row"
       type="button"
       data-relation={layer.relation}
-      disabled={!layer.reviewUuid}
+      disabled={!layer.sessionId}
       title={
-        layer.reviewUuid
+        layer.sessionId
           ? "Open Review (Cmd/Ctrl-click to open in the background)"
           : "No generated Review exists for this pull request"
       }

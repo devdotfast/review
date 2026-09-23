@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { SCRATCHPAD_REVIEW_ID } from "@dev.fast/review-protocol";
+import { SCRATCHPAD_SESSION_ID } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import { readReviewPreferences } from "../review-preferences";
 import { createGlobalReviewServer } from "./desktop-server";
 
@@ -43,7 +43,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
   );
   const installedSkill = path.join(home, ".claude", "skills", "scratchpad");
 
-  const local = openLocalReviewStore(path.join(devHome, "review-api.db"));
+  const local = openLocalSessionStore(path.join(devHome, "review-api.db"));
 
   const serve = () =>
     createGlobalReviewServer({
@@ -90,7 +90,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
 
     const refused = await get(
       server.url,
-      `/reviews-api/${SCRATCHPAD_REVIEW_ID}`,
+      `/reviews-api/${SCRATCHPAD_SESSION_ID}`,
     );
 
     expect(refused.status).toBe(409);
@@ -108,19 +108,19 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     });
 
     expect(created.status).toBe(409);
-    expect(local.store.has(SCRATCHPAD_REVIEW_ID)).toBe(false);
+    expect(local.store.has(SCRATCHPAD_SESSION_ID)).toBe(false);
 
     // On: the pad exists, is listed, and the skill reaches set-up agents.
     expect(await setEnabled(server.url, true)).toEqual({ enabled: true });
     expect((await readReviewPreferences(devHome)).scratchpadEnabled).toBe(true);
     expect(await (await get(server.url, "/reviews-api")).json()).toMatchObject([
-      { reviewId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
+      { sessionId: SCRATCHPAD_SESSION_ID, kind: "scratchpad" },
     ]);
     expect(
       await (await get(server.url, "/reviews-api/capabilities")).json(),
     ).toMatchObject({ scratchpadEnabled: true });
     expect(
-      (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
+      (await get(server.url, `/reviews-api/${SCRATCHPAD_SESSION_ID}`)).status,
     ).toBe(200);
     expect(
       await readFile(path.join(installedSkill, "SKILL.md"), "utf8"),
@@ -130,9 +130,9 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     expect(await setEnabled(server.url, false)).toEqual({ enabled: false });
     expect(await (await get(server.url, "/reviews-api")).json()).toEqual([]);
     expect(
-      (await get(server.url, `/reviews-api/${SCRATCHPAD_REVIEW_ID}`)).status,
+      (await get(server.url, `/reviews-api/${SCRATCHPAD_SESSION_ID}`)).status,
     ).toBe(409);
-    expect(local.store.has(SCRATCHPAD_REVIEW_ID)).toBe(true);
+    expect(local.store.has(SCRATCHPAD_SESSION_ID)).toBe(true);
     expect(existsSync(installedSkill)).toBe(false);
 
     // A new server starts from the saved preference.
@@ -141,7 +141,7 @@ it("makes, lists and installs the scratchpad only while its preference is on", a
     server = serve();
     await server.listen();
     expect(await (await get(server.url, "/reviews-api")).json()).toMatchObject([
-      { reviewId: SCRATCHPAD_REVIEW_ID, kind: "scratchpad" },
+      { sessionId: SCRATCHPAD_SESSION_ID, kind: "scratchpad" },
     ]);
   } finally {
     await server.close();

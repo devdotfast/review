@@ -21,9 +21,9 @@ import {
 } from "./blocks/flow_diagram.js";
 import { type Block, blockSchema, fileLensMoved } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
-import { ReviewInputError } from "./input-error.js";
+import { SessionInputError } from "./input-error.js";
 
-export { ReviewInputError } from "./input-error.js";
+export { SessionInputError } from "./input-error.js";
 
 export { type FileLineRange, type SourcePins, fileLineRangeSchema };
 
@@ -88,7 +88,7 @@ export function anchorPins(
     };
 
   if (!documentPins)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "This source names no repository or commit, and the document has no pins.",
     );
 
@@ -108,7 +108,7 @@ export function explicitPins(references: { source: { pins?: SourcePins } }[]) {
   return [...seen.values()];
 }
 
-export const reviewTargetSchema = z.discriminatedUnion("kind", [
+export const sessionTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("worktree"),
     repositoryId: label,
@@ -122,7 +122,7 @@ export const reviewTargetSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export type ReviewTarget = z.infer<typeof reviewTargetSchema>;
+export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 
 /** Everything with an id: blocks, and the units diagrams are drawn from. */
 export type Element = Block | Step | FlowDiagramNode | FlowDiagramEdge;
@@ -139,7 +139,7 @@ export const isUnit = (element: Element): element is Unit =>
 export function traceQuoteLink(
   href: string,
 ): { traceId: string; eventId: string } | undefined {
-  const match = /^review-trace:([^#]+)#(.+)$/.exec(href);
+  const match = /^whiteboard-trace:([^#]+)#(.+)$/.exec(href);
 
   return match
     ? {
@@ -175,11 +175,11 @@ export function resourceReferences(document: Block[]): Block[] {
 
     return [...markdownNodes(parseMarkdown(block.markdown))].flatMap(
       (node): Block[] => {
-        if (node.type !== "link" || !node.url?.startsWith("review-trace:"))
+        if (node.type !== "link" || !node.url?.startsWith("whiteboard-trace:"))
           return [];
         const quote = traceQuoteLink(node.url);
 
-        if (!quote) throw new ReviewInputError("Invalid trace quote link.");
+        if (!quote) throw new SessionInputError("Invalid trace quote link.");
 
         return [{ type: "trace_quote", ...quote, text: markdownText(node) }];
       },
@@ -203,7 +203,7 @@ function documentReferences(
 }[] {
   const reject = (message: string): [] => {
     if (tolerant) return [];
-    throw new ReviewInputError(message);
+    throw new SessionInputError(message);
   };
 
   return elements(document).flatMap<{
@@ -218,25 +218,25 @@ function documentReferences(
           if (node.type !== "link") return [];
           const href = node.url ?? "";
 
-          if (!/^review-source:/i.test(href)) {
+          if (!/^whiteboard-source:/i.test(href)) {
             // Trace links are checked by resourceReferences.
-            if (href.startsWith("review-trace:")) return [];
+            if (href.startsWith("whiteboard-trace:")) return [];
 
             if (/^(?:https?:\/\/|mailto:|#)/i.test(href)) return [];
 
             return reject(
-              `Unsupported Markdown link ${JSON.stringify(href)} in block ${element.id}. Use [label](review-source:head/path#L10-L24) or review-source:base/path#L10-L24 for repository files, with a repository-relative path and verified line numbers. External links must use https://, http://, or mailto:; document anchors use #heading.`,
+              `Unsupported Markdown link ${JSON.stringify(href)} in block ${element.id}. Use [label](whiteboard-source:head/path#L10-L24) or whiteboard-source:base/path#L10-L24 for repository files, with a repository-relative path and verified line numbers. External links must use https://, http://, or mailto:; document anchors use #heading.`,
             );
           }
 
           const match =
-            /^review-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(
+            /^whiteboard-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(
               node.url!,
             );
 
           if (!match)
             return reject(
-              "Use review-source:head/path#L10-L24 (or base) for a source link.",
+              "Use whiteboard-source:head/path#L10-L24 (or base) for a source link.",
             );
           let file: string;
 
@@ -578,14 +578,14 @@ export function assignFreshIds(
   allocate: (prefix: string) => string,
 ): void {
   if (element.id !== undefined)
-    throw new ReviewInputError("IDs are assigned by the server.");
+    throw new SessionInputError("IDs are assigned by the server.");
   element.id = allocate(idPrefix(element));
 
   for (const child of children(element)) assignFreshIds(child, allocate);
 
   const assign = (item: { id?: string }, prefix: string) => {
     if (item.id !== undefined)
-      throw new ReviewInputError("IDs are assigned by the server.");
+      throw new SessionInputError("IDs are assigned by the server.");
     item.id = allocate(prefix);
   };
 
@@ -631,7 +631,7 @@ export function applyEdit(
 
     const found = find(document);
 
-    if (!found) throw new ReviewInputError(`Target ${id} does not exist.`);
+    if (!found) throw new SessionInputError(`Target ${id} does not exist.`);
 
     return found;
   };
@@ -647,13 +647,13 @@ export function applyEdit(
     const parent = parentId ? locate(parentId).element : undefined;
 
     if (parent && elements([element]).includes(parent))
-      throw new ReviewInputError("Cannot move a block inside itself.");
+      throw new SessionInputError("Cannot move a block inside itself.");
 
     if (!isUnit(element) && parent && !("children" in parent))
-      throw new ReviewInputError("Invalid parent for this element.");
+      throw new SessionInputError("Invalid parent for this element.");
 
     if (isUnit(element) && parent?.type !== unitParent[element.type])
-      throw new ReviewInputError(
+      throw new SessionInputError(
         `A ${element.type} belongs inside a ${unitParent[element.type]}.`,
       );
 
@@ -664,10 +664,10 @@ export function applyEdit(
       : document;
 
     if (afterId === element.id)
-      throw new ReviewInputError("An element cannot follow itself.");
+      throw new SessionInputError("An element cannot follow itself.");
 
     if (afterId !== undefined && !siblings.some((s) => s.id === afterId))
-      throw new ReviewInputError("afterId must identify a sibling.");
+      throw new SessionInputError("afterId must identify a sibling.");
 
     // Resolve the destination before detaching, then compute its final position.
     if (from) from.splice(from.indexOf(element), 1);
@@ -691,7 +691,7 @@ export function applyEdit(
       const { link, ...node } = edit.content;
 
       if ((link.from === undefined) === (link.to === undefined))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "A link names exactly one of from or to: the node already on the board.",
         );
       fresh(node);
@@ -724,19 +724,19 @@ export function applyEdit(
   switch (edit.type) {
     case "update": {
       if (!Object.keys(edit.changes).length)
-        throw new ReviewInputError("Supply at least one field to update.");
+        throw new SessionInputError("Supply at least one field to update.");
 
       for (const key of Object.keys(edit.changes))
         if (
           structural.has(key) ||
           ["__proto__", "constructor", "prototype"].includes(key)
         )
-          throw new ReviewInputError(
+          throw new SessionInputError(
             `Cannot patch ${key}; use structural edits or replace.`,
           );
 
       if ("link" in edit.changes)
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "A link only comes with a new node; insert a flow_edge instead.",
         );
 
@@ -770,7 +770,7 @@ export function applyEdit(
       break;
     case "replace":
       if (isUnit(element))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           `Patch the ${element.type} or replace its diagram.`,
         );
       fresh(edit.content);
@@ -784,7 +784,7 @@ export function applyEdit(
         isUnit(element) &&
         !childLists(locate(edit.parentId ?? "").element).includes(siblings)
       )
-        throw new ReviewInputError(
+        throw new SessionInputError(
           `Move a ${element.type} within its own diagram.`,
         );
       place(element, edit.parentId, edit.afterId, siblings);

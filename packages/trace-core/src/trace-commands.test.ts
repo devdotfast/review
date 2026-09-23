@@ -145,7 +145,7 @@ describe("shared trace command parsing", () => {
         expect(input).toMatchObject({
           cwd: "/repo",
           repo: "owner/repo",
-          reviewUuid: "uuid",
+          sessionId: "uuid",
           mainOnly: true,
           storage: "s3",
           json: true,

@@ -426,7 +426,7 @@ describe("trace-cli", () => {
     await expect(
       runTraceList({
         cwd: tempDir,
-        reviewUuid: "missing-review",
+        sessionId: "missing-review",
         storage: "hosted",
         stdout: collectingWritable([]),
       }),
@@ -436,7 +436,7 @@ describe("trace-cli", () => {
 
     const code = await runTracePull({
       cwd: tempDir,
-      reviewUuid: "missing-review",
+      sessionId: "missing-review",
       storage: "hosted",
       stdout: collectingWritable([]),
       stderr: collectingWritable(errors),

@@ -2,6 +2,6 @@
   {
     "id": "block-1",
     "type": "markdown",
-    "markdown": "# Order status\n\nThe status moves to [queued](review-source:head/order.ts#L1).\n"
+    "markdown": "# Order status\n\nThe status moves to [queued](whiteboard-source:head/order.ts#L1).\n"
   }
 ]

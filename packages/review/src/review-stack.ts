@@ -82,7 +82,7 @@ export async function resolveReviewStackLayers(
       branch: pr.head.ref,
       pullRequestNumber: pr.number,
       pullRequestUrl: `${repoKey}/pull/${pr.number}`,
-      reviewUuid: review?.uuid ?? null,
+      sessionId: review?.uuid ?? null,
       reviewTitle: review?.title ?? null,
       relation:
         index < currentIndex

@@ -14,7 +14,7 @@ export class ReviewLanguageEnvironmentRequests {
 
 	read(session: string, view: ReviewSourceView, side: string, load: () => Promise<ReviewLanguageEnvironment | undefined>, validate = false): Promise<ReviewLanguageEnvironment | undefined> {
 		// Source generations separate display models, not language environments.
-		const key = JSON.stringify([session, view.reviewId, view.version, side, view.commit]);
+		const key = JSON.stringify([session, view.sessionId, view.version, side, view.commit]);
 		const cached = this.pending.get(key);
 		// Post-provider validation must start AFTER that provider finished. A queued
 		// request can coalesce a wave of validations; an already-started one cannot.

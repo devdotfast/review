@@ -1,12 +1,12 @@
 import { DEFAULT_STORE_ORIGIN, readStoreAuth } from "@dev.fast/trace-core";
 
-import { ReviewInputError } from "../review-api/document.js";
+import { SessionInputError } from "../review-api/document.js";
 
 /** CI credentials stay in the server environment and are never persisted to a profile. */
 export async function readSharingAuth(env: NodeJS.ProcessEnv = process.env) {
   if (env.DEV_REVIEW_SHARE_TOKEN === undefined) {
     if (env.DEV_REVIEW_SHARE_ORIGIN !== undefined)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "DEV_REVIEW_SHARE_ORIGIN requires DEV_REVIEW_SHARE_TOKEN.",
       );
 
@@ -15,13 +15,13 @@ export async function readSharingAuth(env: NodeJS.ProcessEnv = process.env) {
 
   const token = env.DEV_REVIEW_SHARE_TOKEN.trim();
 
-  if (!token) throw new ReviewInputError("DEV_REVIEW_SHARE_TOKEN is empty.");
+  if (!token) throw new SessionInputError("DEV_REVIEW_SHARE_TOKEN is empty.");
   let url: URL;
 
   try {
     url = new URL(env.DEV_REVIEW_SHARE_ORIGIN ?? DEFAULT_STORE_ORIGIN);
   } catch {
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "DEV_REVIEW_SHARE_ORIGIN must be a bare HTTPS origin.",
     );
   }
@@ -34,7 +34,7 @@ export async function readSharingAuth(env: NodeJS.ProcessEnv = process.env) {
     url.search ||
     url.hash
   )
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "DEV_REVIEW_SHARE_ORIGIN must be a bare HTTPS origin.",
     );
 

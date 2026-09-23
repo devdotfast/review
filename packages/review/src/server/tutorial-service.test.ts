@@ -10,7 +10,7 @@ import {
   resourceReferences,
   sourceReferences,
 } from "../review-api/document";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import { createTutorialService } from "./tutorial-service";
 
 const packageRoot = path.resolve(import.meta.dirname, "../..");
@@ -30,7 +30,7 @@ async function setup() {
     recursive: true,
     filter: (source) => !source.includes("/.bundle"),
   });
-  const local = openLocalReviewStore(path.join(home, "reviews.db"));
+  const local = openLocalSessionStore(path.join(home, "reviews.db"));
   cleanups.push(async () => {
     await local.data.close();
     await local.store.close();
@@ -62,9 +62,9 @@ it("opens all shipped native evidence with retained maps and trace, without a le
     elements(snapshot.document).some((block) => block.type === "trace_quote"),
   ).toBe(true);
   await expect(
-    readFile(path.join(home, "reviews", snapshot.reviewId, "review.json")),
+    readFile(path.join(home, "reviews", snapshot.sessionId, "review.json")),
   ).rejects.toThrow("ENOENT");
-  expect((await service.status()).reviewUuid).toBe(snapshot.reviewId);
+  expect((await service.status()).sessionId).toBe(snapshot.sessionId);
 });
 
 it("refreshes changed native content even when source pins do not change", async () => {
@@ -75,24 +75,24 @@ it("refreshes changed native content even when source pins do not change", async
   authored.document.push({ type: "markdown", markdown: "An updated tour." });
   await writeFile(file, JSON.stringify(authored));
   const next = await service.prepare();
-  expect(next.reviewId).not.toBe(old.reviewId);
+  expect(next.sessionId).not.toBe(old.sessionId);
   expect(next.pins).toEqual(old.pins);
   expect(next.document.at(-1)).toMatchObject({ markdown: "An updated tour." });
-  expect(store.has(old.reviewId)).toBe(false);
+  expect(store.has(old.sessionId)).toBe(false);
 });
 
 it("repairs missing source repositories and recreates a deleted native tutorial", async () => {
   const { service, home, store } = await setup();
   const first = await service.prepare();
   await rm(path.join(home, "tutorial/sample-service"), { recursive: true });
-  expect((await service.status()).reviewUuid).toBeNull();
+  expect((await service.status()).sessionId).toBeNull();
   const repaired = await service.prepare();
-  expect(repaired.reviewId).not.toBe(first.reviewId);
-  expect(store.has(first.reviewId)).toBe(false);
+  expect(repaired.sessionId).not.toBe(first.sessionId);
+  expect(store.has(first.sessionId)).toBe(false);
   await service.cleanup();
-  expect(store.has(repaired.reviewId)).toBe(false);
+  expect(store.has(repaired.sessionId)).toBe(false);
   const fresh = await service.prepare();
-  expect(fresh.reviewId).not.toBe(repaired.reviewId);
+  expect(fresh.sessionId).not.toBe(repaired.sessionId);
 });
 
 it.each(["old", "corrupt"])(
@@ -103,12 +103,12 @@ it.each(["old", "corrupt"])(
     await writeFile(
       path.join(home, "tutorial/stamp.json"),
       kind === "old"
-        ? JSON.stringify({ version: 9, reviewUuid: old.reviewId })
+        ? JSON.stringify({ version: 9, sessionId: old.sessionId })
         : "{",
     );
     const next = await service.prepare();
-    expect(next.reviewId).not.toBe(old.reviewId);
-    expect(store.has(old.reviewId)).toBe(false);
+    expect(next.sessionId).not.toBe(old.sessionId);
+    expect(store.has(old.sessionId)).toBe(false);
   },
 );
 
@@ -129,6 +129,6 @@ it("rejects invalid shipped source references before saving a document", async (
   await expect(service.prepare()).rejects.toThrow(
     "File is unavailable at the pinned commit.",
   );
-  expect((await service.status()).reviewUuid).toBeNull();
+  expect((await service.status()).sessionId).toBeNull();
   expect(store.tutorialIds()).toEqual([]);
 });

@@ -4,23 +4,23 @@ import { gunzipSync } from "node:zlib";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ReviewStore } from "../review-api/store";
+import { SessionStore } from "../review-api/store";
 import type { ReviewTelemetry } from "../telemetry";
 import { type BugReportPayload, submitReviewBugReport } from "./bug-report";
 import { createJsonReviewReporting } from "./json-review-reporting";
 
-let store: ReviewStore;
+let store: SessionStore;
 
 afterEach(async () => store?.close());
 
 it("routes sanitized telemetry and uploads only opted-in JSON context from the displayed version", async () => {
-  store = new ReviewStore(":memory:", {
+  store = new SessionStore(":memory:", {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},
   });
   const repository = store.registerRepository(process.cwd());
-  const reviewId = randomUUID();
+  const sessionId = randomUUID();
   const pins = { repositoryId: repository.id, base: "base", head: "head" };
   const mapId = randomUUID();
   store.putResource(
@@ -31,7 +31,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     Buffer.from(JSON.stringify({ model: { title: "Original map" } })),
   );
   await store.importVersion({
-    reviewId,
+    sessionId,
     pins,
     title: "Original",
     document: [
@@ -41,7 +41,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     createdAt: "2026-01-01T00:00:00Z",
   });
   await store.importVersion({
-    reviewId,
+    sessionId,
     pins: { ...pins, head: "new-head" },
     title: "Newer",
     document: [{ type: "markdown", markdown: "Newer prose" }],
@@ -81,23 +81,23 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     body: JsonValue,
     contentType = "application/json",
   ) =>
-    app.request(`/${reviewId}/telemetry/${route}`, {
+    app.request(`/${sessionId}/telemetry/${route}`, {
       method: "POST",
       headers: { "content-type": contentType },
       body: JSON.stringify(body),
     });
 
-  const sessionId = randomUUID();
+  const appSessionId = randomUUID();
   expect(
     (
       await post("event", {
         name: "app_opened",
-        properties: { app_session_id: sessionId, secret: "drop-me" },
+        properties: { app_session_id: appSessionId, secret: "drop-me" },
       })
     ).status,
   ).toBe(200);
   expect(telemetry.captureUiEvent).toHaveBeenCalledWith("review_app_opened", {
-    app_session_id: sessionId,
+    app_session_id: appSessionId,
   });
   expect(
     (
@@ -107,7 +107,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
           tab: "review",
           reason: "pagehide",
           duration_ms: 500,
-          app_session_id: sessionId,
+          app_session_id: appSessionId,
         },
         "text/plain",
       )
@@ -117,7 +117,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     tab: "review",
     reason: "pagehide",
     durationMs: 500,
-    appSessionId: sessionId,
+    appSessionId,
   });
 
   const report = {
@@ -126,7 +126,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     include_map: true,
     include_diff: false,
     include_trace: false,
-    app_session_id: sessionId,
+    app_session_id: appSessionId,
     app_version: "1.0.0",
   };
 
@@ -152,7 +152,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
 });
 
 it("rejects shared telemetry when the shared store is unavailable", async () => {
-  store = new ReviewStore(":memory:", {
+  store = new SessionStore(":memory:", {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},

@@ -10,7 +10,7 @@ import {
 
 const injectedConfig = {
   serverUrl: "http://127.0.0.1:5570",
-  reviewId: "desktop-session",
+  sessionId: "desktop-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
   appVersion: "0.0.13",

@@ -11,9 +11,9 @@ describe("agent markdown", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownContent, {
         source:
-          "# [**Save**][source]\n\n[old](review-source:base/file.ts#L1)\n\n[source]: review-source:head/file.ts#L2\n\n[web](https://example.com) [unsafe](javascript:alert(1))",
+          "# [**Save**][source]\n\n[old](whiteboard-source:base/file.ts#L1)\n\n[source]: whiteboard-source:head/file.ts#L2\n\n[web](https://example.com) [unsafe](javascript:alert(1))",
         renderLink: (href, children) => {
-          if (!href.startsWith("review-source:")) return undefined;
+          if (!href.startsWith("whiteboard-source:")) return undefined;
           seen.push(href);
 
           return createElement("button", { type: "button" }, children);
@@ -22,8 +22,8 @@ describe("agent markdown", () => {
     );
 
     expect(seen).toEqual([
-      "review-source:head/file.ts#L2",
-      "review-source:base/file.ts#L1",
+      "whiteboard-source:head/file.ts#L2",
+      "whiteboard-source:base/file.ts#L1",
     ]);
     expect(html).toContain(
       '<button type="button"><strong>Save</strong></button>',
@@ -33,7 +33,7 @@ describe("agent markdown", () => {
 
     const chat = renderToStaticMarkup(
       createElement(AgentMarkdown, {
-        source: "[unvalidated](review-source:head/file.ts#L2)",
+        source: "[unvalidated](whiteboard-source:head/file.ts#L2)",
       }),
     );
 

@@ -14,7 +14,7 @@ import {
   comparisonKey,
   selectionKey,
 } from "../../src/lens-selection";
-import type { ReviewApiClient } from "../../src/review-api/client";
+import type { SessionApiClient } from "../../src/review-api/client";
 import {
   type Lens,
   UNCATEGORIZED_LENS_ID,
@@ -73,7 +73,7 @@ export function ReviewLensesProvider({
   coverageRevision = 0,
   children,
 }: {
-  client: ReviewApiClient;
+  client: SessionApiClient;
   snapshot: Snapshot;
   structuralDiffEnabled?: boolean;
   coverageRevision?: number;
@@ -92,7 +92,7 @@ export function ReviewLensesProvider({
   const generation = useRef(0);
   const pending = useRef(false);
   const mode = structuralDiffEnabled ? "structural" : "textual";
-  const route = `/${snapshot.reviewId}/progress`;
+  const route = `/${snapshot.sessionId}/progress`;
   useEffect(() => {
     generation.current++;
     pending.current = false;
@@ -152,7 +152,7 @@ export function ReviewLensesProvider({
         ? {
             id: item.id,
             title: item.title,
-            reviewId: snapshot.reviewId,
+            sessionId: snapshot.sessionId,
             version: snapshot.version,
             // SAFETY: scopeKey was produced from item.sources, which are validated file ranges.
             ranges: JSON.parse(scopeKey) as FileLineRange[],
@@ -164,7 +164,7 @@ export function ReviewLensesProvider({
       item?.id,
       item?.title,
       item?.wholeFiles,
-      snapshot.reviewId,
+      snapshot.sessionId,
       snapshot.version,
       scopeKey,
     ],

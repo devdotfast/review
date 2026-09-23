@@ -8,7 +8,7 @@ const REDUNDANT_HEADER = /^(index |--- |\+\+\+ )/;
  * numbers, so a reader can cite lines without counting from the `@@` header:
  *
  *      95  96         409,
- *          99 +   extend(reviewId: string): boolean {
+ *          99 +   extend(sessionId: string): boolean {
  *     120     -   old line
  *
  * `diff --git`, `@@` and mode/rename/binary lines pass through; `index`,

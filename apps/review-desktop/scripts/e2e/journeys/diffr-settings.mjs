@@ -74,7 +74,7 @@ export async function run(ctx) {
   async function comparison() {
     const response = await fetch(
       new URL(
-        `/reviews-api/${review.reviewId}/structural-diff`,
+        `/reviews-api/${review.sessionId}/structural-diff`,
         ctx.discovery.url,
       ),
       {

@@ -14,7 +14,7 @@ import {
 } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
-import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
+import { SessionApiClient, SessionApiError } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
@@ -60,7 +60,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins?.worktreeRevision ?? ""}`}
+      revision={`${data.snapshot.sessionId}:${data.snapshot.version}:${data.snapshot.pins?.worktreeRevision ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -81,7 +81,7 @@ export function ApiCanvas({
   findHost?: ReviewFindHost;
 }) {
   const client = useMemo(
-    () => new ReviewApiClient(content.bridge.config, content.bridge.request),
+    () => new SessionApiClient(content.bridge.config, content.bridge.request),
     [content.bridge],
   );
 
@@ -115,7 +115,7 @@ export function ApiCanvas({
 
       // Native source widgets must use these pins on their first mount.
       const key = JSON.stringify([
-        snapshot.reviewId,
+        snapshot.sessionId,
         snapshot.pins,
         version === undefined ? "current" : version,
       ]);
@@ -125,8 +125,8 @@ export function ApiCanvas({
 
       content.setSourceView?.(
         version === undefined
-          ? { reviewId: snapshot.reviewId, kind: "current" }
-          : { reviewId: snapshot.reviewId, kind: "version", version },
+          ? { sessionId: snapshot.sessionId, kind: "current" }
+          : { sessionId: snapshot.sessionId, kind: "version", version },
         resolveReviewSourceView({
           ...snapshot,
           version: sourceRef.current.version,
@@ -142,7 +142,7 @@ export function ApiCanvas({
         try {
           await show(
             await client.read(
-              `/${content.reviewId}?full=true&version=${version}`,
+              `/${content.sessionId}?full=true&version=${version}`,
               abort.signal,
             ),
           );
@@ -155,7 +155,7 @@ export function ApiCanvas({
       await client.follow<
         Snapshot & { activity: ActivitySnapshot; coverageRevision?: number }
       >(
-        content.reviewId,
+        content.sessionId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
@@ -212,7 +212,7 @@ export function ApiCanvas({
           );
 
           if (
-            cause instanceof ReviewApiError &&
+            cause instanceof SessionApiError &&
             [401, 403, 404].includes(cause.status)
           ) {
             setError(cause.message);
@@ -231,7 +231,7 @@ export function ApiCanvas({
       abort.abort();
       loader.dispose();
     };
-  }, [client, content.reviewId, version]);
+  }, [client, content.sessionId, version]);
 
   const nativeSources = useMemo(
     () => ({
@@ -262,7 +262,7 @@ export function ApiCanvas({
 
     const session = createReviewSession(bridge, {
       jsonReview: {
-        id: content.reviewId,
+        id: content.sessionId,
         version: () => dataRef.current?.snapshot.version,
       },
     });
@@ -272,7 +272,7 @@ export function ApiCanvas({
         ?.pinnedData;
 
     return session;
-  }, [content.bridge, content.reviewId, nativeSources]);
+  }, [content.bridge, content.sessionId, nativeSources]);
 
   const session = useMemo(() => {
     if (!data) return baseSession;
@@ -296,7 +296,7 @@ export function ApiCanvas({
         listVersions: async () => {
           const history = await client.read<
             { version: number; createdAt: string }[]
-          >(`/${content.reviewId}/history`);
+          >(`/${content.sessionId}/history`);
 
           return history.map((item) => ({
             revision: String(item.version),
@@ -307,7 +307,7 @@ export function ApiCanvas({
         stack: async (signal: AbortSignal) =>
           parseReviewStackResponse(
             await client.read(
-              `/${snapshot.reviewId}/stack?version=${snapshot.version}`,
+              `/${snapshot.sessionId}/stack?version=${snapshot.version}`,
               signal,
             ),
           ).layers,
@@ -316,14 +316,14 @@ export function ApiCanvas({
             commandId: crypto.randomUUID(),
             operation: {
               type: "attention",
-              reviewId: content.reviewId,
+              sessionId: content.sessionId,
               action: "dismiss",
             },
           });
         },
       },
     };
-  }, [baseSession, client, content.reviewId, data, version]);
+  }, [baseSession, client, content.sessionId, data, version]);
 
   useEffect(() => {
     if (data) content.bridge.ready();
@@ -338,12 +338,12 @@ export function ApiCanvas({
       data
         ? {
             client,
-            reviewId: content.reviewId,
+            sessionId: content.sessionId,
             version: data.snapshot.version,
             sender: data.snapshot.shared?.login,
           }
         : null,
-    [client, content.reviewId, data],
+    [client, content.sessionId, data],
   );
 
   // Loads are near-instant, so stay blank until there is data or an error.
@@ -422,9 +422,9 @@ const CanvasDocument = memo(function CanvasDocument({
   const snapshot = data.snapshot;
 
   const document: RenderedReviewDocument = {
-    key: snapshot.reviewId,
+    key: snapshot.sessionId,
     routePath: "/",
-    filePath: `review:${snapshot.reviewId}`,
+    filePath: `review:${snapshot.sessionId}`,
     documentSoftwareModels: [...data.maps.values()],
     anchors: data.anchors,
     render: DocumentBody,

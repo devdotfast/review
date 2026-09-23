@@ -22,7 +22,7 @@ import {
 } from "../viewed-coverage.js";
 import type { Pins } from "./document.js";
 import { textualRows } from "./lens-alignment.js";
-import type { LocalReviewData } from "./local-data.js";
+import type { LocalSessionData } from "./local-data.js";
 
 export type CoverageMode = "structural" | "textual";
 
@@ -37,8 +37,8 @@ export interface ComparisonCoverage {
 
 /** Immutable comparison facts shared by catalog totals and review progress. */
 export async function comparisonCoverage(
-  data: LocalReviewData,
-  reviewId: string,
+  data: LocalSessionData,
+  sessionId: string,
   pins: Pins,
   mode: CoverageMode,
   signal: AbortSignal,
@@ -142,7 +142,7 @@ export async function comparisonCoverage(
     const remaining = new Set<string>();
 
     for await (const event of data.structuralChanges({
-      reviewId,
+      sessionId,
       pins,
       signal,
     })) {

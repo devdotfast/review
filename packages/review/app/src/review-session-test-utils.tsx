@@ -16,7 +16,7 @@ import {
 
 export const TEST_REVIEW_CONFIG = {
   serverUrl: "http://127.0.0.1:5570",
-  reviewId: "test-session",
+  sessionId: "test-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
   appVersion: "0.0.13",
@@ -64,7 +64,7 @@ export function testReviewSession(
   return {
     ...createReviewSession(testReviewBridge(config, bridge), {
       jsonReview: {
-        id: config.reviewId ?? "test-review",
+        id: config.sessionId ?? "test-review",
         version: () => undefined,
       },
     }),
@@ -84,7 +84,7 @@ export function testReviewSession(
 export function testApiDocumentData(blocks: Block[]): ApiDocumentData {
   return {
     snapshot: {
-      reviewId: "11111111-1111-4111-8111-111111111111",
+      sessionId: "11111111-1111-4111-8111-111111111111",
       version: 1,
       title: "Imported",
       pins: { repositoryId: "repo", base: "base", head: "head" },

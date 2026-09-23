@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ReviewInputError, documentSchema } from "../document.js";
+import { SessionInputError, documentSchema } from "../document.js";
 import {
   type BlockType,
   type Definitions,
@@ -76,7 +76,7 @@ describe("block definitions", () => {
       };
 
       expect(() => checkReferences([broken])).toThrow(
-        new ReviewInputError("Unknown component name: ghost"),
+        new SessionInputError("Unknown component name: ghost"),
       );
     });
     it("call_stack_diff: frame keys are unique per side", async () => {
@@ -88,7 +88,7 @@ describe("block definitions", () => {
       };
 
       expect(() => checkReferences([broken])).toThrow(
-        new ReviewInputError("Frame keys must be unique within head."),
+        new SessionInputError("Frame keys must be unique within head."),
       );
     });
     it("call_stack_diff: columns can compare paths in the same pinned snapshot", async () => {
@@ -137,7 +137,7 @@ describe("block definitions", () => {
         };
 
         expect(() => checkReferences([broken])).toThrow(
-          new ReviewInputError(message),
+          new SessionInputError(message),
         );
       },
     );
@@ -172,7 +172,7 @@ describe("block definitions", () => {
       };
 
       expect(() => checkReferences([broken])).toThrow(
-        new ReviewInputError("Unknown component name: missing"),
+        new SessionInputError("Unknown component name: missing"),
       );
     });
   });

@@ -202,7 +202,7 @@ try {
   await page
     .getByText("Sharing pinned commits", { exact: true })
     .waitFor({ timeout: 60000 });
-  await api(`/${fixture.reviewId}/open`, {});
+  await api(`/${fixture.sessionId}/open`, {});
   await page
     .getByText("A portable review", { exact: true })
     .waitFor({ timeout: 60000 });
@@ -273,7 +273,7 @@ try {
     };
 
     const location = {
-      uri: `review-api-source://${fixture.reviewId}/answer.ts?version=${fixture.version}&side=head`,
+      uri: `review-api-source://${fixture.sessionId}/answer.ts?version=${fixture.version}&side=head`,
       line: 0,
       character: 18,
     };
@@ -301,18 +301,18 @@ try {
   }
 
   const source = await api(
-    `/${fixture.reviewId}/file?side=head&file=${encodeURIComponent(fixture.sourceFile)}`,
+    `/${fixture.sessionId}/file?side=head&file=${encodeURIComponent(fixture.sourceFile)}`,
   );
 
   assert.ok(source.text.includes(fixture.sourceText));
-  const summary = await api(`/${fixture.reviewId}?full=true`);
+  const summary = await api(`/${fixture.sessionId}?full=true`);
   assert.equal(summary.version, fixture.version);
   await writeFile(
     path.join(root, "report.json"),
     JSON.stringify(
       {
         root,
-        reviewId: fixture.reviewId,
+        sessionId: fixture.sessionId,
         checks: [
           "actual Desktop canvas",
           "native pinned source",

@@ -32,14 +32,14 @@ export class ReviewBusyError extends Error {
   override readonly name = "ReviewBusyError";
   readonly code = "REVIEW_BUSY";
   readonly retryable = true;
-  readonly reviewUuid: string;
+  readonly sessionId: string;
 
   constructor(reviewDir: string) {
-    const reviewUuid = path.basename(reviewDir);
+    const sessionId = path.basename(reviewDir);
     super(
-      `Review ${reviewUuid} is busy. Retry after its current operation completes.`,
+      `Review ${sessionId} is busy. Retry after its current operation completes.`,
     );
-    this.reviewUuid = reviewUuid;
+    this.sessionId = sessionId;
   }
 }
 

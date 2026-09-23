@@ -30,7 +30,7 @@ import { removeReviewPrepareArtifacts } from "./review-prepare.js";
 export async function ensureReviewPinnedCheckout(input: {
   rootPath: string;
   ref: string;
-  reviewUuid: string;
+  sessionId: string;
   role?: ReviewCheckoutRole;
 }): Promise<string | null> {
   const target = await resolveReviewPinnedCheckout({
@@ -64,7 +64,7 @@ export async function ensureReviewPinnedCheckout(input: {
 async function resolveReviewPinnedCheckout(input: {
   rootPath: string;
   ref: string;
-  reviewUuid: string;
+  sessionId: string;
   role: ReviewCheckoutRole;
 }): Promise<{ checkoutPath: string; commit: string } | null> {
   const commit = await resolveReviewPinnedCommit(input.rootPath, input.ref);
@@ -77,7 +77,7 @@ async function resolveReviewPinnedCheckout(input: {
   return {
     checkoutPath: reviewManagedCheckoutDir(
       commonDir,
-      input.reviewUuid,
+      input.sessionId,
       input.role ?? "head",
       commit,
     ),
@@ -130,7 +130,7 @@ async function materializeReviewPinnedCheckout(input: {
 // was actually removed.
 export async function removeReviewPinnedCheckout(input: {
   rootPath: string;
-  reviewUuid: string;
+  sessionId: string;
   checkoutPath: string;
 }): Promise<boolean> {
   const commonDir = await gitCommonDir(input.rootPath);
@@ -141,7 +141,7 @@ export async function removeReviewPinnedCheckout(input: {
   if (
     !isInsideDirectory(
       target,
-      reviewManagedCheckoutRoot(commonDir, input.reviewUuid),
+      reviewManagedCheckoutRoot(commonDir, input.sessionId),
     )
   ) {
     return false;
@@ -161,12 +161,12 @@ export async function removeReviewPinnedCheckout(input: {
 /** Remove all persistent checkouts for one deleted Review. */
 export async function removeReviewManagedCheckouts(input: {
   rootPath: string;
-  reviewUuid: string;
+  sessionId: string;
 }): Promise<number> {
   const commonDir = await gitCommonDir(input.rootPath);
 
   if (!commonDir) return 0;
-  const reviewRoot = reviewManagedCheckoutRoot(commonDir, input.reviewUuid);
+  const reviewRoot = reviewManagedCheckoutRoot(commonDir, input.sessionId);
   const worktrees = await listRegisteredWorktrees(input.rootPath);
   let removed = 0;
 
@@ -264,15 +264,15 @@ export async function reviewUuidForManagedCheckout(
     return null;
   }
 
-  const [reviewUuid, role, commit] = relative.split(path.sep);
+  const [sessionId, role, commit] = relative.split(path.sep);
 
-  if (!reviewUuid || !isReviewUuid(reviewUuid)) return null;
+  if (!sessionId || !isReviewUuid(sessionId)) return null;
 
   if (role !== "head" && role !== "base") return null;
 
   if (!commit) return null;
 
-  return reviewUuid;
+  return sessionId;
 }
 
 // Resolve a pinned ref to a commit. Prefer the jj-first local-vcs

@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Block } from "./document.js";
-import { type ReviewProviders, ReviewStore } from "./store.js";
+import { type SessionProviders, SessionStore } from "./store.js";
 
 const pins = {
   repositoryId: "repo",
@@ -17,20 +17,20 @@ const pins = {
 
 const id = "11111111-1111-4111-8111-111111111111";
 
-let directory: string, store: ReviewStore, providers: ReviewProviders;
+let directory: string, store: SessionStore, providers: SessionProviders;
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-import-"));
 
   providers = {
-    validatePins: vi.fn<ReviewProviders["validatePins"]>(async () => {}),
-    validateSource: vi.fn<ReviewProviders["validateSource"]>(async () => {}),
-    validateResource: vi.fn<ReviewProviders["validateResource"]>(
+    validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
+    validateSource: vi.fn<SessionProviders["validateSource"]>(async () => {}),
+    validateResource: vi.fn<SessionProviders["validateResource"]>(
       async () => {},
     ),
   };
 
-  store = new ReviewStore(path.join(directory, "reviews.db"), providers);
+  store = new SessionStore(path.join(directory, "sessions.db"), providers);
 });
 
 afterEach(async () => {
@@ -46,7 +46,7 @@ describe("importVersion", () => {
     );
 
     await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "Imported",
       pins,
       document,
@@ -62,7 +62,7 @@ describe("importVersion", () => {
     expect(store.has(id)).toBe(false);
 
     const result = await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "Imported",
       pins,
       document: [
@@ -94,14 +94,14 @@ describe("importVersion", () => {
     expect(
       (snapshot.document[0] as { children: Block[] }).children[0]!.id,
     ).toBe("block-2");
-    const listed = store.list().find((row) => row.reviewId === id)!;
+    const listed = store.list().find((row) => row.sessionId === id)!;
     expect(listed.viewedAt).toBe("2026-01-03T00:00:00.000Z");
     expect(listed.origin?.pullRequestNumber).toBe(42);
   });
 
   it("appends versions for an existing review and keeps ids unique", async () => {
     await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "v0",
       pins,
       document: [{ type: "divider" }],
@@ -109,7 +109,7 @@ describe("importVersion", () => {
     });
 
     const result = await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "v1",
       pins,
       document: [{ type: "divider" }, { type: "divider" }],
@@ -117,12 +117,12 @@ describe("importVersion", () => {
     });
 
     expect(result.version).toBe(1);
-    expect(store.list().find((review) => review.reviewId === id)).toMatchObject(
-      {
-        firstCreatedAt: "2026-01-01T00:00:00.000Z",
-        createdAt: "2026-01-05T00:00:00.000Z",
-      },
-    );
+    expect(
+      store.list().find((review) => review.sessionId === id),
+    ).toMatchObject({
+      firstCreatedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-05T00:00:00.000Z",
+    });
     expect(store.read(id).title).toBe("v1");
     expect(store.read(id).document.map((block) => block.id)).toEqual([
       "block-2",
@@ -135,24 +135,24 @@ describe("importVersion", () => {
 
   it("notifies catalog and document subscribers", async () => {
     const catalog = vi.fn<() => void>();
-    const documents = vi.fn<Parameters<ReviewStore["subscribe"]>[0]>();
+    const documents = vi.fn<Parameters<SessionStore["subscribe"]>[0]>();
     store.subscribeCatalog(catalog);
     store.subscribe(documents);
     await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "v0",
       pins,
       document: [],
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(catalog).toHaveBeenCalledTimes(1);
-    expect(documents).toHaveBeenCalledWith({ reviewId: id, version: 0 });
+    expect(documents).toHaveBeenCalledWith({ sessionId: id, version: 0 });
   });
 
   it("rejects blocks that carry ids", async () => {
     await expect(
       store.importVersion({
-        reviewId: id,
+        sessionId: id,
         title: "Ids",
         pins,
         document: [{ id: "x", type: "divider" }],
@@ -164,7 +164,7 @@ describe("importVersion", () => {
 
   it("leaves the map cursor for the importer to record", async () => {
     await store.importVersion({
-      reviewId: id,
+      sessionId: id,
       title: "Imported",
       pins,
       document: [],
@@ -182,15 +182,15 @@ describe("importVersion", () => {
     const file = path.join(directory, "legacy.db");
     const legacy = new DatabaseSync(file);
     legacy.exec(
-      "CREATE TABLE legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL)",
+      "CREATE TABLE legacy_imports(session_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL)",
     );
     legacy
       .prepare(
-        "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?)",
+        "INSERT INTO legacy_imports(session_id,revision,imported_at) VALUES(?,?,?)",
       )
       .run(id, "rev-1", "2026-01-01T00:00:00.000Z");
     legacy.close();
-    const upgraded = new ReviewStore(file, providers);
+    const upgraded = new SessionStore(file, providers);
 
     try {
       expect(upgraded.legacyImport(id)).toEqual({
@@ -214,14 +214,14 @@ describe("importVersion", () => {
     await expect(
       store.importVersions([
         {
-          reviewId: id,
+          sessionId: id,
           title: "v0",
           pins,
           document: [{ type: "divider" }],
           createdAt: "2026-01-01T00:00:00.000Z",
         },
         {
-          reviewId: id,
+          sessionId: id,
           title: "v1",
           pins,
           document: [{ id: "x", type: "divider" }],
@@ -266,7 +266,7 @@ it("lists linked worktrees under one repository without changing source pins", a
 
   for (const [index, repository] of [mainRepo, linkedRepo].entries()) {
     await store.importVersion({
-      reviewId: `worktree-${index}`,
+      sessionId: `worktree-${index}`,
       title: `Review ${index}`,
       pins: { ...pins, repositoryId: repository.id },
       document: [],
@@ -293,7 +293,7 @@ it("lists linked worktrees under one repository without changing source pins", a
 
   // A new catalog session sees the remote shared imports use, including on old records.
   await store.close();
-  store = new ReviewStore(path.join(directory, "reviews.db"), providers);
+  store = new SessionStore(path.join(directory, "sessions.db"), providers);
 
   expect(store.list().map((review) => review.repositoryGroup)).toEqual([
     {

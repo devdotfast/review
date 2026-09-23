@@ -9,30 +9,30 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { selectSource } from "../lens-selection.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { authoringTools } from "./authoring-tools.js";
-import { ReviewApiClient } from "./client.js";
+import { SessionApiClient } from "./client.js";
 import { documentText } from "./document-text.js";
-import { createReviewApi } from "./http.js";
-import { LocalReviewData } from "./local-data.js";
-import { type ReviewProviders, ReviewStore } from "./store.js";
+import { createSessionApi } from "./http.js";
+import { LocalSessionData } from "./local-data.js";
+import { type SessionProviders, SessionStore } from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
 
-let directory: string, database: string, store: ReviewStore;
+let directory: string, database: string, store: SessionStore;
 
-let providers: ReviewProviders;
+let providers: SessionProviders;
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-lenses-"));
   database = path.join(directory, "reviews.db");
   vi.stubEnv("DEV_REVIEW_HOME", directory);
   providers = {
-    validatePins: vi.fn<ReviewProviders["validatePins"]>(async () => {}),
-    validateSource: vi.fn<ReviewProviders["validateSource"]>(async () => {}),
-    validateResource: vi.fn<ReviewProviders["validateResource"]>(
+    validatePins: vi.fn<SessionProviders["validatePins"]>(async () => {}),
+    validateSource: vi.fn<SessionProviders["validateSource"]>(async () => {}),
+    validateResource: vi.fn<SessionProviders["validateResource"]>(
       async () => {},
     ),
   };
-  store = new ReviewStore(database, providers);
+  store = new SessionStore(database, providers);
 });
 
 afterEach(async () => {
@@ -47,14 +47,14 @@ const run = <Operation>(operation: Operation, leaseId?: string) =>
 
 const create = () => run({ type: "create", title: "Lenses", pins });
 
-const lens = <Edit>(reviewId: string, edit: Edit, leaseId?: string) =>
-  run({ type: "lens", reviewId, edit }, leaseId);
+const lens = <Edit>(sessionId: string, edit: Edit, leaseId?: string) =>
+  run({ type: "lens", sessionId, edit }, leaseId);
 
-const markdown = (reviewId: string, text: string, leaseId?: string) =>
+const markdown = (sessionId: string, text: string, leaseId?: string) =>
   run(
     {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: { type: "insert", content: { type: "markdown", markdown: text } },
     },
     leaseId,
@@ -63,61 +63,61 @@ const markdown = (reviewId: string, text: string, leaseId?: string) =>
 const files = (...patterns: string[]) => [{ kind: "files", patterns }];
 
 it("inserts, updates and removes one lens at a time beside the document", async () => {
-  const { reviewId } = await create();
-  await markdown(reviewId, "Why this change");
+  const { sessionId } = await create();
+  await markdown(sessionId, "Why this change");
 
-  const api = await lens(reviewId, {
+  const api = await lens(sessionId, {
     type: "insert",
     title: "API",
     targets: files("src/api/**"),
   });
 
   expect(api).toMatchObject({ targetId: "lens-2", type: "lens" });
-  expect(store.read(reviewId).lastEdit).toEqual({
+  expect(store.read(sessionId).lastEdit).toEqual({
     type: "insert",
     targetId: "lens-2",
     blockId: "lens-2",
     kind: "lens",
   });
 
-  const tests = await lens(reviewId, {
+  const tests = await lens(sessionId, {
     type: "insert",
     title: "Tests",
     targets: files("**/*.test.ts"),
   });
 
-  const docs = await lens(reviewId, {
+  const docs = await lens(sessionId, {
     type: "insert",
     title: "Docs",
     targets: files("docs/**"),
     afterId: api.targetId,
   });
 
-  expect(store.read(reviewId).lenses?.map((item) => item.title)).toEqual([
+  expect(store.read(sessionId).lenses?.map((item) => item.title)).toEqual([
     "API",
     "Docs",
     "Tests",
   ]);
 
-  await lens(reviewId, {
+  await lens(sessionId, {
     type: "update",
     targetId: docs.targetId,
     title: "Documentation",
   });
-  expect(store.read(reviewId).lenses?.[1]).toEqual({
+  expect(store.read(sessionId).lenses?.[1]).toEqual({
     id: docs.targetId,
     title: "Documentation",
     targets: files("docs/**"),
   });
-  expect(store.read(reviewId).lastEdit).toMatchObject({
+  expect(store.read(sessionId).lastEdit).toMatchObject({
     type: "update",
     targetId: docs.targetId,
     kind: "lens",
     fields: ["title"],
   });
 
-  await lens(reviewId, { type: "remove", targetId: tests.targetId });
-  const current = store.read(reviewId);
+  await lens(sessionId, { type: "remove", targetId: tests.targetId });
+  const current = store.read(sessionId);
   expect(current.lenses?.map((item) => item.id)).toEqual([
     api.targetId,
     docs.targetId,
@@ -131,21 +131,21 @@ it("inserts, updates and removes one lens at a time beside the document", async 
   expect(documentText(current)).toContain(`[${docs.targetId}] Documentation`);
 
   await expect(
-    lens(reviewId, { type: "update", targetId: "lens-99", title: "Nope" }),
+    lens(sessionId, { type: "update", targetId: "lens-99", title: "Nope" }),
   ).rejects.toThrow(/does not exist/);
   await expect(
-    lens(reviewId, { type: "update", targetId: api.targetId }),
+    lens(sessionId, { type: "update", targetId: api.targetId }),
   ).rejects.toThrow(/title or targets/);
 });
 
 it("keeps lenses in history, restores them, and replays a lens command's receipt", async () => {
-  const { reviewId } = await create();
+  const { sessionId } = await create();
 
   const command = {
     commandId: randomUUID(),
     operation: {
       type: "lens",
-      reviewId,
+      sessionId,
       edit: { type: "insert", title: "API", targets: files("src/**") },
     },
   };
@@ -153,21 +153,21 @@ it("keeps lenses in history, restores them, and replays a lens command's receipt
   const first = await store.execute(command);
   expect(await store.execute(command)).toEqual(first);
 
-  await lens(reviewId, { type: "remove", targetId: first.targetId });
-  expect(store.read(reviewId).lenses).toBeUndefined();
-  expect(store.read(reviewId, first.version).lenses).toHaveLength(1);
+  await lens(sessionId, { type: "remove", targetId: first.targetId });
+  expect(store.read(sessionId).lenses).toBeUndefined();
+  expect(store.read(sessionId, first.version).lenses).toHaveLength(1);
 
-  await run({ type: "restore", reviewId, version: first.version });
-  expect(store.read(reviewId).lenses).toEqual([
+  await run({ type: "restore", sessionId, version: first.version });
+  expect(store.read(sessionId).lenses).toEqual([
     { id: first.targetId, title: "API", targets: files("src/**") },
   ]);
 });
 
 it("validates a lens's pinned ranges like any other source link", async () => {
-  const { reviewId } = await create();
+  const { sessionId } = await create();
   const range = { side: "head" as const, file: "a.ts", fromLine: 2, toLine: 4 };
 
-  await lens(reviewId, {
+  await lens(sessionId, {
     type: "insert",
     title: "Range",
     targets: [{ kind: "ranges", sources: [selectSource(range)] }],
@@ -178,14 +178,14 @@ it("validates a lens's pinned ranges like any other source link", async () => {
 });
 
 it("lets a lenses lease write lenses while another session holds the document", async () => {
-  const { reviewId } = await create();
+  const { sessionId } = await create();
 
   const writer = randomUUID(),
     lensWriter = randomUUID();
 
-  store.activity.update(reviewId, { action: "begin", leaseId: writer });
+  store.activity.update(sessionId, { action: "begin", leaseId: writer });
   expect(
-    store.activity.update(reviewId, {
+    store.activity.update(sessionId, {
       action: "begin",
       leaseId: lensWriter,
       scope: "lenses",
@@ -205,52 +205,52 @@ it("lets a lenses lease write lenses while another session holds the document", 
 
   // Each writes in its own scope, concurrently.
   await Promise.all([
-    markdown(reviewId, "Overview", writer),
+    markdown(sessionId, "Overview", writer),
     lens(
-      reviewId,
+      sessionId,
       { type: "insert", title: "API", targets: files("src/**") },
       lensWriter,
     ),
   ]);
-  expect(store.read(reviewId).document).toHaveLength(1);
-  expect(store.read(reviewId).lenses).toHaveLength(1);
+  expect(store.read(sessionId).document).toHaveLength(1);
+  expect(store.read(sessionId).lenses).toHaveLength(1);
 
   // Neither lease writes the other's scope, and no lease writes neither.
-  await expect(markdown(reviewId, "Not mine", lensWriter)).rejects.toThrow(
+  await expect(markdown(sessionId, "Not mine", lensWriter)).rejects.toThrow(
     /another session/,
   );
   await expect(
     lens(
-      reviewId,
+      sessionId,
       { type: "insert", title: "Docs", targets: files("docs/**") },
       writer,
     ),
   ).rejects.toThrow(/lenses are being authored by another session/);
   await expect(
-    lens(reviewId, {
+    lens(sessionId, {
       type: "insert",
       title: "Docs",
       targets: files("docs/**"),
     }),
   ).rejects.toThrow(/another session/);
-  await expect(markdown(reviewId, "Anonymous")).rejects.toThrow(
+  await expect(markdown(sessionId, "Anonymous")).rejects.toThrow(
     /another session/,
   );
 
   // A lens write needs the lenses lease itself, not the document's.
-  store.activity.update(reviewId, {
+  store.activity.update(sessionId, {
     action: "end",
     leaseId: lensWriter,
     scope: "lenses",
   });
   await expect(
     lens(
-      reviewId,
+      sessionId,
       { type: "insert", title: "Docs", targets: files("docs/**") },
       writer,
     ),
   ).rejects.toThrow(/No live lenses lease/);
-  expect(store.activity.read(reviewId)).toMatchObject({
+  expect(store.activity.read(sessionId)).toMatchObject({
     workingCount: 1,
     scopes: ["document"],
   });
@@ -258,34 +258,34 @@ it("lets a lenses lease write lenses while another session holds the document", 
 
 it("renews only the lease whose scope a write lands in", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
-  const { reviewId } = await create();
+  const { sessionId } = await create();
 
   const writer = randomUUID(),
     lensWriter = randomUUID();
 
-  store.activity.update(reviewId, { action: "begin", leaseId: writer });
-  store.activity.update(reviewId, {
+  store.activity.update(sessionId, { action: "begin", leaseId: writer });
+  store.activity.update(sessionId, {
     action: "begin",
     leaseId: lensWriter,
     scope: "lenses",
   });
   vi.advanceTimersByTime(120_000);
   await lens(
-    reviewId,
+    sessionId,
     { type: "insert", title: "API", targets: files("src/**") },
     lensWriter,
   );
   vi.advanceTimersByTime(90_000);
 
   // The document lease lapsed; the lens write kept the lenses lease alive.
-  expect(store.activity.read(reviewId)).toMatchObject({
+  expect(store.activity.read(sessionId)).toMatchObject({
     workingCount: 1,
     scopes: ["lenses"],
   });
 });
 
 it("reads lenses saved as document blocks as the snapshot's lenses", async () => {
-  const { reviewId, version } = await create();
+  const { sessionId, version } = await create();
 
   const legacy = [
     { type: "markdown", id: "markdown-1", markdown: "Intro" },
@@ -313,12 +313,12 @@ it("reads lenses saved as document blocks as the snapshot's lenses", async () =>
 
   const db = new DatabaseSync(database);
   db.prepare(
-    "UPDATE versions SET snapshot=json_set(snapshot,'$.document',json(?)) WHERE review_id=? AND version=?",
-  ).run(JSON.stringify(legacy), reviewId, version);
-  db.prepare("UPDATE reviews SET next_id=5 WHERE id=?").run(reviewId);
+    "UPDATE versions SET snapshot=json_set(snapshot,'$.document',json(?)) WHERE session_id=? AND version=?",
+  ).run(JSON.stringify(legacy), sessionId, version);
+  db.prepare("UPDATE sessions SET next_id=5 WHERE id=?").run(sessionId);
   db.close();
 
-  const read = store.read(reviewId);
+  const read = store.read(sessionId);
   expect(read.lenses).toEqual([
     { id: "files-2", title: "Tests", targets: files("**/*.test.ts") },
     { id: "files-4", title: "API", targets: files("src/api/**") },
@@ -330,7 +330,7 @@ it("reads lenses saved as document blocks as the snapshot's lenses", async () =>
   ]);
 
   // The next write saves them beside the document, ids and all.
-  await lens(reviewId, {
+  await lens(sessionId, {
     type: "update",
     targetId: "files-4",
     targets: files("src/api/**", "src/server/**"),
@@ -341,9 +341,9 @@ it("reads lenses saved as document blocks as the snapshot's lenses", async () =>
     String(
       raw
         .prepare(
-          "SELECT snapshot FROM versions WHERE review_id=? ORDER BY version DESC LIMIT 1",
+          "SELECT snapshot FROM versions WHERE session_id=? ORDER BY version DESC LIMIT 1",
         )
-        .get(reviewId)!.snapshot,
+        .get(sessionId)!.snapshot,
     ),
   );
 
@@ -360,7 +360,7 @@ it("keeps a live lease from before scopes as the document's", async () => {
   const legacyPath = path.join(directory, "legacy.db");
   const db = new DatabaseSync(legacyPath);
   db.exec(`CREATE TABLE authoring_sessions(
-      review_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL,
+      session_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL, focus TEXT
     )`);
   const leaseId = randomUUID();
@@ -372,7 +372,7 @@ it("keeps a live lease from before scopes as the document's", async () => {
   );
   db.close();
 
-  store = new ReviewStore(legacyPath, providers);
+  store = new SessionStore(legacyPath, providers);
   expect(store.activity.read("review")).toMatchObject({
     workingCount: 1,
     scopes: ["document"],
@@ -383,8 +383,8 @@ it("keeps a live lease from before scopes as the document's", async () => {
 });
 
 it("reports the changed lines no lens selects after each lens write", async () => {
-  const { reviewId } = await create();
-  const data = new LocalReviewData(store);
+  const { sessionId } = await create();
+  const data = new LocalSessionData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
     pins: snapshot.pins!,
@@ -437,9 +437,9 @@ it("reports the changed lines no lens selects after each lens write", async () =
     text: file === "src/api.ts" ? api.text : readme.text,
   }));
 
-  const app = createReviewApi(store, data);
+  const app = createSessionApi(store, data);
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: "http://review", token: "token" },
     async (url, init) =>
       app.request(String(url).replace("http://review/reviews-api", ""), init),
@@ -449,7 +449,7 @@ it("reports the changed lines no lens selects after each lens write", async () =
 
   const call = (name: string, input: Parameters<typeof callAuthoringTool>[2]) =>
     callAuthoringTool(client, tools.find((tool) => tool.name === name)!, {
-      reviewId,
+      sessionId,
       ...input,
     });
 

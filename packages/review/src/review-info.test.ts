@@ -19,21 +19,26 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("reports the native catalog with pins and versions, filtering the current repository", async () => {
   const current = {
-    reviewId: "current",
+    sessionId: "current",
     repositoryPath: "/repo",
     version: 3,
     pins: { base: "a", head: "b" },
     dismissedAt: null,
   };
 
-  const dismissed = { ...current, reviewId: "dismissed", dismissedAt: "today" };
+  const dismissed = {
+    ...current,
+    sessionId: "dismissed",
+    dismissedAt: "today",
+  };
+
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
       Response.json([
         current,
         dismissed,
-        { ...current, reviewId: "other", repositoryPath: "/other" },
+        { ...current, sessionId: "other", repositoryPath: "/other" },
       ]),
     ),
   );
@@ -45,17 +50,17 @@ it("reports the native catalog with pins and versions, filtering the current rep
     (await runReviewInfo({ cwd: "/repo", all: true }, runtime)).reviews,
   ).toEqual([current, dismissed]);
   expect(
-    (await runReviewInfo({ cwd: "/repo", reviewUuid: "dismissed" }, runtime))
+    (await runReviewInfo({ cwd: "/repo", sessionId: "dismissed" }, runtime))
       .reviews,
   ).toEqual([dismissed]);
   await expect(
-    runReviewInfo({ cwd: "/repo", reviewUuid: "missing" }, runtime),
+    runReviewInfo({ cwd: "/repo", sessionId: "missing" }, runtime),
   ).rejects.toThrow("Review not found");
 });
 
 it("lists the catalog at the mounted route, not a trailing-slash child", async () => {
   const review = {
-    reviewId: "current",
+    sessionId: "current",
     repositoryPath: "/repo",
     version: 3,
     pins: { base: "a", head: "b" },

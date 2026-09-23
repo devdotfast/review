@@ -6,8 +6,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewInputError } from "./document.js";
-import { openLocalReviewStore } from "./local-data.js";
+import { SessionInputError } from "./document.js";
+import { openLocalSessionStore } from "./local-data.js";
 import {
   type PullRequestDeps,
   type PullRequestRecord,
@@ -103,7 +103,7 @@ describe("reading a pull request", () => {
       deps(ghFails, async () => new Response("{}", { status: 404 })),
     ).catch((cause: unknown) => cause);
 
-    expect(error).toBeInstanceOf(ReviewInputError);
+    expect(error).toBeInstanceOf(SessionInputError);
     expect(error).toMatchObject({ status: 404 });
     expect(String(error)).toMatch(/not found.*gh auth status.*not logged in/);
   });
@@ -127,7 +127,7 @@ describe("reading a pull request", () => {
 
 describe("creating a review from a pull request URL alone", () => {
   let directory: string, upstream: string, checkout: string;
-  let local: ReturnType<typeof openLocalReviewStore>;
+  let local: ReturnType<typeof openLocalSessionStore>;
 
   /** What gh reports; the tests move the base as GitHub would. */
   let pr: Omit<PullRequestRecord, "slug">;
@@ -184,7 +184,7 @@ describe("creating a review from a pull request URL alone", () => {
 
     pr = { number: 7, title: "Add widgets", baseRefName: "main" };
     ghCalls = 0;
-    local = openLocalReviewStore(path.join(directory, "reviews.db"), {
+    local = openLocalSessionStore(path.join(directory, "reviews.db"), {
       manageWorkspaces: false,
       pullRequests: {
         ...defaultPullRequestDeps,
@@ -237,7 +237,7 @@ describe("creating a review from a pull request URL alone", () => {
     const before = userRefs(path.join(checkout, ".git"));
 
     const created = await createFromUrl();
-    const snapshot = local.store.read(created.reviewId);
+    const snapshot = local.store.read(created.sessionId);
 
     expect(created).toMatchObject({ created: true });
     expect(snapshot).toMatchObject({
@@ -264,7 +264,7 @@ describe("creating a review from a pull request URL alone", () => {
 
     expect(await createFromUrl()).toMatchObject({
       created: false,
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       headMoved: false,
     });
 
@@ -275,7 +275,7 @@ describe("creating a review from a pull request URL alone", () => {
 
     expect(await createFromUrl()).toMatchObject({
       created: false,
-      reviewId: created.reviewId,
+      sessionId: created.sessionId,
       headMoved: true,
     });
     // A retry of the first command replays its answer without asking GitHub.
@@ -295,9 +295,9 @@ describe("creating a review from a pull request URL alone", () => {
     );
     pr.baseRefOid = trunk;
 
-    const { reviewId } = await createFromUrl();
+    const { sessionId } = await createFromUrl();
 
-    expect(local.store.read(reviewId).pins).toMatchObject({
+    expect(local.store.read(sessionId).pins).toMatchObject({
       base: fork,
       head: upstreamHead(),
     });
@@ -311,9 +311,9 @@ describe("creating a review from a pull request URL alone", () => {
     gitIn(upstream)("branch", "-qD", "release");
     Object.assign(pr, { baseRefName: "release", baseRefOid: release });
 
-    const { reviewId } = await createFromUrl();
+    const { sessionId } = await createFromUrl();
 
-    expect(local.store.read(reviewId).pins).toMatchObject({
+    expect(local.store.read(sessionId).pins).toMatchObject({
       base: fork,
       head: upstreamHead(),
     });
@@ -340,13 +340,13 @@ describe("creating a review from a pull request URL alone", () => {
     const { id: repositoryId } = await local.data.register(checkout);
     const head = gitIn(checkout)("rev-parse", "HEAD");
 
-    const { reviewId } = await createFromUrl({
+    const { sessionId } = await createFromUrl({
       title: "Mine",
       target: { kind: "commits", repositoryId, head },
     });
 
     expect(ghCalls).toBe(0);
-    expect(local.store.read(reviewId)).toMatchObject({
+    expect(local.store.read(sessionId)).toMatchObject({
       title: "Mine",
       pins: { base: head, head },
     });
@@ -368,9 +368,9 @@ describe("creating a review from a pull request URL alone", () => {
       pointAtUpstream(jj("git", "root"));
       const { id: repositoryId } = await local.data.register(jjRepo);
 
-      const { reviewId } = await createFromUrl();
+      const { sessionId } = await createFromUrl();
 
-      const pins = local.store.read(reviewId).pins!;
+      const pins = local.store.read(sessionId).pins!;
       expect(pins).toMatchObject({
         repositoryId,
         base: fork,

@@ -1,11 +1,11 @@
-import { ReviewInputError } from "./document.js";
+import { SessionInputError } from "./document.js";
 
 /** The one decoder for images entering the store, whether uploaded by a client
  * or read from a legacy review: bounded, single frame, re-encoded as PNG. */
 export async function decodeImage(bytes: Uint8Array): Promise<Buffer> {
   // Electron's Linux GLib conflicts with Sharp's bundled native library.
   if (process.platform === "linux" && process.versions.electron)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Image uploads and imports are unavailable in Review Desktop on Linux.",
     );
 
@@ -29,7 +29,7 @@ export async function decodeImage(bytes: Uint8Array): Promise<Buffer> {
     // One bounded full decode; retain a safe raster format, not the original file.
     return await decoder.png().toBuffer();
   } catch {
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Provide a valid single PNG, JPEG, or WebP image (at most 20 megapixels).",
     );
   }

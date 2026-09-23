@@ -38,7 +38,7 @@ it.each(Object.keys(phrases) as (keyof typeof phrases)[])(
       key.endsWith(`/${name}.expected-blocks.json`),
     )!;
 
-    // Ids are assigned exactly as ReviewStore.importVersion assigns them.
+    // Ids are assigned exactly as SessionStore.importVersion assigns them.
     const blocks = documentSchema.parse(goldens[file]!.default);
     let nextId = 0;
 
@@ -46,7 +46,7 @@ it.each(Object.keys(phrases) as (keyof typeof phrases)[])(
       assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
 
     const snapshot: Snapshot = {
-      reviewId: `real-${name}`,
+      sessionId: `real-${name}`,
       version: 0,
       title: name,
       pins: { repositoryId: "repo", base: "base", head: "head" },
@@ -65,7 +65,7 @@ it.each(Object.keys(phrases) as (keyof typeof phrases)[])(
     await act(async () => {
       canvas = mount(container, {
         kind: "api",
-        reviewId: snapshot.reviewId,
+        sessionId: snapshot.sessionId,
         version: 0,
         bridge: fixtureReviewBridge({ snapshot }),
       });

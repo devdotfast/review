@@ -15,7 +15,7 @@ import {
 import { EditorInput } from "../../../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 
-import { SCRATCHPAD_REVIEW_ID, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
+import { SCRATCHPAD_SESSION_ID, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
 import { sourceSelectionIdentity } from "../../../common/reviewSourceView.js";
 
 export type ReviewCanvasEditorTarget =
@@ -24,11 +24,11 @@ export type ReviewCanvasEditorTarget =
 	| { readonly kind: "settings" }
 	| {
 		readonly kind: "api-source";
-		readonly reviewId: string;
+		readonly sessionId: string;
 		readonly selection: ReviewSourceSelection;
 		readonly title: string;
 	}
-	| { readonly kind: "api"; readonly reviewId: string; readonly title: string };
+	| { readonly kind: "api"; readonly sessionId: string; readonly title: string };
 
 export class ReviewCanvasEditorInput extends EditorInput {
 	static readonly ID = "workbench.editors.devfast.reviewCanvas";
@@ -50,7 +50,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 				target.kind === "api-source"
 					? `/${sourceSelectionIdentity(target.selection)}`
 					: target.kind === "api"
-						? `/${target.reviewId}`
+						? `/${target.sessionId}`
 						: `/${target.kind}`,
 		});
 	}
@@ -104,7 +104,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 	override getIcon(): ThemeIcon | undefined {
 		if (this.target.kind === "home") return Codicon.home;
 		if (this.target.kind === "api-source") return Codicon.repo;
-		if (this.target.kind === "api" && this.target.reviewId === SCRATCHPAD_REVIEW_ID) return Codicon.edit;
+		if (this.target.kind === "api" && this.target.sessionId === SCRATCHPAD_SESSION_ID) return Codicon.edit;
 		return undefined;
 	}
 

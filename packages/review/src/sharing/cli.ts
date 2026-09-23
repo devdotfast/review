@@ -3,7 +3,7 @@ import type { Writable } from "node:stream";
 
 import { z } from "zod";
 
-import { connectReviewApi } from "../review-api/agent-client.js";
+import { connectSessionApi } from "../review-api/agent-client.js";
 
 const resultSchema = z.strictObject({
   shareId: z.uuid(),
@@ -23,7 +23,7 @@ export async function runShareCli(input: {
   stderr: Writable;
 }) {
   try {
-    const client = await connectReviewApi(input.env);
+    const client = await connectSessionApi(input.env);
 
     if (input.revoke) {
       const result = z
@@ -49,7 +49,7 @@ export async function runShareCli(input: {
 
       const result = resultSchema.parse(
         await client.post("/sharing/publish", {
-          reviewId: input.review,
+          sessionId: input.review,
           version,
           requestId:
             input.requestId === undefined

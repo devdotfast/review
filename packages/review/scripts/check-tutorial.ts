@@ -4,7 +4,7 @@ import path from "node:path";
 
 import ts from "typescript";
 
-import { openLocalReviewStore } from "../src/review-api/local-data";
+import { openLocalSessionStore } from "../src/review-api/local-data";
 import { createNativeTutorial } from "../src/server/tutorial-service";
 import {
   buildTutorialAssets,
@@ -17,7 +17,7 @@ const temporaryRoot = await mkdtemp(
   path.join(os.tmpdir(), "native-tutorial-check-"),
 );
 
-const local = openLocalReviewStore(path.join(temporaryRoot, "review.db"));
+const local = openLocalSessionStore(path.join(temporaryRoot, "review.db"));
 
 try {
   checkSampleTypeScript(path.join(tutorialRoot, "sample-service"));

@@ -7,7 +7,7 @@ import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { elements } from "../review-api/document";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import { createGlobalReviewServer } from "./desktop-server";
 import { createTutorialService } from "./tutorial-service";
 
@@ -31,7 +31,7 @@ describe("Review Desktop tutorial preparation", () => {
   it("serves native reviews while removed session and publishing routes return 404", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-native-routes-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
-    const local = openLocalReviewStore(path.join(home, "review-api.db"));
+    const local = openLocalSessionStore(path.join(home, "review-api.db"));
 
     const server = tutorialServer(home, {
       reviewStore: local.store,
@@ -83,7 +83,7 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-json-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
 
-    const local = openLocalReviewStore(path.join(home, "review-api.db"));
+    const local = openLocalSessionStore(path.join(home, "review-api.db"));
 
     const original = await createTutorialService({
       packageRoot,
@@ -103,14 +103,14 @@ describe("Review Desktop tutorial preparation", () => {
         tutorialJson(server.url, "/tutorial/prepare", "POST"),
       ]);
 
-      expect(preparedA.reviewUuid).toBe(original.reviewId);
-      expect(preparedB.reviewUuid).toBe(original.reviewId);
+      expect(preparedA.sessionId).toBe(original.sessionId);
+      expect(preparedB.sessionId).toBe(original.sessionId);
       const opened = await tutorialJson(server.url, "/tutorial/open", "POST");
       expect(opened).toMatchObject({
         kind: "api",
-        reviewUuid: original.reviewId,
+        sessionId: original.sessionId,
       });
-      const snapshot = local.store.read(original.reviewId);
+      const snapshot = local.store.read(original.sessionId);
       expect(snapshot.pins).toMatchObject({
         base: original.pins!.base,
         head: original.pins!.head,
@@ -132,15 +132,15 @@ describe("Review Desktop tutorial preparation", () => {
         blocks.some((b) => b.type === "section" && b.title === "Software map"),
       ).toBe(false);
       const repeated = await tutorialJson(server.url, "/tutorial/open", "POST");
-      expect(repeated.reviewUuid).toBe(original.reviewId);
-      expect(local.store.read(original.reviewId)).toEqual(snapshot);
+      expect(repeated.sessionId).toBe(original.sessionId);
+      expect(local.store.read(original.sessionId)).toEqual(snapshot);
       expect(
         (await tutorialRequest(server.url, "/tutorial", "DELETE")).status,
       ).toBe(200);
-      expect(local.store.has(original.reviewId)).toBe(false);
+      expect(local.store.has(original.sessionId)).toBe(false);
       const fresh = await tutorialJson(server.url, "/tutorial/open", "POST");
       expect(fresh.kind).toBe("api");
-      expect(fresh.reviewUuid).not.toBe(original.reviewId);
+      expect(fresh.sessionId).not.toBe(original.sessionId);
       expect(local.store.list()).toEqual([]);
     } finally {
       await server.close();

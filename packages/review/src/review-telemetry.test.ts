@@ -294,7 +294,7 @@ describe("ReviewTelemetry", () => {
       properties: { healthy: false },
     });
     await telemetry.captureReviewPresented({
-      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      sessionId: "86df96ed-65ef-46de-9348-c94811e3bb46",
       presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
     });
 
@@ -382,7 +382,7 @@ describe("ReviewTelemetry", () => {
   });
 
   it("derives installation-scoped opaque review and presentation ids", async () => {
-    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+    const sessionId = "86df96ed-65ef-46de-9348-c94811e3bb46";
     const otherReviewUuid = "9d64ac3b-4de8-432c-b715-e338492553b9";
     const presentationSessionId = "0f98956f-ec90-45b5-ae21-19acbcd8b6ef";
     const otherPresentationSessionId = "512810fb-dd2a-4f56-9da3-bb5c3e3a5bcf";
@@ -391,20 +391,20 @@ describe("ReviewTelemetry", () => {
     cleanupPaths.push(first.rootPath, second.rootPath);
 
     await first.telemetry.captureSessionStarted({
-      reviewUuid,
+      sessionId,
       presentationSessionId,
     });
     await first.telemetry.captureUiEvent(
       "review_client_error",
       { error_name: "TypeError" },
-      { reviewUuid, presentationSessionId },
+      { sessionId, presentationSessionId },
     );
     await first.telemetry.captureSessionStarted({
-      reviewUuid: otherReviewUuid,
+      sessionId: otherReviewUuid,
       presentationSessionId: otherPresentationSessionId,
     });
     await second.telemetry.captureSessionStarted({
-      reviewUuid,
+      sessionId,
       presentationSessionId,
     });
 
@@ -421,7 +421,7 @@ describe("ReviewTelemetry", () => {
     expect(otherInstallIds.review_id).not.toBe(firstIds.review_id);
     expect(otherInstallIds.presentation_id).not.toBe(firstIds.presentation_id);
     expect(JSON.stringify([...first.events, ...second.events])).not.toContain(
-      reviewUuid,
+      sessionId,
     );
     expect(JSON.stringify([...first.events, ...second.events])).not.toContain(
       presentationSessionId,

@@ -8,7 +8,7 @@ import { isObjectValue } from "@dev.fast/json";
 import { withFileLock, writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { Hono } from "hono";
 
-import { createReviewApi } from "../review-api/http.js";
+import { createSessionApi } from "../review-api/http.js";
 import { openReviewProfile } from "../review-api/profile.js";
 import { readScratchpadEnabled } from "../review-preferences.js";
 import {
@@ -82,7 +82,7 @@ async function serve(input: HeadlessServerInput) {
   // terms; a preference changed after start applies at the next start.
   const scratchpadEnabled = await readScratchpadEnabled();
 
-  const api = createReviewApi(
+  const api = createSessionApi(
     local.store,
     local.data,
     undefined,

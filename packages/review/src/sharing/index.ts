@@ -8,8 +8,8 @@ export {
 } from "./export.js";
 
 export {
-  SharedReviewStore,
-  sharedReviewId,
+  SharedSessionStore,
+  sharedSessionId,
   validateShareBundle,
 } from "./import.js";
 

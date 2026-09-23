@@ -9,11 +9,11 @@ import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { selectSource } from "../lens-selection";
-import { ReviewInputError } from "../review-api/document.js";
-import { createReviewApi } from "../review-api/http.js";
-import { openLocalReviewStore } from "../review-api/local-data.js";
+import { SessionInputError } from "../review-api/document.js";
+import { createSessionApi } from "../review-api/http.js";
+import { openLocalSessionStore } from "../review-api/local-data.js";
 import { type ShareBundle, digestBytes, exportShare } from "./export.js";
-import { SharedReviewStore, validateShareBundle } from "./import.js";
+import { SharedSessionStore, validateShareBundle } from "./import.js";
 import { fetchPinnedRepository } from "./repository.js";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -57,7 +57,7 @@ async function fixture() {
   git("rm", "deleted.ts");
   git("commit", "-m", "head");
   const head = git("rev-parse", "HEAD");
-  const local = openLocalReviewStore(path.join(root, "review.db"));
+  const local = openLocalSessionStore(path.join(root, "review.db"));
   cleanup.push(() => local.store.close());
   cleanup.push(() => local.data.close());
   const repository = await local.data.register(repo);
@@ -112,12 +112,12 @@ async function fixture() {
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId: created.reviewId,
+        sessionId: created.sessionId,
         edit: { type: "insert", content },
       },
     });
 
-  return { root, repo, local, reviewId: created.reviewId };
+  return { root, repo, local, sessionId: created.sessionId };
 }
 
 const repository = { cloneUrl: "https://github.com/fixture/review.git" };
@@ -129,14 +129,14 @@ async function importFixture(
   ) => Promise<ShareBundle> | ShareBundle = (_, bundle) => bundle,
 ) {
   const fixtureData = await fixture();
-  const { root, repo, local, reviewId } = fixtureData;
+  const { root, repo, local, sessionId } = fixtureData;
 
   const bundle = await prepare(
     fixtureData,
-    await exportShare({ ...local, reviewId, repository }),
+    await exportShare({ ...local, sessionId, repository }),
   );
 
-  const recipient = openLocalReviewStore(path.join(root, "recipient.db"));
+  const recipient = openLocalSessionStore(path.join(root, "recipient.db"));
   cleanup.push(() => recipient.store.close());
   cleanup.push(() => recipient.data.close());
 
@@ -148,7 +148,7 @@ async function importFixture(
     ) => fetchPinnedRepository(target, repo, pins),
   );
 
-  const imported = new SharedReviewStore(
+  const imported = new SharedSessionStore(
     path.join(root, "shared"),
     fetchRepository,
   );
@@ -158,7 +158,7 @@ async function importFixture(
   const shareId = randomUUID();
   const id = await imported.import("https://app.dev.fast", shareId, bundle);
 
-  const app = createReviewApi(
+  const app = createSessionApi(
     recipient.store,
     recipient.data,
     undefined,
@@ -183,6 +183,9 @@ function withLegacySectionStatus(bundle: ShareBundle): ShareBundle {
   const snapshot = JSON.parse(
     Buffer.from(bundle.objects.get(bundle.manifest.snapshot)!).toString(),
   );
+
+  snapshot.reviewId = snapshot.sessionId;
+  delete snapshot.sessionId;
 
   for (const block of snapshot.document)
     if (block.type === "section") block.status = "complete";
@@ -209,12 +212,12 @@ function withLegacySectionStatus(bundle: ShareBundle): ShareBundle {
 
 it("exports a review saved with the retired section status and imports a bundle that still carries it", async () => {
   const { imported, id, bundle } = await importFixture(
-    async ({ root, local, reviewId }) => {
+    async ({ root, local, sessionId }) => {
       const { version } = await local.store.execute({
         commandId: randomUUID(),
         operation: {
           type: "edit",
-          reviewId,
+          sessionId,
           edit: {
             type: "insert",
             content: { type: "section", title: "Notes", children: [] },
@@ -224,11 +227,11 @@ it("exports a review saved with the retired section status and imports a bundle 
 
       const db = new DatabaseSync(path.join(root, "review.db"));
       db.prepare(
-        `UPDATE versions SET snapshot=json_set(snapshot,'$.document[3].status','in_progress') WHERE review_id=? AND version=?`,
-      ).run(reviewId, version);
+        `UPDATE versions SET snapshot=json_set(snapshot,'$.document[3].status','in_progress') WHERE session_id=? AND version=?`,
+      ).run(sessionId, version);
       db.close();
 
-      const exported = await exportShare({ ...local, reviewId, repository });
+      const exported = await exportShare({ ...local, sessionId, repository });
       const { snapshot } = validateShareBundle(exported);
       expect(snapshot.document[3]).toMatchObject({ title: "Notes" });
       expect(snapshot.document[3]).not.toHaveProperty("status");
@@ -301,17 +304,17 @@ it("shares a review's lenses and reads a bundle that holds them as document bloc
     ],
   };
 
-  const { imported, id } = await importFixture(async ({ local, reviewId }) => {
+  const { imported, id } = await importFixture(async ({ local, sessionId }) => {
     const { targetId } = await local.store.execute({
       commandId: randomUUID(),
       operation: {
         type: "lens",
-        reviewId,
+        sessionId,
         edit: { type: "insert", ...lens },
       },
     });
 
-    const exported = await exportShare({ ...local, reviewId, repository });
+    const exported = await exportShare({ ...local, sessionId, repository });
     expect(validateShareBundle(exported).snapshot.lenses).toEqual([
       { id: targetId, ...lens },
     ]);
@@ -371,13 +374,13 @@ it("fetches pinned source into an independent repository and retains complete tr
     imported.get(id).snapshot.pins.repositoryId,
   );
 
-  const restarted = new SharedReviewStore(imported.root, async () => {
+  const restarted = new SharedSessionStore(imported.root, async () => {
     throw new Error("offline");
   });
 
   restarted.connect(recipient.store, recipient.data);
   await restarted.load();
-  expect(restarted.list().map((entry) => entry.reviewId)).toEqual([id]);
+  expect(restarted.list().map((entry) => entry.sessionId)).toEqual([id]);
   await restarted.prepare(id);
   expect(restarted.get(id).snapshot.title).toBe("A shared review");
 });
@@ -425,7 +428,7 @@ it("uses normal source and workspace routes but rejects authoring mutations", as
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       commandId: randomUUID(),
-      operation: { type: "rename", reviewId: id, title: "Changed" },
+      operation: { type: "rename", sessionId: id, title: "Changed" },
     }),
   });
 
@@ -471,10 +474,10 @@ it("isolates corrupt cached shares at restart", async () => {
     path.join(imported.root, id, bundle.manifest.snapshot),
     "corrupt",
   );
-  const restarted = new SharedReviewStore(imported.root);
+  const restarted = new SharedSessionStore(imported.root);
   restarted.connect(recipient.store, recipient.data);
   await restarted.load();
-  expect(restarted.list().map((entry) => entry.reviewId)).toEqual([other]);
+  expect(restarted.list().map((entry) => entry.sessionId)).toEqual([other]);
 });
 
 it("repairs a missing checkout and removes owned workspaces before reimport", async () => {
@@ -506,8 +509,8 @@ it("repairs a missing checkout and removes owned workspaces before reimport", as
 });
 
 it("retains failed imports for retry and deduplicates preparation", async () => {
-  const { local, root, repo, reviewId } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId, repository });
+  const { local, root, repo, sessionId } = await fixture();
+  const bundle = await exportShare({ ...local, sessionId, repository });
   let available = false;
 
   const fetcher = vi.fn<typeof fetchPinnedRepository>(
@@ -517,7 +520,7 @@ it("retains failed imports for retry and deduplicates preparation", async () => 
       pins: Parameters<typeof fetchPinnedRepository>[2],
     ) => {
       if (!available)
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Configure Git credentials, then retry.",
           409,
         );
@@ -525,15 +528,15 @@ it("retains failed imports for retry and deduplicates preparation", async () => 
     },
   );
 
-  const imported = new SharedReviewStore(path.join(root, "retry"), fetcher);
+  const imported = new SharedSessionStore(path.join(root, "retry"), fetcher);
   imported.connect(local.store, local.data);
   await imported.load();
   const shareId = randomUUID();
   await expect(
     imported.import("https://app.dev.fast", shareId, bundle),
   ).rejects.toThrow("Configure Git credentials");
-  const { sharedReviewId } = await import("./import.js");
-  const id = sharedReviewId("https://app.dev.fast", shareId);
+  const { sharedSessionId } = await import("./import.js");
+  const id = sharedSessionId("https://app.dev.fast", shareId);
   expect(imported.status(id).stage).toBe("error");
   expect(imported.list()).toEqual([]);
   available = true;
@@ -549,7 +552,7 @@ it("does not expose an interrupted import before validation finishes", async () 
     path.join(imported.root, id, "repository.json"),
     JSON.stringify({ repositoryId, ready: false }),
   );
-  const restarted = new SharedReviewStore(imported.root);
+  const restarted = new SharedSessionStore(imported.root);
   restarted.connect(recipient.store, recipient.data);
   await restarted.load();
   expect(restarted.list()).toEqual([]);
@@ -558,7 +561,7 @@ it("does not expose an interrupted import before validation finishes", async () 
 });
 
 it("keeps the published snapshot and code after author edits and branch movement", async () => {
-  const { local, repo, reviewId, imported, id, app } = await importFixture();
+  const { local, repo, sessionId, imported, id, app } = await importFixture();
   const before = imported.get(id).snapshot;
   await writeFile(path.join(repo, "main.ts"), "export const answer = 999;\n");
   execFileSync("git", ["commit", "-am", "Later branch change"], {
@@ -569,7 +572,7 @@ it("keeps the published snapshot and code after author edits and branch movement
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: {
         type: "insert",
         content: { type: "markdown", markdown: "Later author edit" },
@@ -584,13 +587,13 @@ it("keeps the published snapshot and code after author edits and branch movement
 });
 
 it("requires a pinned review before sharing saved worktree changes", async () => {
-  const { local, reviewId, repo } = await fixture();
-  const snapshot = local.store.read(reviewId);
+  const { local, sessionId, repo } = await fixture();
+  const snapshot = local.store.read(sessionId);
   await local.store.execute({
     commandId: randomUUID(),
     operation: {
       type: "set_target",
-      reviewId,
+      sessionId,
       target: {
         kind: "worktree",
         repositoryId: snapshot.pins!.repositoryId,
@@ -599,14 +602,14 @@ it("requires a pinned review before sharing saved worktree changes", async () =>
     },
   });
   await writeFile(path.join(repo, "main.ts"), "export const answer = 99;\n");
-  await expect(exportShare({ ...local, reviewId, repository })).rejects.toThrow(
-    "Pin this review to commits before sharing it.",
-  );
+  await expect(
+    exportShare({ ...local, sessionId, repository }),
+  ).rejects.toThrow("Pin this review to commits before sharing it.");
   await local.store.execute({
     commandId: randomUUID(),
-    operation: { type: "repin", reviewId, pins: snapshot.pins },
+    operation: { type: "repin", sessionId, pins: snapshot.pins },
   });
-  const bundle = await exportShare({ ...local, reviewId, repository });
+  const bundle = await exportShare({ ...local, sessionId, repository });
   expect(validateShareBundle(bundle).snapshot.pins.head).toBe(
     snapshot.pins!.head,
   );
@@ -629,7 +632,7 @@ it("counts a shared review's changed lines without a local review row", async ()
 });
 
 it("lists and streams shared diff counts with the same mode and persistence as local reviews", async () => {
-  const { app, id, imported, recipient, local, reviewId, root } =
+  const { app, id, imported, recipient, local, sessionId, root } =
     await importFixture();
 
   const readCatalog = async (mode: string) =>
@@ -639,7 +642,9 @@ it("lists and streams shared diff counts with the same mode and persistence as l
 
   const response = await app.request(
     "/watch?subscriptions=" +
-      encodeURIComponent(JSON.stringify([{ reviewId: null, mode: "textual" }])),
+      encodeURIComponent(
+        JSON.stringify([{ sessionId: null, mode: "textual" }]),
+      ),
   );
 
   const reader = response.body!.getReader();
@@ -653,8 +658,8 @@ it("lists and streams shared diff counts with the same mode and persistence as l
       200,
     );
 
-    const pins = local.store.read(reviewId).pins!;
-    await local.data.coverage(reviewId, pins, "textual");
+    const pins = local.store.read(sessionId).pins!;
+    await local.data.coverage(sessionId, pins, "textual");
     const expected = local.store.list("textual")[0].diffStats;
 
     expect(expected).toMatchObject({ fileCount: 4 });
@@ -670,14 +675,14 @@ it("lists and streams shared diff counts with the same mode and persistence as l
 
     await recipient.data.close();
 
-    const reopened = openLocalReviewStore(path.join(root, "recipient.db"));
+    const reopened = openLocalSessionStore(path.join(root, "recipient.db"));
     cleanup.push(() => reopened.store.close());
     cleanup.push(() => reopened.data.close());
-    const restored = new SharedReviewStore(imported.root);
+    const restored = new SharedSessionStore(imported.root);
     restored.connect(reopened.store, reopened.data);
     await restored.load();
 
-    const restarted = createReviewApi(
+    const restarted = createSessionApi(
       reopened.store,
       reopened.data,
       undefined,

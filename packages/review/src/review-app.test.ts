@@ -34,13 +34,13 @@ describe("native Review picker", () => {
 
     expect(
       await runReviewAppPick(
-        { ...input, reviewUuid: "review" },
+        { ...input, sessionId: "review" },
         { ...runtime, fetch },
       ),
     ).toEqual({
       event: "app",
       action: "pick",
-      reviewUuid: "review",
+      sessionId: "review",
       title: "Native",
     });
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
@@ -60,19 +60,19 @@ describe("native Review picker", () => {
       if (init?.method === "POST") return Response.json({ ok: true });
 
       return String(url).includes("full=true")
-        ? Response.json({ reviewId: "review", version: 1, title: "Native" })
+        ? Response.json({ sessionId: "review", version: 1, title: "Native" })
         : Response.json([{ id: "block-1", type: "markdown", label: "Native" }]);
     });
 
     expect(
       await runReviewAppPick(
-        { ...input, reviewUuid: "review" },
+        { ...input, sessionId: "review" },
         { ...runtime, fetch },
       ),
     ).toEqual({
       event: "app",
       action: "pick",
-      reviewUuid: "review",
+      sessionId: "review",
       title: "Native",
     });
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
@@ -87,7 +87,7 @@ describe("native Review picker", () => {
         ? healthyResponse()
         : Response.json([
             {
-              reviewId: "native",
+              sessionId: "native",
               title: "Native",
               repositoryPath: "/repo",
               createdAt: "2026-09-16",
@@ -95,11 +95,11 @@ describe("native Review picker", () => {
               dismissedAt: null,
             },
             {
-              reviewId: "dismissed",
+              sessionId: "dismissed",
               repositoryPath: "/repo",
               dismissedAt: "2026-09-16",
             },
-            { reviewId: "other", repositoryPath: "/elsewhere" },
+            { sessionId: "other", repositoryPath: "/elsewhere" },
           ]),
     );
 
@@ -129,7 +129,7 @@ describe("native Review picker", () => {
 
     await expect(
       runReviewAppPick(
-        { ...input, reviewUuid: "missing" },
+        { ...input, sessionId: "missing" },
         { ...runtime, fetch },
       ),
     ).rejects.toThrow("Not found");
@@ -143,12 +143,12 @@ describe("native Review picker", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url).endsWith("/health")
         ? healthyResponse()
-        : Response.json({ reviewId: "review", title: "Native" }),
+        : Response.json({ sessionId: "review", title: "Native" }),
     );
 
     expect(
       await runReviewAppPick(
-        { ...input, reviewUuid: "review" },
+        { ...input, sessionId: "review" },
         {
           ...runtime,
           launch,
@@ -160,7 +160,7 @@ describe("native Review picker", () => {
     ).toEqual({
       event: "app",
       action: "pick",
-      reviewUuid: "review",
+      sessionId: "review",
       title: "Native",
     });
     expect(launch).toHaveBeenCalledOnce();
@@ -175,7 +175,7 @@ describe("native Review picker", () => {
 
     await expect(
       runReviewAppPick(
-        { ...input, reviewUuid: "review" },
+        { ...input, sessionId: "review" },
         {
           ...runtime,
           launch,
@@ -197,7 +197,7 @@ describe("native Review picker", () => {
 
     await expect(
       runReviewAppPick(
-        { ...input, reviewUuid: "review" },
+        { ...input, sessionId: "review" },
         {
           ...runtime,
           launch,
@@ -216,7 +216,7 @@ describe("native Review picker", () => {
     const fetch = desktopFetch();
 
     await runReviewAppPick(
-      { ...input, reviewUuid: "review", focus: true },
+      { ...input, sessionId: "review", focus: true },
       { ...runtime, fetch },
     );
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
@@ -243,7 +243,7 @@ describe("native Review picker", () => {
     const fetch = desktopFetch();
 
     await runReviewAppPick(
-      { ...input, reviewUuid: "review", focus: true },
+      { ...input, sessionId: "review", focus: true },
       {
         ...runtime,
         launch,
@@ -271,7 +271,7 @@ function desktopFetch() {
       : Response.json(
           init?.method === "POST"
             ? { ok: true }
-            : { reviewId: "review", title: "Native" },
+            : { sessionId: "review", title: "Native" },
         ),
   );
 }

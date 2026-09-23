@@ -122,7 +122,7 @@ const rendered: Record<
 > = {
   markdown: (c) =>
     c.querySelector("h1")?.textContent === "Order status" &&
-    has(c, "a[href*='review-source:']"),
+    has(c, "a[href*='whiteboard-source:']"),
   code: (c) =>
     (c.querySelector("pre")?.textContent ?? "").includes(
       'export const status = "queued";',
@@ -180,7 +180,7 @@ async function mountFixture(
   hostStyle?: string,
 ) {
   const snapshot: Snapshot = {
-    reviewId: `fixture-${kind}`,
+    sessionId: `fixture-${kind}`,
     version: 0,
     title: "Fixture review",
     pins: { repositoryId: "repo", base: "base", head: "head" },
@@ -248,7 +248,7 @@ async function mountFixture(
         (kind === "tutorial"
           ? {
               content: {
-                reviewUuid: snapshot.reviewId,
+                sessionId: snapshot.sessionId,
                 progress: { version: 1, checked: [], dismissed: false },
                 keymap: "none",
               },
@@ -260,7 +260,7 @@ async function mountFixture(
             }
           : undefined),
       softwareMapEnabled: true,
-      reviewId: snapshot.reviewId,
+      sessionId: snapshot.sessionId,
       version: 0,
       bridge,
     });
@@ -277,7 +277,7 @@ describe("block components", () => {
 
     const tutorial: ReviewCanvasTutorialBridge = {
       content: {
-        reviewUuid: "fixture-tutorial",
+        sessionId: "fixture-tutorial",
         progress: { version: 1, checked: [], dismissed: true },
         keymap: "none",
       },
@@ -455,7 +455,7 @@ describe("tutorial guide placement", () => {
   it("keeps the guide inside the host when status rows sit above the document", async () => {
     const tutorial: ReviewCanvasTutorialBridge = {
       content: {
-        reviewUuid: "fixture-tutorial",
+        sessionId: "fixture-tutorial",
         progress: { version: 1, checked: [], dismissed: false },
         keymap: "none",
       },

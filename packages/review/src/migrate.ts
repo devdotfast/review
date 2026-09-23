@@ -287,7 +287,7 @@ export async function migrateReviewManagedCheckouts(input: {
         const checkout = await ensureReviewPinnedCheckout({
           rootPath: review.worktreePath,
           ref: pin.commit,
-          reviewUuid: review.uuid,
+          sessionId: review.uuid,
           role: pin.role,
         });
 

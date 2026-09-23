@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type LensSource, lensSourceSchema } from "../lens-selection.js";
 import type { FileLineRange } from "../source.js";
 import { label } from "./blocks/definition.js";
-import { ReviewInputError } from "./input-error.js";
+import { SessionInputError } from "./input-error.js";
 
 /**
  * Lenses partition a review's change for the Diff view. They live on the
@@ -79,7 +79,7 @@ export function checkLensTargets(targets: readonly LensTarget[]): void {
       pattern.includes("\\") ||
       pattern.includes("\0")
     )
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "File lens patterns must be repository-relative paths or globs using forward slashes.",
       );
 }
@@ -93,14 +93,14 @@ export function applyLensEdit(
   const index = (id: string) => {
     const at = lenses.findIndex((lens) => lens.id === id);
 
-    if (at < 0) throw new ReviewInputError(`Lens ${id} does not exist.`);
+    if (at < 0) throw new SessionInputError(`Lens ${id} does not exist.`);
 
     return at;
   };
 
   if (edit.type === "insert") {
     if (lenses.length >= LENS_LIMIT)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         `A review holds at most ${LENS_LIMIT} lenses.`,
       );
     checkLensTargets(edit.targets);
@@ -130,7 +130,7 @@ export function applyLensEdit(
   }
 
   if (edit.title === undefined && edit.targets === undefined)
-    throw new ReviewInputError("A lens update names a title or targets.");
+    throw new SessionInputError("A lens update names a title or targets.");
 
   if (edit.targets) checkLensTargets(edit.targets);
 

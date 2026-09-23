@@ -1,6 +1,6 @@
 import type { Writable } from "node:stream";
 
-import type { ReviewApiSummary } from "@dev.fast/review-protocol";
+import type { SessionSummary } from "@dev.fast/review-protocol";
 import {
   type TraceListScope,
   type TracePullScope,
@@ -39,15 +39,15 @@ export {
 
 export async function resolveTraceReviewScope(
   cwd: string,
-  reviewUuid: string | undefined,
+  sessionId: string | undefined,
 ): Promise<TraceReviewScope> {
-  const review = await resolveTraceReview(cwd, reviewUuid);
+  const review = await resolveTraceReview(cwd, sessionId);
 
   if (!review.repositoryPath || !review.pins)
     throw new Error("Review repository is unavailable.");
 
   return {
-    uuid: review.reviewId,
+    uuid: review.sessionId,
     repoRoot: review.repositoryPath,
     baseCommit: review.pins.base,
     headCommit: review.pins.head,
@@ -56,7 +56,7 @@ export async function resolveTraceReviewScope(
 
 export async function runTraceList(input: {
   cwd: string;
-  reviewUuid?: string;
+  sessionId?: string;
   commitSha?: string;
   storage?: TraceStorageKind;
   json?: boolean;
@@ -71,7 +71,7 @@ export async function runTraceList(input: {
 
   const scope: TraceListScope = input.commitSha
     ? { commit: input.commitSha }
-    : { review: await resolveTraceReviewScope(input.cwd, input.reviewUuid) };
+    : { review: await resolveTraceReviewScope(input.cwd, input.sessionId) };
 
   return listWithScope({
     cwd: input.cwd,
@@ -85,7 +85,7 @@ export async function runTraceList(input: {
 export async function runTracePull(input: {
   cwd: string;
   repo?: string;
-  reviewUuid?: string;
+  sessionId?: string;
   commitSha?: string;
   session?: string;
   mainOnly?: boolean;
@@ -121,13 +121,13 @@ export async function runTracePull(input: {
 
 async function resolveTracePullScope(input: {
   cwd: string;
-  reviewUuid?: string;
+  sessionId?: string;
   commitSha?: string;
   session?: string;
 }): Promise<TracePullScope> {
-  if (input.reviewUuid) {
+  if (input.sessionId) {
     return {
-      review: await resolveTraceReviewScope(input.cwd, input.reviewUuid),
+      review: await resolveTraceReviewScope(input.cwd, input.sessionId),
     };
   }
 
@@ -140,9 +140,9 @@ async function resolveTracePullScope(input: {
 
 async function resolveTraceReview(
   cwd: string,
-  reviewUuid: string | undefined,
-): Promise<ReviewApiSummary> {
-  const candidates = (await runReviewInfo({ cwd, reviewUuid })).reviews;
+  sessionId: string | undefined,
+): Promise<SessionSummary> {
+  const candidates = (await runReviewInfo({ cwd, sessionId })).reviews;
 
   if (candidates.length === 0) {
     throw new Error("No review found for this worktree.");

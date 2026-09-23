@@ -24,7 +24,7 @@ import {
 import { structuralChangeCounts } from "@dev.fast/review-protocol";
 import type {
   ReviewLanguageEnvironment,
-  ReviewSourceEntry,
+  SessionSourceEntry,
   StructuralDiffEvent,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
@@ -54,8 +54,8 @@ import {
   type Block,
   type FileLineRange,
   type Pins,
-  ReviewInputError,
-  type ReviewTarget,
+  SessionInputError,
+  type SessionTarget,
   type SourcePins,
   anchorPins,
   elements,
@@ -77,7 +77,7 @@ import {
 } from "./pull-request.js";
 import {
   type ResolvedPullRequest,
-  ReviewStore,
+  SessionStore,
   type Snapshot,
 } from "./store.js";
 import { traceSchema } from "./trace-schema.js";
@@ -114,14 +114,14 @@ export const uploadSchema = z.discriminatedUnion("kind", [
 ]);
 
 const unavailableCheckout = () =>
-  new ReviewInputError("The selected local checkout is unavailable.", 404);
+  new SessionInputError("The selected local checkout is unavailable.", 404);
 
 /** File reads cannot name the root or a directory; tree reads can. */
 function checkRelativePath(file: string) {
   inputError(() => checkSourcePath(file));
 
   if (file === "" || file.endsWith("/"))
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Source file must be a repository-relative path.",
     );
 }
@@ -143,12 +143,12 @@ interface RepositoryVcs {
 }
 
 /** Local source/resource boundary, including Desktop-only local language context. */
-export class LocalReviewData {
+export class LocalSessionData {
   private readonly workspaceManager?: ReviewWorkspaces;
 
   get workspaces(): ReviewWorkspaces {
     if (!this.workspaceManager)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Open this review in Desktop to prepare language workspaces.",
         409,
       );
@@ -160,7 +160,7 @@ export class LocalReviewData {
     if (snapshot.target?.kind !== "commits" || !snapshot.pins) return [];
     const pins = snapshot.pins;
 
-    return this.workspaces.list(snapshot.reviewId).flatMap((environment) => {
+    return this.workspaces.list(snapshot.sessionId).flatMap((environment) => {
       const side =
         environment.commit === pins.head
           ? "head"
@@ -228,7 +228,7 @@ export class LocalReviewData {
       const pins = await this.comparison(snapshot.pins, commit);
 
       const environment = await this.workspaces.source(
-        snapshot.reviewId,
+        snapshot.sessionId,
         pins,
         side,
         retryFailed,
@@ -251,7 +251,7 @@ export class LocalReviewData {
     const repositoryId = anchor?.repositoryId ?? snapshot.pins?.repositoryId;
 
     if (!repositoryId)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "This document has no source pins of its own.",
         409,
       );
@@ -268,7 +268,7 @@ export class LocalReviewData {
     try {
       rootPath = await realpath(this.store.repositoryPath(repositoryId));
     } catch (error) {
-      if (error instanceof ReviewInputError && error.status !== 404)
+      if (error instanceof SessionInputError && error.status !== 404)
         throw error;
 
       return unavailable;
@@ -305,7 +305,7 @@ export class LocalReviewData {
     const pins = await this.sourcePins(snapshot);
 
     if (!pins)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "This document has no source pins of its own.",
         409,
       );
@@ -331,7 +331,7 @@ export class LocalReviewData {
       try {
         await this.anchorSourcePins(pins);
       } catch (error) {
-        if (!(error instanceof ReviewInputError)) throw error;
+        if (!(error instanceof SessionInputError)) throw error;
         missing.add(pins.repositoryId);
       }
 
@@ -357,7 +357,7 @@ export class LocalReviewData {
   >();
 
   constructor(
-    private readonly store: ReviewStore,
+    private readonly store: SessionStore,
     private readonly options: {
       blobReaderIdleTimeoutMs?: number;
       workspaceDatabase?: string;
@@ -375,12 +375,12 @@ export class LocalReviewData {
   }
 
   async *structuralChanges({
-    reviewId,
+    sessionId,
     pins,
     signal,
     file,
   }: {
-    reviewId: string;
+    sessionId: string;
     pins: Pins;
     signal: AbortSignal;
     file?: string;
@@ -390,11 +390,11 @@ export class LocalReviewData {
     const rootPath = await ensureReviewPinnedCheckout({
       rootPath: this.store.repositoryPath(pins.repositoryId),
       ref: pins.head,
-      reviewUuid: reviewId,
+      sessionId: sessionId,
     });
 
     if (!rootPath)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Cannot prepare the pinned repository for structural diffing.",
       );
     yield* this.structuralComparisons.stream({
@@ -590,14 +590,14 @@ export class LocalReviewData {
 
   async register(root: string) {
     const resolved = await realpath(root).catch(() => {
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Repository path does not exist or is not readable.",
       );
     });
 
     const vcs = await detectLocalVcs(resolved);
 
-    if (!vcs) throw new ReviewInputError("Choose a Git or jj repository.");
+    if (!vcs) throw new SessionInputError("Choose a Git or jj repository.");
 
     const repository = this.store.registerRepository(
       await realpath(vcs.rootPath),
@@ -622,7 +622,7 @@ export class LocalReviewData {
       try {
         await this.quote(anchorPins(reference.source, pins), reference.source);
       } catch (error) {
-        if (!(error instanceof ReviewInputError)) throw error;
+        if (!(error instanceof SessionInputError)) throw error;
         projected.staleSources!.push(reference.id);
       }
     }
@@ -680,8 +680,8 @@ export class LocalReviewData {
   }
 
   async resolveTarget(
-    target: ReviewTarget,
-  ): Promise<{ target: ReviewTarget; pins: Pins }> {
+    target: SessionTarget,
+  ): Promise<{ target: SessionTarget; pins: Pins }> {
     const vcs = await this.vcs(target.repositoryId);
 
     if (!vcs) throw unavailableCheckout();
@@ -689,14 +689,14 @@ export class LocalReviewData {
     if (target.kind === "commits") {
       const head = await vcs.resolveRevision(target.head);
 
-      if (!head) throw new ReviewInputError("Head revision does not exist.");
+      if (!head) throw new SessionInputError("Head revision does not exist.");
 
       const base =
         target.base === undefined
           ? head
           : await vcs.resolveRevision(target.base);
 
-      if (!base) throw new ReviewInputError("Base revision does not exist.");
+      if (!base) throw new SessionInputError("Base revision does not exist.");
 
       const resolved = { ...target, head: head.commit };
 
@@ -718,7 +718,7 @@ export class LocalReviewData {
         : await vcs.resolveRevision(target.base);
 
     if (target.base !== undefined && !base)
-      throw new ReviewInputError("Base revision does not exist.");
+      throw new SessionInputError("Base revision does not exist.");
 
     const { revision, commit } = await this.worktreeState(
       target.repositoryId,
@@ -782,7 +782,7 @@ export class LocalReviewData {
         ];
 
     if (repository.id && candidates.length === 0)
-      throw new ReviewInputError("Repository is not registered.", 404);
+      throw new SessionInputError("Repository is not registered.", 404);
 
     for (const { id } of candidates) {
       if (!existsSync(this.store.repositoryPath(id))) continue;
@@ -805,7 +805,7 @@ export class LocalReviewData {
         };
     }
 
-    throw new ReviewInputError(
+    throw new SessionInputError(
       repository.id
         ? `That checkout has no GitHub remote for ${slug}. Add one, or omit repositoryId.`
         : `No registered checkout has a GitHub remote for ${slug}. Register a checkout of ${slug} with review_register_repository first, or pass a target.`,
@@ -827,7 +827,7 @@ export class LocalReviewData {
       : [null, null];
 
     if (!left || !right)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         `Base or head revision does not exist in the local checkout (${!left ? `base: ${base}` : `head: ${head}`}). Fetch the requested commits before authoring; in CI, configure checkout depth to include both revisions.`,
       );
 
@@ -847,7 +847,7 @@ export class LocalReviewData {
     );
 
     if (resolved.base !== pins.base || resolved.head !== pins.head)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Use resolved commit IDs, not moving branch names.",
       );
   }
@@ -879,13 +879,13 @@ export class LocalReviewData {
             : null;
 
     if (text === null)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "File is unavailable at the pinned commit.",
         404,
       );
 
     if (!allowBinary && text.includes("\0"))
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Binary files cannot be used as code references.",
       );
 
@@ -896,10 +896,10 @@ export class LocalReviewData {
     pins: Pins,
     side: "base" | "head",
     directory: string,
-  ): Promise<ReviewSourceEntry[]> {
+  ): Promise<SessionSourceEntry[]> {
     inputError(() => checkSourcePath(directory));
     const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
-    const entries = new Map<string, ReviewSourceEntry>();
+    const entries = new Map<string, SessionSourceEntry>();
 
     const vcs = pins.worktreeRevision
       ? await this.vcs(pins.repositoryId)
@@ -925,7 +925,7 @@ export class LocalReviewData {
     }
 
     if (directory && entries.size === 0)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Directory is unavailable at the pinned commit.",
         404,
       );
@@ -1011,7 +1011,7 @@ export class LocalReviewData {
 
       return null;
     } catch (error) {
-      if (error instanceof ReviewInputError)
+      if (error instanceof SessionInputError)
         return `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`;
       throw error;
     }
@@ -1038,7 +1038,7 @@ export class LocalReviewData {
   }
 
   /** Start shared coverage work without occupying an HTTP request until it completes. */
-  coveragePending(reviewId: string, pins: Pins, mode: CoverageMode): boolean {
+  coveragePending(sessionId: string, pins: Pins, mode: CoverageMode): boolean {
     const key = JSON.stringify([pins, mode]);
     const existing = this.coverageCache.get(key);
 
@@ -1047,13 +1047,13 @@ export class LocalReviewData {
       throw existing.error;
     }
 
-    void this.coverage(reviewId, pins, mode).catch(() => {});
+    void this.coverage(sessionId, pins, mode).catch(() => {});
 
     return this.coverageCache.get(key)!.state === "pending";
   }
 
-  coverageSnapshot(reviewId: string, pins: Pins, mode: CoverageMode) {
-    const pending = this.coveragePending(reviewId, pins, mode);
+  coverageSnapshot(sessionId: string, pins: Pins, mode: CoverageMode) {
+    const pending = this.coveragePending(sessionId, pins, mode);
     const entry = this.coverageCache.get(JSON.stringify([pins, mode]))!;
 
     return {
@@ -1077,14 +1077,14 @@ export class LocalReviewData {
     }, 50);
   }
 
-  coverage(reviewId: string, pins: Pins, mode: CoverageMode) {
+  coverage(sessionId: string, pins: Pins, mode: CoverageMode) {
     const key = JSON.stringify([pins, mode]);
     let entry = this.coverageCache.get(key);
 
     if (!entry || entry.state === "error") {
       const promise = comparisonCoverage(
         this,
-        reviewId,
+        sessionId,
         pins,
         mode,
         this.coverageAbort.signal,
@@ -1294,7 +1294,7 @@ export class LocalReviewData {
     );
 
     if (!selected)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "The selected commit is not part of this review version.",
         404,
       );
@@ -1380,14 +1380,14 @@ export class LocalReviewData {
           new Set(input.trace.events.map((event) => event.id)).size !==
           input.trace.events.length
         )
-          throw new ReviewInputError("Trace event IDs must be unique.");
+          throw new SessionInputError("Trace event IDs must be unique.");
         data = Buffer.from(
           JSON.stringify({ ...input.trace, provenance: "client_supplied" }),
         );
         break;
       case "map": {
         if (input.pins.repositoryId !== input.repositoryId)
-          throw new ReviewInputError("Map belongs to a different repository.");
+          throw new SessionInputError("Map belongs to a different repository.");
         await this.validatePins(input.pins);
         let model;
 
@@ -1395,12 +1395,12 @@ export class LocalReviewData {
           model = defineSoftwareMap(input.model);
         } catch (error) {
           if (error instanceof SoftwareModelValidationError)
-            throw new ReviewInputError(error.message);
+            throw new SessionInputError(error.message);
           throw error;
         }
 
         // Read each pinned file once, then check every range against it concurrently.
-        const files = new Map<string, ReturnType<LocalReviewData["file"]>>();
+        const files = new Map<string, ReturnType<LocalSessionData["file"]>>();
 
         await Promise.all(
           model.elements.flatMap((element) =>
@@ -1454,7 +1454,7 @@ export class LocalReviewData {
       (pins && resource.repositoryId !== pins.repositoryId) ||
       resource.kind !== kind
     )
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Resource belongs to a different repository or component type.",
       );
 
@@ -1468,7 +1468,7 @@ export class LocalReviewData {
       const event = trace.events.find((event) => event.id === block.eventId);
 
       if (!event || !textIncludesQuote(event.text, block.text))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Quote does not match the retained trace event.",
         );
     }
@@ -1482,7 +1482,7 @@ export class LocalReviewData {
       };
 
       if (pins && map.commit !== pins[map.side])
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Map does not match this review's source pins.",
         );
 
@@ -1494,7 +1494,7 @@ export class LocalReviewData {
             element.path === block.focusElementId,
         )
       )
-        throw new ReviewInputError("Map focus element does not exist.");
+        throw new SessionInputError("Map focus element does not exist.");
     }
   }
 }
@@ -1505,12 +1505,12 @@ function inputError<T>(run: () => T): T {
     return run();
   } catch (error) {
     if (error instanceof SourceRangeError)
-      throw new ReviewInputError(error.message);
+      throw new SessionInputError(error.message);
     throw error;
   }
 }
 
-export function openLocalReviewStore(
+export function openLocalSessionStore(
   databasePath: string,
   options: {
     blobReaderIdleTimeoutMs?: number;
@@ -1519,7 +1519,7 @@ export function openLocalReviewStore(
     pullRequests?: PullRequestDeps;
   } = {},
 ) {
-  const store: ReviewStore = new ReviewStore(databasePath, {
+  const store: SessionStore = new SessionStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
     resolveTarget: (target) => data.resolveTarget(target),
     resolvePullRequest: (url, repository) =>
@@ -1535,10 +1535,10 @@ export function openLocalReviewStore(
       data.validateSourceTolerant(pins, source, options),
   });
 
-  let data: LocalReviewData;
+  let data: LocalSessionData;
 
   try {
-    data = new LocalReviewData(store, {
+    data = new LocalSessionData(store, {
       ...options,
       workspaceDatabase: `${databasePath}.workspaces`,
     });

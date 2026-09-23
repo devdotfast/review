@@ -171,7 +171,7 @@ describe("ReviewDocumentMetaLine", () => {
         relation: "current",
         pullRequestNumber: 20,
         pullRequestUrl: "https://github.com/o/r/pull/20",
-        reviewUuid: "22222222-2222-4222-8222-222222222222",
+        sessionId: "22222222-2222-4222-8222-222222222222",
         reviewTitle: "Review B",
       },
       {
@@ -179,7 +179,7 @@ describe("ReviewDocumentMetaLine", () => {
         relation: "later",
         pullRequestNumber: 30,
         pullRequestUrl: "https://github.com/o/r/pull/30",
-        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        sessionId: "11111111-1111-4111-8111-111111111111",
         reviewTitle: "Review C",
       },
       {
@@ -187,7 +187,7 @@ describe("ReviewDocumentMetaLine", () => {
         relation: "later",
         pullRequestNumber: 40,
         pullRequestUrl: "https://github.com/o/r/pull/40",
-        reviewUuid: null,
+        sessionId: null,
         reviewTitle: null,
       },
     ];
@@ -234,7 +234,7 @@ describe("ReviewDocumentMetaLine", () => {
     expect(post).toHaveBeenCalledWith({
       name: "openReview",
       args: {
-        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        sessionId: "11111111-1111-4111-8111-111111111111",
         active: false,
       },
     });

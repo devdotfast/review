@@ -12,14 +12,14 @@ import {
 import type { Hono } from "hono";
 import { z } from "zod";
 
-import { ReviewInputError } from "../review-api/document.js";
-import type { LocalReviewData } from "../review-api/local-data.js";
-import type { ReviewStore } from "../review-api/store.js";
+import { SessionInputError } from "../review-api/document.js";
+import type { LocalSessionData } from "../review-api/local-data.js";
+import type { SessionStore } from "../review-api/store.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { readSharingAuth } from "./auth.js";
 import { ShareAuthError, ShareClient, SharePreflightError } from "./client.js";
 import { exportShare } from "./export.js";
-import { SharedReviewStore, sharedReviewId } from "./import.js";
+import { SharedSessionStore, sharedSessionId } from "./import.js";
 import { readShareRepository, verifyShareRepository } from "./repository.js";
 
 interface LoginState {
@@ -29,7 +29,7 @@ interface LoginState {
 }
 
 const publishSchema = z.strictObject({
-  reviewId: z.string().min(1),
+  sessionId: z.string().min(1),
   version: z.number().int().nonnegative().optional(),
   requestId: z.uuid().optional(),
 });
@@ -45,9 +45,9 @@ interface SharingHostOptions {
 /** Mounted behind local host authentication. Account credentials never enter the renderer. */
 export function mountSharingHost(
   app: Hono,
-  store: ReviewStore,
-  data: LocalReviewData,
-  shared: SharedReviewStore,
+  store: SessionStore,
+  data: LocalSessionData,
+  shared: SharedSessionStore,
   options: SharingHostOptions = {},
 ) {
   const startLogin = options.login ?? runStoreLogin;
@@ -109,7 +109,7 @@ export function mountSharingHost(
     const id = context.req.param("id");
     const status = shared.status(id);
 
-    const result = { reviewId: id, ...status };
+    const result = { sessionId: id, ...status };
 
     if (status.stage === "ready")
       return context.json({ ...result, title: shared.get(id).snapshot.title });
@@ -128,11 +128,11 @@ export function mountSharingHost(
       parsed.origin !== DEFAULT_STORE_ORIGIN &&
       parsed.origin !== account?.origin
     )
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "This share uses an untrusted service. Sign in to that service before opening its links.",
         400,
       );
-    const id = sharedReviewId(parsed.origin, parsed.shareId);
+    const id = sharedSessionId(parsed.origin, parsed.shareId);
 
     if (!imports.has(id)) {
       shared.setStatus(id, "downloading");
@@ -156,7 +156,7 @@ export function mountSharingHost(
           shared.setStatus(
             id,
             "error",
-            error instanceof ReviewInputError
+            error instanceof SessionInputError
               ? error.message
               : "This share is unavailable, revoked, or needs a newer Review version.",
           );
@@ -167,15 +167,15 @@ export function mountSharingHost(
       shared.trackImport(job);
     }
 
-    return context.json({ reviewId: id, ...shared.status(id) }, 202);
+    return context.json({ sessionId: id, ...shared.status(id) }, 202);
   });
 }
 
 /** Publishing needs only an authored store, never Desktop or recipient workspaces. */
 export function mountSharingPublisher(
   app: Hono,
-  store: ReviewStore,
-  data: LocalReviewData,
+  store: SessionStore,
+  data: LocalSessionData,
   options: Pick<
     SharingHostOptions,
     "verifyRepository" | "readRepository" | "fetch"
@@ -187,27 +187,27 @@ export function mountSharingPublisher(
       await readBoundedRequestJson(context.req.raw),
     );
 
-    if (input.reviewId.startsWith("shared-"))
-      throw new ReviewInputError(
+    if (input.sessionId.startsWith("shared-"))
+      throw new SessionInputError(
         "Only the authoring review can be shared.",
         409,
       );
-    const snapshot = store.read(input.reviewId, input.version);
+    const snapshot = store.read(input.sessionId, input.version);
 
     if (snapshot.target?.kind === "worktree")
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Pin this review to commits before sharing it.",
       );
 
     if (!snapshot.pins)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "A document without source pins of its own cannot be shared.",
         409,
       );
     const account = await readSharingAuth();
 
     if (!account)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login before sharing.",
         409,
       );
@@ -221,7 +221,7 @@ export function mountSharingPublisher(
     const bundle = await exportShare({
       store,
       data,
-      reviewId: input.reviewId,
+      sessionId: input.sessionId,
       version: snapshot.version,
       repository,
     });
@@ -263,13 +263,13 @@ export function mountSharingPublisher(
         // A CI token lives in the environment; only the saved login can go stale.
         if (process.env.DEV_REVIEW_SHARE_TOKEN === undefined)
           await clearStoreAuth();
-        throw new ReviewInputError(
+        throw new SessionInputError(
           "Your sign-in has expired. Sign in again to share.",
           401,
         );
       }
 
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Sharing failed. Check your connection and login, then retry.",
         409,
       );
@@ -283,7 +283,7 @@ export function mountSharingPublisher(
     const account = await readSharingAuth();
 
     if (!account)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login first.",
         409,
       );

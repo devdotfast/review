@@ -8,7 +8,7 @@ import { openReviewProfile } from "../review-api/profile";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { devReviewHome } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
-import { SharedReviewStore } from "../sharing/import.js";
+import { SharedSessionStore } from "../sharing/import.js";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
 
@@ -69,7 +69,7 @@ export async function runDesktopHost(
   // JSON is the sole user-review store. A failure is surfaced, never replaced
   // by a second catalog or an old document renderer.
 
-  const shared = new SharedReviewStore(path.join(home, "shared-reviews"));
+  const shared = new SharedSessionStore(path.join(home, "shared-reviews"));
   shared.connect(local.store, local.data);
   await shared.load();
 

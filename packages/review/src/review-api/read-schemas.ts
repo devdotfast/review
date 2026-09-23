@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { SourcePins } from "../source.js";
-import { ReviewInputError } from "./input-error.js";
+import { SessionInputError } from "./input-error.js";
 
 // Query schemas for the read routes. http.ts parses query strings with them
 // and authoring-tools.ts publishes the same shapes, so the two cannot drift.
@@ -34,7 +34,7 @@ export function queryAnchor(input: {
   if (!input.repositoryId && !input.head && !input.base) return undefined;
 
   if (!input.repositoryId || !input.head)
-    throw new ReviewInputError(
+    throw new SessionInputError(
       "Reading at explicit pins needs both repositoryId and head.",
     );
 

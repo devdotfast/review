@@ -22,7 +22,7 @@ import type {
 	ReviewDiffFileWire,
 	ReviewInlineEditorFactory,
 	ReviewDiffViewFactory,
-	ReviewSourceEntry,
+	SessionSourceEntry,
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceAnchor, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
@@ -65,7 +65,7 @@ export function apiSourceTarget(resource: URI): ApiSourceTarget | undefined {
 	)
 		return undefined;
 	return {
-		view: { reviewId: resource.authority, version, commit: query.get("commit") ?? undefined, generation: query.get("generation") ?? undefined },
+		view: { sessionId: resource.authority, version, commit: query.get("commit") ?? undefined, generation: query.get("generation") ?? undefined },
 		side,
 		file: resource.path.slice(1),
 	};
@@ -111,7 +111,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					const target = sourceLocation(resource);
 					const body = query.has("empty")
 						? { text: "" }
-						: await this.read<{ text: string; localPath?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
+						: await this.read<{ text: string; localPath?: string }>(target.view.sessionId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
 					const model = (
 						modelService.getModel(resource) ??
 						modelService.createModel(
@@ -121,7 +121,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 						)
 					);
 					if (body.localPath) {
-						this.followDisk(model, URI.file(body.localPath), async () => (await this.read<{ text: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file })).text);
+						this.followDisk(model, URI.file(body.localPath), async () => (await this.read<{ text: string }>(target.view.sessionId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file })).text);
 					}
 					return model;
 				},
@@ -155,17 +155,17 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 	}
 
 	private async read<T>(
-		reviewId: string,
+		sessionId: string,
 		route: string,
 		query: Record<string, string | number | undefined>,
 	): Promise<T> {
 		const { serverUrl, token } = await this.session.getConnection();
 		const params = new URLSearchParams(
 			Object.entries(query)
-				.filter(([key, value]) => key !== "reviewId" && value !== undefined)
+				.filter(([key, value]) => key !== "sessionId" && value !== undefined)
 				.map(([key, value]) => [key, String(value)]),
 		);
-		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(reviewId)}${route}?${params}`, {
+		const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(sessionId)}${route}?${params}`, {
 			headers: { "x-review-token": token },
 			signal: AbortSignal.timeout(30_000),
 		});
@@ -194,11 +194,11 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					: {}),
 			},
 		});
-		if (pane?.input) this.tabs.registerReviewEditor(target.view.reviewId, pane.input);
+		if (pane?.input) this.tabs.registerReviewEditor(target.view.sessionId, pane.input);
 	}
 
 	async openDiff(view: ReviewSourceView, path: string): Promise<void> {
-		const files = await this.read<ReviewDiffFileWire[]>(view.reviewId, "/diff", reviewSourceQuery(view));
+		const files = await this.read<ReviewDiffFileWire[]>(view.sessionId, "/diff", reviewSourceQuery(view));
 		const file = files.find((file) => file.path === path);
 		if (!file) throw new Error(`File is not changed in this review version: ${path}`);
 		const target = { view, file: path };
@@ -209,14 +209,14 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			modified: { resource: await this.sourceResource({ ...target, side: "head" }, file.status === "deleted") },
 			options: { pinned: true },
 		});
-		if (pane?.input) this.tabs.registerReviewEditor(view.reviewId, pane.input);
+		if (pane?.input) this.tabs.registerReviewEditor(view.sessionId, pane.input);
 	}
 
 	async children(resource: URI): Promise<IFileStat[]> {
 		const selection = resource.scheme === REVIEW_API_TREE_SCHEME ? sourceTreeSelection(resource) : undefined;
 		let target: ApiSourceTarget;
 		if (selection) {
-			const snapshot = await this.read<Parameters<typeof resolveReviewSourceView>[0]>(selection.reviewId, "", {
+			const snapshot = await this.read<Parameters<typeof resolveReviewSourceView>[0]>(selection.sessionId, "", {
 				full: "true", version: selection.kind === "version" ? selection.version : undefined,
 			});
 			target = { view: resolveReviewSourceView(snapshot), side: "head", file: resource.path.slice(1) };
@@ -224,7 +224,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			target = sourceLocation(resource);
 		}
 
-		const entries = await this.read<ReviewSourceEntry[]>(target.view.reviewId, "/tree", {
+		const entries = await this.read<SessionSourceEntry[]>(target.view.sessionId, "/tree", {
 			...reviewSourceQuery(target.view), side: target.side, path: target.file,
 		});
 		return entries.map((entry) => ({
@@ -245,7 +245,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			const key = JSON.stringify(reviewSourceQuery(current));
 			let list = lists.get(key);
 			if (!list) {
-				list = this.read<ReviewDiffFileWire[]>(current.reviewId, "/diff", reviewSourceQuery(current));
+				list = this.read<ReviewDiffFileWire[]>(current.sessionId, "/diff", reviewSourceQuery(current));
 				list.catch(() => lists.delete(key));
 				lists.set(key, list);
 			}
@@ -257,7 +257,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		const makeSource = (getView: () => ReviewSourceView): ReviewDiffViewSource => ({
 			files: scope => files(reviewSourceComparison(getView(), scope?.commit)),
 			load: async (scope, lens) => {
-				if (lens && (scope || lens.reviewId !== getView().reviewId)) throw new Error("A lens must use its review comparison.");
+				if (lens && (scope || lens.sessionId !== getView().sessionId)) throw new Error("A lens must use its review comparison.");
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(getView(), scope?.commit);
 				const comparisonFiles = await files(current);
@@ -266,7 +266,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 				return {
 					session: openComparison(current),
-					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: comparisonQuery(current) }),
+					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.sessionId, path: `/${current.version}/${current.generation ?? ""}`, query: comparisonQuery(current) }),
 					entries: await Promise.all(entries.map(async file => {
 						const original = file.status === "added" ? undefined : await this.sourceResource({ view: current, side: "base", file: file.previousPath ?? file.path });
 						const modified = file.status === "deleted" ? undefined : await this.sourceResource({ view: current, side: "head", file: file.path });
@@ -281,7 +281,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			const current = spec.pins ? reviewSourceAnchor(view(), spec.pins) : reviewSourceComparison(view());
 			const lens: ReviewDiffLens = {
 				id: "document:" + JSON.stringify([spec.path, spec.ranges, spec.pins]), title: spec.path,
-				reviewId: current.reviewId, version: current.version,
+				sessionId: current.sessionId, version: current.version,
 				ranges: spec.ranges.map(range => ({ file: spec.path, side: range.side ?? spec.side, fromLine: range.startLine, toLine: range.endLine })),
 			};
 			return { lens, source: makeSource(() => current) };

@@ -20,7 +20,7 @@ import {
   installReviewCommand as installReviewCommandActual,
   pathShimPath,
 } from "./cli-install";
-import { runReviewCli } from "./cli-runner";
+import { runWhiteboardCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import {
@@ -73,7 +73,7 @@ describe("Review CLI", () => {
         );
         const stderr = outputStream();
 
-        const code = await runReviewCli({
+        const code = await runWhiteboardCli({
           argv: ["install", ...targets],
           cwd: homeDir,
           env,
@@ -109,7 +109,7 @@ describe("Review CLI", () => {
   it("routes own-upload status filters without requesting trace content", async () => {
     const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
 
-    const code = await runReviewCli({
+    const code = await runWhiteboardCli({
       argv: [
         "trace",
         "status",
@@ -178,7 +178,7 @@ describe("Review CLI", () => {
 
     try {
       await expect(
-        runReviewCli({
+        runWhiteboardCli({
           argv: ["install", "codex"],
           env,
           stdout: outputStream(),
@@ -208,7 +208,7 @@ describe("Review CLI", () => {
     const installReviewCommand = vi.fn<typeof installReviewCommandActual>();
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["install", "codex", "--no-shim"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -230,7 +230,7 @@ describe("Review CLI", () => {
     );
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: [
           "install",
           "codex",
@@ -271,7 +271,7 @@ describe("Review CLI", () => {
     stderr.on("data", (chunk) => (output += String(chunk)));
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["trace", "setup"],
         stdout: outputStream(),
         stderr,
@@ -286,7 +286,7 @@ describe("Review CLI", () => {
     stdout.on("data", (chunk) => (output += String(chunk)));
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["version"],
         cliVersion: "1.2.3",
         stdout,
@@ -300,7 +300,7 @@ describe("Review CLI", () => {
     const runReviewApp = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app" as const,
       action: "pick" as const,
-      reviewUuid: "review-uuid",
+      sessionId: "review-uuid",
       title: "Review",
     }));
 
@@ -309,13 +309,13 @@ describe("Review CLI", () => {
       reviews: [],
     }));
 
-    await runReviewCli({
+    await runWhiteboardCli({
       argv: ["app", "pick", "--review", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewAppPick: runReviewApp },
     });
-    await runReviewCli({
+    await runWhiteboardCli({
       argv: ["info", "--review", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
@@ -323,10 +323,10 @@ describe("Review CLI", () => {
     });
 
     expect(runReviewApp).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
+      expect.objectContaining({ sessionId: "review-uuid" }),
     );
     expect(runReviewInfo).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
+      expect.objectContaining({ sessionId: "review-uuid" }),
     );
   });
 
@@ -340,7 +340,7 @@ describe("Review CLI", () => {
       stdout.on("data", (chunk) => (output += String(chunk)));
 
       await expect(
-        runReviewCli({
+        runWhiteboardCli({
           argv,
           stdout,
           stderr: outputStream(),
@@ -372,7 +372,7 @@ describe("Review CLI", () => {
       stdout.on("data", (chunk) => (output += String(chunk)));
 
       await expect(
-        runReviewCli({
+        runWhiteboardCli({
           argv: [...argv, "--json"],
           cwd: "/outside-a-repository",
           stdin: Readable.from([]),
@@ -414,7 +414,7 @@ describe("Review CLI", () => {
       stdout.on("data", (chunk) => (output += String(chunk)));
 
       await expect(
-        runReviewCli({
+        runWhiteboardCli({
           argv: ["app", "launch", ...flags],
           cwd: "/outside-a-repository",
           stdin: Readable.from([]),
@@ -431,12 +431,12 @@ describe("Review CLI", () => {
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
       action: "pick",
-      reviewUuid: "review-uuid",
+      sessionId: "review-uuid",
       title: "Picked",
     }));
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["app", "pick", "--review", "review-uuid", "--focus", "--json"],
         cwd: "/outside-a-repository",
         stdin: Readable.from([]),
@@ -446,7 +446,7 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runReviewAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid", focus: true }),
+      expect.objectContaining({ sessionId: "review-uuid", focus: true }),
     );
   });
 
@@ -477,7 +477,7 @@ describe("Review CLI", () => {
     } satisfies ReviewCommandTelemetry;
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv,
         stdout: outputStream(),
         stderr: outputStream(),
@@ -492,7 +492,7 @@ describe("Review CLI", () => {
           runReviewAppPick: async () => ({
             event: "app",
             action: "pick",
-            reviewUuid: "review-uuid",
+            sessionId: "review-uuid",
             title: "Review",
           }),
         },
@@ -545,7 +545,7 @@ describe("Review CLI", () => {
     });
 
     try {
-      const running = runReviewCli({
+      const running = runWhiteboardCli({
         argv: ["info"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -627,7 +627,7 @@ describe("Review CLI", () => {
     } satisfies ReviewCommandTelemetry;
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["info"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -659,7 +659,7 @@ describe("Review CLI", () => {
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
       action: "pick",
-      reviewUuid: "review-uuid",
+      sessionId: "review-uuid",
       title: "Review",
     }));
 
@@ -668,7 +668,7 @@ describe("Review CLI", () => {
     stdout.on("data", (chunk) => (output += String(chunk)));
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: [...argv, "--json"],
         stdout,
         stderr: outputStream(),
@@ -676,18 +676,18 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runReviewAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
+      expect.objectContaining({ sessionId: "review-uuid" }),
     );
     expect(JSON.parse(output)).toMatchObject({
       event: "app",
       action: "pick",
-      reviewUuid: "review-uuid",
+      sessionId: "review-uuid",
     });
   });
 
   it("rejects an invalid --view for app pick", async () => {
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["app", "pick", "--review", "review-uuid", "--view", "files"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -697,7 +697,7 @@ describe("Review CLI", () => {
 
   it("rejects the removed info --new option", async () => {
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["info", "--new"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -713,7 +713,7 @@ describe("Review CLI", () => {
     for (const value of ["50junk", "1.5", "-1", ""]) {
       const stderr = outputStream();
       await expect(
-        runReviewCli({
+        runWhiteboardCli({
           argv: ["trace", "sessions", "--limit", value],
           stdout: outputStream(),
           stderr,
@@ -724,7 +724,7 @@ describe("Review CLI", () => {
     }
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["trace", "sessions", "--limit", "50"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -738,7 +738,7 @@ describe("Review CLI", () => {
 
   it("rejects the removed tools ensure command", async () => {
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["tools", "ensure"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -748,7 +748,7 @@ describe("Review CLI", () => {
 
   it("rejects the removed start command", async () => {
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["start"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -762,7 +762,7 @@ describe("Review CLI", () => {
     );
 
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["migrate", "apply"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -770,7 +770,7 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv: ["migrate", "apply", "--force"],
         stdout: outputStream(),
         stderr: outputStream(),
@@ -803,7 +803,7 @@ describe("Review CLI", () => {
     ["prepare-worktree", "/tmp/checkout", "--commit", "a".repeat(40)],
   ])("rejects removed command surface: %s", async (...argv) => {
     await expect(
-      runReviewCli({
+      runWhiteboardCli({
         argv,
         stdout: outputStream(),
         stderr: outputStream(),
@@ -838,7 +838,7 @@ it("emits one JSON error when a trace command needs repository authorization", a
       ),
   });
 
-  const code = await runReviewCli({
+  const code = await runWhiteboardCli({
     argv: ["--json", "trace", "status"],
     stdout,
     stderr: outputStream(),

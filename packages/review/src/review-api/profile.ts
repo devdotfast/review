@@ -1,11 +1,13 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, backup } from "node:sqlite";
 
 import { withFileLock } from "@dev.fast/trace-core";
 
 import { ensureJsonCutover } from "../review-import/json-cutover.js";
-import { openLocalReviewStore } from "./local-data.js";
+import { openLocalSessionStore } from "./local-data.js";
+import { migrateSessionStorage } from "./session-storage-migration.js";
 
 const lockOptions = {
   retryMs: 50,
@@ -33,7 +35,7 @@ export async function openReviewProfile(
       ])
         await importHeadlessStore(home, source);
 
-      return openLocalReviewStore(path.join(home, "review-api.db"), options);
+      return openLocalSessionStore(path.join(home, "review-api.db"), options);
     },
   );
 
@@ -59,7 +61,10 @@ async function importHeadlessStore(home: string, source: string) {
     timeout: 5000,
   });
 
+  let temporary: string | undefined;
+
   try {
+    migrateSessionStorage(database);
     database.exec(
       "PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS headless_imports(path TEXT PRIMARY KEY)",
     );
@@ -75,14 +80,34 @@ async function importHeadlessStore(home: string, source: string) {
       path.join(path.dirname(source), "server.lock"),
       { ...lockOptions, timeoutMs: 0 },
       async () => {
-        database.prepare("ATTACH DATABASE ? AS headless").run(source);
+        temporary = await mkdtemp(
+          path.join(tmpdir(), "whiteboard-headless-import-"),
+        );
+        const copy = path.join(temporary, "reviews.db");
+        const original = new DatabaseSync(source, { readOnly: true });
+
+        try {
+          await backup(original, copy);
+        } finally {
+          original.close();
+        }
+
+        const migrated = new DatabaseSync(copy);
+
+        try {
+          migrateSessionStorage(migrated);
+        } finally {
+          migrated.close();
+        }
+
+        database.prepare("ATTACH DATABASE ? AS headless").run(copy);
         database.exec("BEGIN IMMEDIATE");
 
         try {
           if (
             database
               .prepare(
-                "SELECT 1 FROM headless.reviews s JOIN reviews t ON s.id=t.id LIMIT 1",
+                "SELECT 1 FROM headless.sessions s JOIN sessions t ON s.id=t.id LIMIT 1",
               )
               .get()
           )
@@ -126,13 +151,13 @@ async function importHeadlessStore(home: string, source: string) {
             );
           database.exec(`
           INSERT OR IGNORE INTO resources SELECT s.id,r.new_id,s.kind,s.mime_type,s.data FROM headless.resources s JOIN repository_ids r ON s.repository_id=r.old_id;
-          INSERT INTO reviews SELECT * FROM headless.reviews;
-          INSERT INTO versions SELECT s.review_id,s.version,
+          INSERT INTO sessions SELECT * FROM headless.sessions;
+          INSERT INTO versions SELECT s.session_id,s.version,
             CASE WHEN json_type(s.snapshot,'$.target')='object'
               THEN json_set(s.snapshot,'$.pins.repositoryId',r.new_id,'$.target.repositoryId',r.new_id)
               ELSE json_set(s.snapshot,'$.pins.repositoryId',r.new_id) END
             FROM headless.versions s JOIN repository_ids r ON json_extract(s.snapshot,'$.pins.repositoryId')=r.old_id;
-          INSERT INTO review_attention SELECT * FROM headless.review_attention;
+          INSERT INTO session_attention SELECT * FROM headless.session_attention;
           INSERT OR IGNORE INTO receipts SELECT * FROM headless.receipts;
           INSERT OR IGNORE INTO legacy_imports SELECT * FROM headless.legacy_imports;
         `);
@@ -147,7 +172,7 @@ async function importHeadlessStore(home: string, source: string) {
             // Leases are keyed by (review, scope); either side may predate
             // scopes, and a lease from before them is the document's.
             database.exec(
-              `CREATE TABLE IF NOT EXISTS authoring_sessions(review_id TEXT NOT NULL,scope TEXT NOT NULL,lease_id TEXT NOT NULL,expires_at INTEGER NOT NULL,focus TEXT,PRIMARY KEY(review_id,scope))`,
+              `CREATE TABLE IF NOT EXISTS authoring_sessions(session_id TEXT NOT NULL,scope TEXT NOT NULL,lease_id TEXT NOT NULL,expires_at INTEGER NOT NULL,focus TEXT,PRIMARY KEY(session_id,scope))`,
             );
 
             const scoped = (schema: string) =>
@@ -160,8 +185,8 @@ async function importHeadlessStore(home: string, source: string) {
 
             database.exec(
               scoped("main")
-                ? `INSERT INTO authoring_sessions(review_id,scope,lease_id,expires_at,focus) SELECT review_id,${scope},lease_id,expires_at,focus FROM headless.authoring_sessions`
-                : `INSERT INTO authoring_sessions(review_id,lease_id,expires_at,focus) SELECT review_id,lease_id,expires_at,focus FROM headless.authoring_sessions WHERE ${scope}='document'`,
+                ? `INSERT INTO authoring_sessions(session_id,scope,lease_id,expires_at,focus) SELECT session_id,${scope},lease_id,expires_at,focus FROM headless.authoring_sessions`
+                : `INSERT INTO authoring_sessions(session_id,lease_id,expires_at,focus) SELECT session_id,lease_id,expires_at,focus FROM headless.authoring_sessions WHERE ${scope}='document'`,
             );
           }
 
@@ -178,9 +203,11 @@ async function importHeadlessStore(home: string, source: string) {
 
     if (!outcome.acquired)
       throw new Error(
-        `Stop the old headless server using ${path.dirname(source)}, then retry. Its reviews will be moved into the shared profile automatically.`,
+        `Stop the old headless server using ${path.dirname(source)}, then retry. Its sessions will be moved into the shared profile automatically.`,
       );
   } finally {
     database.close();
+
+    if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }

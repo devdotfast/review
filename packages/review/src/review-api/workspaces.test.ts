@@ -10,23 +10,24 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import { runPrepareCommand } from "../review-prepare.js";
 import type { Pins } from "./document.js";
-import { createReviewApi } from "./http.js";
-import { openLocalReviewStore } from "./local-data.js";
+import { createSessionApi } from "./http.js";
+import { openLocalSessionStore } from "./local-data.js";
 import type { commandSchema } from "./store.js";
 
 let directory: string,
   repository: string,
   database: string,
-  reviewId: string,
+  sessionId: string,
   pins: Pins;
 
-let local: ReturnType<typeof openLocalReviewStore>;
+let local: ReturnType<typeof openLocalSessionStore>;
 
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
@@ -56,11 +57,11 @@ beforeEach(async () => {
   git("commit", "-am", "head", "--no-gpg-sign");
   const head = git("rev-parse", "HEAD");
   database = path.join(directory, "reviews.db");
-  local = openLocalReviewStore(database);
+  local = openLocalSessionStore(database);
   const registered = await local.data.register(repository);
   pins = { repositoryId: registered.id, base, head };
-  reviewId = (await command({ type: "create", title: "Pinned", pins }))
-    .reviewId;
+  sessionId = (await command({ type: "create", title: "Pinned", pins }))
+    .sessionId;
 });
 
 afterEach(async () => {
@@ -71,23 +72,23 @@ afterEach(async () => {
 
 it("keeps Desktop preparation owned while a headless connection edits and deletes the review", async () => {
   git("config", "devfast.prepare", 'node -e "setTimeout(() => {}, 60000)"');
-  const preparing = await local.data.workspaces.source(reviewId, pins, "head");
+  const preparing = await local.data.workspaces.source(sessionId, pins, "head");
   expect(preparing.state).toBe("preparing");
-  const headless = openLocalReviewStore(database, { manageWorkspaces: false });
+  const headless = openLocalSessionStore(database, { manageWorkspaces: false });
 
   try {
-    expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
+    expect(local.data.workspaces.list(sessionId)).toContainEqual(preparing);
     expect(() => headless.data.workspaces).toThrow(/Desktop/);
-    expect(() => openLocalReviewStore(database)).toThrow(
+    expect(() => openLocalSessionStore(database)).toThrow(
       /Another Desktop owns/,
     );
-    expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
+    expect(local.data.workspaces.list(sessionId)).toContainEqual(preparing);
     await headless.store.execute({
       commandId: randomUUID(),
-      operation: { type: "delete", reviewId },
+      operation: { type: "delete", sessionId },
     });
     await vi.waitFor(
-      () => expect(local.data.workspaces.list(reviewId)).toEqual([]),
+      () => expect(local.data.workspaces.list(sessionId)).toEqual([]),
       { timeout: 5000 },
     );
     expect(existsSync(preparing.rootPath!)).toBe(false);
@@ -104,14 +105,14 @@ it("prepares each side once in order, reuses on restart, and invalidates changed
 
   const contexts = await Promise.all(
     Array.from({ length: 5 }, () =>
-      local.data.workspaces.source(reviewId, pins, "head"),
+      local.data.workspaces.source(sessionId, pins, "head"),
     ),
   );
 
-  await local.data.workspaces.open(reviewId, pins);
+  await local.data.workspaces.open(sessionId, pins);
   await local.data.workspaces.idle();
-  const head = await local.data.workspaces.source(reviewId, pins, "head");
-  const base = await local.data.workspaces.source(reviewId, pins, "base");
+  const head = await local.data.workspaces.source(sessionId, pins, "head");
+  const base = await local.data.workspaces.source(sessionId, pins, "base");
   expect(contexts.every((context) => context.id === head.id)).toBe(true);
   expect(head.rootPath).not.toBe(base.rootPath);
   expect(readFileSync(path.join(head.rootPath!, "prepared"), "utf8")).toBe(
@@ -128,8 +129,8 @@ it("prepares each side once in order, reuses on restart, and invalidates changed
   );
   await local.data.close();
   await local.store.close();
-  local = openLocalReviewStore(database);
-  const restarted = await local.data.workspaces.source(reviewId, pins, "head");
+  local = openLocalSessionStore(database);
+  const restarted = await local.data.workspaces.source(sessionId, pins, "head");
   expect(restarted.state).toBe("ready");
   expect(restarted.generation).not.toBe(head.generation);
   expect(readFileSync(path.join(head.rootPath!, "prepared"), "utf8")).toBe(
@@ -142,7 +143,7 @@ it("prepares each side once in order, reuses on restart, and invalidates changed
     "printf changed > prepared",
   );
   expect(
-    (await local.data.workspaces.source(reviewId, pins, "head")).state,
+    (await local.data.workspaces.source(sessionId, pins, "head")).state,
   ).toBe("preparing");
   await local.data.workspaces.idle();
   expect(readFileSync(path.join(head.rootPath!, "prepared"), "utf8")).toBe(
@@ -152,24 +153,24 @@ it("prepares each side once in order, reuses on restart, and invalidates changed
 
 it("retains failure without retry loops, retries at the original side, and recreates missing checkouts", async () => {
   git("config", "devfast.prepare", "echo failure; exit 7");
-  await local.data.workspaces.source(reviewId, pins, "base");
+  await local.data.workspaces.source(sessionId, pins, "base");
   await local.data.workspaces.idle();
-  const failed = await local.data.workspaces.source(reviewId, pins, "base");
+  const failed = await local.data.workspaces.source(sessionId, pins, "base");
   expect(failed.state).toBe("failed");
   expect(failed.log).toContain("failure");
   expect(failed.issue).toBeUndefined();
   expect(existsSync(`${failed.rootPath}.prepared`)).toBe(false);
   expect(
-    (await local.data.workspaces.source(reviewId, pins, "base")).generation,
+    (await local.data.workspaces.source(sessionId, pins, "base")).generation,
   ).toBe(failed.generation);
   git("config", "devfast.prepare", "echo installed > dependency");
-  await local.data.workspaces.retry(reviewId, failed.id);
+  await local.data.workspaces.retry(sessionId, failed.id);
   await local.data.workspaces.idle();
-  const ready = await local.data.workspaces.source(reviewId, pins, "base");
+  const ready = await local.data.workspaces.source(sessionId, pins, "base");
   expect(ready.rootPath).toBe(failed.rootPath);
   expect(ready.state).toBe("ready");
   rmSync(ready.rootPath!, { recursive: true });
-  await local.data.workspaces.source(reviewId, pins, "base");
+  await local.data.workspaces.source(sessionId, pins, "base");
   await local.data.workspaces.idle();
   expect(
     readFileSync(path.join(ready.rootPath!, "dependency"), "utf8"),
@@ -177,16 +178,16 @@ it("retains failure without retry loops, retries at the original side, and recre
 });
 
 it("keeps historical and equal-side environments until review deletion and leaves user worktrees alone", async () => {
-  await local.data.workspaces.open(reviewId, { ...pins, base: pins.head });
-  expect(local.data.workspaces.list(reviewId)).toHaveLength(1);
-  const old = await local.data.workspaces.source(reviewId, pins, "base");
+  await local.data.workspaces.open(sessionId, { ...pins, base: pins.head });
+  expect(local.data.workspaces.list(sessionId)).toHaveLength(1);
+  const old = await local.data.workspaces.source(sessionId, pins, "base");
   await command({
     type: "repin",
-    reviewId,
+    sessionId,
     pins: { ...pins, base: pins.head },
   });
   expect(existsSync(old.rootPath!)).toBe(true);
-  await command({ type: "delete", reviewId });
+  await command({ type: "delete", sessionId });
   await local.data.workspaces.idle();
   expect(existsSync(old.rootPath!)).toBe(false);
   expect(
@@ -196,15 +197,15 @@ it("keeps historical and equal-side environments until review deletion and leave
 
 it("does not block source reads during preparation and interrupts commands on shutdown", async () => {
   git("config", "devfast.prepare", "echo started; sleep 60");
-  const context = await local.data.workspaces.source(reviewId, pins, "head");
+  const context = await local.data.workspaces.source(sessionId, pins, "head");
   expect(context.state).toBe("preparing");
   expect((await local.data.file(pins, "head", "value.ts")).text).toContain(
     "42",
   );
   await local.data.close();
   await local.store.close();
-  local = openLocalReviewStore(database);
-  expect(local.data.workspaces.list(reviewId)[0]?.state).toBe("failed");
+  local = openLocalSessionStore(database);
+  expect(local.data.workspaces.list(sessionId)[0]?.state).toBe("failed");
   expect(existsSync(`${context.rootPath}.prepared`)).toBe(false);
 });
 
@@ -222,15 +223,15 @@ it("bounds preparation runtime and captures diagnostics", async () => {
 
 it("persists failed cleanup and retries it without deleting an unrelated checkout", async () => {
   const environment = await local.data.workspaces.source(
-    reviewId,
+    sessionId,
     pins,
     "head",
   );
 
   git("worktree", "lock", environment.rootPath!);
-  await command({ type: "delete", reviewId });
+  await command({ type: "delete", sessionId });
   await local.data.workspaces.idle();
-  const app = createReviewApi(local.store, local.data);
+  const app = createSessionApi(local.store, local.data);
 
   const cleanup = async (workspaceId?: string) => {
     const response = await app.request("/workspace-cleanup", {
@@ -256,17 +257,52 @@ it("persists failed cleanup and retries it without deleting an unrelated checkou
 
 it("reports a missing repository before first acquisition and recovers after it returns", async () => {
   renameSync(repository, `${repository}-missing`);
-  const missing = await local.data.workspaces.source(reviewId, pins, "head");
+  const missing = await local.data.workspaces.source(sessionId, pins, "head");
   expect(missing.state).toBe("failed");
   expect(missing.rootPath).toBeNull();
   expect(missing.issue).toBe(missing.log);
   expect(missing.log).toContain("Restore the registered checkout");
   renameSync(`${repository}-missing`, repository);
-  const restored = await local.data.workspaces.source(reviewId, pins, "head");
+  const restored = await local.data.workspaces.source(sessionId, pins, "head");
   expect(restored.state).toBe("unconfigured");
   expect(restored.issue).toBeUndefined();
   expect(restored.rootPath).not.toBe(repository);
   expect(
     readFileSync(path.join(restored.rootPath!, "value.ts"), "utf8"),
   ).toContain("42");
+});
+
+it("upgrades saved workspace ownership without replacing the pinned checkout", async () => {
+  const before = await local.data.workspaces.source(sessionId, pins, "head");
+  await local.data.close();
+  await local.store.close();
+  const db = new DatabaseSync(`${database}.workspaces`);
+  db.exec(
+    "UPDATE pinned_environments SET value=json_remove(json_set(value,'$.reviewId',json_extract(value,'$.sessionId')),'$.sessionId')",
+  );
+  db.close();
+  local = openLocalSessionStore(database);
+  const restored = local.data.workspaces.list(sessionId);
+  expect(restored).toContainEqual(
+    expect.objectContaining({ id: before.id, rootPath: before.rootPath }),
+  );
+
+  const upgraded = new DatabaseSync(`${database}.workspaces`, {
+    readOnly: true,
+  });
+
+  try {
+    const value = JSON.parse(
+      String(
+        upgraded
+          .prepare("SELECT value FROM pinned_environments WHERE id=?")
+          .get(before.id)!.value,
+      ),
+    );
+
+    expect(value).toHaveProperty("sessionId", sessionId);
+    expect(value).not.toHaveProperty("reviewId");
+  } finally {
+    upgraded.close();
+  }
 });

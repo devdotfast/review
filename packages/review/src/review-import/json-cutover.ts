@@ -21,7 +21,7 @@ import {
 } from "@dev.fast/trace-core";
 
 import { isMissingFileError } from "../fs-utils";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import {
   type StoredReview,
   UUID_PATTERN,
@@ -40,12 +40,12 @@ export interface CutoverReport {
   backup: string | null;
   outcomes: ImportOutcome[];
   /** Unpublished legacy drafts are intentionally excluded from the JSON catalog. */
-  droppedDrafts: { reviewId: string; title: string }[];
-  errors: { reviewId: string; reason: string }[];
+  droppedDrafts: { sessionId: string; title: string }[];
+  errors: { sessionId: string; reason: string }[];
   /** Directories with unreadable records or unavailable repositories. They were
    * not imported and are left exactly as found, so one dead record cannot keep
    * the app from starting. */
-  skipped: { reviewId: string; dir: string; reason: string }[];
+  skipped: { sessionId: string; dir: string; reason: string }[];
   archivedMaps: Parameters<
     NonNullable<ImportLegacyReviewInput["archiveMap"]>
   >[0][];
@@ -111,7 +111,7 @@ export async function migrateJsonReviews(input: {
           originals.push({ dir, review });
         } catch (error) {
           const reason = errorMessage(error);
-          report.skipped.push({ reviewId: id, dir, reason });
+          report.skipped.push({ sessionId: id, dir, reason });
           input.log?.(
             `${dir}: unreadable review.json, left untouched and skipped: ${reason}`,
           );
@@ -140,7 +140,7 @@ export async function migrateJsonReviews(input: {
         source?.close();
       }
 
-      const { store, data } = openLocalReviewStore(candidate);
+      const { store, data } = openLocalSessionStore(candidate);
 
       try {
         for (const original of originals) {
@@ -149,7 +149,7 @@ export async function migrateJsonReviews(input: {
             !original.review.presentedDocumentRevision
           ) {
             report.droppedDrafts.push({
-              reviewId: original.review.uuid,
+              sessionId: original.review.uuid,
               title: original.review.title,
             });
             input.log?.(`${original.review.title}: dropped unpublished draft`);
@@ -191,7 +191,7 @@ export async function migrateJsonReviews(input: {
               original.review.presentedDocumentRevision
             ) {
               report.skipped.push({
-                reviewId: original.review.uuid,
+                sessionId: original.review.uuid,
                 dir: original.dir,
                 reason: outcome.reason,
               });
@@ -203,7 +203,7 @@ export async function migrateJsonReviews(input: {
             input.log?.(`${original.review.title}: ${outcome.kind}`);
           } catch (error) {
             report.errors.push({
-              reviewId: original.review.uuid,
+              sessionId: original.review.uuid,
               reason: errorMessage(error),
             });
           }
@@ -289,7 +289,7 @@ export async function ensureJsonCutover(
     throw new Error(
       `Review migration could not finish. The original database is unchanged. Report: ${path.join(path.dirname(result.database), "report.json")}\n` +
         result.errors
-          .map((item) => `${item.reviewId}: ${item.reason}`)
+          .map((item) => `${item.sessionId}: ${item.reason}`)
           .join("\n"),
     );
 }

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import type { StoredReview } from "../review-home";
 import {
   logFromRevisionDirs,
@@ -27,7 +27,7 @@ describe("createLegacyImporter", () => {
       repo,
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(first.home, "review-api.db"),
     );
 
@@ -80,7 +80,7 @@ describe("createLegacyImporter", () => {
       repo,
     );
 
-    const { store, data } = openLocalReviewStore(
+    const { store, data } = openLocalSessionStore(
       path.join(broken.home, "review-api.db"),
     );
 
@@ -106,12 +106,12 @@ describe("createLegacyImporter", () => {
       expect(outcomes).toEqual([
         {
           kind: "skipped",
-          reviewId: broken.record.uuid,
+          sessionId: broken.record.uuid,
           reason: "disk on fire",
         },
         expect.objectContaining({
           kind: "imported",
-          reviewId: fine.record.uuid,
+          sessionId: fine.record.uuid,
         }),
       ]);
       expect(log).toHaveBeenCalledWith(
@@ -158,7 +158,7 @@ describe("createLegacyImporter", () => {
     // it stays the one Home lists and opens.
     expect(await importer.ensure(stored)).toEqual({
       kind: "current",
-      reviewId: record.uuid,
+      sessionId: record.uuid,
       warnings: ["disk on fire"],
     });
     expect(store.has(record.uuid)).toBe(true);

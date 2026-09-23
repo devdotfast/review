@@ -3,7 +3,7 @@ import { act, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ReviewApiClient } from "../../src/review-api/client";
+import { SessionApiClient } from "../../src/review-api/client";
 import { ShareControl, SharingContext } from "./share-control";
 
 let dispose: (() => void) | undefined;
@@ -29,7 +29,7 @@ function mount(options: {
   const posts: Array<{ path: string; body: unknown }> = [];
   let accountReads = 0;
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: "http://localhost", token: "local" },
     async (url, init) => {
       const path = new URL(url).pathname;
@@ -94,7 +94,7 @@ function mount(options: {
 
   function Fixture({ version }: { version: number }) {
     const value = useMemo(
-      () => ({ client, reviewId: "authoring-review", version }),
+      () => ({ client, sessionId: "authoring-review", version }),
       [version],
     );
 
@@ -163,7 +163,7 @@ it("asks a signed-out user to sign in, then uploads the version chosen before lo
     { timeout: 4000 },
   );
   expect(publishes(harness).map((post) => post.body)).toEqual([
-    expect.objectContaining({ reviewId: "authoring-review", version: 4 }),
+    expect.objectContaining({ sessionId: "authoring-review", version: 4 }),
   ]);
   expect(container.textContent).not.toContain("Sign in");
 });

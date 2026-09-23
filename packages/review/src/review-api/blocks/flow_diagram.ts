@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { lensSourceSchema } from "../../lens-selection.js";
-import { ReviewInputError } from "../input-error.js";
+import { SessionInputError } from "../input-error.js";
 import {
   type BlockDefinition,
   defineBlock,
@@ -73,13 +73,13 @@ export const flow_diagram = {
     const keys = new Set(block.nodes.map((node) => node.key));
 
     if (keys.size !== block.nodes.length)
-      throw new ReviewInputError(
+      throw new SessionInputError(
         "Flow node keys must be unique within the diagram.",
       );
 
     for (const edge of block.edges) {
       if (!keys.has(edge.from) || !keys.has(edge.to))
-        throw new ReviewInputError(
+        throw new SessionInputError(
           `Unknown flow endpoint: ${edge.from} → ${edge.to}`,
         );
     }

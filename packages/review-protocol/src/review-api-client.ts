@@ -1,8 +1,8 @@
 import type { JsonValue } from "@dev.fast/json";
 
 /** List metadata for the authenticated local catalog; document contents stay in snapshots. */
-export interface ReviewApiSummary {
-  reviewId: string;
+export interface SessionSummary {
+  sessionId: string;
   version: number;
   title: string;
   /** Absent for a review. The one scratchpad has no pins or lifecycle. */
@@ -45,14 +45,14 @@ export interface ReviewApiSummary {
   dismissedAt: string | null;
 }
 
-export interface ReviewSourceEntry {
+export interface SessionSourceEntry {
   path: string;
   kind: "file" | "directory";
 }
 
 type Subscription = {
   mode?: "structural" | "textual";
-  reviewId: string | null;
+  sessionId: string | null;
 };
 
 type Request = (url: string, init?: RequestInit) => Promise<Response>;
@@ -60,13 +60,13 @@ type Request = (url: string, init?: RequestInit) => Promise<Response>;
 const defaultRequest: Request = (url, init) => fetch(url, init);
 
 /** A non-2xx reply; the status tells a caller whether retrying can help. */
-export class ReviewApiError extends Error {
+export class SessionApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
   ) {
     super(message);
-    this.name = "ReviewApiError";
+    this.name = "SessionApiError";
   }
 }
 
@@ -74,7 +74,7 @@ export class ReviewApiError extends Error {
 const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
 
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
-export class ReviewApiClient {
+export class SessionApiClient {
   constructor(
     readonly connection: { serverUrl: string; token: string },
     private readonly request: Request = defaultRequest,
@@ -92,7 +92,7 @@ export class ReviewApiClient {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      throw new ReviewApiError(
+      throw new SessionApiError(
         body?.error ?? `Review request failed (${response.status}).`,
         response.status,
       );
@@ -118,15 +118,15 @@ export class ReviewApiClient {
     ).json();
   }
   async *watch<T = unknown>(
-    reviewId: string | null | Subscription[],
+    sessionId: string | null | Subscription[],
     signal: AbortSignal,
   ): AsyncGenerator<T> {
     const response = await this.response(
-      Array.isArray(reviewId)
-        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(reviewId))}`
-        : reviewId === null
+      Array.isArray(sessionId)
+        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(sessionId))}`
+        : sessionId === null
           ? "/watch"
-          : `/${encodeURIComponent(reviewId)}/watch`,
+          : `/${encodeURIComponent(sessionId)}/watch`,
       { signal },
     );
 
@@ -164,7 +164,7 @@ export class ReviewApiClient {
     }
   }
   async follow<T>(
-    reviewId: string | null,
+    sessionId: string | null,
     signal: AbortSignal,
     accept: (snapshot: T) => void | Promise<void>,
     disconnected: (cause: unknown) => void,
@@ -188,7 +188,7 @@ export class ReviewApiClient {
       connections.set(key, live);
     }
 
-    const subscription: Subscription = { reviewId };
+    const subscription: Subscription = { sessionId };
 
     if (mode) subscription.mode = mode;
 
@@ -248,7 +248,7 @@ class LiveConnection {
   private active = false;
   private scheduled: ReturnType<typeof setTimeout> | undefined;
   constructor(
-    private readonly client: ReviewApiClient,
+    private readonly client: SessionApiClient,
     private readonly empty: () => void,
   ) {}
 
@@ -338,7 +338,7 @@ class LiveConnection {
         if (!signal.aborted) disconnected(error);
 
         if (
-          error instanceof ReviewApiError &&
+          error instanceof SessionApiError &&
           [401, 403, 404].includes(error.status)
         )
           return;

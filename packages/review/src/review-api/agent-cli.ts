@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import {
   type AuthoringTool,
   callAuthoringTool,
-  connectReviewApi,
+  connectSessionApi,
   toolResultText,
 } from "./agent-client.js";
 
@@ -18,7 +18,9 @@ interface AgentCliInput {
 export const reviewAgentCliHelp =
   "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Review Desktop or review server start must be running)\nSelect headless state with DEV_REVIEW_SERVER_DIR or review --state-dir <path> api/mcp.\n";
 
-export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
+export async function runWhiteboardAgentCli(
+  input: AgentCliInput,
+): Promise<number> {
   try {
     const [mode, ...rest] = input.argv;
 
@@ -41,9 +43,9 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       throw new Error("Unexpected arguments. Use review api --help.");
 
     if (mode === "mcp") {
-      const { serveReviewMcp } = await import("./mcp.js");
-      await serveReviewMcp(
-        () => connectReviewApi(input.env),
+      const { serveWhiteboardMcp } = await import("./mcp.js");
+      await serveWhiteboardMcp(
+        () => connectSessionApi(input.env),
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
@@ -52,7 +54,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       return 0;
     }
 
-    const client = await connectReviewApi(input.env);
+    const client = await connectSessionApi(input.env);
     const tools = await client.read<AuthoringTool[]>("/authoring");
 
     if (name === "tools") {

@@ -3,10 +3,10 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ACTIVITY_TTL_MS, ReviewActivity } from "./activity.js";
-import { ReviewApiClient } from "./client.js";
-import { createReviewApi } from "./http.js";
-import { ReviewStore } from "./store.js";
+import { ACTIVITY_TTL_MS, SessionActivity } from "./activity.js";
+import { SessionApiClient } from "./client.js";
+import { createSessionApi } from "./http.js";
+import { SessionStore } from "./store.js";
 
 const databases: DatabaseSync[] = [];
 
@@ -14,7 +14,7 @@ const newActivity = () => {
   const db = new DatabaseSync(":memory:");
   databases.push(db);
 
-  return new ReviewActivity(db);
+  return new SessionActivity(db);
 };
 
 afterEach(() => {
@@ -26,7 +26,7 @@ afterEach(() => {
 it("renews reported work, expires abandoned work, and does not end another author's activity", () => {
   vi.useFakeTimers();
   const activity = newActivity();
-  const notify = vi.fn<Parameters<ReviewActivity["subscribe"]>[0]>();
+  const notify = vi.fn<Parameters<SessionActivity["subscribe"]>[0]>();
   activity.subscribe(notify);
 
   const a = randomUUID(),
@@ -57,15 +57,15 @@ it("renews reported work, expires abandoned work, and does not end another autho
 });
 
 it("streams activity separately from document versions and closes the stream on deletion", async () => {
-  const store = new ReviewStore(":memory:", {
+  const store = new SessionStore(":memory:", {
     validatePins: async () => {},
     validateSource: async () => {},
     validateResource: async () => {},
   });
 
-  const api = createReviewApi(store);
+  const api = createSessionApi(store);
 
-  const client = new ReviewApiClient(
+  const client = new SessionApiClient(
     { serverUrl: "http://review.test", token: "test" },
     async (url, init) => api.request(url.replace("/reviews-api", ""), init),
   );
@@ -73,16 +73,16 @@ it("streams activity separately from document versions and closes the stream on 
   const command = <Operation>(operation: Operation) =>
     store.execute({ commandId: randomUUID(), operation });
 
-  const { reviewId } = await command({
+  const { sessionId } = await command({
     type: "create",
     title: "Activity",
     pins: { repositoryId: "repo", base: "base", head: "head" },
   });
 
-  const changed = vi.fn<Parameters<ReviewStore["subscribe"]>[0]>();
+  const changed = vi.fn<Parameters<SessionStore["subscribe"]>[0]>();
   store.subscribe(changed);
   const abort = new AbortController();
-  const stream = client.watch(reviewId, abort.signal);
+  const stream = client.watch(sessionId, abort.signal);
 
   try {
     expect((await stream.next()).value).toMatchObject({
@@ -95,13 +95,13 @@ it("streams activity separately from document versions and closes the stream on 
       focus: { description: "Drafting outline" },
     };
 
-    await client.post(`/${reviewId}/activity`, input);
+    await client.post(`/${sessionId}/activity`, input);
     expect((await stream.next()).value).toMatchObject({
       activity: { workingCount: 1, focuses: [input.focus] },
     });
     expect(changed).not.toHaveBeenCalled();
-    expect(store.history(reviewId)).toHaveLength(1);
-    const reconnect = client.watch(reviewId, abort.signal);
+    expect(store.history(sessionId)).toHaveLength(1);
+    const reconnect = client.watch(sessionId, abort.signal);
     expect((await reconnect.next()).value).toMatchObject({
       activity: { workingCount: 1, focuses: [input.focus] },
     });
@@ -109,17 +109,17 @@ it("streams activity separately from document versions and closes the stream on 
     await store.execute({
       commandId: randomUUID(),
       leaseId: input.leaseId,
-      operation: { type: "delete", reviewId },
+      operation: { type: "delete", sessionId },
     });
     // A reader may already have buffered a pre-deletion snapshot.
     await expect(async () => {
       for await (const _snapshot of stream) {
       }
     }).rejects.toThrow(Error);
-    await expect(client.post(`/${reviewId}/activity`, input)).rejects.toThrow(
+    await expect(client.post(`/${sessionId}/activity`, input)).rejects.toThrow(
       /not found/i,
     );
-    expect(store.activity.read(reviewId).workingCount).toBe(0);
+    expect(store.activity.read(sessionId).workingCount).toBe(0);
   } finally {
     abort.abort();
     await store.close();

@@ -103,7 +103,7 @@ export function legacyDocumentToBlocks(
     const quote = traceQuote(node);
     const label = escapeMarkdownText(quote.text);
 
-    return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
+    return `[${label}](whiteboard-trace:${quote.traceId}#${quote.eventId})`;
   };
 
   /** The block a node nested in prose becomes, if Markdown cannot carry it. */

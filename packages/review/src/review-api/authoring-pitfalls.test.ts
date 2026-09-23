@@ -18,12 +18,12 @@ import {
 } from "../fixtures/blocks/fixtures.js";
 import { selectSource } from "../lens-selection.js";
 import { type Pins, elements } from "./document.js";
-import { createReviewApi } from "./http.js";
-import { openLocalReviewStore } from "./local-data.js";
+import { createSessionApi } from "./http.js";
+import { openLocalSessionStore } from "./local-data.js";
 
-let directory: string, repository: string, pins: Pins, reviewId: string;
+let directory: string, repository: string, pins: Pins, sessionId: string;
 
-let local: ReturnType<typeof openLocalReviewStore>;
+let local: ReturnType<typeof openLocalSessionStore>;
 
 let app: Hono;
 
@@ -39,7 +39,7 @@ const head = (file: string, fromLine: number, toLine = fromLine) => ({
 
 interface Reply {
   status: number;
-  body: { error?: string; targetId?: string; reviewId?: string };
+  body: { error?: string; targetId?: string; sessionId?: string };
 }
 
 /** Post a command the way `review mcp` does and return status and body. */
@@ -58,7 +58,7 @@ const insert = (content: JsonValue) =>
     commandId: randomUUID(),
     operation: {
       type: "edit",
-      reviewId,
+      sessionId,
       edit: { type: "insert", content },
     },
   });
@@ -69,14 +69,14 @@ async function expectRejected(
   message: string | RegExp,
   status = 400,
 ) {
-  const before = JSON.stringify(local.store.read(reviewId));
+  const before = JSON.stringify(local.store.read(sessionId));
   const result = await send();
 
   expect({ status: result.status, body: result.body }).toMatchObject({
     status,
   });
   expect(result.body.error).toMatch(message);
-  expect(JSON.stringify(local.store.read(reviewId))).toBe(before);
+  expect(JSON.stringify(local.store.read(sessionId))).toBe(before);
 }
 
 beforeEach(async () => {
@@ -111,17 +111,17 @@ beforeEach(async () => {
   );
   git("add", ".");
   git("-c", "commit.gpgsign=false", "commit", "-qm", "Head");
-  local = openLocalReviewStore(path.join(directory, "reviews.db"));
+  local = openLocalSessionStore(path.join(directory, "reviews.db"));
   const registered = await local.data.register(repository);
   pins = await local.data.resolvePins(registered.id, "HEAD^", "HEAD");
-  app = createReviewApi(local.store, local.data);
+  app = createSessionApi(local.store, local.data);
 
   const created = await post("/commands", {
     commandId: randomUUID(),
     operation: { type: "create", title: "Pitfalls", pins },
   });
 
-  reviewId = created.body.reviewId!;
+  sessionId = created.body.sessionId!;
 });
 
 afterEach(async () => {
@@ -306,7 +306,7 @@ describe("diagram rules", () => {
     });
 
     expect(result.status).toBe(200);
-    expect(local.store.read(reviewId).document).toContainEqual(
+    expect(local.store.read(sessionId).document).toContainEqual(
       expect.objectContaining({
         type: "call_stack_diff",
         base: [expect.objectContaining({ source: selectSource(baseSource) })],
@@ -371,7 +371,7 @@ describe("source rules in every peek position", () => {
   it("accepts a prose link to the same blank lines", async () => {
     const result = await insert({
       type: "markdown",
-      markdown: "See [the gap](review-source:head/src/blank.ts#L2-L3).",
+      markdown: "See [the gap](whiteboard-source:head/src/blank.ts#L2-L3).",
     });
 
     expect(result.status).toBe(200);
@@ -424,12 +424,12 @@ describe("source rules in every peek position", () => {
   it("rejects relative file links without saving and accepts the corrected source link", async () => {
     await expectRejected(
       () => insert({ type: "markdown", markdown: "[store](src/store.ts#L1)" }),
-      /Unsupported Markdown link "src\/store.ts#L1".*Use \[label\]\(review-source:head\/path#L10-L24\)/,
+      /Unsupported Markdown link "src\/store.ts#L1".*Use \[label\]\(whiteboard-source:head\/path#L10-L24\)/,
     );
 
     const result = await insert({
       type: "markdown",
-      markdown: "[store](review-source:head/src/store.ts#L1)",
+      markdown: "[store](whiteboard-source:head/src/store.ts#L1)",
     });
 
     expect(result.status).toBe(200);
@@ -440,15 +440,15 @@ describe("source rules in every peek position", () => {
       () =>
         insert({
           type: "markdown",
-          markdown: "[x](review-source:head/src/store.ts)",
+          markdown: "[x](whiteboard-source:head/src/store.ts)",
         }),
-      "Use review-source:head/path#L10-L24 (or base) for a source link.",
+      "Use whiteboard-source:head/path#L10-L24 (or base) for a source link.",
     );
     await expectRejected(
       () =>
         insert({
           type: "markdown",
-          markdown: "[x](review-source:head/src/%E0%A4%A.ts#L1)",
+          markdown: "[x](whiteboard-source:head/src/%E0%A4%A.ts#L1)",
         }),
       "Invalid URL encoding in source link.",
     );
@@ -472,7 +472,7 @@ describe("edit protocol rules", () => {
           commandId: randomUUID(),
           operation: {
             type: "edit",
-            reviewId,
+            sessionId,
             edit: { type: "update", targetId, changes: { type: "markdown" } },
           },
         }),
@@ -483,13 +483,13 @@ describe("edit protocol rules", () => {
       commandId: randomUUID(),
       operation: {
         type: "edit",
-        reviewId,
+        sessionId,
         edit: { type: "update", targetId, changes: { caption: null } },
       },
     });
 
     expect(cleared.status).toBe(200);
-    expect(local.store.read(reviewId).document[0]).not.toHaveProperty(
+    expect(local.store.read(sessionId).document[0]).not.toHaveProperty(
       "caption",
     );
   });
@@ -592,7 +592,7 @@ describe("the fixtures are what the API accepts", () => {
           body: result.body,
         });
 
-        const written = elements(local.store.read(reviewId).document).find(
+        const written = elements(local.store.read(sessionId).document).find(
           (element) => element.id === result.body.targetId,
         );
 

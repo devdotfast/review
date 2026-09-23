@@ -486,7 +486,7 @@ describe("review home", () => {
       expect.arrayContaining([
         {
           reviewDir: malformed,
-          reviewUuid: malformedUuid,
+          sessionId: malformedUuid,
           title: "",
           worktreePath: malformed,
           lastPublishedAt: null,
@@ -494,7 +494,7 @@ describe("review home", () => {
         },
         {
           reviewDir: invalid,
-          reviewUuid: invalidUuid,
+          sessionId: invalidUuid,
           title: "",
           worktreePath: invalid,
           lastPublishedAt: null,
@@ -503,7 +503,7 @@ describe("review home", () => {
         },
         {
           reviewDir: incompatible,
-          reviewUuid: incompatibleUuid,
+          sessionId: incompatibleUuid,
           title: "An incompatible Review",
           worktreePath: "/tmp/incompatible",
           lastPublishedAt: "2026-08-08T00:00:00.000Z",
@@ -825,7 +825,7 @@ describe("legacy records on read", () => {
     expect(listed.errors).toHaveLength(1);
     expect(listed.errors[0]).toMatchObject({
       code: "REPAIR_REQUIRED",
-      reviewUuid: created.review.uuid,
+      sessionId: created.review.uuid,
     });
     expect(listed.errors[0]?.message).toContain(
       "Delete it from Home and recreate it with the Review skill.",

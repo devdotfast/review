@@ -32,7 +32,7 @@ function homeUi(ctx) {
 
 /** The review ids the store lists; `apiOk` keeps "the deleted review is gone" from passing on an error body. */
 async function listedReviewIds(ctx) {
-  return (await ctx.apiOk("/reviews-api")).map((summary) => summary.reviewId);
+  return (await ctx.apiOk("/reviews-api")).map((summary) => summary.sessionId);
 }
 
 export async function run(ctx) {
@@ -45,9 +45,7 @@ export async function run(ctx) {
 
   const second = await createReview(ctx, {
     title: "Second review",
-    blocks: [
-      { type: "markdown", markdown: "Second look at the same change." },
-    ],
+    blocks: [{ type: "markdown", markdown: "Second look at the same change." }],
   });
 
   // Home groups by checkout, not by repository, so a second worktree makes two groups out of three reviews.
@@ -88,7 +86,10 @@ export async function run(ctx) {
   ctx.check("Home groups three reviews under two worktrees");
 
   await home.locator('[aria-label="Search reviews"]').fill("Worktree B");
-  await until(async () => (await cards.count()) === 1, "search narrows to one card");
+  await until(
+    async () => (await cards.count()) === 1,
+    "search narrows to one card",
+  );
 
   // The list view replaces the cards with `.review-home-list-row`, so the same reviews are counted as rows here.
   await home.locator('[aria-label="List view"]').click();
@@ -96,9 +97,15 @@ export async function run(ctx) {
     async () => (await home.getAttribute("data-view")) === "list",
     "the list view",
   );
-  await until(async () => (await rows.count()) === 1, "one row under the search");
+  await until(
+    async () => (await rows.count()) === 1,
+    "one row under the search",
+  );
   await home.locator('[aria-label="Clear search"]').click();
-  await until(async () => (await rows.count()) === 3, "clear restores three rows");
+  await until(
+    async () => (await rows.count()) === 3,
+    "clear restores three rows",
+  );
   await home.locator('[aria-label="Card view"]').click();
   await until(
     async () => (await home.getAttribute("data-view")) === "cards",
@@ -116,7 +123,7 @@ export async function run(ctx) {
 
   await cards.filter({ hasText: second.title }).click();
   await canvas.getByRole("heading", { name: second.title }).waitFor();
-  await pickReview(ctx, first.reviewId);
+  await pickReview(ctx, first.sessionId);
   await canvas.getByRole("heading", { name: first.title }).waitFor();
   ctx.check(
     "two reviews open as separate tabs and app pick switches between them",
@@ -164,8 +171,8 @@ export async function run(ctx) {
   await dismiss();
   await expandDismissed();
   assert.ok(
-    (await listedReviewIds(ctx)).includes(third.reviewId),
-    `${third.reviewId} is not listed before the delete`,
+    (await listedReviewIds(ctx)).includes(third.sessionId),
+    `${third.sessionId} is not listed before the delete`,
   );
   await dismissedRow.locator('[title="Delete review"]').click();
   await dismissedRow.locator('[title="Click again to delete"]').click();
@@ -184,11 +191,11 @@ export async function run(ctx) {
   const remaining = await listedReviewIds(ctx);
 
   assert.ok(
-    !remaining.includes(third.reviewId),
-    `${third.reviewId} is still listed after deletion`,
+    !remaining.includes(third.sessionId),
+    `${third.sessionId} is still listed after deletion`,
   );
   assert.deepEqual(
-    [first.reviewId, second.reviewId].filter((id) => !remaining.includes(id)),
+    [first.sessionId, second.sessionId].filter((id) => !remaining.includes(id)),
     [],
     "deleting one review must not unlist the others",
   );

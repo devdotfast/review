@@ -13,7 +13,7 @@ import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
 
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openLocalSessionStore } from "../review-api/local-data";
 import { reviewVcs } from "../review-vcs";
 import { scratchGitRepo, syntheticLegacyReview } from "./import-test-utils";
 import { ensureJsonCutover, migrateJsonReviews } from "./json-cutover";
@@ -31,10 +31,10 @@ async function seed(existing?: string) {
 
   if (!existing) homes.push(home);
   const repo = await scratchGitRepo();
-  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const local = openLocalSessionStore(path.join(home, "review-api.db"));
   const repositoryId = (await local.data.register(repo.root)).id;
 
-  const { reviewId } = await local.store.execute({
+  const { sessionId } = await local.store.execute({
     commandId: randomUUID(),
     operation: {
       type: "create",
@@ -43,11 +43,11 @@ async function seed(existing?: string) {
     },
   });
 
-  const snapshot = local.store.read(reviewId);
+  const snapshot = local.store.read(sessionId);
   await local.data.close();
   await local.store.close();
 
-  return { home, reviewId, snapshot };
+  return { home, sessionId, snapshot };
 }
 
 /** The cutover materializes from the review directory's own Git history, so a
@@ -75,16 +75,16 @@ it("stages failures without replacing the live database and keeps a readable bac
   );
 
   homes.push(failing.home);
-  const { home, reviewId, snapshot } = await seed(failing.home);
+  const { home, sessionId, snapshot } = await seed(failing.home);
   const original = await readFile(path.join(home, "review-api.db"));
   const report = await migrateJsonReviews({ home });
   expect(report.errors).toHaveLength(1);
   expect(await readFile(path.join(home, "review-api.db"))).toEqual(original);
   expect(await readdir(home)).not.toContain("json-cutover.json");
-  const saved = openLocalReviewStore(report.backup!);
+  const saved = openLocalSessionStore(report.backup!);
 
   try {
-    expect(saved.store.read(reviewId)).toEqual(snapshot);
+    expect(saved.store.read(sessionId)).toEqual(snapshot);
   } finally {
     await saved.data.close();
     await saved.store.close();
@@ -92,15 +92,15 @@ it("stages failures without replacing the live database and keeps a readable bac
 });
 
 it("installs a complete candidate once and preserves existing JSON versions", async () => {
-  const { home, reviewId, snapshot } = await seed();
+  const { home, sessionId, snapshot } = await seed();
   await ensureJsonCutover(home, () => {});
   const backups = await readdir(path.join(home, "backups"));
   await ensureJsonCutover(home, () => {});
   expect(await readdir(path.join(home, "backups"))).toEqual(backups);
-  const installed = openLocalReviewStore(path.join(home, "review-api.db"));
+  const installed = openLocalSessionStore(path.join(home, "review-api.db"));
 
   try {
-    expect(installed.store.read(reviewId)).toEqual(snapshot);
+    expect(installed.store.read(sessionId)).toEqual(snapshot);
   } finally {
     await installed.data.close();
     await installed.store.close();
@@ -118,9 +118,9 @@ it("drops unpublished drafts from the catalog and records the decision without r
   const report = await migrateJsonReviews({ home: draft.home });
   expect(report.errors).toEqual([]);
   expect(report.droppedDrafts).toEqual([
-    { reviewId: draft.record.uuid, title: draft.record.title },
+    { sessionId: draft.record.uuid, title: draft.record.title },
   ]);
-  const migrated = openLocalReviewStore(report.database);
+  const migrated = openLocalSessionStore(report.database);
 
   try {
     expect(migrated.store.has(draft.record.uuid)).toBe(false);
@@ -158,11 +158,13 @@ it("skips an unreadable directory, installs the readable reviews and records the
 
   expect(marker.errors).toEqual([]);
   expect(marker.skipped).toEqual([
-    { reviewId: badId, dir: badDir, reason: expect.any(String) },
+    { sessionId: badId, dir: badDir, reason: expect.any(String) },
   ]);
   expect(messages.join("\n")).toContain(badDir);
 
-  const installed = openLocalReviewStore(path.join(good.home, "review-api.db"));
+  const installed = openLocalSessionStore(
+    path.join(good.home, "review-api.db"),
+  );
 
   try {
     expect(installed.store.has(goodRecord.uuid)).toBe(true);
@@ -219,7 +221,7 @@ it("starts with healthy reviews when a published review's repository is unavaila
   expect(marker.errors).toEqual([]);
   expect(marker.skipped).toEqual([
     {
-      reviewId: unavailableRecord.uuid,
+      sessionId: unavailableRecord.uuid,
       dir: unavailableDir,
       reason: `repository unavailable at ${missingPath}`,
     },
@@ -232,12 +234,15 @@ it("starts with healthy reviews when a published review's repository is unavaila
 
   // A completed cutover must also let subsequent launches open the profile.
   await ensureJsonCutover(good.home, () => {});
-  const installed = openLocalReviewStore(path.join(good.home, "review-api.db"));
+
+  const installed = openLocalSessionStore(
+    path.join(good.home, "review-api.db"),
+  );
 
   try {
     expect(installed.store.has(goodRecord.uuid)).toBe(true);
     expect(installed.store.has(unavailableRecord.uuid)).toBe(false);
-    expect(installed.store.read(existing.reviewId)).toEqual(existing.snapshot);
+    expect(installed.store.read(existing.sessionId)).toEqual(existing.snapshot);
   } finally {
     await installed.data.close();
     await installed.store.close();

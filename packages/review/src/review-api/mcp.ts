@@ -12,10 +12,10 @@ import {
   callAuthoringTool,
   toolResultText,
 } from "./agent-client.js";
-import type { ReviewApiClient } from "./client.js";
+import type { SessionApiClient } from "./client.js";
 
-export async function serveReviewMcp(
-  connect: () => Promise<ReviewApiClient>,
+export async function serveWhiteboardMcp(
+  connect: () => Promise<SessionApiClient>,
   stdin: Readable,
   stdout: Writable,
   stderr: Writable = process.stderr,

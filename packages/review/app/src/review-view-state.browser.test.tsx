@@ -299,7 +299,7 @@ describe("review view state", () => {
   });
 
   it("ignores a persisted Threads panel from an older build", () => {
-    const legacySession = testReviewSession({ reviewId: "legacy-threads" });
+    const legacySession = testReviewSession({ sessionId: "legacy-threads" });
     const legacyStore = createReviewPanelStore();
     storeState(legacySession, {
       panel: { kind: "threads" },
@@ -382,9 +382,9 @@ describe("review view state", () => {
   });
 
   it("keys state by review identity", () => {
-    const first = testReviewSession({ reviewId: "session-a" });
+    const first = testReviewSession({ sessionId: "session-a" });
 
-    const second = testReviewSession({ reviewId: "session-b" });
+    const second = testReviewSession({ sessionId: "session-b" });
 
     expect(reviewViewStateKey(first.config)).not.toBe(
       reviewViewStateKey(second.config),

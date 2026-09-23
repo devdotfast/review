@@ -7,16 +7,16 @@ import {
 
 export async function resolvePublishReview(
   cwd: string,
-  reviewUuid: string | undefined,
+  sessionId: string | undefined,
   options: { includeTerminal?: boolean } = {},
 ): Promise<StoredReview> {
-  if (reviewUuid) {
-    const selected = await findScopedReview(reviewUuid, {
+  if (sessionId) {
+    const selected = await findScopedReview(sessionId, {
       worktreePath: cwd,
       includeTerminal: options.includeTerminal,
     });
 
-    if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
+    if (!selected) throw new Error(`Active review not found: ${sessionId}`);
 
     return selected;
   }

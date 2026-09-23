@@ -18,7 +18,7 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { sourceReferences } from "../src/review-api/document";
-import { openLocalReviewStore } from "../src/review-api/local-data";
+import { openLocalSessionStore } from "../src/review-api/local-data";
 import { createNativeTutorial } from "../src/server/tutorial-service";
 
 const execFilePromise = promisify(execFile);
@@ -176,7 +176,7 @@ export async function buildTutorialAssets(
 
     await writeFile(path.join(validationAssets, "pins.json"), pins);
 
-    const local = openLocalReviewStore(
+    const local = openLocalSessionStore(
       path.join(temporaryRoot, "validation.db"),
     );
 

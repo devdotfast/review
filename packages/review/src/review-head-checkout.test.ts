@@ -31,7 +31,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const checkoutPath = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     expect(checkoutPath).toBe(
@@ -63,7 +63,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     const marker = path.join(first ?? "", "reused-marker.txt");
@@ -72,7 +72,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const second = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     // Same path, and the directory was not recreated.
@@ -87,7 +87,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const checkoutPath = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: workingCopyCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     expect(checkoutPath).not.toBeNull();
@@ -100,7 +100,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     // Simulate a manual `rm -rf` of the checkout: git still registers the
@@ -110,7 +110,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const second = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     expect(second).toBe(first);
@@ -173,7 +173,7 @@ describe("ensureReviewPinnedCheckout", () => {
       ensureReviewPinnedCheckout({
         rootPath,
         ref: conflictedCommit,
-        reviewUuid: TEST_REVIEW_UUID,
+        sessionId: TEST_REVIEW_UUID,
       }),
     ).rejects.toThrow(/conflicted revision/);
   });
@@ -205,7 +205,7 @@ describe("ensureReviewPinnedCheckout", () => {
     const checkoutPath = await ensureReviewPinnedCheckout({
       rootPath,
       ref: pinnedCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     expect(checkoutPath).toBe(
@@ -248,19 +248,19 @@ describe("removeReviewPinnedCheckout", () => {
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     const other = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: otherCommit,
-      reviewUuid: TEST_REVIEW_UUID,
+      sessionId: TEST_REVIEW_UUID,
     });
 
     await expect(
       removeReviewPinnedCheckout({
         rootPath: repo.rootPath,
-        reviewUuid: TEST_REVIEW_UUID,
+        sessionId: TEST_REVIEW_UUID,
         checkoutPath: first ?? "",
       }),
     ).resolves.toBe(true);
@@ -287,7 +287,7 @@ describe("removeReviewPinnedCheckout", () => {
       (await ensureReviewPinnedCheckout({
         rootPath: repo.rootPath,
         ref: repo.headCommit,
-        reviewUuid: TEST_REVIEW_UUID,
+        sessionId: TEST_REVIEW_UUID,
       })) ?? "";
 
     // Releases before the JSON API wrote these beside the worktree.
@@ -297,7 +297,7 @@ describe("removeReviewPinnedCheckout", () => {
     await expect(
       removeReviewPinnedCheckout({
         rootPath: repo.rootPath,
-        reviewUuid: TEST_REVIEW_UUID,
+        sessionId: TEST_REVIEW_UUID,
         checkoutPath,
       }),
     ).resolves.toBe(true);
@@ -313,7 +313,7 @@ describe("removeReviewPinnedCheckout", () => {
     await expect(
       removeReviewPinnedCheckout({
         rootPath: repo.rootPath,
-        reviewUuid: TEST_REVIEW_UUID,
+        sessionId: TEST_REVIEW_UUID,
         checkoutPath: repo.rootPath,
       }),
     ).resolves.toBe(false);

@@ -14,12 +14,12 @@ export function apiSelectionEvent(
 	const start = selection.getStartPosition();
 	const end = selection.getEndPosition();
 	const apiSource: NonNullable<Extract<ReviewSurfaceEvent, { event: "editorSelectionChanged" }>["apiSource"]> = {
-		reviewId: source.view.reviewId, version: source.view.version, commit: source.view.commit,
+		sessionId: source.view.sessionId, version: source.view.version, commit: source.view.commit,
 	};
 	// A source at its own pins says so; one that inherits carries no pins key.
 	if (source.view.pins) apiSource.pins = source.view.pins;
 	return {
-		event: "editorSelectionChanged", reviewId: source.view.reviewId, anchor,
+		event: "editorSelectionChanged", sessionId: source.view.sessionId, anchor,
 		path: source.file, sideContext: source.side, isEmpty: selection.isEmpty(),
 		range: {
 			fromLine: start.lineNumber,

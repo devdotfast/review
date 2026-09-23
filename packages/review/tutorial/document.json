@@ -60,7 +60,7 @@
         },
         {
           "type": "markdown",
-          "markdown": "Prose in the review also supports [links to code](review-source:head/src/orders/order-service.ts#L13-L29).\n"
+          "markdown": "Prose in the review also supports [links to code](whiteboard-source:head/src/orders/order-service.ts#L13-L29).\n"
         }
       ]
     },

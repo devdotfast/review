@@ -4,7 +4,7 @@ import { type JsonValue, parseJsonText } from "@dev.fast/json";
 import {
   MAX_SHARE_MANIFEST_BYTES,
   type ShareManifest,
-  shareManifestSchema,
+  importedShareManifestSchema,
 } from "@dev.fast/review-share-protocol";
 import { z } from "zod";
 
@@ -39,7 +39,7 @@ const MAX_UPLOAD_RESPONSE_BYTES = 8 * 1024 * 1024;
 const linkSchema = z.strictObject({ shareId: z.uuid(), url: z.url() });
 
 const receivedSchema = z.strictObject({
-  manifest: shareManifestSchema,
+  manifest: importedShareManifestSchema,
   sender: z.strictObject({ login: z.string().min(1).max(256) }),
   sharedAt: z.number(),
 });

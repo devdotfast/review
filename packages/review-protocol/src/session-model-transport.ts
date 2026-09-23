@@ -23,10 +23,7 @@ export function sessionModelRequest(
       operation: renameId(value.operation, "reviewId", "sessionId"),
     };
 
-  if (
-    pathname?.startsWith("/draft-commands/") ||
-    pathname === "/sharing/publish"
-  )
+  if (pathname === "/sharing/publish")
     return renameId(value, "reviewId", "sessionId");
 
   if (pathname?.endsWith("/copy-context") && "apiSource" in value)
@@ -54,7 +51,6 @@ export function sessionModelResponse(
   if (
     pathname === "/" ||
     /^\/[^/]+$/.test(pathname) ||
-    /^\/(drafts|draft-commands)\/[^/]+$/.test(pathname) ||
     /^\/[^/]+\/workspaces(?:\/[^/]+\/retry)?$/.test(pathname) ||
     /^\/sharing\/import(?:\/[^/]+)?$/.test(pathname)
   )

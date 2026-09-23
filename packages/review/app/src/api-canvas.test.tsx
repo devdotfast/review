@@ -92,7 +92,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       undefined,
       undefined,
       undefined,
-      "interactive",
+      undefined,
       "session",
     ),
   );
@@ -371,7 +371,7 @@ it("dismisses immediately through the API without changing the saved document", 
       undefined,
       undefined,
       undefined,
-      "interactive",
+      undefined,
       "session",
     ),
   );
@@ -438,7 +438,7 @@ it.each([false, true])(
         undefined,
         undefined,
         undefined,
-        "interactive",
+        undefined,
         "session",
       ),
     );
@@ -573,7 +573,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
       undefined,
       undefined,
       undefined,
-      "interactive",
+      undefined,
       "session",
     ),
   );
@@ -700,7 +700,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
       undefined,
       undefined,
       undefined,
-      "interactive",
+      undefined,
       "session",
     ),
   );
@@ -876,7 +876,7 @@ it("degrades to the retained document and an unavailable Commits tab when the ch
         undefined,
         undefined,
         undefined,
-        "interactive",
+        undefined,
         "session",
       ),
     );

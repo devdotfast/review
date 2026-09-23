@@ -30,7 +30,14 @@ import {
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { installWhiteboardCommand, pathShimPath } from "./cli-install";
+import { WHITEBOARD_MCP_TARGETS } from "./agent-whiteboard-mcp";
+import {
+  cliInstallStampPath,
+  installWhiteboardCommand,
+  pathShimPath,
+  readCliInstallStamp,
+  registerWhiteboardMcp,
+} from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import { readWhiteboardDesktopDiscovery } from "./desktop-discovery";
 import { isFile } from "./fs-utils";
@@ -96,6 +103,7 @@ interface WhiteboardCliRuntime {
   runInstall: typeof runInstall;
   installWhiteboardCommand: typeof installWhiteboardCommand;
   runWhiteboardMigration: typeof runWhiteboardMigration;
+  registerWhiteboardMcp: typeof registerWhiteboardMcp;
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
   runTraceDisable: typeof runTraceDisable;
@@ -480,13 +488,14 @@ export async function runWhiteboardCli(
   const install = configureJsonOutput(
     program
       .command("install")
-      .description("Install the bundled Whiteboard skills")
+      .description("Connect coding agents to Whiteboard")
       .addArgument(
         new Argument("[target...]", "coding agent target").choices([
           "claude",
           "claude-code",
           "codex",
           "cursor",
+          "opencode",
           "pi",
           "all",
         ]),
@@ -517,7 +526,7 @@ export async function runWhiteboardCli(
       )
       .option(
         "--no-shim",
-        "Install skills without the whiteboard command or PATH changes",
+        "Set up agents without the whiteboard command or PATH changes",
       )
       .addHelpText("after", whiteboardInstallHelp()),
     "plain",
@@ -540,9 +549,7 @@ export async function runWhiteboardCli(
       const selectedTargets = installTargets(targets);
       const installShim = options.shim !== false;
 
-      const cliSource = installShim
-        ? await resolveInstallCliSource(env)
-        : undefined;
+      const cliSource = await resolveInstallCliSource(env);
 
       const installInput: RunInstallInput = {
         targets: selectedTargets,
@@ -572,7 +579,7 @@ export async function runWhiteboardCli(
 
       state.exitCode = await runtime.runInstall(installInput);
 
-      if (state.exitCode !== 0 || !installShim) return;
+      if (state.exitCode !== 0) return;
 
       const human = humanStream({
         json: options.json,
@@ -580,9 +587,37 @@ export async function runWhiteboardCli(
         stderr: input.stderr,
       });
 
+      const mcpTargets = selectedTargets.filter((target) =>
+        WHITEBOARD_MCP_TARGETS.some((item) => item === target),
+      );
+
+      if (mcpTargets.length > 0) {
+        if (env.DEV_WHITEBOARD_SERVER_DIR?.trim()) {
+          // A headless selection is for this shell; Desktop MCP entries
+          // would point agents at the wrong server.
+          human.write(
+            "A headless Whiteboard server is selected, so no agent MCP entries were written. Agents can use `whiteboard api` or `whiteboard mcp` in this environment.\n",
+          );
+        } else if (cliSource) {
+          const stamp = await readCliInstallStamp(cliInstallStampPath(env));
+
+          human.write(
+            await runtime.registerWhiteboardMcp({
+              targets: mcpTargets,
+              ...cliSource,
+              env,
+              managed:
+                stamp?.consent === "granted" ? stamp.mcpRegistrations : [],
+            }),
+          );
+        }
+      }
+
+      if (!installShim) return;
+
       if (!cliSource) {
         human.write(
-          `Whiteboard did not install the whiteboard command because no built CLI was found. The skills were installed.\n`,
+          "Whiteboard could not install the command or MCP entries because no built CLI was found.\n",
         );
 
         return;
@@ -1044,6 +1079,7 @@ function whiteboardCliRuntime(
     runInstall,
     installWhiteboardCommand,
     runWhiteboardMigration,
+    registerWhiteboardMcp,
     runTraceStatus,
     runTraceEnable,
     runTraceDisable,
@@ -1169,16 +1205,16 @@ function whiteboardInstallHelp(): string {
     "",
     "When no target is provided, Whiteboard installs for every supported agent.",
     "",
-    "Whiteboard is the primary install path: on startup it offers to",
-    "install the CLI and skills for detected agents, and keeps them in sync",
-    "with the app. This command remains for headless environments.",
+    "Whiteboard Desktop is the primary setup path: it connects detected",
+    "agents to Whiteboard's MCP tools and keeps that setup in sync with the app.",
+    "Agents read Whiteboard instructions from the running server.",
     "",
     "Targets:",
-    "  claude   Claude Code (~/.claude/skills)",
-    "  codex    Codex (~/.agents/skills)",
-    "  cursor   Cursor (~/.cursor/skills)",
-    "  opencode OpenCode (~/.config/opencode/plugins)",
-    "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
+    "  claude   Claude Code (MCP in ~/.claude.json)",
+    "  codex    Codex (MCP in ~/.codex/config.toml)",
+    "  cursor   Cursor (MCP in ~/.cursor/mcp.json)",
+    "  opencode OpenCode (MCP in ~/.config/opencode/opencode.json)",
+    "  pi       Pi (pointer skill in ~/.agents/skills; uses the whiteboard command)",
     "  all      Every supported agent (default)",
     "",
     "Examples:",

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -19,6 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   installWhiteboardCommand as installWhiteboardCommandActual,
   pathShimPath,
+  registerWhiteboardMcp as registerWhiteboardMcpActual,
 } from "./cli-install";
 import { runWhiteboardCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
@@ -39,9 +41,9 @@ import {
   WhiteboardTelemetry,
 } from "./whiteboard-telemetry";
 
-describe("Review CLI", () => {
+describe("Whiteboard CLI", () => {
   it.each([[], ["codex"]])(
-    "installs skills and PATH without agent executables: %j",
+    "sets up agents and PATH without agent executables: %j",
     async (...targets) => {
       const homeDir = await mkdtemp(
         path.join(os.tmpdir(), "review-no-agents-"),
@@ -87,16 +89,18 @@ describe("Review CLI", () => {
               runInstallActual({ ...input, homeDir, cwd: homeDir }),
             installWhiteboardCommand: (input) =>
               installWhiteboardCommandActual({ ...input, homeDir }),
+            registerWhiteboardMcp: (input) =>
+              registerWhiteboardMcpActual({ ...input, homeDir }),
           },
         });
 
         expect(code).toBe(0);
         expect(
-          await readFile(
-            path.join(homeDir, ".agents/skills/dev-review/SKILL.md"),
-            "utf8",
-          ),
-        ).toContain("dev-review");
+          await readFile(path.join(homeDir, ".codex/config.toml"), "utf8"),
+        ).toContain('args = [ "mcp" ]');
+        expect(
+          existsSync(path.join(homeDir, ".agents/skills/whiteboard")),
+        ).toBe(targets.length === 0);
         expect(await readFile(pathShimPath(homeDir), "utf8")).toContain(
           cliPath,
         );
@@ -108,6 +112,36 @@ describe("Review CLI", () => {
       }
     },
   );
+
+  it("writes no Desktop MCP entries while a headless server is selected", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-headless-"));
+    const registerWhiteboardMcp = vi.fn<typeof registerWhiteboardMcpActual>();
+    const stderr = outputStream();
+
+    try {
+      const code = await runWhiteboardCli({
+        argv: ["install", "claude", "--no-shim"],
+        cwd: homeDir,
+        env: {
+          HOME: homeDir,
+          DEV_WHITEBOARD_HOME: path.join(homeDir, ".dev"),
+          DEV_WHITEBOARD_SERVER_DIR: path.join(homeDir, ".dev"),
+        },
+        stdout: outputStream(),
+        stderr,
+        runtime: {
+          runInstall: (input) =>
+            runInstallActual({ ...input, homeDir, cwd: homeDir }),
+          registerWhiteboardMcp,
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(registerWhiteboardMcp).not.toHaveBeenCalled();
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
 
   it("routes own-upload status filters without requesting trace content", async () => {
     const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);

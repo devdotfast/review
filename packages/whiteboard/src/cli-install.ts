@@ -29,6 +29,7 @@ import {
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 import {
+  type WhiteboardMcpRegistration,
   type WhiteboardCliInstallStamp,
   WhiteboardCliInstallStampSchema,
   type WhiteboardCliInstallStatus,
@@ -290,6 +291,60 @@ async function resolveCliInstallState(input: {
   return { status, managedTargets };
 }
 
+/** Writes the Whiteboard MCP launcher and selected agent registrations. */
+export async function registerWhiteboardMcp(
+  input: {
+    targets: InstallTarget[];
+    cliPath: string;
+    cliRuntimePath?: string;
+    homeDir?: string;
+    env?: NodeJS.ProcessEnv;
+    managed?: WhiteboardMcpRegistration[];
+  },
+  onRegistered: (
+    registration: WhiteboardMcpRegistration,
+  ) => Promise<void> = async () => {},
+): Promise<string> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const env = input.env ?? process.env;
+  const targets = WHITEBOARD_MCP_TARGETS.filter((target) =>
+    input.targets.includes(target),
+  );
+
+  if (targets.length === 0) return "";
+
+  await writePathShim(
+    whiteboardMcpLauncher(env),
+    input.cliPath,
+    input.cliRuntimePath,
+    devWhiteboardHome(env, homeDir),
+  );
+
+  const output: string[] = [];
+
+  for (const target of targets) {
+    const registration = await whiteboardMcpRegistration(target, homeDir, env);
+    const installed = await writeWhiteboardMcpRegistration(
+      registration,
+      input.managed?.find((item) => item.target === target),
+    );
+
+    if (!installed) {
+      output.push(
+        `The ${target} Whiteboard MCP entry was customized; left unchanged.\n`,
+      );
+      continue;
+    }
+
+    await onRegistered(registration);
+    output.push(
+      `[ok] Whiteboard MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
+    );
+  }
+
+  return output.join("");
+}
+
 interface ApplyCliInstallInput {
   packageRoot: string;
   targets: InstallTarget[];
@@ -512,53 +567,28 @@ async function applyCliInstallUnlocked(
   // Save ownership as each target succeeds, so a later failure remains repairable.
   await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
 
-  if (
-    input.cliPath &&
-    input.targets.some((target) =>
-      WHITEBOARD_MCP_TARGETS.some((item) => item === target),
-    )
-  ) {
-    await writePathShim(
-      whiteboardMcpLauncher(env),
-      input.cliPath,
-      input.cliRuntimePath,
-      devWhiteboardHome(env, homeDir),
+  if (input.cliPath) {
+    chunks.push(
+      await registerWhiteboardMcp(
+        {
+          targets: input.targets,
+          cliPath: input.cliPath,
+          cliRuntimePath: input.cliRuntimePath,
+          homeDir,
+          env,
+          managed: stamp.mcpRegistrations,
+        },
+        async (registration) => {
+          stamp.mcpRegistrations = [
+            ...(stamp.mcpRegistrations ?? []).filter(
+              (item) => item.target !== registration.target,
+            ),
+            registration,
+          ];
+          await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+        },
+      ),
     );
-
-    for (const target of WHITEBOARD_MCP_TARGETS.filter((target) =>
-      input.targets.includes(target),
-    )) {
-      const registration = await whiteboardMcpRegistration(
-        target,
-        homeDir,
-        env,
-      );
-
-      const managed = stamp.mcpRegistrations.find(
-        (item) => item.target === target,
-      );
-
-      const installed = await writeWhiteboardMcpRegistration(
-        registration,
-        managed,
-      );
-
-      if (!installed) {
-        chunks.push(
-          `The ${target} Whiteboard MCP entry was customized; left unchanged.\n`,
-        );
-        continue;
-      }
-
-      stamp.mcpRegistrations = [
-        ...stamp.mcpRegistrations.filter((item) => item.target !== target),
-        registration,
-      ];
-      await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
-      chunks.push(
-        `[ok] Whiteboard MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
-      );
-    }
   }
 
   const result: Awaited<ReturnType<typeof applyCliInstall>> = {

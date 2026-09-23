@@ -1020,7 +1020,7 @@ describe("MCP self-install", () => {
   });
 });
 
-it("preserves the owned legacy launcher used by enabled repository hooks", async () => {
+it("retargets enabled repository hooks before removing the owned legacy launcher", async () => {
   const homeDir = await mkdtemp(path.join(tmpdir(), "review-shim-trace-"));
   temporaryDirectories.push(homeDir);
   const cwd = path.join(homeDir, "repo");
@@ -1072,7 +1072,7 @@ it("preserves the owned legacy launcher used by enabled repository hooks", async
   });
 
   expect(result.code).toBe(0);
-  expect((await lstat(oldCommand)).isFile()).toBe(true);
+  await expect(lstat(oldCommand)).rejects.toMatchObject({ code: "ENOENT" });
   const hooks = await traceRepositoryStatus(cwd);
   await run(
     "sh",

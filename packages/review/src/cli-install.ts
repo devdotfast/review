@@ -18,8 +18,11 @@ import {
   devReviewHome,
   disableAllTraceRepositories,
   disableTraceMachine,
+  enableTraceRepository,
   installHarnessHooks,
+  listTraceRepositoryRoots,
   removeAgentTraceHook,
+  traceMachineEnabled,
   traceMachineStatus,
   traceRepositoryStatus,
   traceScope,
@@ -30,7 +33,7 @@ import {
 
 import { connectPrompts, reviewMcpLaunch } from "./connect-prompts";
 import { cursorInstallDeeplink } from "./cursor-deeplink";
-import { isFile } from "./fs-utils";
+import { isDirectory, isFile } from "./fs-utils";
 import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
@@ -673,19 +676,24 @@ export async function installReviewCommand(input: {
     devReviewHome(env, homeDir),
   );
 
-  // Existing trace hooks and agent registrations may still invoke review.
-  // Refresh only our owned launcher; never remove or replace a foreign command.
-  const legacyShim = path.join(homeDir, ".local", "bin", "review");
+  if (await traceMachineEnabled({ homeDir, env })) {
+    const scope = traceScope({ homeDir, env });
 
-  if (await isOwnedShim(legacyShim)) {
-    await writePathShim(
-      legacyShim,
-      input.cliPath,
-      input.cliRuntimePath,
-      devReviewHome(env, homeDir),
-    );
+    for (const cwd of await listTraceRepositoryRoots(homeDir)) {
+      if (!(await isDirectory(cwd))) continue;
+
+      if ((await traceRepositoryStatus(cwd)).enabled)
+        await enableTraceRepository({
+          cwd,
+          scope,
+          reviewCommand: shimPath,
+        });
+    }
   }
 
+  const legacyShim = path.join(path.dirname(shimPath), "review");
+
+  if (await isOwnedShim(legacyShim)) await rm(legacyShim, { force: true });
   const profileOutput = await ensureShellProfilePath({ homeDir, env });
 
   const shadowingOutput = shadowingCommand

@@ -410,20 +410,14 @@ export class LocalReviewData {
       const title = `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Whiteboard`;
 
       const workspace = previous ?? {
+        folders: [],
         settings: { "files.readonlyInclude": { "**/*": true } },
       };
 
-      const [, ...otherFolders] = Array.isArray(workspace.folders)
-        ? workspace.folders
-        : [];
-
       const next = {
         ...workspace,
-        folders: [{ path: rootPath, name }, ...otherFolders],
-        settings: {
-          ...(isJsonObject(workspace.settings) ? workspace.settings : {}),
-          "window.title": title,
-        },
+        folders: [{ path: rootPath, name }, ...workspace.folders.slice(1)],
+        settings: { ...workspace.settings, "window.title": title },
       };
 
       if (JSON.stringify(next) !== JSON.stringify(current))
@@ -1722,14 +1716,18 @@ function pathspecMatches(
   );
 }
 
-const isJsonObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** The parts of a VS Code workspace file the navigator owns; everything else
+ * VS Code or the user adds is kept as is. */
+const codeWorkspaceSchema = z.looseObject({
+  folders: z.array(z.json()).default([]),
+  settings: z.record(z.string(), z.json()).default({}),
+});
 
 /** A workspace file's contents, undefined when it does not exist, or null when
  * it is not plain JSON (VS Code accepts comments), which is left untouched. */
 async function readWorkspace(
   file: string,
-): Promise<Record<string, unknown> | null | undefined> {
+): Promise<z.infer<typeof codeWorkspaceSchema> | null | undefined> {
   const text = await readFile(file, "utf8").catch((error) => {
     if (isMissingFileError(error)) return undefined;
     throw error;
@@ -1738,9 +1736,7 @@ async function readWorkspace(
   if (text === undefined) return undefined;
 
   try {
-    const workspace: unknown = JSON.parse(text);
-
-    return isJsonObject(workspace) ? workspace : null;
+    return codeWorkspaceSchema.safeParse(JSON.parse(text)).data ?? null;
   } catch {
     return null;
   }

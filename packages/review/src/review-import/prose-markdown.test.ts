@@ -264,7 +264,9 @@ describe("proseToMarkdown", () => {
       [footnoteTraceQuoteSection("1")],
       warnings,
       (node) =>
-        node.name === "TraceQuote" ? "[said so](whiteboard-trace:t1#2)" : undefined,
+        node.name === "TraceQuote"
+          ? "[said so](whiteboard-trace:t1#2)"
+          : undefined,
     );
 
     expect([...footnotes]).toEqual([

@@ -28,7 +28,10 @@ export function blockSectionSummary(children: Block[]): ReviewSectionSummary {
           if (node.type === "paragraph") summary.paragraphs += 1;
 
         for (const node of markdownNodes(markdown))
-          if (node.type === "link" && /^whiteboard-source:/i.test(node.url ?? ""))
+          if (
+            node.type === "link" &&
+            /^whiteboard-source:/i.test(node.url ?? "")
+          )
             summary.codeRefs += 1;
         break;
       }

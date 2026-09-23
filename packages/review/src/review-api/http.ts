@@ -1164,7 +1164,7 @@ export function createSessionApi(
 
     return context.json({
       ...result,
-      review: store.summary(result.sessionId),
+      session: store.summary(result.sessionId),
       ...(requestedOpen === false
         ? { opened: false }
         : await openCreated(result.sessionId)),

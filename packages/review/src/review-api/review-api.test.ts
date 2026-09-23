@@ -1818,12 +1818,12 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const { sessionId } = created;
     // The result names what was created: the review's own catalog entry.
     const entries = await (await fetch(url, { headers })).json();
-    expect(created.review).toEqual(
+    expect(created.session).toEqual(
       entries.find(
         (review: { sessionId: string }) => review.sessionId === sessionId,
       ),
     );
-    expect(created.review).toMatchObject({
+    expect(created.session).toMatchObject({
       title: "HTTP review",
       target: { kind: "commits", head: pins.head },
     });

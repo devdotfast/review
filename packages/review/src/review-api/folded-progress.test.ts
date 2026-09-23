@@ -291,7 +291,7 @@ async function progressApi() {
   const client = new SessionApiClient(
     { serverUrl: "http://review", token: "token" },
     async (url, init) =>
-      app.request(String(url).replace("http://review/reviews-api", ""), init),
+      app.request(String(url).replace("http://review/sessions-api", ""), init),
   );
 
   return { sessionId, client };

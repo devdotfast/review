@@ -95,7 +95,7 @@ export function authoringTools() {
     tool(
       "lens_get",
       "Read the review's Diff-view lenses as authored (ids, titles, targets), each lens's resolved fileCount (and unavailable reason, if any), and uncategorized: the changed lines no lens selects yet, by file.",
-      z.strictObject(review),
+      z.strictObject(session),
       "GET",
       "/:sessionId/lenses",
     ),

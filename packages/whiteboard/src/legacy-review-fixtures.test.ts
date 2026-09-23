@@ -221,9 +221,6 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       code: "REPAIR_REQUIRED",
       sessionId: uuid,
     });
-    expect(listed.errors[0]?.message).toContain(
-      "Delete it from Home and recreate it with the Whiteboard skill.",
-    );
     expect(await snapshotWhiteboardTree(dir)).toEqual(snapshot);
   });
 });

@@ -26,7 +26,6 @@ import {
   WhiteboardCliInstallApplyResponseSchema,
   type WhiteboardCliInstallStatus,
   WhiteboardCliInstallStatusSchema,
-  type WhiteboardCliInstallTarget,
   type WhiteboardDesktopDiscovery,
   WhiteboardDesktopDiscoverySchema,
   type WhiteboardDesktopVerbFrame,
@@ -69,32 +68,6 @@ export {
   sessionIdSchema,
   sessionMetaSchema,
 } from "@dev.fast/trace-protocol";
-
-export interface WhiteboardCliInstallResyncRequest {
-  readonly targets: readonly WhiteboardCliInstallTarget[];
-  readonly shim: boolean;
-  readonly autoUpdate: true;
-}
-
-/** Returns the previously consented install scope when a stale install needs to be reapplied. */
-export function whiteboardCliInstallResyncRequest(
-  status: WhiteboardCliInstallStatus,
-): WhiteboardCliInstallResyncRequest | undefined {
-  if (status.stamp?.consent !== "granted") return undefined;
-
-  const targets =
-    status.stamp.targets !== undefined
-      ? status.stamp.targets
-      : status.agents.flatMap((agent) =>
-          agent.installed ? [agent.target] : [],
-        );
-
-  const shim = Boolean(status.stamp.shimPath);
-
-  return targets.length > 0 || shim
-    ? { targets, shim, autoUpdate: true }
-    : undefined;
-}
 
 export function parseWhiteboardDesktopDiscovery(
   value: JsonValue,

@@ -2295,7 +2295,7 @@ button {
   font-size: 12px;
 }
 
-.whiteboard-view-region--whiteboard {
+.whiteboard-view-region--review {
   overflow: auto;
 }
 
@@ -4215,7 +4215,7 @@ button {
   --whiteboard-page-top: 20px;
 }
 
-.whiteboard-view-region--whiteboard {
+.whiteboard-view-region--review {
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -4231,17 +4231,17 @@ button {
     calc(120px + var(--whiteboard-toc-tail, 0px));
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar {
+.whiteboard-view-region--review::-webkit-scrollbar {
   width: var(--whiteboard-scrollbar-size);
   background: transparent;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-track,
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-corner {
+.whiteboard-view-region--review::-webkit-scrollbar-track,
+.whiteboard-view-region--review::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb {
   min-height: 32px;
   border: 3px solid transparent;
   border-radius: 999px;
@@ -4249,17 +4249,17 @@ button {
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:hover {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb:hover {
   background: var(--whiteboard-scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:active {
+.whiteboard-view-region--review::-webkit-scrollbar-thumb:active {
   background: var(--whiteboard-scrollbar-thumb-active);
   background-clip: padding-box;
 }
 
-.whiteboard-view-region--whiteboard.whiteboard-view-region--document-warning {
+.whiteboard-view-region--review.whiteboard-view-region--document-warning {
   padding-top: calc(var(--whiteboard-page-top) + 72px);
 }
 
@@ -5012,7 +5012,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 }
 
 @container whiteboard-content (max-width: 1080px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
@@ -5035,14 +5035,14 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 }
 
 @container whiteboard-content (max-width: 1180px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     gap: 0;
     padding: var(--whiteboard-page-top) 42px 120px;
   }
 }
 
 @container whiteboard-content (max-width: 1080px) {
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     flex-direction: row;
     align-items: flex-start;
     justify-content: center;
@@ -5799,7 +5799,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
     padding: 0 4px;
   }
 
-  .whiteboard-view-region--whiteboard {
+  .whiteboard-view-region--review {
     padding: 22px 8px calc(96px + var(--whiteboard-toc-tail, 0px));
   }
 
@@ -5896,33 +5896,127 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 
 /* CodePeek loading while the resolve request is in flight. */
 
-/* Home: agent setup card */
+/* Connect card: the prompt card's tabs, one agent at a time */
 
-.whiteboard-agent-setup {
-  margin-top: 32px;
-  padding: 14px 16px;
+.whiteboard-connect-tabs {
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+}
+
+.whiteboard-connect-tabs .whiteboard-agent-logo {
+  width: 14px;
+  height: 14px;
+}
+
+.whiteboard-connect-body-wrap {
+  position: relative;
+}
+
+.whiteboard-connect-body[data-collapsed="true"] {
+  max-height: calc(22px * 4);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 35%, transparent);
+}
+
+/* Sits on the fade, centered, like a "show full prompt" pill. */
+.whiteboard-connect-expand {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
   border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
+  cursor: pointer;
+}
+
+.whiteboard-connect-expand:hover {
+  border-color: var(--ink-muted);
+}
+
+.whiteboard-home-prompt-actions .whiteboard-connect-collapse {
+  margin-right: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-muted);
+  font: 12px/22px var(--font-mono);
+  cursor: pointer;
+}
+
+.whiteboard-home-prompt-actions .whiteboard-connect-collapse:hover {
+  color: var(--ink);
+}
+
+.whiteboard-connect-hint {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font: 12px/18px var(--font-mono);
+}
+
+.whiteboard-connect-modes button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.whiteboard-connect a.whiteboard-home-prompt-copy {
+  text-decoration: none;
+}
+
+.whiteboard-connect-legacy button {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  white-space: nowrap;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+}
+
+.whiteboard-connect-legacy button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard-connect-note {
+  margin: 0 0 8px;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-connect-legacy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--whiteboard-home-rule-soft);
+  font-size: 12px;
+}
+
+.whiteboard-connect-legacy p {
+  margin: 0;
+}
+
+.whiteboard-connect-legacy ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--whiteboard-home-meta);
+}
+
+.whiteboard-connect-legacy code {
+  font-family: var(--font-mono);
 }
 
 .whiteboard-agent-setup-cli {
   color: var(--whiteboard-home-meta);
   font-size: 12px;
-}
-
-.whiteboard-agent-setup-agents {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.whiteboard-agent-setup-agents li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-top: 1px solid var(--whiteboard-home-rule);
 }
 
 .whiteboard-agent-setup-name {
@@ -5931,50 +6025,22 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 
 .whiteboard-agent-setup-state {
   flex: 1;
+  min-width: 0;
   color: var(--whiteboard-home-meta);
   font-size: 12px;
 }
 
-/* Installed is the one state worth colouring: it is what the step is asking
-   the reader to achieve. */
+/* Enabled is the one state worth colouring. */
 .whiteboard-agent-setup-state[data-installed="true"] {
   color: var(--change-added);
 }
 
-.whiteboard-agent-setup button {
-  padding: 3px 10px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 5px;
-  color: inherit;
-  background: var(--transparent);
-  cursor: pointer;
-}
-
-.whiteboard-agent-setup button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.whiteboard-agent-setup-error {
+.whiteboard-agent-setup-error,
+.whiteboard-connect-error {
   margin: 10px 0 0;
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.whiteboard-agent-setup-disclosure {
-  margin: 10px 0 0;
-  color: var(--whiteboard-home-meta);
-  font-size: 12px;
-}
-
-.whiteboard-agent-setup-disclosure code {
-  padding: 1px 4px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 4px;
-  color: var(--ink);
-  background: var(--whiteboard-home-card-active);
-  font-family: inherit;
 }
 
 .whiteboard-agent-setup-terminal {
@@ -6024,45 +6090,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   background: var(--control-bg);
 }
 
-.whiteboard-agent-setup-trace-search {
-  flex-basis: 100%;
-  width: 100%;
-}
-
-.whiteboard-agent-setup-trace-search .whiteboard-agent-setup-terminal-info {
-  flex-basis: auto;
-}
-
-.whiteboard-agent-setup button.whiteboard-agent-setup-subtle {
-  border-color: var(--transparent);
-  color: var(--whiteboard-home-meta);
-}
-
-.whiteboard-agent-setup-page .whiteboard-agent-setup,
-.whiteboard-welcome-page .whiteboard-agent-setup {
-  margin-top: 0;
-}
-
-/* The Settings page is flat rows, not cards, so the agent list drops the
-   card chrome and lines up with every other section. */
-.whiteboard-settings-page .whiteboard-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.whiteboard-settings-page .whiteboard-agent-setup-agents li:first-child {
-  border-top: none;
-}
-
-.whiteboard-agent-setup-lede {
-  margin: 0 0 20px;
-  color: var(--whiteboard-home-meta);
-  font-size: 13px;
-}
-
 /* The Welcome pane: an intro column beside the three-step rail that owns the
    whole first-run flow. Colors come from the themed --whiteboard-home-* / --ink
    vars, so light mode follows without a second block. */
@@ -6110,6 +6137,23 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Below this the fixed intro column would squeeze the steps until the agent
+   rows overflow; stack the intro above them instead. */
+@media (max-width: 960px) {
+  .whiteboard-onboarding-columns {
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .whiteboard-onboarding-intro {
+    width: auto;
+  }
+
+  .whiteboard-onboarding-steps {
+    align-self: stretch;
+  }
 }
 
 .whiteboard-welcome-dismiss {
@@ -6192,23 +6236,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   font-size: 12px;
 }
 
-.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh {
-  align-self: flex-end;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 4px;
-  color: var(--ink-muted);
-  border: none;
-}
-
-.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh:hover {
-  color: var(--ink);
-  background: var(--surface-raised);
-}
-
 .whiteboard-onboarding-step-body > button + button {
   margin-left: 8px;
 }
@@ -6237,19 +6264,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
 .whiteboard-onboarding-step-title {
   color: var(--ink);
   font-size: 13px;
-}
-
-/* The onboarding step supplies the frame for the setup card. */
-.whiteboard-onboarding-step-body .whiteboard-agent-setup {
-  margin-top: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--transparent);
-}
-
-.whiteboard-onboarding-step-body .whiteboard-agent-setup-agents li:first-child {
-  border-top: none;
 }
 
 .whiteboard-onboarding-step-note {
@@ -6283,21 +6297,7 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   margin: 0;
 }
 
-/* Agent brand marks. Sized in a fixed slot so the name column stays in one
-   lane across rows (the dimmed state marks an undetected agent). */
-.whiteboard-agent-setup-logo-slot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-}
-
-.whiteboard-agent-setup-logo-slot[data-present="false"] {
-  opacity: 0.4;
-}
-
+/* Agent brand marks. */
 .whiteboard-agent-logo {
   width: 16px;
   height: 16px;
@@ -6424,30 +6424,6 @@ button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.whiteboard-home-setup-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--whiteboard-home-rule-soft);
-  border-radius: 6px;
-  color: var(--whiteboard-home-meta);
-  background: var(--whiteboard-home-card-active);
-  font-size: 12px;
-}
-
-.whiteboard-home-setup-banner button {
-  flex-shrink: 0;
-  padding: 3px 10px;
-  border: 1px solid var(--whiteboard-home-comment);
-  border-radius: 5px;
-  color: var(--whiteboard-home-comment);
-  background: var(--transparent);
-  cursor: pointer;
 }
 
 /* Map settings float over the map canvas instead of sitting behind a topbar

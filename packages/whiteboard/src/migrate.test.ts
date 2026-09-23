@@ -14,7 +14,6 @@ import {
   migrateWhiteboardManagedCheckouts,
   removeLegacyDesktopCatalog,
   removeLegacyGlobalWhiteboardInstalls,
-  removeLegacyWhiteboardSkills,
   runWhiteboardMigration,
 } from "./migrate";
 import {
@@ -63,7 +62,6 @@ describe("whiteboard migrate apply", () => {
       stderr: io.stderr,
       runtime: {
         removeLegacyDesktopCatalog: cleanup,
-        removeLegacyWhiteboardSkills: cleanup,
         removeLegacyGlobalWhiteboardInstalls: cleanup,
       },
     });
@@ -126,7 +124,6 @@ describe("whiteboard migrate apply", () => {
       stderr: io.stderr,
       runtime: {
         removeLegacyDesktopCatalog: cleanup,
-        removeLegacyWhiteboardSkills: cleanup,
         removeLegacyGlobalWhiteboardInstalls: cleanup,
       },
     });
@@ -195,7 +192,6 @@ describe("whiteboard migrate apply", () => {
         migrateJjWhiteboardRepositories: jj,
         migrateWhiteboardManagedCheckouts: managed,
         removeLegacyDesktopCatalog: cleanup,
-        removeLegacyWhiteboardSkills: cleanup,
         removeLegacyGlobalWhiteboardInstalls: cleanup,
       },
     });
@@ -231,11 +227,6 @@ describe("whiteboard migrate apply", () => {
           blockers: [],
         }),
         removeLegacyDesktopCatalog: async () => ({
-          checked: 2,
-          removed: 2,
-          blockers: [],
-        }),
-        removeLegacyWhiteboardSkills: async () => ({
           checked: 2,
           removed: 2,
           blockers: [],
@@ -284,11 +275,6 @@ describe("whiteboard migrate apply", () => {
           blockers: [],
         }),
         removeLegacyDesktopCatalog: catalogCleanup,
-        removeLegacyWhiteboardSkills: async () => ({
-          checked: 0,
-          removed: 0,
-          blockers: [],
-        }),
         removeLegacyGlobalWhiteboardInstalls: async () => ({
           checked: 0,
           removed: 0,
@@ -331,11 +317,6 @@ describe("whiteboard migrate apply", () => {
           blockers: [],
         }),
         removeLegacyDesktopCatalog: async () => ({
-          checked: 0,
-          removed: 0,
-          blockers: [],
-        }),
-        removeLegacyWhiteboardSkills: async () => ({
           checked: 0,
           removed: 0,
           blockers: [],
@@ -519,44 +500,6 @@ describe("obsolete Desktop catalog cleanup", () => {
       expect.stringContaining("unknown catalog file name"),
     ]);
     await expect(readFile(unknown, "utf8")).resolves.toBe("{}\n");
-  });
-});
-
-describe("legacy skill cleanup", () => {
-  it("removes positively identified obsolete skills and keeps ambiguous skills", async () => {
-    const homeDir = await tempDir("review-migrate-");
-    const packageRoot = await tempDir("review-migrate-");
-    const skillsRoot = path.join(homeDir, ".agents", "skills");
-    const legacy = path.join(skillsRoot, "review");
-    const ambiguous = path.join(skillsRoot, "review-map");
-    const current = path.join(skillsRoot, "dev-review");
-    await mkdir(legacy, { recursive: true });
-    await mkdir(ambiguous, { recursive: true });
-    await mkdir(current, { recursive: true });
-    await writeFile(
-      path.join(legacy, "SKILL.md"),
-      "---\nname: review\ndescription: Old dev.fast Review\n---\n",
-    );
-    await writeFile(
-      path.join(ambiguous, "SKILL.md"),
-      "---\nname: review-map\ndescription: Personal map\n---\n",
-    );
-    await writeFile(
-      path.join(current, "SKILL.md"),
-      "---\nname: dev-review\ndescription: Personal current skill\n---\n",
-    );
-
-    const result = await removeLegacyWhiteboardSkills({ homeDir, packageRoot });
-
-    expect(result.removed).toBe(1);
-    expect(result.blockers).toHaveLength(2);
-    await expect(readdir(legacy)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(
-      readFile(path.join(ambiguous, "SKILL.md"), "utf8"),
-    ).resolves.toContain("Personal map");
-    await expect(
-      readFile(path.join(current, "SKILL.md"), "utf8"),
-    ).resolves.toContain("Personal current skill");
   });
 });
 

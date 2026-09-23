@@ -18,15 +18,17 @@ This guide takes you from a fresh install to a completed first review.
 [Download the latest disk image](https://install.dev.fast), open it, and launch
 Whiteboard. The app updates itself after installation.
 
-On first launch, Whiteboard opens the welcome screen. It detects supported coding
-agents and offers to install:
+On first launch, Whiteboard opens the welcome screen. Its first step connects your
+coding agents:
 
-- the `whiteboard` command in `~/.local/bin`;
-- the `whiteboard` skill for authoring sessions and software maps; and
-- the Whiteboard MCP connection for Codex and Claude Code.
+1. Choose **Install whiteboard in PATH**.
+2. Choose **Copy prompt** next to an agent you use.
+3. Paste the prompt into a session of that agent. The agent registers Whiteboard's
+   MCP server and confirms that it can reach Whiteboard.
 
-Choose **Install** for the agents you use. Whiteboard keeps the app-managed command
-and skills in sync after updates.
+Repeat for each agent. You can copy the prompts again later from
+**Settings → Agents**. See [Coding agents](agents.md#connect-an-agent) for
+what the prompt does.
 
 ## 2. Take the tour
 
@@ -44,8 +46,8 @@ Open the repository you want to review in your coding agent and tell it to
 review it!
 
 ```text
-Use the whiteboard skill to review my current branch against up to date main,
-then open it in Whiteboard.
+Create a Whiteboard of my current branch against up to date main, then open it
+in Whiteboard.
 ```
 
 The agent registers the repository, resolves the base and head pins, creates

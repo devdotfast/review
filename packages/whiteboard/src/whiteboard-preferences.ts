@@ -14,17 +14,16 @@ import type { DismissedRetentionDays } from "./whiteboard-attention";
 import { devWhiteboardHome } from "./whiteboard-home-paths";
 
 /**
- * Machine-wide Review preferences the server itself needs. Workbench settings
- * do not work here: the reaper runs in the review server, which never reads
- * the workbench configuration, and `whiteboard install` runs with no workbench
- * at all.
+ * Machine-wide Whiteboard preferences the server itself needs. Workbench settings
+ * do not work here: the reaper runs in the whiteboard server, which never reads
+ * the workbench configuration.
  */
 export interface WhiteboardPreferences {
   /** `null` means never reap. */
   dismissedRetentionDays: DismissedRetentionDays;
   /**
    * Whether the scratchpad exists on this machine. Off, the server neither
-   * makes nor lists it and the scratchpad skill is not installed for agents.
+   * makes nor lists it and Whiteboard's instructions do not offer it to agents.
    */
   scratchpadEnabled: boolean;
 }

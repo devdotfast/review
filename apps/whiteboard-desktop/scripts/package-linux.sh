@@ -39,8 +39,8 @@ node "$APP_DIR/scripts/curated-extensions.mjs" \
   --target=linux-x64 \
   --copy-to "$PACKAGED_ROOT/resources/app/extensions"
 
-# The installed app embeds its own Review server runtime (server, CLI, and
-# agent skills) so it never reaches back into this checkout.
+# The installed app embeds its own Whiteboard server runtime (server, CLI, and
+# docs) so it never reaches back into this checkout.
 pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/whiteboard build
 pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/whiteboard ensure:diffr --required
 node "$APP_DIR/scripts/stage-whiteboard-runtime.mjs" --packaged-root "$PACKAGED_ROOT"

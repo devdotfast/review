@@ -32,7 +32,7 @@ test("native group restoration preserves both reviews, order and pinned source v
 	};
 	const groupService = { groups, mainPart: { activeGroup: undefined as EditorGroupModel | undefined } };
 	const createTabs = () =>
-		new WhiteboardCanvasEditorTabsService(instantiation as never, editors as never, groupService as never);
+		new WhiteboardCanvasEditorTabsService(instantiation as never, editors as never, groupService as never, {} as never, {} as never);
 	tabs = createTabs();
 	const registry = Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory);
 	registry.start({ get: () => instantiation } as never);
@@ -99,7 +99,7 @@ test("current Source tabs retain identity and main version tabs still restore", 
     },
     invokeFunction(fn: (accessor: { get(): WhiteboardCanvasEditorTabsService }) => unknown) { return fn({ get: () => tabs }); },
   };
-  tabs = new WhiteboardCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never);
+  tabs = new WhiteboardCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never, {} as never, {} as never);
   try {
     const serializer = new WhiteboardApiEditorSerializer();
     const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", sessionId: "a", title: "A", selection: { sessionId: "a", kind: "current" } }));

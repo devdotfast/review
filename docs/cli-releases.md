@@ -2,7 +2,7 @@
 
 The `Whiteboard CLI Release` workflow publishes the public `@dev.fast/whiteboard` npm
 package. The package contains `whiteboard server`, `whiteboard share`, `whiteboard trace`,
-and the agent skills. It runs independently of Desktop releases and requires
+and the agent instructions. It runs independently of Desktop releases and requires
 Node 24; building it does not install or launch Desktop.
 
 ## Release from GitHub
@@ -34,7 +34,7 @@ are not supported by this workflow. Releases always use a commit already on
 does not silently publish newer source.
 
 Tags are the CLI release history. The workflow stamps the selected version
-into the packed manifest, build metadata, and bundled skills without committing
+into the packed manifest and build metadata without committing
 a version bump back to `main`. The source package version is a development
 baseline, not the latest published version.
 
@@ -67,8 +67,8 @@ GitHub OIDC to attach npm provenance; no release deploy key is needed.
 Before publishing, the workflow tests release planning, trace behavior, and
 headless authoring. It then builds one tarball, installs it in a temporary
 prefix outside the workspace, and checks that its installed CLI can install
-and remove agent hooks and commit a headless review without a display or Desktop.
-The tarball includes the bundled product documentation and stamped skills.
+and remove agent hooks and commit a headless whiteboard without a display or Desktop.
+The tarball includes the bundled product documentation.
 The tested tarball is the one passed to `npm publish`.
 
 The published `@dev.fast/whiteboard` package is the Node runtime shared by the CLI

@@ -7,7 +7,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { jsonString } from "@dev.fast/json";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import {
+  traceMachineEnabled,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import {
   type JsonObject,
   type JsonValue,
@@ -28,12 +31,13 @@ import { z } from "zod";
 import {
   applyCliInstall,
   declineCliInstall,
+  finishCliInstallUpdate,
   removeCliInstall,
+  removeLegacyWhiteboardSkills,
   resetCliInstall,
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
-import { syncScratchpadSkills } from "../install";
 import { legacyWhiteboardApi } from "../legacy-rename.js";
 import { readWhiteboardPackageVersion } from "../package-paths";
 import { SessionInputError } from "../session-api/document.js";
@@ -124,7 +128,7 @@ export function createGlobalWhiteboardServer(
   });
 
   let closing = false;
-  const cliPath = path.join(input.packageRoot, "dist", "cli.js");
+  const cliPath = path.join(input.packageRoot, "dist", "whiteboard-cli.js");
 
   // The scratchpad preference, read once at listen and kept current by the
   // settings endpoint below: this server is the only writer while it runs.
@@ -217,14 +221,13 @@ export function createGlobalWhiteboardServer(
         };
       },
       () => scratchpadEnabled,
+      () => traceMachineEnabled(),
     ),
   );
 
   app.get("/preferences/scratchpad", () =>
     globalJson(200, { enabled: scratchpadEnabled }),
   );
-  // Turning the pad on or off also installs or removes its skill for every
-  // agent already set up, as trace capture does with its own skill.
   app.put("/preferences/scratchpad", async (context) => {
     const request = z
       .object({ enabled: z.boolean() })
@@ -234,10 +237,6 @@ export function createGlobalWhiteboardServer(
       throw new WhiteboardServerError("enabled must be a boolean.", 400);
 
     scratchpadEnabled = await writeScratchpadEnabled(request.data.enabled);
-    await syncScratchpadSkills({
-      enabled: scratchpadEnabled,
-      packageRoot: input.packageRoot,
-    });
 
     // Home watches the catalog; the pad appears or goes without a store write.
     if (scratchpadEnabled) await whiteboardStore.ensureScratchpad();
@@ -375,14 +374,11 @@ export function createGlobalWhiteboardServer(
 
     const applyInput: Parameters<typeof applyCliInstall>[0] = {
       packageRoot: input.packageRoot,
-      targets: request.targets,
     };
 
     if (request.shim !== undefined) applyInput.shim = request.shim;
 
     if (request.autoUpdate) applyInput.autoUpdate = true;
-
-    if (request.fff) applyInput.fff = true;
 
     if (request.trace !== undefined) applyInput.trace = request.trace;
 
@@ -408,18 +404,24 @@ export function createGlobalWhiteboardServer(
       await readBoundedRequestJson(context.req.raw),
     );
 
-    const removeInput: Parameters<typeof removeCliInstall>[0] = {
-      targets: request.targets,
-    };
+    const removeInput: Parameters<typeof removeCliInstall>[0] = {};
 
     if (request.shim) removeInput.shim = true;
-
-    if (request.fff) removeInput.fff = true;
 
     if (request.trace) removeInput.trace = true;
     const result = await removeCliInstall(removeInput);
 
     return globalJson(200, { ok: true, output: result.output });
+  });
+  app.post("/install/legacy-skills/remove", async () => {
+    const { removed } = await removeLegacyWhiteboardSkills();
+
+    return globalJson(200, { ok: true, removed });
+  });
+  app.post("/install/finish-update", async () => {
+    await finishCliInstallUpdate();
+
+    return globalJson(200, { ok: true });
   });
   app.post("/install/decline", async () => {
     await declineCliInstall();

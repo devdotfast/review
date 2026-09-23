@@ -19,7 +19,12 @@ import {
   flowNodeInsertSchema,
   flowNodeSchema,
 } from "./blocks/flow_diagram.js";
-import { type Block, blockSchema, fileLensMoved } from "./blocks/index.js";
+import {
+  type Block,
+  blockKinds,
+  blockSchema,
+  unionError,
+} from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { SessionInputError } from "./input-error.js";
 
@@ -350,7 +355,14 @@ export const documentSchema = z.array(blockSchema);
 
 export const contentSchema = z.union(
   [blockSchema, stepSchema, flowNodeInsertSchema, flowEdgeSchema],
-  { error: fileLensMoved },
+  {
+    error: unionError(() => ({
+      ...blockKinds(),
+      step: stepSchema,
+      flow_node: flowNodeInsertSchema,
+      flow_edge: flowEdgeSchema,
+    })),
+  },
 );
 
 const placement = { parentId: label.optional(), afterId: label.optional() };

@@ -1,11 +1,15 @@
 import type { Readable, Writable } from "node:stream";
 
+import { traceMachineEnabled } from "@dev.fast/trace-core";
+
 import {
   type AuthoringTool,
   callAuthoringTool,
   connectSessionApi,
   toolResultText,
 } from "./agent-client.js";
+import { type SessionApiClient, SessionApiError } from "./client.js";
+import { RECOVERY } from "./recovery.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -51,13 +55,30 @@ export async function runWhiteboardAgentCli(
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
+        await traceMachineEnabled({ env: input.env }),
       );
 
       return 0;
     }
 
-    const client = await connect();
-    const tools = await client.read<AuthoringTool[]>("/authoring");
+    let client: SessionApiClient;
+    let tools: AuthoringTool[];
+
+    try {
+      client = await connect();
+      tools = await client.read<AuthoringTool[]>("/authoring");
+    } catch (error) {
+      if (
+        name === "session_get_instructions" &&
+        !(error instanceof SessionApiError)
+      ) {
+        input.stderr.write(RECOVERY + "\n");
+
+        return 1;
+      }
+
+      throw error;
+    }
 
     if (name === "tools") {
       if (json) throw new Error(`whiteboard api tools takes no input.`);

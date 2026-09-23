@@ -4,10 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  stageWhiteboardDocs,
-  stampWhiteboardSkills,
-} from "../apps/whiteboard-desktop/scripts/stage-whiteboard-runtime.mjs";
+import { stageWhiteboardDocs } from "../apps/whiteboard-desktop/scripts/stage-whiteboard-runtime.mjs";
 import { parseVersion } from "./whiteboard-cli-release.mjs";
 
 /** Pack from the workspace, then add the docs and version metadata shipped by Desktop. */
@@ -50,7 +47,6 @@ export async function packWhiteboardCli({ version, commit }, outputDirectory) {
     ]);
     const staged = path.join(scratch, "package");
     await stageWhiteboardDocs(staged);
-    await stampWhiteboardSkills(staged, version);
 
     execFileSync(
       "npm",

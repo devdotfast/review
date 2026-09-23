@@ -20,6 +20,8 @@ export interface AuthoringTool {
   commandType?: string;
 }
 
+const TEXT_TOOLS = new Set(["session_get", "session_get_instructions"]);
+
 export async function connectSessionApi(env = process.env) {
   const apiPath = "/sessions-api";
 
@@ -124,7 +126,7 @@ export function toolResultText(
 ) {
   if (result instanceof ToolText) return result.text;
 
-  return tool.name === "session_get" && isStringValue(result)
+  return TEXT_TOOLS.has(tool.name) && isStringValue(result)
     ? result
     : JSON.stringify(result);
 }

@@ -11,14 +11,11 @@ import {
   realpath,
   rm,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-
-import { valid as validVersion } from "semver";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,9 +46,8 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   RUNTIME_CLI_ENTRY,
   "bin/diffr",
   "dist/whiteboard-cli.js",
-  "skills/whiteboard/SKILL.md",
-  "skills/whiteboard/docs/README.md",
-  "skills/trace-archaeology/SKILL.md",
+  "docs/README.md",
+  "instructions/authoring.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
 ];
@@ -136,77 +132,23 @@ export async function stageWhiteboardRuntime(packagedRoot) {
 
   await stageWhiteboardDocs(runtimeRoot);
   await stageDiffrBinary(runtimeRoot);
-  await stampWhiteboardSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
 
   return runtimeRoot;
 }
 
-/** Stamp only deployed copies, before signing; source skills remain editable. */
-export async function stampWhiteboardSkills(runtimeRoot, version) {
-  const releaseVersion =
-    version ??
-    JSON.parse(await readFile(path.join(appDirectory, "package.json"), "utf8"))
-      .version;
-
-  if (!validVersion(releaseVersion)) {
-    throw new Error(
-      "A Review Desktop release version is required to stamp skills.",
-    );
-  }
-
-  const skillsRoot = path.join(runtimeRoot, "skills");
-
-  for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const skillPath = path.join(skillsRoot, entry.name, "SKILL.md");
-    const source = await readFile(skillPath, "utf8");
-    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source);
-
-    const versionKey = source.includes("  whiteboard-version:")
-      ? "whiteboard-version"
-      : "review-version";
-
-    const versionPattern = new RegExp(`^  ${versionKey}: "[^"\\n]+"$`, "m");
-
-    if (
-      !frontmatter ||
-      !/^  (?:whiteboard|review)-version: "[^"\n]+"$/m.test(frontmatter[1])
-    ) {
-      throw new Error(`Missing generated skill metadata: ${skillPath}`);
-    }
-
-    const stamped = frontmatter[0].replace(
-      versionPattern,
-      `  ${versionKey}: ${JSON.stringify(releaseVersion)}`,
-    );
-
-    // pnpm deploy may hardlink files from its store. Never modify that inode.
-    await rm(skillPath);
-    await writeFile(skillPath, stamped + source.slice(frontmatter[0].length));
-  }
-}
-
 export async function stageWhiteboardDocs(
   runtimeRoot,
   sourceDocsRoot = path.join(monorepoRoot, "docs"),
 ) {
-  const skillRoot = path.join(runtimeRoot, "skills", "whiteboard");
-
-  if (!(await isDirectory(skillRoot))) {
-    throw new Error(
-      `Cannot stage Review documentation without the whiteboard skill: ${skillRoot}`,
-    );
-  }
-
   if (!(await isDirectory(sourceDocsRoot))) {
     throw new Error(
       `Review documentation source is missing: ${sourceDocsRoot}`,
     );
   }
 
-  const destination = path.join(skillRoot, "docs");
+  const destination = path.join(runtimeRoot, "docs");
   await rm(destination, { recursive: true, force: true });
   await cp(sourceDocsRoot, destination, { recursive: true });
   await assertMatchingFileTrees(sourceDocsRoot, destination);

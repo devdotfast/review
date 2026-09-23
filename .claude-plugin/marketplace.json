@@ -1,0 +1,11 @@
+{
+  "name": "devfast",
+  "owner": { "name": "dev.fast" },
+  "plugins": [
+    {
+      "name": "whiteboard",
+      "source": "./packages/agent-plugins/claude",
+      "description": "Connect Claude Code to dev.fast Whiteboard"
+    }
+  ]
+}

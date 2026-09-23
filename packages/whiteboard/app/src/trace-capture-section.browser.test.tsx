@@ -24,7 +24,7 @@ describe("TraceCaptureSection", () => {
     vi.restoreAllMocks();
   });
 
-  it("enables capture for every installed agent through the install action", async () => {
+  it("enables capture with the entered credentials and no agent targets", async () => {
     const apply = vi.fn<WhiteboardCanvasInstallContent["apply"]>(
       async () => traceStatus,
     );
@@ -36,6 +36,9 @@ describe("TraceCaptureSection", () => {
       decline: vi.fn<WhiteboardCanvasInstallContent["decline"]>(),
       skip: vi.fn<WhiteboardCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<WhiteboardCanvasInstallContent["enablePrompts"]>(),
+      removeLegacySkills:
+        vi.fn<WhiteboardCanvasInstallContent["removeLegacySkills"]>(),
+      finishUpdate: vi.fn<WhiteboardCanvasInstallContent["finishUpdate"]>(),
     };
 
     await act(async () =>
@@ -48,8 +51,6 @@ describe("TraceCaptureSection", () => {
     });
 
     expect(apply).toHaveBeenCalledExactlyOnceWith({
-      targets: ["codex"],
-      fff: true,
       trace: {
         endpoint: "https://account.r2.cloudflarestorage.com",
         bucket: "whiteboard-traces",
@@ -75,6 +76,9 @@ describe("TraceCaptureSection", () => {
       decline: vi.fn<WhiteboardCanvasInstallContent["decline"]>(),
       skip: vi.fn<WhiteboardCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<WhiteboardCanvasInstallContent["enablePrompts"]>(),
+      removeLegacySkills:
+        vi.fn<WhiteboardCanvasInstallContent["removeLegacySkills"]>(),
+      finishUpdate: vi.fn<WhiteboardCanvasInstallContent["finishUpdate"]>(),
     };
 
     await act(async () =>
@@ -105,6 +109,9 @@ describe("TraceCaptureSection", () => {
       decline: vi.fn<WhiteboardCanvasInstallContent["decline"]>(),
       skip: vi.fn<WhiteboardCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<WhiteboardCanvasInstallContent["enablePrompts"]>(),
+      removeLegacySkills:
+        vi.fn<WhiteboardCanvasInstallContent["removeLegacySkills"]>(),
+      finishUpdate: vi.fn<WhiteboardCanvasInstallContent["finishUpdate"]>(),
     };
 
     await act(async () =>
@@ -116,10 +123,7 @@ describe("TraceCaptureSection", () => {
         ?.click();
     });
 
-    expect(remove).toHaveBeenCalledExactlyOnceWith({
-      targets: [],
-      trace: true,
-    });
+    expect(remove).toHaveBeenCalledExactlyOnceWith({ trace: true });
   });
 
   it("hides the bucket fields and the S3 copy on a hosted machine", async () => {
@@ -140,6 +144,9 @@ describe("TraceCaptureSection", () => {
       decline: vi.fn<WhiteboardCanvasInstallContent["decline"]>(),
       skip: vi.fn<WhiteboardCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<WhiteboardCanvasInstallContent["enablePrompts"]>(),
+      removeLegacySkills:
+        vi.fn<WhiteboardCanvasInstallContent["removeLegacySkills"]>(),
+      finishUpdate: vi.fn<WhiteboardCanvasInstallContent["finishUpdate"]>(),
     };
 
     await act(async () =>
@@ -161,25 +168,18 @@ describe("TraceCaptureSection", () => {
 });
 
 const traceStatus: WhiteboardCliInstallStatus = {
-  agents: [{ target: "codex", present: true, installed: true }],
   fingerprint: "fingerprint",
   stamp: {
     consent: "granted",
     updatedAt: "2026-08-09T00:00:00.000Z",
-    targets: ["codex"],
   },
   stale: false,
+  updateNeeded: false,
   shim: {
     path: "/tmp/review",
     installed: false,
     profileConfigured: false,
     onPath: false,
-  },
-  fff: {
-    serverName: "fff",
-    corpusRoot: "/tmp/trace-search",
-    binary: { path: "/tmp/fff-mcp", installed: false },
-    registrations: [{ target: "codex", present: false, managed: false }],
   },
   trace: {
     enabled: false,
@@ -192,4 +192,23 @@ const traceStatus: WhiteboardCliInstallStatus = {
     accessKeyIdPrefix: "key-id",
   },
   cli: { path: "/tmp/cli.js", version: "0.0.1" },
+  connect: {
+    command: "whiteboard",
+    args: ["mcp"],
+    prompts: {
+      claude: "claude",
+      codex: "codex",
+      cursor: "cursor",
+      opencode: "opencode",
+      pi: "pi",
+    },
+    plugins: {
+      claude: { label: "claude plugin", command: "claude command" },
+      codex: { label: "codex plugin", command: "codex command" },
+      cursor: { label: "cursor plugin", url: "cursor://install" },
+      opencode: { label: "opencode plugin", command: "opencode command" },
+      pi: { label: "pi plugin", command: "pi command" },
+    },
+  },
+  legacySkills: [],
 };

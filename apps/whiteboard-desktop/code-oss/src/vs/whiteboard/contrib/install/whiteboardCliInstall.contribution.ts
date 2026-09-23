@@ -20,26 +20,11 @@ import {
 } from "../../../workbench/common/contributions.js";
 import { INativeWorkbenchEnvironmentService } from "../../../workbench/services/environment/electron-browser/environmentService.js";
 import { LifecyclePhase } from "../../../workbench/services/lifecycle/common/lifecycle.js";
-import { whiteboardCliInstallResyncRequest } from "../../common/whiteboardCliInstall.js";
-import {
-	type WhiteboardCliInstallStatus,
-	type WhiteboardCliInstallTarget,
-	WHITEBOARD_TUTORIAL_PROGRESS_STORAGE_KEY,
-} from "../../common/whiteboardProtocol.js";
+import { whiteboardCliInstallStartupAction } from "../../common/whiteboardCliInstallStartup.js";
+import { WHITEBOARD_TUTORIAL_PROGRESS_STORAGE_KEY } from "../../common/whiteboardProtocol.js";
+import { IWhiteboardApiCatalogService } from "../../services/whiteboardApiCatalogService.js";
 import { IWhiteboardCanvasEditorTabsService } from "../../services/whiteboardCanvasEditorTabsService.js";
 import { IWhiteboardDesktopConnectionService } from "../../services/whiteboardDesktopConnectionService.js";
-
-const TARGET_LABELS: Readonly<Record<WhiteboardCliInstallTarget, string>> = {
-	claude: "Claude Code",
-	codex: "Codex",
-	cursor: "Cursor",
-	opencode: "OpenCode",
-	pi: "Pi",
-};
-
-function formatTargets(targets: readonly WhiteboardCliInstallTarget[]): string {
-	return targets.map((target) => TARGET_LABELS[target]).join(", ");
-}
 
 /**
  * The macOS app bundle that contains this build, derived from the resources
@@ -109,7 +94,7 @@ class InstallWhiteboardCliInPathAction extends Action2 {
 			if (isMacintosh) {
 				await nativeHostService.uninstallShellCommand({ commandName: "review", symlinkOnly: true });
 			}
-			const installed = await desktopConnection.applyCliInstall({ targets: [], shim: true });
+			const installed = await desktopConnection.applyCliInstall({ shim: true });
 			notificationService.info(
 				localize(
 					"review.cliInstall.installed",
@@ -132,8 +117,8 @@ registerAction2(InstallWhiteboardCliInPathAction);
 
 /**
  * Removes everything the app installed on this machine: the tutorial, the
- * agent skills, the whiteboard terminal command, and the consent stamp. It then
- * points at the app bundle so the user can move it to the Trash. Other Review
+ * whiteboard terminal command, managed trace capture, and the consent stamp. It then
+ * points at the app bundle so the user can move it to the Trash. Other Whiteboard
  * data stays untouched. Resetting the stamp makes a later reinstall start as
  * a first run.
  */
@@ -154,26 +139,10 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 		const storageService = accessor.get(IStorageService);
 
 		const status = await desktopConnection.getCliInstallStatus();
-		const targets = status.agents.filter((agent) => agent.installed).map((agent) => agent.target);
-		const fffTargets = status.stamp?.fffRegistrations?.map((registration) => registration.target) ?? [];
-		const removalTargets = [...new Set([...targets, ...fffTargets])];
 		const detail = [
-			targets.length > 0
-				? localize(
-						"review.uninstall.skills",
-						"Removes the Whiteboard skills and unchanged app-managed MCP connections for {0}.",
-						formatTargets(targets),
-					)
-				: localize("review.uninstall.noSkills", "No agent skills are installed."),
 			status.stamp?.shimPath
-				? localize("review.uninstall.shim", "Removes the whiteboard terminal command at {0}.", status.stamp.shimPath)
-				: localize("review.uninstall.noShim", "The whiteboard terminal command is not installed."),
-			fffTargets.length > 0
-				? localize(
-						"review.uninstall.fff",
-						"Removes unchanged fff registrations that Whiteboard created. The shared FFF binary stays installed.",
-					)
-				: localize("review.uninstall.noFff", "No fff registrations are managed by Whiteboard."),
+				? localize("whiteboard.uninstall.shim", "Removes the whiteboard terminal command at {0}.", status.stamp.shimPath)
+				: localize("whiteboard.uninstall.noShim", "The whiteboard terminal command is not installed."),
 			status.stamp?.traceManaged
 				? localize(
 						"review.uninstall.trace",
@@ -193,7 +162,7 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 		}
 
 		// The tutorial is disposable state: a failed delete must not stop
-		// the shim and skills removal the user just confirmed.
+		// the command removal the user just confirmed.
 		let tutorialError: unknown;
 		try {
 			await desktopConnection.deleteTutorial();
@@ -203,9 +172,7 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 		}
 		try {
 			await desktopConnection.removeCliInstall({
-				targets: removalTargets,
 				shim: true,
-				fff: true,
 				...(status.stamp?.traceManaged ? { trace: true } : {}),
 			});
 			await desktopConnection.resetCliInstallPrompts();
@@ -217,7 +184,7 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize("review.uninstall.failed", "Whiteboard could not remove the installed skills and command."),
+				localize("whiteboard.uninstall.failed", "Whiteboard could not remove its command and trace setup."),
 				String(error),
 			);
 			return;
@@ -237,7 +204,7 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 		const bundlePath = macAppBundlePath(environmentService.appRoot);
 		if (bundlePath) {
 			const { confirmed: reveal } = await dialogService.confirm({
-				message: localize("review.uninstall.done", "The installed skills and command were removed."),
+				message: localize("whiteboard.uninstall.done", "Whiteboard's command and trace setup were removed."),
 				detail: localize(
 					"review.uninstall.finish",
 					"To finish, quit Whiteboard and move {0} to the Trash.",
@@ -251,8 +218,8 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 			}
 		} else {
 			await dialogService.info(
-				localize("review.uninstall.done", "The installed skills and command were removed."),
-				localize("review.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
+				localize("whiteboard.uninstall.done", "Whiteboard's command and trace setup were removed."),
+				localize("whiteboard.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
 			);
 		}
 	}
@@ -261,13 +228,15 @@ class UninstallWhiteboardDesktopAction extends Action2 {
 registerAction2(UninstallWhiteboardDesktopAction);
 
 /**
- * First-run onboarding and silent re-sync. Consent lives in the server's
+ * First-run onboarding, the upgrade screen, and silent re-sync. Consent lives in the server's
  * install stamp (~/.dev/review-desktop/state/cli-install.json), not workbench
  * storage, so the CLI and the app read one source of truth:
  * - no stamp: open no tab; empty Home renders the Welcome rail, and
  *   Preferences > Getting Started reaches the same pane when Home has
- *   reviews to list instead;
- * - granted + stale CLI fingerprint or skill version: re-sync silently after an app update;
+ *   whiteboards to list instead;
+ * - granted + stamp without the update marker: open Welcome, which shows the
+ *   update screen, unless empty Home already renders the Welcome rail;
+ * - granted + stale CLI fingerprint: rewrite the whiteboard command silently;
  * - declined or skipped: never open automatically (the menu action stays available).
  *
  * Dev sessions (`pnpm dev`, isBuilt false) never auto-open.
@@ -277,6 +246,8 @@ class WhiteboardCliInstallStartup implements IWorkbenchContribution {
 		@INativeWorkbenchEnvironmentService environmentService: INativeWorkbenchEnvironmentService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IWhiteboardDesktopConnectionService private readonly whiteboardDesktopConnectionService: IWhiteboardDesktopConnectionService,
+		@IWhiteboardCanvasEditorTabsService private readonly tabsService: IWhiteboardCanvasEditorTabsService,
+		@IWhiteboardApiCatalogService private readonly apiCatalog: IWhiteboardApiCatalogService,
 	) {
 		if (!environmentService.isBuilt) {
 			return;
@@ -284,8 +255,8 @@ class WhiteboardCliInstallStartup implements IWorkbenchContribution {
 		void this.check().catch((error) => {
 			this.notificationService.warn(
 				localize(
-					"review.cliInstall.updateFailed",
-					"Whiteboard could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Whiteboard.",
+					"whiteboard.cliInstall.updateFailed",
+					"Whiteboard could not update its CLI: {0}. Retry from Getting Started, or restart Whiteboard.",
 					String(error),
 				),
 			);
@@ -294,41 +265,26 @@ class WhiteboardCliInstallStartup implements IWorkbenchContribution {
 
 	private async check(): Promise<void> {
 		const status = await this.whiteboardDesktopConnectionService.getCliInstallStatus();
-		if (status.stamp?.consent === "declined") {
-			return;
+		switch (whiteboardCliInstallStartupAction(status)) {
+			case "openWelcome":
+				// With no whiteboards to list, Home already renders the Welcome
+				// rail, so opening a tab here would show it twice.
+				await this.apiCatalog.initialize();
+				if (this.apiCatalog.reviews.length > 0) await this.tabsService.openWelcome(true);
+				return;
+			case "resync":
+				// Without an installed command there is nothing to rewrite or announce.
+				if (!status.stamp?.shimPath || status.stamp.commandDisabled) return;
+				await this.whiteboardDesktopConnectionService.applyCliInstall({
+					shim: true,
+					autoUpdate: true,
+				});
+				// Whiteboard has no status bar; status() messages would be dropped.
+				this.notificationService.info(localize("whiteboard.cliInstall.resyncedCli", "Whiteboard updated the installed CLI."));
+				return;
+			case "none":
+				return;
 		}
-		if (status.stamp?.consent === "skipped") {
-			return;
-		}
-		if (status.stamp?.consent === "granted") {
-			if (status.stale) {
-				await this.resync(status);
-			}
-			return;
-		}
-		// First run needs no tab: with no reviews to list, Home already renders
-		// the Welcome rail, so opening one here would show it twice.
-	}
-
-	private async resync(status: WhiteboardCliInstallStatus): Promise<void> {
-		const request = whiteboardCliInstallResyncRequest(status);
-		if (!request) {
-			return;
-		}
-		await this.whiteboardDesktopConnectionService.applyCliInstall(request);
-		const message =
-			request.targets.length === 0
-				? localize("review.cliInstall.resyncedCli", "Whiteboard updated the installed CLI.")
-				: request.shim
-					? localize(
-							"review.cliInstall.resynced",
-							"Whiteboard updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.",
-						)
-					: localize(
-							"review.cliInstall.resyncedSkills",
-							"Whiteboard updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.",
-						);
-		this.notificationService.status(message, { hideAfter: 10_000 });
 	}
 }
 

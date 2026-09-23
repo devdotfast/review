@@ -2,7 +2,7 @@
 
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
--> Maps -> Agent installation and migration.
+-> Maps -> Agent connection and migration.
 -->
 
 The `whiteboard` command is the control surface shared by Whiteboard and coding
@@ -23,10 +23,10 @@ The `whiteboard map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
 The `whiteboard trace` command group and trace capture are experimental and off
-by default. `whiteboard install` configures S3/R2 capture only when
-`--trace-*` credentials are given; Whiteboard exposes it under Settings ▸
-Experimental Features. See [Trace storage](#trace-storage) for the hosted
-store and the storage selection commands.
+by default. `whiteboard trace storage use s3` configures S3/R2 capture and
+`whiteboard trace install` installs the per-agent hooks; Whiteboard Desktop exposes it
+under Settings ▸ Experimental Features. See [Trace storage](#trace-storage)
+for the hosted store and the storage selection commands.
 
 ## Common workflow
 
@@ -37,9 +37,8 @@ whiteboard api tools
 whiteboard app pick --session <uuid>
 ```
 
-Most people let the installed Whiteboard skill drive this workflow: it authors
-through `whiteboard api` or the Whiteboard MCP tools. See
-`packages/whiteboard/skills/whiteboard/SKILL.md`.
+Most people let their coding agent drive this workflow: it authors through
+`whiteboard api` or the Whiteboard MCP tools. See [Coding agents](agents.md).
 
 `whiteboard api` prints a tool's JSON result, except for text replies such as
 `session_get` and `session_diff` patches, which print as-is. List arguments are
@@ -84,8 +83,8 @@ $ whiteboard version --json
 | `whiteboard server start`  | Run the foreground authoring server without Desktop.              |
 | `whiteboard server status` | Check readiness of the selected headless server.                  |
 | `whiteboard map`           | Author, validate, and share experimental software maps.           |
-| `whiteboard install`       | Install Whiteboard skills for supported coding agents.                |
-| `whiteboard migrate apply` | Migrate supported legacy Review data.                             |
+| `whiteboard connect`       | Print the prompt that connects a coding agent to Whiteboard.          |
+| `whiteboard migrate apply` | Migrate supported legacy Whiteboard data.                             |
 | `whiteboard version`       | Print the Whiteboard package version.                                 |
 
 ## Headless authoring
@@ -93,7 +92,7 @@ $ whiteboard version --json
 `whiteboard server start` runs the authoring server in the foreground without a
 Desktop installation. `whiteboard server status --json` checks readiness. Stop the
 server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
-and shared `whiteboard` skill as Desktop.
+and instructions as Desktop.
 
 Set `DEV_WHITEBOARD_SERVER_DIR` for the server and clients to select a job's saved
 state, or use `whiteboard --state-dir <path> server start` and
@@ -136,12 +135,10 @@ The legacy `whiteboard app --session <uuid>` form remains a compatibility alias 
 
 ## Authoring
 
-sessions are created and edited through the JSON API: `whiteboard api`, the Whiteboard
-MCP tools, or the installed whiteboard skill. See
-`packages/whiteboard/skills/whiteboard/SKILL.md`
-and `packages/whiteboard/src/session-api/README.md`
-for the authoring workflow and the full tool/route list. `whiteboard api tools`
-prints the current tool catalog.
+Whiteboards are created and edited through the JSON API: `whiteboard api` or the Whiteboard
+MCP tools. See `packages/whiteboard/src/session-api/README.md` for the authoring
+workflow and the full tool/route list. `whiteboard api tools` prints the current
+tool catalog.
 
 ### Session targets
 
@@ -328,7 +325,14 @@ creates it, one time for each repository, and needs push access. `store info`
 reports the store id, the status, and the stored bytes. `store delete` asks the
 store to delete the hosted copies, which a repository admin may do; the consent
 of this machine stays until `whiteboard trace deny` removes it. `whiteboard trace
-install` installs the harness hooks of this machine and touches no repository.
+install` installs the harness hooks of this machine for every detected agent,
+or for all of them with `--all-harnesses`, and touches no repository. Claude
+Code, Codex, OpenCode, and Pi have hooks; Cursor has none. For a bucket:
+
+```sh
+whiteboard trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>
+whiteboard trace install
+```
 
 `whiteboard trace uninstall-hooks` removes tracing hooks while keeping the CLI,
 login, consent, and captured traces.
@@ -429,15 +433,21 @@ and telemetry administration:
 See [Telemetry and privacy](telemetry.md) for the complete telemetry controls
 and data policy.
 
-## Agent integration and migration
+## Agent connection and migration
 
 ```sh
-whiteboard install [claude|claude-code|codex|cursor|all]
+whiteboard connect [<agent>...] [--json]
 whiteboard migrate apply
 whiteboard migrate apply --force
 whiteboard version
 ```
 
-The app normally installs and updates agent skills. Use `whiteboard install` for a
-headless environment. Migration is only for legacy Review state; use `--force`
-only to restart an interrupted migration.
+`whiteboard connect` prints the prompt that connects an agent to Whiteboard, the same
+text Whiteboard Desktop copies. Paste it into a session of that agent. Agents are
+`claude` (or `claude-code`), `codex`, `cursor`, `opencode`, `pi`, and `all`.
+With no agent, it prints every prompt under a heading per agent. `--json` emits one
+`connect` event whose `prompts` field maps each agent to its prompt. See
+[Coding agents](agents.md#connect-an-agent).
+
+Migration is only for legacy Whiteboard state; use `--force` only to restart an
+interrupted migration.

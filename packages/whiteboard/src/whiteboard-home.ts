@@ -710,7 +710,7 @@ export async function readStoredWhiteboard(
         return {
           error: whiteboardHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",
-            message: `${errorMessage(error)} This session was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Whiteboard skill.`,
+            message: `${errorMessage(error)} This whiteboard was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with your agent through Whiteboard.`,
           }),
         };
       }

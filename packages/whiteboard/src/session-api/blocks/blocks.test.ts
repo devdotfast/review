@@ -2,8 +2,13 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { SessionInputError, documentSchema } from "../document.js";
+import {
+  SessionInputError,
+  contentSchema,
+  documentSchema,
+} from "../document.js";
 import {
   type BlockType,
   type Definitions,
@@ -199,5 +204,65 @@ describe("block definitions", () => {
         }),
       ).toThrow(/at least one operation/);
     });
+  });
+});
+
+/** A malformed edit payload as an agent sent it. */
+interface AgentContent {
+  type: string;
+  [field: string]: string | string[] | AgentContent[];
+}
+
+describe("union errors", () => {
+  const message = (content: AgentContent) => {
+    const result = contentSchema.safeParse(content);
+
+    expect(result.success).toBe(false);
+
+    return z.prettifyError(result.error!);
+  };
+
+  // The payloads agents sent in the 2026-09-23 matrix runs.
+  it("names the content type and the field that failed", () => {
+    const markdown = message({ type: "markdown", text: "Hello" });
+    expect(markdown).toContain("markdown");
+    expect(markdown).toContain('"text"');
+
+    const section = message({
+      type: "section",
+      title: "A",
+      status: "pending",
+      children: [],
+    });
+
+    expect(section).toContain("section");
+    expect(section).toContain('"status"');
+
+    const sequence = message({ type: "sequence", participants: [], steps: [] });
+    expect(sequence).toContain("actors");
+    expect(sequence).toContain('"participants"');
+  });
+
+  it("names the failing field of a block nested in a section", () => {
+    expect(
+      message({
+        type: "section",
+        title: "A",
+        children: [{ type: "markdown", text: "x" }],
+      }),
+    ).toMatch(/children\.0.*markdown.*"text"/s);
+  });
+
+  it("lists the accepted types for an unknown type", () => {
+    const unknown = message({ type: "chart" });
+    expect(unknown).toContain('"chart"');
+    expect(unknown).toContain("flow_diagram");
+    expect(unknown).toContain("step");
+  });
+
+  it("still redirects retired file lenses", () => {
+    expect(
+      message({ type: "file_lens", title: "Old", patterns: ["**"] }),
+    ).toContain("session_lens_edit");
   });
 });

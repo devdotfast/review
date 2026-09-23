@@ -26,7 +26,6 @@ parseWhiteboardDesktopVerbFrame,
 parseWhiteboardTutorialOpenResponse,
 type WhiteboardCliInstallApplyResponse,
 type WhiteboardCliInstallStatus,
-type WhiteboardCliInstallTarget,
 type WhiteboardTutorialOpenResponse,
 type WhiteboardVerbResponse
 } from "../common/whiteboardProtocol.js";
@@ -56,7 +55,7 @@ export interface IWhiteboardDesktopConnectionService {
 	saveDiffrSummarizer(input: WhiteboardDiffrSummarizerInput): Promise<WhiteboardDiffrConfig>;
 	testDiffrSummarizer(input: WhiteboardDiffrSummarizerInput): Promise<string>;
 	setDiffrConfigValue(key: string, value: JsonValue): Promise<WhiteboardDiffrConfig>;
-	/** The scratchpad preference: a server preference, since `review install` reads it too. */
+	/** The scratchpad preference: a server preference, since the whiteboard server reads it. */
 	readScratchpadEnabled(): Promise<boolean>;
 	setScratchpadEnabled(enabled: boolean): Promise<boolean>;
 	getTutorialStatus(): Promise<{ version: 1; sessionId: string | null }>;
@@ -66,17 +65,12 @@ export interface IWhiteboardDesktopConnectionService {
 	getCliInstallStatus(): Promise<WhiteboardCliInstallStatus>;
 	applyCliInstall(request: {
 		autoUpdate?: boolean;
-		targets: readonly WhiteboardCliInstallTarget[];
 		shim?: boolean;
-		fff?: boolean;
 		trace?: true | { endpoint?: string; bucket?: string; key?: string; secret?: string };
 	}): Promise<WhiteboardCliInstallApplyResponse>;
-	removeCliInstall(request: {
-		targets: readonly WhiteboardCliInstallTarget[];
-		shim?: boolean;
-		fff?: boolean;
-		trace?: true;
-	}): Promise<void>;
+	removeCliInstall(request: { shim?: boolean; trace?: true }): Promise<void>;
+	removeLegacySkills(): Promise<void>;
+	finishCliInstallUpdate(): Promise<void>;
 	declineCliInstall(): Promise<void>;
 	skipCliInstallPrompts(): Promise<void>;
 	resetCliInstallPrompts(): Promise<void>;
@@ -200,7 +194,6 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 			method: "PUT",
 			headers: { ...this.authHeaders(), "content-type": "application/json" },
 			body: JSON.stringify({ enabled }),
-			// Also installs or removes the scratchpad skill for every agent.
 			signal: AbortSignal.timeout(120_000),
 		});
 		await this.requireOk(response, "scratchpad preference");
@@ -339,9 +332,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 
 	async applyCliInstall(request: {
 		autoUpdate?: boolean;
-		targets: readonly WhiteboardCliInstallTarget[];
 		shim?: boolean;
-		fff?: boolean;
 		trace?: true | { endpoint?: string; bucket?: string; key?: string; secret?: string };
 	}): Promise<WhiteboardCliInstallApplyResponse> {
 		await this.initialize();
@@ -352,10 +343,8 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 				"content-type": "application/json",
 			},
 			body: JSON.stringify({
-				targets: request.targets,
 				...(request.autoUpdate ? { autoUpdate: true } : {}),
 				...(request.shim !== undefined ? { shim: request.shim } : {}),
-				...(request.fff ? { fff: true } : {}),
 				...(request.trace !== undefined ? { trace: request.trace } : {}),
 			}),
 			signal: AbortSignal.timeout(120_000),
@@ -374,12 +363,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 		return parseWhiteboardCliInstallApplyResponse(payload);
 	}
 
-	async removeCliInstall(request: {
-		targets: readonly WhiteboardCliInstallTarget[];
-		shim?: boolean;
-		fff?: boolean;
-		trace?: true;
-	}): Promise<void> {
+	async removeCliInstall(request: { shim?: boolean; trace?: true }): Promise<void> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/install/remove`, {
 			method: "POST",
@@ -388,9 +372,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 				"content-type": "application/json",
 			},
 			body: JSON.stringify({
-				targets: request.targets,
 				...(request.shim ? { shim: true } : {}),
-				...(request.fff ? { fff: true } : {}),
 				...(request.trace ? { trace: true } : {}),
 			}),
 			signal: AbortSignal.timeout(30_000),
@@ -398,6 +380,14 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 		if (!response.ok) {
 			throw new Error(`Whiteboard install remove returned ${response.status}.`);
 		}
+	}
+
+	async removeLegacySkills(): Promise<void> {
+		await this.postCliInstallVerb("legacy-skills/remove");
+	}
+
+	async finishCliInstallUpdate(): Promise<void> {
+		await this.postCliInstallVerb("finish-update");
 	}
 
 	async declineCliInstall(): Promise<void> {
@@ -412,7 +402,7 @@ export class WhiteboardDesktopConnectionService extends Disposable implements IW
 		await this.postCliInstallVerb("reset");
 	}
 
-	private async postCliInstallVerb(verb: "decline" | "skip" | "reset"): Promise<void> {
+	private async postCliInstallVerb(verb: "decline" | "skip" | "reset" | "legacy-skills/remove" | "finish-update"): Promise<void> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/install/${verb}`, {
 			method: "POST",

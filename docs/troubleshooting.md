@@ -24,11 +24,8 @@ PATH**. Whiteboard refreshes `~/.local/bin/whiteboard` and removes the obsolete
 `/usr/local/bin/review` symlink if it exists. Then open a new terminal and check
 that `~/.local/bin` is on `PATH`.
 
-For a headless setup with a separately installed CLI, run:
-
-```sh
-whiteboard install all
-```
+Agents reach Whiteboard through `~/.local/bin/whiteboard`. After you install it,
+restart any agent that could not start Whiteboard's MCP server.
 
 ## The command opens a browser or shows old options
 
@@ -61,10 +58,9 @@ quit all Whiteboard windows, reopen the app, and retry the launch command.
 Run `whiteboard info` from the source repository. An empty `reviews` list means the
 current worktree has no matching active session.
 
-Create one with the whiteboard skill, which registers the repository, resolves
-pins, and calls `session_create` (or the equivalent `whiteboard api` command). See
-`packages/whiteboard/skills/whiteboard/SKILL.md`.
-Use `whiteboard info --all` to inspect active sessions across every worktree in the
+Ask your coding agent to create one; it registers the repository, resolves
+pins, and calls `session_create` (or the equivalent `whiteboard api` command).
+Use `whiteboard info --all` to inspect active Whiteboards across every worktree in the
 repository.
 
 ## A session is out of sync
@@ -84,19 +80,26 @@ whiteboard map check --session <uuid>
 
 Run `whiteboard map --help` before editing map scratch state manually.
 
-## A coding agent is not detected
+## A coding agent does not see Whiteboard's tools
 
-Make sure the agent's CLI or app is installed, then reopen Whiteboard's welcome
-screen. You can install a target explicitly even when automatic detection is
-unavailable:
+Copy the prompt for that agent again from **Settings → Agents**, or print it
+with `whiteboard connect <agent>`, and paste it into a new session of the agent.
+The prompt replaces an existing `whiteboard` entry. Then restart the agent or
+reload its MCP servers.
 
-```sh
-whiteboard install codex
-whiteboard install claude
-whiteboard install cursor
-```
+Check that `~/.local/bin/whiteboard` exists. The prompt runs Whiteboard through that
+path, because agents started from an app do not see your shell `PATH`.
 
-See [Coding agents](agents.md) for the installed locations and prompts.
+Codex also needs the Whiteboard line in `~/.codex/AGENTS.md`, which its prompt
+adds. Pi has no MCP support and uses the `whiteboard` skill instead.
+
+See [Coding agents](agents.md#connect-an-agent) for what each prompt sets up.
+
+## Old Whiteboard skills are still installed
+
+Earlier versions of Whiteboard installed skills into agent configuration. Open
+**Settings → Agents** and choose **Remove old Whiteboard skills**. It deletes only
+skills that Whiteboard installed and reports anything it left.
 
 ## An update failed
 
@@ -128,11 +131,11 @@ anything. Read [Privacy](privacy.md#user-initiated-bug-reports) for the exact
 boundary.
 
 For a suspected vulnerability, follow the
-[security policy](https://github.com/devdotfast/whiteboard/blob/main/SECURITY.md) and
+[security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md) and
 use a private GitHub security advisory. Do not open a public issue with secrets
 or exploit details.
 
-Use [GitHub Issues](https://github.com/devdotfast/whiteboard/issues) for
+Use [GitHub Issues](https://github.com/devdotfast/review/issues) for
 reproducible bugs and feature requests. For setup questions and community help,
 join the [dev.fast Discord](https://discord.gg/wYvd2cpMQg).
 

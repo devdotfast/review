@@ -1,16 +1,9 @@
-import type {
-  SessionSummary,
-  WhiteboardCliInstallStatus,
-} from "@dev.fast/whiteboard-protocol";
+import type { SessionSummary } from "@dev.fast/whiteboard-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  WhiteboardHome,
-  formatRelativeTime,
-  setupBannerMessage,
-} from "./whiteboard-home-view";
+import { WhiteboardHome, formatRelativeTime } from "./whiteboard-home-view";
 
 describe("WhiteboardHome", () => {
   let container: HTMLDivElement;
@@ -540,44 +533,6 @@ describe("WhiteboardHome", () => {
     );
     expect(container.textContent).toContain("6 min ago");
     expect(container.textContent).not.toContain("updated not published");
-  });
-});
-
-describe("setupBannerMessage", () => {
-  it("keeps the first-run banner after setup is skipped", () => {
-    const status: WhiteboardCliInstallStatus = {
-      agents: [{ target: "codex", present: true, installed: false }],
-      fingerprint: "fingerprint",
-      stamp: {
-        consent: "skipped",
-        updatedAt: "2026-08-09T00:00:00.000Z",
-      },
-      stale: false,
-      shim: {
-        path: "/tmp/review",
-        installed: false,
-        profileConfigured: false,
-        onPath: false,
-      },
-      fff: {
-        serverName: "fff",
-        corpusRoot: "/tmp/trace-search",
-        binary: { path: "/tmp/fff-mcp", installed: false },
-        registrations: [{ target: "codex", present: false, managed: false }],
-      },
-      trace: {
-        enabled: false,
-        configured: false,
-        autoActivateRepositories: false,
-        envPath: "/tmp/trace-env",
-        settingsPath: "/tmp/trace-settings.json",
-      },
-      cli: { path: "/tmp/cli.js", version: "0.0.1" },
-    };
-
-    expect(setupBannerMessage(status)).toBe(
-      "Whiteboard is not set up for your coding agents yet.",
-    );
   });
 });
 

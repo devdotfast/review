@@ -3,8 +3,10 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { Event } from "../../base/common/event.js";
 import { Disposable } from "../../base/common/lifecycle.js";
 import { createDecorator, IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
+import { ILogService } from "../../platform/log/common/log.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
@@ -15,6 +17,7 @@ import {
 
 import type { WhiteboardSourceSelection } from "../common/whiteboardProtocol.js";
 import { sourceSelectionIdentity } from "../common/whiteboardSourceView.js";
+import { IWhiteboardDesktopConnectionService } from "./whiteboardDesktopConnectionService.js";
 
 export const IWhiteboardCanvasEditorTabsService = createDecorator<IWhiteboardCanvasEditorTabsService>(
 	"whiteboardCanvasEditorTabsService",
@@ -44,6 +47,9 @@ export class WhiteboardCanvasEditorTabsService extends Disposable implements IWh
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService
 		private readonly editorGroupsService: IEditorGroupsService,
+		@IWhiteboardDesktopConnectionService
+		private readonly desktopConnection: IWhiteboardDesktopConnectionService,
+		@ILogService private readonly logService: ILogService,
 	) {
 		super();
 		this._register(
@@ -107,6 +113,9 @@ export class WhiteboardCanvasEditorTabsService extends Disposable implements IWh
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(WhiteboardCanvasEditorInput, target);
 			this.inputs.set(target.kind, input);
+			if (target.kind === "welcome") {
+				Event.once(input.onWillDispose)(() => void this.finishCliInstallUpdate());
+			}
 		}
 		configure?.(input);
 		// A control command may arrive while an Ask's loading pane has focus.
@@ -115,6 +124,19 @@ export class WhiteboardCanvasEditorTabsService extends Disposable implements IWh
 		const targetGroup = existingGroup === undefined ? this.editorGroupsService.mainPart.activeGroup : existingGroup;
 		await this.editorService.openEditor(input, { pinned: true, inactive: !active, revealIfVisible: true }, targetGroup);
 		return input;
+	}
+
+	/**
+	 * Closing Welcome while it shows the update screen counts as finishing the
+	 * update, so an upgrader is not sent back to it on the next launch.
+	 */
+	private async finishCliInstallUpdate(): Promise<void> {
+		try {
+			const status = await this.desktopConnection.getCliInstallStatus();
+			if (status.updateNeeded) await this.desktopConnection.finishCliInstallUpdate();
+		} catch (error) {
+			this.logService.warn("[Whiteboard] Could not finish the CLI install update:", error);
+		}
 	}
 
 	private async openWhiteboardInput(input: WhiteboardCanvasEditorInput, active: boolean): Promise<void> {

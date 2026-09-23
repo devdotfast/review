@@ -1,10 +1,8 @@
 import type {
   SessionSummary,
-  WhiteboardCanvasHomeSetup,
   WhiteboardCanvasInstallContent,
   WhiteboardCanvasOnboarding,
   WhiteboardCanvasSetupActions,
-  WhiteboardCliInstallStatus,
 } from "@dev.fast/whiteboard-protocol";
 import {
   Fragment,
@@ -18,7 +16,6 @@ import {
 } from "react";
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
-import { TARGET_LABELS } from "./agent-setup-card";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTopbarPopover } from "./use-topbar-popover";
 import { WelcomePage } from "./welcome-page";
@@ -34,7 +31,6 @@ interface WhiteboardHomeProps {
   // support them.
   onDismiss?(whiteboard: SessionSummary): Promise<void>;
   onRestore?(whiteboard: SessionSummary): Promise<void>;
-  setup?: WhiteboardCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: WhiteboardCanvasInstallContent;
   setupActions?: WhiteboardCanvasSetupActions;
@@ -87,7 +83,6 @@ export function WhiteboardHome({
   onDelete,
   onDismiss,
   onRestore,
-  setup,
   install,
   setupActions,
   onboarding,
@@ -216,7 +211,6 @@ export function WhiteboardHome({
     <main className="whiteboard-home">
       <div className="whiteboard-home-scroll">
         <div className="whiteboard-home-content">
-          {setup ? <SetupBanner setup={setup} /> : null}
           <div className="whiteboard-home-page-header">
             <h1>Sessions</h1>
             <div className="whiteboard-home-page-header-tools">
@@ -260,59 +254,7 @@ export function WhiteboardHome({
 }
 
 /**
- * One-line callout shown only when the install needs attention: setup was
- * never finished, the installed skills are stale, or a detected agent has no
- * skills. Declined consent means the user opted out — no banner.
- */
-function SetupBanner({ setup }: { setup: WhiteboardCanvasHomeSetup }) {
-  const message = setupBannerMessage(setup.status);
-
-  if (!message) return null;
-
-  return (
-    <div className="whiteboard-home-setup-banner">
-      <span>{message}</span>
-      <button type="button" onClick={setup.open}>
-        Set up
-      </button>
-    </div>
-  );
-}
-
-export function setupBannerMessage(
-  status: WhiteboardCliInstallStatus,
-): string | null {
-  if (!status.cli || status.stamp?.consent === "declined") return null;
-
-  if (!status.stamp || status.stamp.consent === "skipped") {
-    if (status.agents.some((agent) => agent.installed)) return null;
-    const present = status.agents.filter((agent) => agent.present);
-
-    if (present.length === 0) return null;
-
-    return "Whiteboard is not set up for your coding agents yet.";
-  }
-
-  if (status.stale) {
-    return "The installed Whiteboard skills are older than this app.";
-  }
-
-  const missing = status.agents.filter(
-    (agent) => agent.present && !agent.installed,
-  );
-
-  if (missing.length > 0) {
-    return `The Whiteboard skills are not installed for ${missing
-      .map((agent) => TARGET_LABELS[agent.target])
-      .join(", ")}.`;
-  }
-
-  // Trace capture is experimental and opt-in, so Home never nags about it.
-  return null;
-}
-
-/**
- * Filter-as-you-type over the review title and the worktree name — the two
+ * Filter-as-you-type over the whiteboard title and the worktree name — the two
  * labels the page already shows. Escape clears it.
  */
 function SearchBox({

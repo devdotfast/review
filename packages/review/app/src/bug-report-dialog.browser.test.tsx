@@ -120,53 +120,18 @@ describe("BugReportControl", () => {
     });
   });
 
-  it("requires trace consent and exposes its privacy tooltip", async () => {
+  it("never offers or requests an agent session trace", async () => {
     await renderAndOpen();
-    const traceCheckbox = checkbox("Agent session trace");
 
-    const privacyButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Agent session trace privacy information"]',
+    const labels = [...container.querySelectorAll("fieldset label")].map(
+      (label) => label.textContent?.trim(),
     );
 
-    const tooltipId = privacyButton?.getAttribute("aria-describedby") ?? "";
-    const tooltip = document.getElementById(tooltipId);
-
-    expect(traceCheckbox.checked).toBe(false);
-    expect(privacyButton).not.toBeNull();
-    expect(tooltip?.getAttribute("role")).toBe("tooltip");
-    expect(tooltip?.textContent).toContain(
-      "complete, uncapped authoring session trace",
-    );
-    expect(tooltip?.textContent).toContain(
-      "each ancestor session up to its fork point",
-    );
-    expect(tooltip?.textContent).toContain("tail-capped subagent traces");
-
-    await act(async () => traceCheckbox.click());
-
-    expect(traceCheckbox.checked).toBe(true);
-
-    await act(async () => sendButton().click());
-    expect(reportBody()).toMatchObject({ include_trace: true });
-
-    await act(async () => reportButton().click());
-    expect(checkbox("Agent session trace").checked).toBe(false);
-  });
-
-  it("explains how to send when the complete trace is unavailable", async () => {
-    request.mockImplementation(async (url) =>
-      url.includes("/telemetry/bug-report")
-        ? jsonResponse({ error: "Trace unavailable." }, 422)
-        : jsonResponse({ ok: true }),
-    );
-    await renderAndOpen();
-    await act(async () => checkbox("Agent session trace").click());
+    expect(labels).not.toContain("Agent session trace");
 
     await act(async () => sendButton().click());
 
-    expect(container.textContent).toContain(
-      "The complete agent session trace couldn't be read. Uncheck 'Agent session trace' to send the report without it.",
-    );
+    expect(reportBody()).toMatchObject({ include_trace: false });
   });
 
   it("shows an automatic screenshot and omits it after removal", async () => {

@@ -362,9 +362,8 @@ changed-file diffs. Both controls are on by default. Review also captures a
 screenshot before the dialog opens and attaches it by default. The dialog shows
 a removable preview and accepts a replacement image by paste or drag.
 
-**Agent traces require separate, explicit consent for every report.** The
-**Agent session trace** control is off by default. Review does not attach any
-agent trace unless the user turns on this control before selecting **Send**.
+**Agent session trace attachment is not available yet.** The dialog has no
+trace control, and reports never include agent traces.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -388,17 +387,12 @@ The report payload contains these fields:
 | `diff.files[].additions`           | Added line count                                                                    |
 | `diff.files[].deletions`           | Deleted line count                                                                  |
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
-| `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
-| `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
-| `trace.omitted_files`              | Ancestor or subagent trace names omitted because of limits or read failures         |
-| `trace.truncated`                  | Whether any trace record, ancestor, or subagent trace was dropped or tail-capped    |
 | `diagnostics.app_version`          | Review Desktop product version                                                      |
 | `diagnostics.cli_version`          | `@dev.fast/review` package version                                                  |
 | `diagnostics.platform`             | Node platform enum                                                                  |
 | `diagnostics.app_session_id`       | Random identifier for the canvas window                                             |
 | `diagnostics.client_error_names`   | Last 20 sanitized JavaScript error class names from that canvas session             |
-| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`, or `too_large` for a trace  |
+| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`                              |
 | `diagnostics.review_omitted_files` | Names of review source files the report did not send                                |
 
 The `review` field holds a file map. It contains the current review document and
@@ -413,28 +407,12 @@ The report never sends these review files:
 - the compiled document in `.bundle/`, and the build output in `.build/`
 - `review.db`, a local database that earlier versions kept beside the review
 
-Trace attachment consent is independent of passive telemetry and trace sync.
-Neither setting enables trace attachment for a bug report. If the user opts in,
-the report includes the complete authoring-session trace and available ancestor
-history through each fork point. It can also include up to ten of the most
-recently modified subagent trace tails. Review drops a record the harness has
-not finished writing, an ancestor it cannot read, and, when the compressed
-report would exceed the upload cap, the whole trace; each case is recorded in
-the payload rather than failing the report.
-
-The trace can contain prompts, model output, source code, file paths, URLs, and
-email addresses. Review replaces recognizable Google API keys, JWTs, Slack
-tokens, GitHub tokens, and Microsoft Entra tokens with labelled markers. Other
-credentials or secrets may remain.
-
 The Worker stores reports in a private Cloudflare R2 bucket. Only credentialed
 dev.fast operators can read the bucket. Reports are deleted after 90 days.
 
 After storage completes, the Worker sends a `review_bug_report` PostHog event
 with the report ID, date, app version, platform, sizes, attachment presence, and
-truncation flags. For an explicitly included trace, it also sends the harness
-type and trace sizes. The event does not contain the description, attachments,
-or trace session identifiers.
+truncation flags. The event does not contain the description or attachments.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

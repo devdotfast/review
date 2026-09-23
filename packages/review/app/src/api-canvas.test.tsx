@@ -519,7 +519,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
   app.get("/reviews-api/:id/progress", (c) =>
     c.json({
       files: [],
-      diagrams: [],
+      lenses: [],
       resolvedSelections: {
         [JSON.stringify(["src/old.ts", "base", 7, "base", 9])]: [
           { file: "src/old.ts", side: "base", fromLine: 7, toLine: 9 },

@@ -1114,27 +1114,9 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   border-bottom: 0;
 }
 
-/* The open lens wears no wash: the chevron and the 600 title already say
-   open. The wash is for "here": the step the diff is scrolled to, edge to
-   edge like the selected file in the tree, and the header of a closed lens
-   that holds that step. */
+/* The section wears no wash; the pressed toggle already says open. */
 .diff-lens-section.is-expanded {
   background: var(--transparent);
-}
-
-.diff-lens-toggle.is-current {
-  background: var(--marker-tint);
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.lens-sequence-step.is-current .lens-step-hit {
-  fill: var(--marker-tint);
-}
-
-.lens-sequence-step.is-current > text:first-of-type {
-  fill: var(--ink);
-  font-weight: 600;
 }
 
 .review-lens-sidebar [aria-current="true"] {

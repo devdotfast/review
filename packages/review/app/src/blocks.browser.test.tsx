@@ -90,7 +90,7 @@ const savedMap = parseJsonText(
 // The fixture compares the single status line in order.ts on both sides.
 const fixtureProgress: ReviewProgress = {
   files: [],
-  diagrams: [],
+  lenses: [],
   resolvedSelections: Object.fromEntries(
     (["base", "head"] as const).map((side) => [
       selectionKey({

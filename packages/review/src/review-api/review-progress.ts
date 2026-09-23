@@ -4,15 +4,18 @@ import {
   type LensSource,
   comparisonKey,
   resolveDiffSelection,
-  selectSource,
   selectionKey,
 } from "../lens-selection.js";
 import { type FileLineRange, fileLineRangeSchema } from "../source.js";
 import { type CoverageFile, emptyCoverage } from "../viewed-coverage.js";
 import type { ComparisonCoverage } from "./comparison-coverage.js";
-import { type DiagramLens, diagramLenses } from "./diagram-lenses.js";
-import { type Pins, anchorPins, selectionReferences } from "./document.js";
-import { elements } from "./document.js";
+import { type DiffLens, documentFileLenses } from "./diff-lenses.js";
+import {
+  type Pins,
+  anchorPins,
+  lensSourceReferences,
+  selectionReferences,
+} from "./document.js";
 import { resolveFileLens, uncategorizedSources } from "./file-lenses.js";
 import type { LocalReviewData } from "./local-data.js";
 import type { ReviewStore, Snapshot } from "./store.js";
@@ -47,7 +50,8 @@ export interface ReviewProgress {
    * changed nothing at a cited path has an entry with no file for it. */
   referenceFiles?: Record<string, Record<string, CoverageFile>>;
   resolvedSelections: Record<string, FileLineRange[]>;
-  diagrams: (DiagramLens & { unavailable?: string; pending?: boolean })[];
+  /** The review's file lenses, then the automatic "Uncategorized changes". */
+  lenses: (DiffLens & { unavailable?: string; pending?: boolean })[];
 }
 
 /** Coverage survives new pins only when both complete file contents are unchanged. */
@@ -200,83 +204,33 @@ export async function reviewProgress(
     }
   };
 
-  const diagrams: ReviewProgress["diagrams"] = await Promise.all(
-    diagramLenses(snapshot.document).map(async (lens) => {
-      const block = elements(snapshot.document).find(
-        (block) => block.id === lens.id,
-      )!;
+  const lenses: ReviewProgress["lenses"] = await Promise.all(
+    documentFileLenses(snapshot.document).map(async (block) => {
+      const lens = { id: block.id!, title: block.title };
 
       try {
-        if (block.type === "file_lens") {
-          // Explicit ranges use the same pin validation as diagram evidence.
-          await Promise.all(lens.sources.map(resolveAvailable));
+        // Explicit ranges use the same pin validation as diagram evidence.
+        await Promise.all(
+          lensSourceReferences([block]).map(({ source }) =>
+            resolveAvailable(source),
+          ),
+        );
 
-          const resolved = resolveFileLens(
-            block,
-            files,
-            fileSources,
-            (source) => resolvedSelections[selectionKey(source)] ?? [],
-          );
-
-          return {
-            ...lens,
-            ...resolved,
-            pending: !!partial,
-            unavailable:
-              partial || resolved.fileCount
-                ? undefined
-                : "No files match these targets",
-          };
-        }
-
-        if (block.type === "software_map" && partial)
-          return { ...lens, sources: [], pending: true };
-
-        if (block.type === "software_map") {
-          const map = await data.map(pins, block.mapVersionId);
-
-          const selected = block.focusElementId
-            ? map.elements.filter(
-                (element) =>
-                  element.id === block.focusElementId ||
-                  element.path === block.focusElementId,
-              )
-            : map.elements;
-
-          lens.sources = selected
-            .flatMap((element) => [
-              ...(element.sourceRanges ?? []).map((source) => ({
-                ...source,
-                side: map.side,
-              })),
-              ...(element.coverage?.files ?? []).flatMap((file) =>
-                file.ranges.map((range) => ({
-                  ...range,
-                  file: file.path,
-                  side: map.side,
-                })),
-              ),
-            ])
-            .map(selectSource);
-        }
-
-        const sources = (
-          await Promise.all(lens.sources.map(resolveAvailable))
-        ).flat();
+        const resolved = resolveFileLens(
+          block,
+          files,
+          fileSources,
+          (source) => resolvedSelections[selectionKey(source)] ?? [],
+        );
 
         return {
           ...lens,
-          sources,
-          pending: lens.sources.some((source) =>
-            pendingSources.has(selectionKey(source)),
-          ),
+          ...resolved,
+          pending: !!partial,
           unavailable:
-            sources.length ||
-            lens.sources.some((source) =>
-              pendingSources.has(selectionKey(source)),
-            )
+            partial || resolved.fileCount
               ? undefined
-              : "No valid source links",
+              : "No files match these targets",
         };
       } catch {
         return {
@@ -305,15 +259,14 @@ export async function reviewProgress(
     ? []
     : uncategorizedSources(
         files,
-        diagrams
+        lenses
           .filter((lens) => !lens.unavailable)
           .flatMap((lens) => lens.sources),
       );
 
-  diagrams.push({
+  lenses.push({
     id: "automatic-uncategorized",
     title: "Uncategorized changes",
-    kind: "file_lens",
     sources: uncategorized,
     wholeFiles: false,
     fileCount: new Set(
@@ -339,7 +292,7 @@ export async function reviewProgress(
     complete: !partial,
     files,
     referenceFiles,
-    diagrams,
+    lenses,
     resolvedSelections,
     unavailableSelections,
   };

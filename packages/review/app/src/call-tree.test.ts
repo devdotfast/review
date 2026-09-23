@@ -2,7 +2,6 @@ import { expect, it } from "vitest";
 
 import { call_stack_diff } from "../../src/review-api/blocks/call_stack_diff";
 import { callTreeStops } from "./call-tree";
-import { diffSections } from "./diff-sections";
 
 it("keeps separate calls into the same file as separate sections and combines matched base/head evidence", () => {
   const source = {
@@ -45,11 +44,10 @@ it("keeps separate calls into the same file as separate sections and combines ma
   ]);
   expect(stops[1].last).toBe(false);
   expect(stops[2].last).toBe(true);
-  const sections = diffSections(block);
-  expect(new Set(sections.map((section) => section.id)).size).toBe(3);
-  expect(
-    sections.every((section) => section.sources[0].file === "shared.ts"),
-  ).toBe(true);
+  expect(new Set(stops.map((stop) => stop.id)).size).toBe(3);
+  expect(stops.every((stop) => stop.sources[0].file === "shared.ts")).toBe(
+    true,
+  );
 });
 
 it("rejects a parent reference that would create a cyclic call tree", () => {

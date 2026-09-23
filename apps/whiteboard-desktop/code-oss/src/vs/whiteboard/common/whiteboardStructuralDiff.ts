@@ -33,6 +33,24 @@ export function regionLines(region: StructuralRegion): { start: number; end: num
 	return { start: region.start.line, end: region.end.column === 0 ? region.end.line : region.end.line + 1 };
 }
 
+/** Preserve the context plugin's scope boundaries for lens projection. */
+export function structuralContextScopes(diff: StructuralTextDiff) {
+	const scopes = (source: StructuralSource | undefined) => {
+		const result: [number, number][] = [];
+		const visit = (region: StructuralRegion) => {
+			if (region.kind !== "fold") return;
+			if (region.tags?.includes("context:scope")) {
+				const { start, end } = regionLines(region);
+				result.push([start, end]);
+			}
+			region.children.forEach(visit);
+		};
+		source?.regions?.forEach(visit);
+		return result;
+	};
+	return { original: scopes(diff.lhs), modified: scopes(diff.rhs) };
+}
+
 export function structuralLeaves(regions: readonly StructuralRegion[] | undefined): StructuralLeaf[] {
 	const leaves: StructuralLeaf[] = [];
 	const walk = (region: StructuralRegion) => {

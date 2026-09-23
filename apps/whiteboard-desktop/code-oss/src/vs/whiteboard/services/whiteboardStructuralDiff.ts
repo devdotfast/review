@@ -22,6 +22,7 @@ import { autorun, derived, type IObservable } from "../../base/common/observable
 import type { UnchangedRegion } from "../../editor/browser/widget/diffEditor/diffEditorViewModel.js";
 import {
 	structuralContextGaps,
+	structuralContextScopes,
 	structuralRows,
 	structuralHighlights,
 } from "../common/whiteboardStructuralDiff.js";
@@ -122,6 +123,7 @@ export class StructuralDiffProvider implements IDocumentDiffProvider {
 			identical: left === right,
 			quitEarly: false,
 			sourceLineAlignment: rows,
+			contextScopes: structuralContextScopes(diff),
 			// Every collapsed region is a hidden-region band, labelled by the wire.
 			contextGaps: structuralContextGaps(
 				diff,

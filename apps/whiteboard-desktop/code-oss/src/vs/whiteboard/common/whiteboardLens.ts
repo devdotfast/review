@@ -14,6 +14,29 @@ export function lensContextGaps(diff: IDocumentDiff, originalCount: number, modi
 	}));
 	// Context follows alignment rows, keeping both sides synchronized around insertions.
 	const context = visible.map((_, index) => visible.slice(Math.max(0, index - 3), index + 4).some(Boolean));
+	if (diff.contextScopes) {
+		// A lens must not clip context that diffr kept around its selected code.
+		// Seed enclosing scope boundaries, then retain each visible context run
+		// touching a seed. Never expand through a collapsed provider band.
+		const scopes = [diff.contextScopes.original, diff.contextScopes.modified];
+		const enclosing = scopes.map((sideScopes, side) => sideScopes.filter(([start, end]) =>
+			rows.some((row, index) => visible[index] && row[side] !== null && row[side]! >= start && row[side]! < end)));
+		const open = rows.map(row => row.every((line, side) => line === null || !(diff.contextGaps ?? []).some(gap => {
+			if (gap.collapsed === false) return false;
+			const start = side === 0 ? gap.originalStart : gap.modifiedStart;
+			const count = side === 0 ? gap.originalCount : gap.modifiedCount;
+			return line + 1 >= start && line + 1 < start + count;
+		})));
+		const seeds = rows.map((row, index) => visible[index] || row.some((line, side) =>
+			line !== null && enclosing[side].some(([start, end]) => line === start || line === end - 1)));
+		for (let start = 0; start < rows.length;) {
+			if (!open[start]) { start++; continue; }
+			let end = start + 1;
+			while (end < rows.length && open[end]) end++;
+			if (seeds.slice(start, end).some(Boolean)) context.fill(true, start, end);
+			start = end;
+		}
+	}
 	const gaps: IDocumentContextGap[] = [];
 	let left = 1, right = 1;
 	for (let index = 0; index < rows.length;) {

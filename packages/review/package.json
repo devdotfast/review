@@ -17,6 +17,7 @@
     "onboarding.md",
     "dist",
     "skills",
+    "instructions",
     "plugins",
     "tutorial",
     "!tutorial/.bundle",
@@ -103,6 +104,6 @@
   "intent": {
     "version": 1,
     "repo": "devdotfast/review",
-    "docs": "packages/review/skills/dev-review/SKILL.md"
+    "docs": "packages/review/instructions/authoring-live.md"
   }
 }

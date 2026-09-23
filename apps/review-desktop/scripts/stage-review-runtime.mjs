@@ -50,7 +50,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "bin/diffr",
   "skills/dev-review/SKILL.md",
   "skills/dev-review/docs/README.md",
-  "skills/trace-archaeology/SKILL.md",
+  "instructions/authoring-live.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
 ];

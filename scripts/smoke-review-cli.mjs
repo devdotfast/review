@@ -70,7 +70,7 @@ try {
   for (const file of [
     "dist/cli.js",
     "skills/dev-review/docs/README.md",
-    "skills/trace-archaeology/SKILL.md",
+    "instructions/authoring-live.md",
   ])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));

@@ -837,6 +837,11 @@ it("upgrades enabled repository hooks during a command-only install", async () =
   };
 
   const oldCommand = path.join(homeDir, ".local", "bin", "review");
+  await mkdir(path.dirname(oldCommand), { recursive: true });
+  await writeFile(
+    oldCommand,
+    "#!/bin/sh\n# Managed by Review Desktop\nexit 1\n",
+  );
   await enableTraceRepository({
     cwd,
     scope: traceScope({ homeDir, env }),
@@ -860,6 +865,7 @@ it("upgrades enabled repository hooks during a command-only install", async () =
   });
 
   expect(result.code).toBe(0);
+  await expect(lstat(oldCommand)).rejects.toThrow(/ENOENT/);
   const hooks = await traceRepositoryStatus(cwd);
   await run(
     "sh",

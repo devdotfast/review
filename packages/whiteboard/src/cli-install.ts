@@ -927,6 +927,9 @@ export async function installWhiteboardCommand(input: {
     input.cliRuntimePath,
     devWhiteboardHome(env, homeDir),
   );
+  const legacyShim = path.join(path.dirname(shimPath), "review");
+
+  if (await isOwnedShim(legacyShim)) await rm(legacyShim, { force: true });
   const profileOutput = await ensureShellProfilePath({ homeDir, env });
 
   const shadowingOutput = shadowingCommand

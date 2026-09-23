@@ -224,6 +224,11 @@ describe("Review CLI", () => {
   it("routes trace configuration through the shared installer", async () => {
     const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
 
+    // install also writes the review command; a stub keeps it out of $HOME.
+    const installReviewCommand = vi.fn<typeof installReviewCommandActual>(
+      async () => ({ shimPath: "", output: "" }),
+    );
+
     await expect(
       runReviewCli({
         argv: [
@@ -240,7 +245,7 @@ describe("Review CLI", () => {
         ],
         stdout: outputStream(),
         stderr: outputStream(),
-        runtime: { runInstall },
+        runtime: { runInstall, installReviewCommand },
       }),
     ).resolves.toBe(0);
 

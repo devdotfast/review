@@ -37,7 +37,7 @@ class ReviewStatusbarService implements IStatusbarService {
 
 	getPart(_container: HTMLElement): IStatusbarEntryContainer { return this; }
 	createAuxiliaryStatusbarPart(_container: HTMLElement, _instantiationService: IInstantiationService): IAuxiliaryStatusbarPart {
-		throw new Error('Review does not provide status bar parts');
+		throw new Error('Whiteboard does not provide status bar parts');
 	}
 	createScoped(_statusbarEntryContainer: IStatusbarEntryContainer, _disposables: DisposableStore): IStatusbarService { return this; }
 	addEntry(
@@ -130,7 +130,7 @@ class ReviewExtensionsWorkbenchService implements IExtensionsWorkbenchService {
 	toggleApplyExtensionToAllProfiles(): Promise<void> { return Promise.resolve(); }
 
 	private unavailable(): Promise<never> {
-		return Promise.reject(new Error('Review does not expose extension management'));
+		return Promise.reject(new Error('Whiteboard does not expose extension management'));
 	}
 }
 

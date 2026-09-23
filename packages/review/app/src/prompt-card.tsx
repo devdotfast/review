@@ -14,14 +14,14 @@ const PROMPT_KINDS: ReadonlyArray<{ kind: PromptKind; label: string }> = [
 ];
 
 /**
- * Prompts name the subject and stop there: Review's server gives the agent
+ * Prompts name the subject and stop there: Whiteboard's server gives the agent
  * the authoring instructions, so every agent gets the same wording.
  */
 export const PROMPTS: Record<PromptKind, string> = {
   change:
-    "Create a Review of my current branch against up to date main, then open it in Review.",
+    "Create a Whiteboard of my current branch against up to date main, then open it in Whiteboard.",
   architecture:
-    "Create a Review that sketches out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    "Create a Whiteboard that sketches out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Whiteboard when you're done.",
 };
 
 const COPIED_RESET_MS = 2000;
@@ -70,7 +70,7 @@ export function PromptCard() {
   };
 
   return (
-    <section className="review-home-prompt-card" aria-label="Review prompt">
+    <section className="review-home-prompt-card" aria-label="Whiteboard prompt">
       <div
         className="review-home-prompt-tabs"
         role="group"

@@ -24,7 +24,7 @@ export const REVIEW_CONNECT_COPIED_STORAGE_KEY =
  * agents are connected later; there is no separate setup surface. `onClose`
  * closes the tab.
  *
- * An install from before Review connected over MCP opens this pane in update
+ * An install from before Whiteboard connected over MCP opens this pane in update
  * mode: step two also lists the skills that version installed, and Done
  * records that the update is finished.
  *
@@ -85,7 +85,7 @@ export function WelcomePage({
 
   const updating = status?.updateNeeded ?? false;
 
-  // Review cannot see agent configs, so a copied prompt or command is the
+  // Whiteboard cannot see agent configs, so a copied prompt or command is the
   // closest signal that an agent got connected.
   const [connectCopied, setConnectCopied] = useState(readConnectCopied);
   const [updateFinished, setUpdateFinished] = useState(false);
@@ -111,7 +111,7 @@ export function WelcomePage({
       body: (
         <>
           <p className="review-home-zero-hint">
-            Agents start Review through this command, so install it before
+            Agents start Whiteboard through this command, so install it before
             connecting them.
           </p>
           {installed && status?.shim.installed ? (
@@ -177,11 +177,11 @@ export function WelcomePage({
       done: tourTotal > 0 && tourChecked >= tourTotal,
       note: onboarding
         ? `${tourChecked} of ${tourTotal} checks`
-        : "a three-minute sample review",
+        : "a three-minute sample session",
       body: (
         <>
           <p className="review-home-zero-hint">
-            Explore a sample review in three minutes.
+            Explore a sample session in three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -192,7 +192,7 @@ export function WelcomePage({
       ),
     },
     {
-      title: "Create your first review",
+      title: "Create your first session",
       done: onboarding?.published ?? false,
       note: onboarding?.published ? "published" : "your agent writes it",
       body: <PromptCard />,
@@ -213,16 +213,16 @@ export function WelcomePage({
           <div className="review-onboarding-columns">
             <div className="review-onboarding-intro">
               <span className="review-onboarding-kicker">
-                Welcome to Review
+                Welcome to Whiteboard
               </span>
               {updating ? (
                 <>
                   <h1 className="review-onboarding-headline">
-                    Review now connects to your agents over MCP
+                    Whiteboard now connects to your agents over MCP
                   </h1>
                   <p className="review-onboarding-sub">
-                    Review no longer installs skills. Paste a prompt into each
-                    agent you use, and remove the skills earlier versions
+                    Whiteboard no longer installs skills. Paste a prompt into
+                    each agent you use, and remove the skills earlier versions
                     installed.
                   </p>
                 </>

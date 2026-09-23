@@ -183,7 +183,7 @@ describe("WelcomePage", () => {
       root.render(<WelcomePage install={install} onClose={onClose} />),
     );
     expect(container.querySelector("h1")?.textContent).toBe(
-      "Review now connects to your agents over MCP",
+      "Whiteboard now connects to your agents over MCP",
     );
     expect(container.textContent).toContain("/h/.codex/skills/review");
     expect(buttons("Copy prompt")).toHaveLength(1);

@@ -307,11 +307,11 @@ describe("LegacySkillsRow", () => {
       <LegacySkillsRow install={install} onStatusChange={onStatusChange} />,
     );
 
-    expect(container.textContent).toContain("Review no longer uses them.");
+    expect(container.textContent).toContain("Whiteboard no longer uses them.");
     expect(container.textContent).toContain("/h/.claude/skills/review");
 
     const button = [...container.querySelectorAll("button")].find(
-      (b) => b.textContent === "Remove old Review skills",
+      (b) => b.textContent === "Remove old Whiteboard skills",
     );
 
     await act(async () => button?.click());

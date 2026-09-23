@@ -26,7 +26,7 @@ const configurationRegistry = Registry.as<IConfigurationRegistry>(Extensions.Con
 
 configurationRegistry.registerConfiguration({
 	id: 'review',
-	title: localize('reviewConfigurationTitle', "Review"),
+	title: localize('reviewConfigurationTitle', "Whiteboard"),
 	type: 'object',
 	scope: ConfigurationScope.APPLICATION,
 	properties: {
@@ -34,12 +34,12 @@ configurationRegistry.registerConfiguration({
 			type: 'string',
 			enum: [...REVIEW_KEYMAPS],
 			default: 'none',
-			description: localize('review.keymap', "Select the curated keymap extension Review enables."),
+			description: localize('review.keymap', "Select the curated keymap extension Whiteboard enables."),
 		},
 		[REVIEW_TELEMETRY_SETTING]: {
 			type: 'boolean',
 			default: true,
-			description: localize('review.telemetry.enabled', "Send anonymous Review usage data."),
+			description: localize('review.telemetry.enabled', "Send anonymous Whiteboard usage data."),
 		},
 		[REVIEW_STRUCTURAL_DIFF_SETTING]: {
 			type: 'boolean',
@@ -49,7 +49,7 @@ configurationRegistry.registerConfiguration({
 		[REVIEW_SOFTWARE_MAP_SETTING]: {
 			type: 'boolean',
 			default: false,
-			description: localize('review.experimental.softwareMap.enabled', "Show the experimental Software Map view in reviews."),
+			description: localize('review.experimental.softwareMap.enabled', "Show the experimental Software Map view in sessions."),
 		},
 	},
 });

@@ -28,7 +28,7 @@ export function reviewViewLabel(view: ReviewView): string {
 
   if (view === "trace") return "Trace";
 
-  return "Review";
+  return "Whiteboard";
 }
 
 export function shouldCloseSidePeekForReviewView(view: ReviewView): boolean {

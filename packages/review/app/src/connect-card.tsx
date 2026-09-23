@@ -34,7 +34,7 @@ const MODES: ReadonlyArray<{ mode: Mode; label: string }> = [
 ];
 
 /**
- * One agent at a time: a paste-in prompt that has the agent add Review's MCP
+ * One agent at a time: a paste-in prompt that has the agent add Whiteboard's MCP
  * server, or the published plugin (an install command, or Cursor's link).
  */
 export function ConnectCard({
@@ -205,9 +205,9 @@ export function ConnectCard({
           </div>
           {mode === "prompt" ? (
             <p className="review-connect-hint">
-              Your agent should reply that it reached Review&apos;s
-              instructions. If it says Review is not running, keep this app open
-              and try again.
+              Your agent should reply that it reached Whiteboard&apos;s
+              instructions. If it says Whiteboard is not running, keep this app
+              open and try again.
             </p>
           ) : null}
         </>
@@ -263,7 +263,7 @@ function readStoredTarget(): ReviewCliInstallTarget {
 }
 
 /**
- * Skills that earlier versions of Review installed into agent configs. After
+ * Skills that earlier versions of Whiteboard installed into agent configs. After
  * a removal the row names what went, until the next status refresh.
  */
 export function LegacySkillsRow({
@@ -310,12 +310,15 @@ export function LegacySkillsRow({
   };
 
   return (
-    <section className="review-connect-legacy" aria-label="Old Review skills">
+    <section
+      className="review-connect-legacy"
+      aria-label="Old Whiteboard skills"
+    >
       {legacySkills.length > 0 ? (
         <>
           <p>
-            Earlier versions of Review installed these skills. Review no longer
-            uses them.
+            Earlier versions of Whiteboard installed these skills. Whiteboard no
+            longer uses them.
           </p>
           <ul>
             {legacySkills.map((skill) => (
@@ -329,7 +332,7 @@ export function LegacySkillsRow({
             disabled={busy}
             onClick={() => void removeSkills()}
           >
-            Remove old Review skills
+            Remove old Whiteboard skills
           </button>
         </>
       ) : null}

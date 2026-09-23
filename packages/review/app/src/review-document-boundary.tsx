@@ -59,8 +59,8 @@ export class ReviewDocumentBoundary extends Component<
             <>
               Your coding agent is writing the canvas now…
               <br />
-              Edit the review through the Review MCP tools or{" "}
-              <code>review api</code> to replace the failing block.
+              Edit the review through the Whiteboard MCP tools or{" "}
+              <code>whiteboard api</code> to replace the failing block.
             </>
           }
         />

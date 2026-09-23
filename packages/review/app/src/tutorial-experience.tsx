@@ -453,7 +453,7 @@ function TutorialGuide({
         <h2>{activeStep?.title ?? "Tour complete"}</h2>
         <p>
           {activeStep?.instruction ??
-            "You have walked through the core Review experience."}
+            "You have walked through the core Whiteboard experience."}
         </p>
       </div>
       <footer>

@@ -1777,10 +1777,9 @@ try {
   );
 
   await page.getByRole("tab", { name: /^Home/ }).first().click();
+  await page.getByRole("button", { name: /^Home live source/ }).click();
   await page
-    .locator(".review-home-workspace-header")
-    .filter({ hasText: liveFixture.repo })
-    .getByRole("button", { name: "View source →", exact: true })
+    .getByRole("button", { name: "Source tree ↗", exact: true })
     .click();
   await page
     .getByRole("tab", { name: new RegExp(`^Source — ${homeReview.title}$`) })
@@ -1814,7 +1813,7 @@ try {
   await page.getByText("third.ts", { exact: true }).first().waitFor();
   await page.screenshot({ path: path.join(root, "home-live-source.png") });
   await record(
-    "Home Source stays live and preserves expanded folders across authored versions",
+    "Source opened through a Home review stays live and preserves expanded folders across authored versions",
   );
   assert.deepEqual(errors, []);
   success = true;

@@ -41,7 +41,7 @@ import {
   summarizeEdit,
 } from "./document.js";
 import { ReviewDrafts, draftCommandSchema } from "./drafts.js";
-import { pullRequestUrl, setPullRequest } from "./origin.js";
+import { pullRequestKey, pullRequestUrl, setPullRequest } from "./origin.js";
 
 const reviewId = z.string().min(1);
 
@@ -77,6 +77,13 @@ export const commandSchema = z.strictObject({
       pins: pinsSchema.optional(),
       target: reviewTargetSchema.optional(),
       pullRequestUrl: pullRequestUrl.optional(),
+      /** Return the existing review for pullRequestUrl instead of creating one. */
+      reuseExisting: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default true: return the existing review for pullRequestUrl. false creates a separate review.",
+        ),
       /** The one scratchpad: no target, no pins; every reference names its own. */
       kind: z.literal("scratchpad").optional(),
     }),
@@ -158,8 +165,20 @@ export interface ImportedVersionInput {
 }
 
 export interface Result {
+  /** Create only: false when an existing review for the same PR came back. */
+  created?: boolean;
+  /** Why an existing review came back, and what to do next, in words. */
+  note?: string;
   reviewId: string;
   version: number;
+  /** The existing review's stored target; the requested one is not applied. */
+  target?: ReviewTarget;
+  /** The requested head differs from the existing review's. */
+  headMoved?: boolean;
+  /** A live authoring lease or batch draft that is not the caller's. */
+  ownedBy?: "another session";
+  /** Older reviews that also name the PR, newest first. */
+  otherReviewIds?: string[];
   targetId?: string;
   attention?: true;
   deleted?: true;
@@ -908,7 +927,7 @@ export class ReviewStore {
             409,
           );
 
-        // SAFETY: receipts stores the Result created in commitCommand, never caller-provided JSON.
+        // SAFETY: receipts store only Results this method built, never caller-provided JSON.
         return JSON.parse(String(receipt.response)) as Result;
       }
 
@@ -958,6 +977,35 @@ export class ReviewStore {
 
       if (requestedTarget && !resolvedTarget)
         throw new ReviewInputError("Review targets are unavailable.");
+
+      if (
+        op.type === "create" &&
+        op.pullRequestUrl &&
+        op.reuseExisting !== false
+      ) {
+        const [found, ...others] = this.reviewsForPullRequest(
+          op.pullRequestUrl,
+        );
+
+        if (found) {
+          const result = this.existingReview(
+            found,
+            others,
+            resolvedTarget?.pins ?? op.pins!,
+            command.leaseId,
+          );
+
+          // Nothing is written but the receipt: a retry replays this answer,
+          // and deleting the review erases it like any other command's.
+          this.db
+            .prepare(
+              "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
+            )
+            .run(command.commandId, request, JSON.stringify(result));
+
+          return result;
+        }
+      }
 
       if (op.type === "delete") {
         const result: Result = {
@@ -1195,6 +1243,7 @@ export class ReviewStore {
       snapshot.createdAt = new Date().toISOString();
 
       const result: Result = {
+        ...(op.type === "create" && { created: true }),
         reviewId: id,
         version: snapshot.version,
         targetId,
@@ -1234,6 +1283,60 @@ export class ReviewStore {
     this.pending = run.catch(() => {});
 
     return run;
+  }
+  /** Reviews whose PR is this one, newest version first. Summaries only. */
+  private reviewsForPullRequest(url: string): string[] {
+    return this.db
+      .prepare(
+        `SELECT reviews.id FROM reviews
+        JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
+        WHERE lower(json_extract(versions.snapshot,'$.origin.pullRequestUrl'))=?
+          AND COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
+        ORDER BY json_extract(versions.snapshot,'$.createdAt') DESC, reviews.rowid DESC`,
+      )
+      .all(pullRequestKey(url))
+      .map((row) => String(row.id));
+  }
+  /** The answer to a create that found its PR's review. Its target stays:
+   * moving it would silently point existing links at different code. */
+  private existingReview(
+    reviewId: string,
+    others: string[],
+    requested: Pins,
+    leaseId?: string,
+  ): Result {
+    const snapshot = this.read(reviewId);
+
+    const headMoved =
+      snapshot.pins?.repositoryId !== requested.repositoryId ||
+      snapshot.pins?.head !== requested.head;
+
+    const ownedBy =
+      this.activity.heldByAnother(reviewId, leaseId) ||
+      this.drafts.held(reviewId);
+
+    const note = [
+      "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with review_get first), or pass reuseExisting:false to create a separate review.",
+      headMoved &&
+        "The PR head moved since this review's target was set, and the target was NOT changed: call review_set_target to move it, then repair the source references it reports.",
+      ownedBy &&
+        "Another session is authoring it now; wait for its lease to end before editing.",
+      others.length > 0 &&
+        "Older reviews also name this PR; see otherReviewIds.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return {
+      created: false,
+      note,
+      reviewId,
+      version: snapshot.version,
+      target: snapshot.target,
+      headMoved,
+      ...(ownedBy && { ownedBy: "another session" as const }),
+      ...(others.length > 0 && { otherReviewIds: others }),
+    };
   }
   private commitCommand(
     commandId: string,

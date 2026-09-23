@@ -72,6 +72,13 @@ export class ReviewActivity {
     return snapshot;
   }
 
+  /** A live lease that is not `leaseId`. */
+  heldByAnother(reviewId: string, leaseId?: string): boolean {
+    const active = this.active(reviewId);
+
+    return active !== undefined && active.lease_id !== leaseId;
+  }
+
   /** Recheck inside the write transaction as validation may outlive the lease. */
   assertWrite(reviewId: string, leaseId?: string) {
     const active = this.active(reviewId);

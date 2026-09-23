@@ -256,7 +256,7 @@ esac
     const promptPath = path.join(directory, "prompt.md");
     await writeFile(
       promptPath,
-      `Use the dev-review-batch skill and the running batch Review server to author and commit exactly one review.\nCheckout: ${JSON.stringify(repo)}\nResolved pins: ${JSON.stringify(pins)}\nPR URL: ${JSON.stringify(event.pull_request?.html_url ?? null)}\nUse review api (or review mcp). Read review_capabilities and the tool schemas. Begin a draft, verify source evidence, write and validate it, then commit. Do not upload or post a comment; the action handles that after your command succeeds.\n\n${env.REVIEW_PROMPT || "Explain the change concisely with verified source evidence."}\n`,
+      `First run \`review api review_get_instructions '{}'\` and follow it; if that tool does not exist in this Review version, use the dev-review-batch skill. Use the running batch Review server to author and commit exactly one review.\nCheckout: ${JSON.stringify(repo)}\nResolved pins: ${JSON.stringify(pins)}\nPR URL: ${JSON.stringify(event.pull_request?.html_url ?? null)}\nUse review api (or review mcp). Read review_capabilities and the tool schemas. Begin a draft, verify source evidence, write and validate it, then commit. Do not upload or post a comment; the action handles that after your command succeeds.\n\n${env.REVIEW_PROMPT || "Explain the change concisely with verified source evidence."}\n`,
     );
 
     const agentEnv = {

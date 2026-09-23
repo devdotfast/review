@@ -43,6 +43,7 @@ describe("PostHogCaptureClient", () => {
             command_path: "info",
             exit_code: 0,
             distinct_id: "install-1",
+            $process_person_profile: false,
           },
           timestamp: "2026-08-05T12:00:00.000Z",
         },

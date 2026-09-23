@@ -37,7 +37,8 @@ PostHog.
 ## Anonymous product telemetry
 
 Anonymous telemetry is enabled by default. Review creates a random installation
-UUID and does not associate it with a person profile.
+UUID and sends every event with PostHog's `$process_person_profile: false`
+flag, so PostHog does not create a person profile for it.
 
 Telemetry can include closed enums, booleans, counts, durations, the Review and
 app versions, operating-system and architecture categories, feature usage,

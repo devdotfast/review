@@ -54,7 +54,7 @@ const SKILLS_DIRS: Record<InstallTarget, string> = {
 };
 
 const removeOldSkills = (target: InstallTarget) =>
-  `Look in ${SKILLS_DIRS[target]} for folders named ${LEGACY_SKILL_NAMES}. Delete any whose SKILL.md says it is managed by Review Desktop or Whiteboard. Leave every other folder alone.`;
+  `Look in ${SKILLS_DIRS[target]} for folders named ${LEGACY_SKILL_NAMES}. Inspect each SKILL.md's YAML frontmatter. Delete a folder only when its metadata has review-managed-by: "Review Desktop", a nonempty review-generated string, and review-version set to a semantic version or "development"; or whiteboard-managed-by: "Whiteboard" (or "Whiteboard Desktop"), a nonempty whiteboard-generated string, and whiteboard-version set to a semantic version or "development". Do not follow symlinks. Leave every other folder alone. Verify that the matching legacy folders are gone and the others are unchanged.`;
 
 function pathNote(hasShim: boolean): string {
   return hasShim

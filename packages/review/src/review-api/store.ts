@@ -75,10 +75,19 @@ export const commandSchema = z.strictObject({
     }),
     z.strictObject({
       type: z.literal("create"),
-      title: z.string().trim().min(1),
+      /** Required unless pullRequestUrl alone names the source; then the PR title. */
+      title: z.string().trim().min(1).optional(),
       pins: pinsSchema.optional(),
       target: reviewTargetSchema.optional(),
       pullRequestUrl: pullRequestUrl.optional(),
+      /** With pullRequestUrl and no target: the checkout to fetch the PR into. */
+      repositoryId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Only with pullRequestUrl and no target: the registered checkout to fetch the PR into. Default: the existing review's, else the first registered checkout with a remote for the PR's repository.",
+        ),
       /** Return the existing review for pullRequestUrl instead of creating one. */
       reuseExisting: z
         .boolean()
@@ -191,9 +200,22 @@ export interface Result {
   warnings?: string[];
 }
 
+/** A PR's current comparison: GitHub's head and diff base, fetched locally. */
+export interface ResolvedPullRequest {
+  target: ReviewTarget;
+  pins: Pins;
+  title: string;
+}
+
 export interface ReviewProviders {
   headBranch?(pins: Pins, headRef?: string): Promise<string | undefined>;
   projectSource?(snapshot: Snapshot, pins: Pins): Promise<Snapshot>;
+  /** Fetch a PR into a registered checkout: the named one, else the first
+   * preferred one that still matches, else any whose remote is the PR's. */
+  resolvePullRequest?(
+    url: string,
+    repository: { id?: string; preferred?: string },
+  ): Promise<ResolvedPullRequest>;
   resolveTarget?(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }>;
@@ -602,6 +624,13 @@ export class ReviewStore {
       AND NOT EXISTS (SELECT 1 FROM resources WHERE repository_id=?)`)
       .run(id, `"repositoryId":${JSON.stringify(id)}`, id);
   }
+  /** Registered checkouts, oldest registration first. */
+  repositories() {
+    return this.db
+      .prepare("SELECT id,path FROM repositories ORDER BY rowid")
+      .all()
+      .map((row) => ({ id: String(row.id), path: String(row.path) }));
+  }
   repositoryPath(id: string) {
     const row = this.db
       .prepare("SELECT path FROM repositories WHERE id=?")
@@ -735,6 +764,16 @@ export class ReviewStore {
   }
 
   list(mode: "structural" | "textual" = "structural"): ReviewApiSummary[] {
+    return this.summaries(mode);
+  }
+  /** One review's catalog entry, as review_list shows it. */
+  summary(id: string): ReviewApiSummary | undefined {
+    return this.summaries("structural", id)[0];
+  }
+  private summaries(
+    mode: "structural" | "textual",
+    id?: string,
+  ): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
 
@@ -748,9 +787,10 @@ export class ReviewStore {
         LEFT JOIN review_attention ON review_attention.review_id=reviews.id
         LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
         WHERE COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
+        ${id === undefined ? "" : "AND reviews.id=?"}
         ORDER BY reviews.rowid`,
       )
-      .all()
+      .all(...(id === undefined ? [] : [id]))
       .map((row) => {
         // SAFETY: versions contains only snapshots validated by execute before committing.
         const summary = JSON.parse(String(row.summary)) as Omit<
@@ -887,6 +927,12 @@ export class ReviewStore {
       throw new ReviewInputError("Initial content requires a create command.");
     const request = JSON.stringify(initial ? { command, initial } : command);
 
+    // Network and fetch time stay out of the write queue. A replayed command
+    // never uses this: its receipt answers first, below.
+    const pullRequest = this.startPullRequest(command);
+
+    pullRequest?.catch(() => {});
+
     const run = this.pending.then(async () => {
       const receipt = this.db
         .prepare("SELECT request,response FROM receipts WHERE command_id=?")
@@ -937,22 +983,36 @@ export class ReviewStore {
 
         if (this.has(SCRATCHPAD_ID))
           throw new ReviewInputError("The scratchpad already exists.", 409);
-      } else if (
-        op.type === "create" &&
-        Boolean(op.pins) === Boolean(op.target)
-      )
-        throw new ReviewInputError(
-          "Supply exactly one of target or legacy pins.",
-        );
+      } else if (op.type === "create") {
+        if (op.pins && op.target)
+          throw new ReviewInputError(
+            "Supply exactly one of target or legacy pins.",
+          );
+
+        if (!op.pins && !op.target && !op.pullRequestUrl)
+          throw new ReviewInputError(
+            "Supply a target, legacy pins, or a pullRequestUrl.",
+          );
+
+        if (op.repositoryId && (op.pins || op.target))
+          throw new ReviewInputError(
+            "repositoryId applies only to a create from pullRequestUrl alone; put it in the target instead.",
+          );
+
+        if (!op.title && (op.pins || op.target))
+          throw new ReviewInputError("Supply a title.");
+      }
 
       const requestedTarget =
         op.type === "create" || op.type === "set_target"
           ? op.target
           : undefined;
 
+      const fromPullRequest = await pullRequest;
+
       const resolvedTarget = requestedTarget
         ? await this.providers.resolveTarget?.(requestedTarget)
-        : undefined;
+        : fromPullRequest;
 
       if (requestedTarget && !resolvedTarget)
         throw new ReviewInputError("Review targets are unavailable.");
@@ -1068,7 +1128,7 @@ export class ReviewStore {
 
       let snapshot: Snapshot =
         op.type === "create"
-          ? createdSnapshot(id, op, resolvedTarget)
+          ? createdSnapshot(id, op, resolvedTarget, fromPullRequest?.title)
           : structuredClone(previous!);
 
       // Overlay state: a degraded read must not persist unavailability.
@@ -1263,6 +1323,40 @@ export class ReviewStore {
     this.pending = run.catch(() => {});
 
     return run;
+  }
+  /** Resolve a target-less PR create before it queues, when it will need it. */
+  private startPullRequest(
+    command: z.infer<typeof commandSchema>,
+  ): Promise<ResolvedPullRequest> | undefined {
+    const op = command.operation;
+
+    if (
+      op.type !== "create" ||
+      op.kind ||
+      op.pins ||
+      op.target ||
+      !op.pullRequestUrl ||
+      this.db
+        .prepare("SELECT 1 FROM receipts WHERE command_id=?")
+        .get(command.commandId)
+    )
+      return undefined;
+
+    if (!this.providers.resolvePullRequest)
+      return Promise.reject(
+        new ReviewInputError("Pull request targets are unavailable."),
+      );
+
+    // Keep an existing review's checkout so headMoved compares like with like.
+    const [existing] =
+      op.reuseExisting === false
+        ? []
+        : this.reviewsForPullRequest(op.pullRequestUrl);
+
+    return this.providers.resolvePullRequest(op.pullRequestUrl, {
+      id: op.repositoryId,
+      preferred: existing && this.read(existing).pins?.repositoryId,
+    });
   }
   /** Reviews whose PR is this one, newest version first. Summaries only. */
   private reviewsForPullRequest(url: string): string[] {
@@ -1667,19 +1761,23 @@ export class ReviewStore {
 function createdSnapshot(
   id: string,
   op: {
-    title: string;
+    title?: string;
     kind?: "scratchpad";
     pins?: z.infer<typeof pinsSchema>;
   },
   resolved: { target: ReviewTarget; pins: Pins } | undefined,
+  defaultTitle?: string,
 ): Snapshot {
   const pins = resolved?.pins ?? op.pins;
+  const title = op.title ?? defaultTitle;
+
+  if (!title) throw new ReviewInputError("Supply a title.");
 
   if (!pins)
     return {
       reviewId: id,
       version: 0,
-      title: op.title,
+      title,
       kind: op.kind,
       document: [],
       createdAt: "",
@@ -1688,7 +1786,7 @@ function createdSnapshot(
   return {
     reviewId: id,
     version: 0,
-    title: op.title,
+    title,
     pins,
     target: resolved?.target ?? { kind: "commits", ...pins },
     document: [],

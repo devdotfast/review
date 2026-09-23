@@ -1087,6 +1087,7 @@ export function createReviewApi(
 
     return context.json({
       ...result,
+      review: store.summary(result.reviewId),
       ...(requestedOpen === false
         ? { opened: false }
         : await openCreated(result.reviewId)),

@@ -1663,6 +1663,71 @@ describe("create for a pull request", () => {
     expect(store.read(SCRATCHPAD_ID).kind).toBe("scratchpad");
     expect(store.list()).toHaveLength(5);
   });
+
+  it("takes the source and title from the PR when only its URL is given", async () => {
+    const resolvePullRequest = vi.fn<
+      NonNullable<ReviewProviders["resolvePullRequest"]>
+    >(async () => ({
+      target: { kind: "commits", ...pins },
+      pins,
+      title: "From GitHub",
+    }));
+
+    providers.resolvePullRequest = resolvePullRequest;
+
+    const untitled = await store.execute(
+      request({ type: "create", pullRequestUrl: url }),
+    );
+
+    const titled = await store.execute(
+      request({
+        type: "create",
+        title: "Mine",
+        pullRequestUrl: url,
+        reuseExisting: false,
+        repositoryId: "repo",
+      }),
+    );
+
+    expect(store.read(untitled.reviewId)).toMatchObject({
+      title: "From GitHub",
+      pins,
+      origin: { pullRequestUrl: url },
+    });
+    expect(store.read(titled.reviewId).title).toBe("Mine");
+    expect(resolvePullRequest.mock.calls).toEqual([
+      [url, { id: undefined, preferred: undefined }],
+      [url, { id: "repo", preferred: undefined }],
+    ]);
+
+    // A repeat prefers the checkout of the review it will find.
+    await store.execute(request({ type: "create", pullRequestUrl: url }));
+    expect(resolvePullRequest).toHaveBeenLastCalledWith(url, {
+      id: undefined,
+      preferred: "repo",
+    });
+  });
+
+  it("needs a source, and a title unless a PR supplies it", async () => {
+    await expect(
+      store.execute(request({ type: "create", title: "Nothing" })),
+    ).rejects.toThrow(/target, legacy pins, or a pullRequestUrl/);
+    await expect(
+      store.execute(request({ type: "create", pins })),
+    ).rejects.toThrow(/Supply a title/);
+    await expect(
+      store.execute(
+        request({
+          type: "create",
+          title: "Both",
+          pins,
+          pullRequestUrl: url,
+          repositoryId: "repo",
+        }),
+      ),
+    ).rejects.toThrow(/repositoryId applies only/);
+    expect(store.list()).toEqual([]);
+  });
 });
 
 it("serves the experiment through the real desktop HTTP server and existing authentication", async () => {
@@ -1710,7 +1775,19 @@ it("serves the experiment through the real desktop HTTP server and existing auth
 
     const response = await post({ type: "create", title: "HTTP review", pins });
     expect(response.status).toBe(200);
-    const { reviewId } = await response.json();
+    const created = await response.json();
+    const { reviewId } = created;
+    // The result names what was created: the review's own catalog entry.
+    const entries = await (await fetch(url, { headers })).json();
+    expect(created.review).toEqual(
+      entries.find(
+        (review: { reviewId: string }) => review.reviewId === reviewId,
+      ),
+    );
+    expect(created.review).toMatchObject({
+      title: "HTTP review",
+      target: { kind: "commits", head: pins.head },
+    });
     expect(
       (await fetch(`${url}/${reviewId}/open`, { method: "POST" })).status,
     ).toBe(401);

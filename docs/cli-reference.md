@@ -159,8 +159,11 @@ as source changes. Choose a commit target when source must stay fixed.
 
 Revisions resolve when the command is accepted. To review the changes introduced
 by one commit, use its parent as `base`; omitting the base is equivalent to
-`base=head`. For a GitHub PR, resolve its comparison and pass `pullRequestUrl`
-to `review_create`; the URL records identity and does not track new commits.
+`base=head`. For a GitHub PR, `review_create({pullRequestUrl})` needs no
+target: Review fetches the PR into a registered checkout of its repository
+(using `gh`, or the public GitHub API for metadata) and pins GitHub's head and
+diff base, titled from the PR. The pins stay fixed; a later create for the same
+PR returns the review with `headMoved` when the PR has moved on.
 See [live and pinned worktrees](how-review-works.md#live-and-pinned-worktrees)
 for how each target runs language services.
 

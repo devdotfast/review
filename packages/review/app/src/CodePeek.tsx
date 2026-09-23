@@ -5,7 +5,11 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useMemo, useRef } from "react";
 
-import { type DiffSelection, sourceAnchor } from "../../src/lens-selection";
+import {
+  type DiffSelection,
+  selectionKey,
+  sourceAnchor,
+} from "../../src/lens-selection";
 import type { ReviewComponentProps } from "../../src/review-document-data";
 import { type FileLineRange, codePeekSource } from "../../src/source";
 import { DocumentCodeView } from "./DocumentCodeView";
@@ -139,7 +143,9 @@ export function CodePeekCard({
   if (!ranges.length)
     return (
       <section className="code-peek" role="status">
-        {lenses?.progress || lenses?.error
+        {lenses?.progress?.complete ||
+        lenses?.progress?.unavailableSelections?.[selectionKey(source)] ||
+        lenses?.error
           ? "Diff selection unavailable"
           : "Loading diff selection…"}
       </section>

@@ -131,6 +131,32 @@ export const SETTING_NAME = [
 
 export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;
 
+/** Where a review's source comes from: its target's kind, or the one scratchpad. */
+export const SESSION_SOURCE_KIND = ["worktree", "commits", "scratchpad"] as const;
+
+/**
+ * Mirrors `ReviewSessionAgent` in `review-telemetry.ts`. Duplicated rather than
+ * imported: this file is also bundled into the browser canvas app and must stay
+ * free of Node-only dependencies.
+ */
+export const SESSION_AGENT_KIND = ["codex", "claude", "pi", "other"] as const;
+
+/**
+ * How a review session ends. `abnormal` is reported on the next launch for a
+ * session the previous process never closed. This is the one definition:
+ * `review-telemetry.ts`'s `ReviewSessionOutcome` type imports and derives from
+ * it instead of redeclaring the list.
+ */
+export const SESSION_OUTCOME = [
+  "closed",
+  "dismissed",
+  "deleted",
+  "app_quit",
+  "abnormal",
+] as const;
+
+export type ReviewSessionOutcome = (typeof SESSION_OUTCOME)[number];
+
 const REVIEW_DISMISSED_VIA = ["review_topbar", "home"] as const;
 
 // "open" is the implicit undo: opening a dismissed review brings it back.
@@ -415,9 +441,20 @@ export const UI_TELEMETRY_EVENTS = {
     event: "review_review_opened",
     properties: { via: REVIEW_OPENED_VIA },
   },
+  session_started: {
+    event: "review_session_started",
+    properties: {
+      source_kind: SESSION_SOURCE_KIND,
+      agent_kind: SESSION_AGENT_KIND,
+    },
+  },
+  session_ended: {
+    event: "review_session_ended",
+    properties: { outcome: SESSION_OUTCOME, duration_ms: "number" },
+  },
   review_presented: {
     event: "review_review_presented",
-    properties: {},
+    properties: { load_ms: "number" },
   },
   home_empty_state_viewed: {
     event: "review_home_empty_state_viewed",

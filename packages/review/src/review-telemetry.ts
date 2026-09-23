@@ -44,6 +44,7 @@ import {
   reviewTelemetryEnvironment,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
+import { type ReviewSessionOutcome } from "./ui-telemetry-events";
 
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
@@ -100,19 +101,7 @@ export type ReviewTelemetryErrorCategory =
 
 export type ReviewSessionAgent = "codex" | "claude" | "pi" | "other";
 
-/**
- * How a review session ends. `abnormal` is reported on the next launch for a
- * session the previous process never closed.
- */
-export const SESSION_OUTCOME = [
-  "closed",
-  "dismissed",
-  "deleted",
-  "app_quit",
-  "abnormal",
-] as const;
-
-export type ReviewSessionOutcome = (typeof SESSION_OUTCOME)[number];
+export type { ReviewSessionOutcome };
 
 export type ReviewTelemetryTab =
   | "review"

@@ -4,13 +4,19 @@ import {
   isJsonObject,
   jsonString,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
-import type { ReviewTabTelemetryEvent } from "../telemetry";
+import type { ReviewTabTelemetryEvent, ReviewTelemetryContext } from "../telemetry";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
 } from "../ui-telemetry-events";
+
+const contextSchema = z.object({
+  reviewUuid: z.string().min(1).max(128).optional(),
+  presentationSessionId: z.string().min(1).max(128).optional(),
+});
 
 const MAX_CLIENT_ERROR_SESSIONS = 100;
 
@@ -57,6 +63,7 @@ export interface ReviewTelemetryCapture {
   captureUiEvent?(
     event: string,
     properties: Record<string, string | number | boolean>,
+    context?: ReviewTelemetryContext,
   ): Promise<void>;
 }
 
@@ -76,6 +83,11 @@ export async function captureSanitizedUiTelemetry(
    * all of it. Never merge this into `properties`.
    */
   rawError?: JsonValue,
+  /**
+   * Raw review and presentation ids, beside `properties` like `error`. They
+   * never reach PostHog: the telemetry API replaces them with keyed HMACs.
+   */
+  rawContext?: JsonValue,
 ): Promise<void> {
   const appSessionId =
     request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
@@ -99,9 +111,11 @@ export async function captureSanitizedUiTelemetry(
 
   if (!sanitized) return;
   onSanitized?.(sanitized);
+  const parsedContext = contextSchema.safeParse(rawContext);
+  const context = parsedContext.success ? parsedContext.data : undefined;
 
   try {
-    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties);
+    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties, context);
   } catch (error) {
     console.error(error);
   }

@@ -98,7 +98,7 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
       undefined,
       undefined,
       undefined,
-      "interactive",
+      undefined,
       "session",
     ),
   );

@@ -17,6 +17,12 @@ export interface OpenSessionMarker {
   reviewUuid: string;
   startedAt: number;
   appSessionId?: string;
+  /**
+   * The process that owns the session: the Desktop's Electron main for its
+   * server. A live owner means the session is still open, whichever launch
+   * reconciles.
+   */
+  ownerPid?: number;
 }
 
 const markersSchema = z.array(
@@ -25,6 +31,7 @@ const markersSchema = z.array(
     reviewUuid: z.string().min(1),
     startedAt: z.number(),
     appSessionId: z.string().min(1).optional(),
+    ownerPid: z.number().int().positive().optional(),
   }),
 );
 

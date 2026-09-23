@@ -1,5 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import os from "node:os";
 
 import {
@@ -7,7 +7,11 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
+import {
+  processIsAlive,
+  withFileLock,
+  writeFileAtomic,
+} from "@dev.fast/trace-core";
 import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
@@ -179,6 +183,8 @@ export interface ReviewTelemetryOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
   openSessionMarkersPath?: string;
+  /** The process recorded as owning open sessions; defaults to the parent. */
+  openSessionOwnerPid?: number;
   /** Which process family sends this instance's events. */
   surface?: ReviewTelemetrySurface;
 }
@@ -229,6 +235,7 @@ export class ReviewTelemetry {
   private readonly installConfigPath: string;
   private readonly legacyInstallConfigPath: string;
   private readonly openSessionMarkersPath: string;
+  private readonly openSessionOwnerPid: number;
   private readonly idFactory: () => string;
   private readonly commandRunIdFactory: () => string;
   private readonly now: () => Date;
@@ -250,6 +257,7 @@ export class ReviewTelemetry {
       options.legacyInstallConfigPath ?? legacyAppTelemetryConfigPath(this.env);
     this.openSessionMarkersPath =
       options.openSessionMarkersPath ?? openSessionMarkersPath(this.env);
+    this.openSessionOwnerPid = options.openSessionOwnerPid ?? process.ppid;
     this.commandRunIdFactory = options.randomUUID ?? randomUUID;
     this.idFactory = options.idFactory ?? this.commandRunIdFactory;
     this.now = options.now ?? (() => new Date());
@@ -283,6 +291,11 @@ export class ReviewTelemetry {
 
     if (!enabled) {
       await this.captureClient.discard?.().catch(() => undefined);
+      // Sessions opened before the opt-out must not end as abnormal when
+      // telemetry comes back weeks later.
+      await rm(this.openSessionMarkersPath, { force: true }).catch(
+        () => undefined,
+      );
     }
   }
 
@@ -411,6 +424,7 @@ export class ReviewTelemetry {
         presentationSessionId,
         reviewUuid,
         startedAt: this.now().getTime(),
+        ownerPid: this.openSessionOwnerPid,
       };
 
       const appSessionId = nonEmpty(properties.app_session_id?.toString());
@@ -450,7 +464,12 @@ export class ReviewTelemetry {
 
     await this.updateOpenSessions(() => {
       for (const marker of takeOpenSessions(this.openSessionMarkersPath)) {
-        if (currentAppSessionId && marker.appSessionId === currentAppSessionId) {
+        const stillOpen =
+          (currentAppSessionId !== undefined &&
+            marker.appSessionId === currentAppSessionId) ||
+          (marker.ownerPid !== undefined && processIsAlive(marker.ownerPid));
+
+        if (stillOpen) {
           recordOpenSession(this.openSessionMarkersPath, marker);
         } else {
           ended.push(marker);
@@ -461,12 +480,14 @@ export class ReviewTelemetry {
     for (const marker of ended) {
       const outcome: ReviewSessionOutcome = "abnormal";
 
+      // Overrides the envelope's app session: the session belonged to an
+      // earlier launch, and an unknown one is dropped rather than misattributed.
       const properties: PostHogCaptureProperties = {
         source: "review_app",
         outcome,
+        app_session_id: marker.appSessionId,
       };
 
-      if (marker.appSessionId) properties.app_session_id = marker.appSessionId;
       await this.captureEvent("review_session_ended", properties, {
         reviewUuid: marker.reviewUuid,
         presentationSessionId: marker.presentationSessionId,
@@ -506,12 +527,25 @@ export class ReviewTelemetry {
     });
   }
 
-  /** Marker I/O is best effort and skipped entirely when telemetry is off. */
+  /**
+   * Marker I/O is best effort, skipped entirely when telemetry is off, and
+   * locked because concurrent Desktops share the file.
+   */
   private async updateOpenSessions(update: () => void): Promise<void> {
     if (!(await this.isEnabled())) return;
 
     try {
-      update();
+      await withFileLock(
+        `${this.openSessionMarkersPath}.lock`,
+        {
+          retryMs: 10,
+          staleMs: 30_000,
+          timeoutMs: 250,
+          unownedGraceMs: 1_000,
+          heartbeatMs: 5_000,
+        },
+        async () => update(),
+      );
     } catch {
       // A full disk must not break the review.
     }

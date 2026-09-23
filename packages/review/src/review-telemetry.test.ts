@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -22,11 +23,15 @@ import {
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
 } from "./review-telemetry";
+import { recordOpenSession } from "./session-markers";
 import {
   REVIEW_CHANNEL_ENV,
   type ReviewTelemetryInstallConfig,
   normalizeTelemetryInstallConfig,
 } from "./telemetry-config";
+
+// A process that has exited: the owner of a session that died with it.
+const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
 
 describe("ReviewTelemetry", () => {
   const cleanupPaths: string[] = [];
@@ -584,6 +589,68 @@ describe("ReviewTelemetry", () => {
     ]);
   });
 
+  it("does not attribute an abnormal end to the current app launch", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_APP_SESSION_ID_ENV]: "app-current" },
+    });
+
+    cleanupPaths.push(rootPath);
+    recordOpenSession(markersPath, {
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      startedAt: 1,
+    });
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({ outcome: "abnormal" });
+    expect(events[0].properties?.app_session_id).not.toBe("app-current");
+  });
+
+  it("leaves sessions owned by a live process open", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    const live = {
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      startedAt: 1,
+      ownerPid: process.pid,
+    };
+
+    recordOpenSession(markersPath, live);
+    recordOpenSession(markersPath, {
+      presentationSessionId: "512810fb-dd2a-4f56-9da3-bb5c3e3a5bcf",
+      reviewUuid: "9d64ac3b-4de8-432c-b715-e338492553b9",
+      startedAt: 2,
+      ownerPid: deadPid,
+    });
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({ outcome: "abnormal" });
+    expect(JSON.parse(await readFile(markersPath, "utf8"))).toEqual([live]);
+  });
+
+  it("forgets open sessions when telemetry is turned off", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await telemetry.captureUiEvent("review_session_started", {}, {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    });
+
+    await telemetry.setEnabled(false);
+    await telemetry.setEnabled(true);
+    events.length = 0;
+    await telemetry.reconcileOpenSessions();
+
+    expect(existsSync(markersPath)).toBe(false);
+    expect(events).toEqual([]);
+  });
+
   it("announces the first presented review once per installation", async () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -648,6 +715,7 @@ function createTelemetry(input?: {
   commandRunId?: string;
   surface?: ReviewTelemetryOptions["surface"];
   captureClient?: ReviewTelemetryCaptureClient;
+  ownerPid?: number;
 }) {
   const rootPath = path.join(
     os.tmpdir(),
@@ -681,6 +749,7 @@ function createTelemetry(input?: {
     installConfigPath: configPath,
     legacyInstallConfigPath: legacyConfigPath,
     openSessionMarkersPath: markersPath,
+    openSessionOwnerPid: input?.ownerPid ?? deadPid,
     idFactory: () => input?.installationId ?? "install-123",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
     surface: input?.surface,

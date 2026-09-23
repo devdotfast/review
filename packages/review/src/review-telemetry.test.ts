@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -325,7 +326,7 @@ describe("ReviewTelemetry", () => {
 
     cleanupPaths.push(rootPath);
 
-    await telemetry.captureSessionStarted({ mode: "refs" });
+    await telemetry.captureUiEvent("review_app_opened", {});
 
     expect(events).toHaveLength(1);
     expect(events[0].properties).toMatchObject({
@@ -343,46 +344,15 @@ describe("ReviewTelemetry", () => {
 
       cleanupPaths.push(rootPath);
 
-      await telemetry.captureSessionStarted({ mode: "refs" });
+      await telemetry.captureUiEvent("review_app_opened", {});
 
       expect(events).toHaveLength(1);
       expect(events[0].properties).not.toHaveProperty("app_version");
     },
   );
 
-  it("captures session started and ended events without agent session identifiers", async () => {
-    const { events, rootPath, telemetry } = createTelemetry({
-      env: { CODEX_THREAD_ID: "secret-agent-session-id" },
-    });
-
-    cleanupPaths.push(rootPath);
-
-    await telemetry.captureSessionStarted({ mode: "refs" });
-    await telemetry.captureSessionEnded({
-      mode: "refs",
-      outcome: "dismissed",
-      durationMs: 250,
-    });
-
-    expect(events.map((event) => event.event)).toEqual([
-      "review_session_started",
-      "review_session_ended",
-    ]);
-    expect(events[0].properties).toMatchObject({
-      source_kind: "git_branch",
-      agent_kind: "codex",
-    });
-    expect(events[1].properties).toMatchObject({
-      source_kind: "git_branch",
-      agent_kind: "codex",
-      outcome: "dismissed",
-      duration_ms: 250,
-    });
-    expect(JSON.stringify(events)).not.toContain("secret-agent-session-id");
-  });
-
   it("does not write config or send events when DO_NOT_TRACK is set", async () => {
-    const { configPath, events, rootPath, telemetry } = createTelemetry({
+    const { configPath, events, markersPath, rootPath, telemetry } = createTelemetry({
       env: { DO_NOT_TRACK: "1" },
     });
 
@@ -399,15 +369,20 @@ describe("ReviewTelemetry", () => {
       exitCode: 1,
       properties: { healthy: false },
     });
-    await telemetry.captureReviewPresented({
+
+    const context = {
       reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
       presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
-    });
+    };
+
+    await telemetry.captureUiEvent("review_session_started", {}, context);
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
 
     expect(events).toEqual([]);
     await expect(readFile(configPath, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+    expect(existsSync(markersPath)).toBe(false);
   });
 
   it("captures only closed error values", async () => {
@@ -496,23 +471,26 @@ describe("ReviewTelemetry", () => {
     const second = createTelemetry({ installationId: "install-456" });
     cleanupPaths.push(first.rootPath, second.rootPath);
 
-    await first.telemetry.captureSessionStarted({
-      reviewUuid,
-      presentationSessionId,
-    });
+    await first.telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      { reviewUuid, presentationSessionId },
+    );
     await first.telemetry.captureUiEvent(
       "review_client_error",
       { error_name: "TypeError" },
       { reviewUuid, presentationSessionId },
     );
-    await first.telemetry.captureSessionStarted({
-      reviewUuid: otherReviewUuid,
-      presentationSessionId: otherPresentationSessionId,
-    });
-    await second.telemetry.captureSessionStarted({
-      reviewUuid,
-      presentationSessionId,
-    });
+    await first.telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      { reviewUuid: otherReviewUuid, presentationSessionId: otherPresentationSessionId },
+    );
+    await second.telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      { reviewUuid, presentationSessionId },
+    );
 
     const firstIds = first.events[0].properties!;
     const repeatedIds = first.events[1].properties!;
@@ -532,6 +510,101 @@ describe("ReviewTelemetry", () => {
     expect(JSON.stringify([...first.events, ...second.events])).not.toContain(
       presentationSessionId,
     );
+  });
+
+  it("keeps an open-session marker until the session ends", async () => {
+    const { markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-1" }, context);
+    expect(JSON.parse(await readFile(markersPath, "utf8"))).toMatchObject([
+      { presentationSessionId: context.presentationSessionId, reviewUuid: context.reviewUuid, appSessionId: "app-1" },
+    ]);
+
+    await telemetry.captureUiEvent("review_session_ended", { outcome: "closed", duration_ms: 10 }, context);
+    expect(JSON.parse(await readFile(markersPath, "utf8"))).toEqual([]);
+  });
+
+  it("closes sessions that died with the previous process as abnormal", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureUiEvent("review_session_started", {}, context);
+    events.length = 0;
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toBe("review_session_ended");
+    expect(events[0].properties).toMatchObject({ outcome: "abnormal", source: "review_app" });
+    expect(events[0].properties?.review_id).toMatch(/^rv_/);
+    expect(events[0].properties?.presentation_id).toMatch(/^pr_/);
+    expect(JSON.stringify(events)).not.toContain(context.reviewUuid);
+    expect(existsSync(markersPath)).toBe(false);
+  });
+
+  it("leaves sessions of the current app launch open across a server restart", async () => {
+    const env = { [REVIEW_APP_SESSION_ID_ENV]: "app-current" };
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({ env });
+    cleanupPaths.push(rootPath);
+
+    const live = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    const stale = {
+      reviewUuid: "9d64ac3b-4de8-432c-b715-e338492553b9",
+      presentationSessionId: "512810fb-dd2a-4f56-9da3-bb5c3e3a5bcf",
+    };
+
+    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-current" }, live);
+    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-previous" }, stale);
+    events.length = 0;
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      app_session_id: "app-previous",
+    });
+    expect(JSON.parse(await readFile(markersPath, "utf8"))).toMatchObject([
+      { presentationSessionId: live.presentationSessionId, appSessionId: "app-current" },
+    ]);
+  });
+
+  it("announces the first presented review once per installation", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureUiEvent("review_review_presented", { load_ms: 120 }, context);
+    await telemetry.captureUiEvent("review_review_presented", { load_ms: 80 }, context);
+
+    expect(events.map((event) => event.event)).toEqual([
+      "review_review_presented",
+      "review_first_review_presented",
+      "review_review_presented",
+    ]);
+    expect(events[1].properties?.review_id).toMatch(/^rv_/);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      firstReviewPresentedSent: true,
+    });
   });
 
   it("leaves global client errors unscoped", async () => {
@@ -583,6 +656,7 @@ function createTelemetry(input?: {
 
   const configPath = path.join(rootPath, "telemetry.json");
   const legacyConfigPath = path.join(rootPath, "legacy.json");
+  const markersPath = path.join(rootPath, "open-sessions.json");
   const events: PostHogCaptureInput[] = [];
 
   const defaultCaptureClient: ReviewTelemetryCaptureClient & {
@@ -606,6 +680,7 @@ function createTelemetry(input?: {
     env: input?.env ?? {},
     installConfigPath: configPath,
     legacyInstallConfigPath: legacyConfigPath,
+    openSessionMarkersPath: markersPath,
     idFactory: () => input?.installationId ?? "install-123",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
     surface: input?.surface,
@@ -616,7 +691,7 @@ function createTelemetry(input?: {
   if (commandRunId) options.randomUUID = () => commandRunId;
   const telemetry = new ReviewTelemetry(options);
 
-  return { captureClient, configPath, events, legacyConfigPath, rootPath, telemetry };
+  return { captureClient, configPath, events, legacyConfigPath, markersPath, rootPath, telemetry };
 }
 
 function storedConfig(

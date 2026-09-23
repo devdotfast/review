@@ -21,6 +21,13 @@ import {
   type PostHogCaptureProperties,
 } from "./posthog-capture-client";
 import {
+  type OpenSessionMarker,
+  clearOpenSession,
+  openSessionMarkersPath,
+  recordOpenSession,
+  takeOpenSessions,
+} from "./session-markers";
+import {
   type ReviewTelemetryInstallConfig,
   type ReviewTelemetrySurface,
   createTelemetryInstallConfig,
@@ -87,18 +94,21 @@ export type ReviewTelemetryErrorCategory =
   | "transport"
   | "internal";
 
-export type ReviewSourceKind =
-  | "pull_request"
-  | "git_branch"
-  | "git_commit"
-  | "jj_bookmark"
-  | "jj_change";
-
 export type ReviewSessionAgent = "codex" | "claude" | "pi" | "other";
 
-// The reader dismisses a review; approve and request-changes left with the
-// comment submission loop.
-export type ReviewSessionOutcome = "dismissed";
+/**
+ * How a review session ends. `abnormal` is reported on the next launch for a
+ * session the previous process never closed.
+ */
+export const SESSION_OUTCOME = [
+  "closed",
+  "dismissed",
+  "deleted",
+  "app_quit",
+  "abnormal",
+] as const;
+
+export type ReviewSessionOutcome = (typeof SESSION_OUTCOME)[number];
 
 export type ReviewTelemetryTab =
   | "review"
@@ -144,20 +154,6 @@ export interface ReviewTelemetryContext {
   presentationSessionId?: string;
 }
 
-export interface ReviewSessionStartedInput {
-  sourceKind?: ReviewSourceKind;
-  agentKind?: ReviewSessionAgent;
-  mode?: "pr" | "refs" | "branch";
-  appSessionId?: string;
-  reviewUuid?: string;
-  presentationSessionId?: string;
-}
-
-export interface ReviewSessionEndedInput extends ReviewSessionStartedInput {
-  outcome: ReviewSessionOutcome;
-  durationMs: number;
-}
-
 export interface ReviewTelemetryCaptureClient {
   readonly enabled: boolean;
   /**
@@ -182,6 +178,7 @@ export interface ReviewTelemetryOptions {
   now?: () => Date;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  openSessionMarkersPath?: string;
   /** Which process family sends this instance's events. */
   surface?: ReviewTelemetrySurface;
 }
@@ -231,6 +228,7 @@ export class ReviewTelemetry {
   private readonly env: NodeJS.ProcessEnv;
   private readonly installConfigPath: string;
   private readonly legacyInstallConfigPath: string;
+  private readonly openSessionMarkersPath: string;
   private readonly idFactory: () => string;
   private readonly commandRunIdFactory: () => string;
   private readonly now: () => Date;
@@ -250,6 +248,8 @@ export class ReviewTelemetry {
       options.installConfigPath ?? reviewTelemetryConfigPath(this.env);
     this.legacyInstallConfigPath =
       options.legacyInstallConfigPath ?? legacyAppTelemetryConfigPath(this.env);
+    this.openSessionMarkersPath =
+      options.openSessionMarkersPath ?? openSessionMarkersPath(this.env);
     this.commandRunIdFactory = options.randomUUID ?? randomUUID;
     this.idFactory = options.idFactory ?? this.commandRunIdFactory;
     this.now = options.now ?? (() => new Date());
@@ -360,47 +360,6 @@ export class ReviewTelemetry {
     });
   }
 
-  async captureSessionStarted(input: ReviewSessionStartedInput): Promise<void> {
-    await this.captureEvent(
-      "review_session_started",
-      withAppSession(
-        {
-          source_kind: sourceKind(input),
-          agent_kind: input.agentKind ?? this.sessionAgent(),
-        },
-        input.appSessionId,
-      ),
-      sessionTelemetryContext(input),
-    );
-  }
-
-  async captureSessionEnded(input: ReviewSessionEndedInput): Promise<void> {
-    await this.captureEvent(
-      "review_session_ended",
-      withAppSession(
-        {
-          source_kind: sourceKind(input),
-          agent_kind: input.agentKind ?? this.sessionAgent(),
-          outcome: input.outcome,
-          duration_ms: input.durationMs,
-        },
-        input.appSessionId,
-      ),
-      sessionTelemetryContext(input),
-    );
-  }
-
-  async captureReviewPresented(
-    context: Required<ReviewTelemetryContext>,
-    input: { appSessionId?: string } = {},
-  ): Promise<void> {
-    await this.captureEvent(
-      "review_review_presented",
-      withAppSession({ source: "review_app" }, input.appSessionId),
-      context,
-    );
-  }
-
   async captureReviewDeleted(): Promise<void> {
     await this.captureEvent("review_review_deleted");
   }
@@ -432,11 +391,40 @@ export class ReviewTelemetry {
     );
   }
 
+  /**
+   * A session start leaves a marker until its end arrives, so a session the
+   * process never closed can be reported as abnormal on the next launch. The
+   * marker is cleared before the end is sent: a lost marker for a sent end
+   * is harmless, a stale one would report the session ended twice.
+   */
   async captureUiEvent(
     event: string,
     properties: Record<string, string | number | boolean>,
     context?: ReviewTelemetryContext,
   ): Promise<void> {
+    const reviewUuid = context?.reviewUuid;
+    const presentationSessionId = context?.presentationSessionId;
+    const inSession = reviewUuid && presentationSessionId;
+
+    if (inSession && event === "review_session_started") {
+      const marker: OpenSessionMarker = {
+        presentationSessionId,
+        reviewUuid,
+        startedAt: this.now().getTime(),
+      };
+
+      const appSessionId = nonEmpty(properties.app_session_id?.toString());
+
+      if (appSessionId) marker.appSessionId = appSessionId;
+      await this.updateOpenSessions(() =>
+        recordOpenSession(this.openSessionMarkersPath, marker),
+      );
+    } else if (inSession && event === "review_session_ended") {
+      await this.updateOpenSessions(() =>
+        clearOpenSession(this.openSessionMarkersPath, presentationSessionId),
+      );
+    }
+
     await this.captureEvent(
       event,
       {
@@ -445,6 +433,45 @@ export class ReviewTelemetry {
       },
       context,
     );
+
+    if (inSession && event === "review_review_presented") {
+      await this.captureFirstReviewPresented(context).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Reports sessions an earlier app launch never closed as abnormal ends.
+   * Sessions of the current launch survive a server restart untouched. Call
+   * once at startup.
+   */
+  async reconcileOpenSessions(): Promise<void> {
+    const currentAppSessionId = nonEmpty(this.env[REVIEW_APP_SESSION_ID_ENV]);
+    const ended: OpenSessionMarker[] = [];
+
+    await this.updateOpenSessions(() => {
+      for (const marker of takeOpenSessions(this.openSessionMarkersPath)) {
+        if (currentAppSessionId && marker.appSessionId === currentAppSessionId) {
+          recordOpenSession(this.openSessionMarkersPath, marker);
+        } else {
+          ended.push(marker);
+        }
+      }
+    });
+
+    for (const marker of ended) {
+      const outcome: ReviewSessionOutcome = "abnormal";
+
+      const properties: PostHogCaptureProperties = {
+        source: "review_app",
+        outcome,
+      };
+
+      if (marker.appSessionId) properties.app_session_id = marker.appSessionId;
+      await this.captureEvent("review_session_ended", properties, {
+        reviewUuid: marker.reviewUuid,
+        presentationSessionId: marker.presentationSessionId,
+      });
+    }
   }
 
   async captureEvent(
@@ -465,6 +492,29 @@ export class ReviewTelemetry {
         },
       });
     });
+  }
+
+  private async captureFirstReviewPresented(
+    context: ReviewTelemetryContext,
+  ): Promise<void> {
+    await this.announceOnce("firstReviewPresentedSent", async () => {
+      await this.captureEvent(
+        "review_first_review_presented",
+        { source: "review_app" },
+        context,
+      );
+    });
+  }
+
+  /** Marker I/O is best effort and skipped entirely when telemetry is off. */
+  private async updateOpenSessions(update: () => void): Promise<void> {
+    if (!(await this.isEnabled())) return;
+
+    try {
+      update();
+    } catch {
+      // A full disk must not break the review.
+    }
   }
 
   async flush(deadlineMs = 1_000): Promise<void> {
@@ -686,23 +736,6 @@ export class ReviewTelemetry {
 
 export { isTelemetryOptedOut } from "./telemetry-config";
 
-function sourceKind(input: ReviewSessionStartedInput): ReviewSourceKind {
-  if (input.sourceKind) return input.sourceKind;
-
-  if (input.mode === "pr") return "pull_request";
-
-  return "git_branch";
-}
-
-function sessionTelemetryContext(
-  input: ReviewSessionStartedInput,
-): ReviewTelemetryContext {
-  return {
-    reviewUuid: input.reviewUuid,
-    presentationSessionId: input.presentationSessionId,
-  };
-}
-
 function correlationProperties(
   installationId: string,
   context: ReviewTelemetryContext | undefined,
@@ -728,16 +761,6 @@ function correlationProperties(
       context.presentationSessionId,
     );
   }
-
-  return properties;
-}
-
-/** Adds the app session that presented the review, when one did. */
-function withAppSession(
-  properties: PostHogCaptureProperties,
-  appSessionId: string | undefined,
-): PostHogCaptureProperties {
-  if (appSessionId) properties.app_session_id = appSessionId;
 
   return properties;
 }

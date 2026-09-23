@@ -37,6 +37,7 @@ export async function runDesktopHost(
   // this machine, CLI included, reports internal.
   if (reviewTelemetryChannel(env) === "dev") await telemetry.setInternal(true);
   await telemetry.captureInstallationCreated().catch(() => undefined);
+  await telemetry.reconcileOpenSessions().catch(() => undefined);
   const installationId = await telemetry.getInstallationId();
   // This value bootstraps the stored setting. Remove it after persistence so
   // a later in-app enable also reaches telemetry instances created elsewhere.

@@ -1,3 +1,4 @@
+<<<<<<<< HEAD:packages/whiteboard/skills/trace-archaeology/SKILL.md
 ---
 name: trace-archaeology
 description: Find the agent sessions behind existing code and search past traces. Use when asked "why does this code exist", "what was the agent thinking here", "who/what wrote this", "has an agent solved X before", or when debugging agent-produced code where the original reasoning would help.
@@ -7,11 +8,17 @@ metadata:
   whiteboard-version: "development"
 ---
 
+========
+>>>>>>>> 3e3182307 (Move Review agent guidance into server instruction topics):packages/review/instructions/trace-archaeology.md
 # Trace archaeology
 
 Agent-written commits record `Agent-Session: <id>` trailers. Use the `whiteboard trace` CLI to resolve and pull those sessions. Use FFF to find candidate events. Use `whiteboard trace show` for exact evidence.
 
+<<<<<<<< HEAD:packages/whiteboard/skills/trace-archaeology/SKILL.md
 The `whiteboard trace` commands also work without Whiteboard installed or running.
+========
+The `review trace` commands also work without Review Desktop installed or running. If `review` is not on your shell PATH, enable the Review command in Review Desktop Settings and use the installed command path.
+>>>>>>>> 3e3182307 (Move Review agent guidance into server instruction topics):packages/review/instructions/trace-archaeology.md
 
 ## Configuration
 

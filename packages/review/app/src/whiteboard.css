@@ -1039,10 +1039,12 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   min-width: 0;
 }
 
-.lens-flow-node--decision .flow-node-text {
-  padding: 0 48px;
-  text-align: center;
-  align-items: center;
+/* A decision rests as a dashed box. The trace draws it solid and the dashes
+   appear once it settles. The rect's pathLength is 1, so dash lengths are
+   fractions of its outline: about 4px on, 3px off. */
+.lens-flow-node--decision:not([data-motion]) .flow-node-shape rect {
+  stroke: var(--ink-muted);
+  stroke-dasharray: 0.0075 0.0057;
 }
 
 .flow-node-label {

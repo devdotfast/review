@@ -33,7 +33,7 @@ import { useReviewLenses } from "./review-lenses";
  * fits the whole drawing to itself, so a node landing at the bottom of a
  * tall layout is still inside the box the reader is looking at. Nodes are
  * DOM, edges are paths, so the draw queue's phases apply as they do to a
- * sequence diagram. A decision is a diamond, a terminal a pill.
+ * sequence diagram. A decision is a dashed box, a terminal a pill.
  */
 export function FlowGraph({
   block,
@@ -81,14 +81,13 @@ export function FlowGraph({
             const position = layout.nodes.get(node.key);
 
             if (!position) return [];
-            const size = nodeSize(node);
 
             return [
               {
                 id: node.key,
                 type: "flowNode",
                 position,
-                ...size,
+                ...SIZE,
                 draggable: false,
                 selectable: false,
                 data: {
@@ -243,11 +242,6 @@ interface Layout {
 
 const SIZE = { width: 210, height: 62 };
 
-const DIAMOND = { width: 236, height: 98 };
-
-const nodeSize = (node: FlowDiagramNode) =>
-  node.kind === "decision" ? DIAMOND : SIZE;
-
 async function layoutFlow(
   block: FlowDiagramBlock,
   direction: "down" | "right" | undefined,
@@ -260,7 +254,7 @@ async function layoutFlow(
       "elk.spacing.nodeNode": "28",
       "elk.layered.spacing.nodeNodeBetweenLayers": "44",
     },
-    children: block.nodes.map((node) => ({ id: node.key, ...nodeSize(node) })),
+    children: block.nodes.map((node) => ({ id: node.key, ...SIZE })),
     edges: block.edges.map((edge, index) => ({
       id: String(index),
       sources: [edge.from],
@@ -331,8 +325,6 @@ function FlowNode({ data }: NodeProps<FlowNodeType>) {
   const progress =
     lenses?.stats(lenses.resolve(sources)) ?? coverageProgress([]);
 
-  const size = nodeSize(node);
-
   // The flow's onNodeClick handles the mouse; the keyboard lands here.
   const select = () => {
     if (!unavailable) data.select();
@@ -350,7 +342,7 @@ function FlowNode({ data }: NodeProps<FlowNodeType>) {
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{ width: size.width, height: size.height }}
+      style={{ width: SIZE.width, height: SIZE.height }}
       role="button"
       tabIndex={unavailable ? -1 : 0}
       aria-disabled={unavailable}
@@ -384,25 +376,18 @@ function FlowNode({ data }: NodeProps<FlowNodeType>) {
       />
       <svg
         className="flow-node-shape"
-        viewBox={`0 0 ${size.width} ${size.height}`}
+        viewBox={`0 0 ${SIZE.width} ${SIZE.height}`}
         preserveAspectRatio="none"
         aria-hidden="true"
       >
-        {node.kind === "decision" ? (
-          <polygon
-            pathLength={1}
-            points={`${size.width / 2},1 ${size.width - 1},${size.height / 2} ${size.width / 2},${size.height - 1} 1,${size.height / 2}`}
-          />
-        ) : (
-          <rect
-            pathLength={1}
-            x={0.5}
-            y={0.5}
-            width={size.width - 1}
-            height={size.height - 1}
-            rx={node.kind === "terminal" ? size.height / 2 : 6}
-          />
-        )}
+        <rect
+          pathLength={1}
+          x={0.5}
+          y={0.5}
+          width={SIZE.width - 1}
+          height={SIZE.height - 1}
+          rx={node.kind === "terminal" ? SIZE.height / 2 : 6}
+        />
       </svg>
       <div className="flow-node-text">
         <span className="flow-node-label">

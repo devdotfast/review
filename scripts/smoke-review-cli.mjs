@@ -126,7 +126,7 @@ try {
   assert.equal(removed.removed.length, 4);
   server = spawn(
     cli,
-    ["server", "start", "--authoring-mode", "batch", "--json"],
+    ["server", "start", "--json"],
     { cwd: root, env, stdio: ["ignore", "ignore", "inherit"] },
   );
   exited = new Promise((resolve) => {
@@ -175,15 +175,21 @@ try {
     head,
   });
 
-  const draft = await api("review_draft_begin", {
+  const created = await api("review_create", {
+    commandId: randomUUID(),
     title: "Packed CLI smoke",
-    pins,
+    target: { kind: "commits", ...pins },
+    open: false,
   });
 
-  await api("review_draft_write", {
-    draftId: draft.draftId,
-    document: [
-      {
+  const lease = { reviewId: created.reviewId, leaseId: randomUUID() };
+  await api("review_activity", { ...lease, action: "begin" });
+  await api("review_edit", {
+    ...lease,
+    commandId: randomUUID(),
+    edit: {
+      type: "insert",
+      content: {
         type: "section",
         title: "Summary",
         children: [
@@ -193,17 +199,13 @@ try {
           },
         ],
       },
-    ],
+    },
   });
-  await api("review_draft_validate", { draftId: draft.draftId });
-  await api("review_draft_commit", {
-    draftId: draft.draftId,
-    commandId: randomUUID(),
-  });
+  await api("review_activity", { ...lease, action: "end" });
   const reviews = await api("review_list");
   assert.equal(reviews.length, 1);
   console.log(
-    `Installed ${pkg.name}@${pkg.version}: tracing and headless batch authoring passed without Desktop.`,
+    `Installed ${pkg.name}@${pkg.version}: tracing and headless authoring passed without Desktop.`,
   );
 } finally {
   if (server) {

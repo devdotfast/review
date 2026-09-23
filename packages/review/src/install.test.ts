@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installFile, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review", "dev-review-batch"] as const;
+const REQUIRED_SKILLS = ["dev-review"] as const;
 
 const ALL_SKILLS = [
   ...REQUIRED_SKILLS,
@@ -305,6 +305,43 @@ describe("runInstall", () => {
     await expect(
       readFile(path.join(staleStopDest, "SKILL.md"), "utf8"),
     ).rejects.toThrow(/ENOENT/);
+  });
+
+  it("removes a retired skill only while Review still manages it", async () => {
+    const packageRoot = await makePackageRoot();
+    const managedHome = await makeTempDir();
+    const editedHome = await makeTempDir();
+
+    const retired = (homeDir: string) =>
+      path.join(homeDir, ".claude", "skills", "dev-review-batch");
+
+    const stamp =
+      'metadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "Do not edit."\n  review-version: "development"\n';
+
+    for (const [homeDir, metadata] of [
+      [managedHome, stamp],
+      [editedHome, ""],
+    ]) {
+      await mkdir(retired(homeDir), { recursive: true });
+      await writeFile(
+        path.join(retired(homeDir), "SKILL.md"),
+        `---\nname: dev-review-batch\ndescription: batch\n${metadata}---\n`,
+      );
+      const streams = silentStreams();
+
+      expect(
+        await runInstall({
+          targets: ["claude"],
+          homeDir,
+          packageRoot,
+          stdout: streams.stdout,
+          stderr: streams.stderr,
+        }),
+      ).toBe(0);
+    }
+
+    expect(existsSync(retired(managedHome))).toBe(false);
+    expect(existsSync(path.join(retired(editedHome), "SKILL.md"))).toBe(true);
   });
 
   it("installs bundled Review documentation with the dev-review skill", async () => {

@@ -13,7 +13,6 @@ catalog. Tests inject the native store and source-data provider.
 
 - `reviews`: current version and one increasing ID counter per review.
 - `versions`: complete JSON snapshots, including title, source pins, and content.
-- `authoring_drafts`: server-owned scratch state and exclusive review ownership, separate from committed versions.
 - `receipts`: command inputs and responses, committed with the saved version.
 - `repositories`: server-only local paths; clients receive an ID and display name.
 - `resources`: immutable image, trace and software-map bytes, scoped to a repository.
@@ -228,7 +227,7 @@ The Review tab counts a review as ready once it has content and no authoring
 session is live. Ending a lease (or letting it expire) is the only completion
 signal; there is no per-section progress state. Versions and share bundles
 saved while sections carried a `status` field are read and imported without it;
-new edits and draft writes that send one are rejected by the strict section
+new edits that send one are rejected by the strict section
 schema.
 
 Activity uses a caller-chosen lease UUID and no command receipt. Begin acquires
@@ -305,32 +304,6 @@ Preparation does not guarantee reproducibility unless the configured commands
 also reproduce dependencies, generated files, and the toolchain. Historical
 checkouts remain until their owning review is deleted. Environment state and
 commands are local and are never authored into review documents.
-
-## Batch authoring
-
-`review server start --authoring-mode batch` selects the batch tool surface explicitly.
-`GET /capabilities` reports `authoringMode`; Desktop always uses `interactive`.
-`POST /draft-commands/{begin,write,edit,validate,commit,abort}` operates on scratch
-state. `GET /drafts/:draftId` returns the document and IDs. Draft source endpoints
-(`/drafts/:draftId/{source,file,tree,diff,commits}`) resolve draft pins without an
-empty committed placeholder. Resource uploads use the existing repository scope.
-
-Begin claims one review in a short SQLite transaction before reading its current
-version. Bulk writes allocate fresh IDs; targeted edits retain existing IDs under
-the normal edit rules. Returned IDs are reserved even if an update is aborted.
-Normal reads, catalog and history expose committed state only. Interactive
-mutations, imports and leases cannot modify a review owned by a batch draft.
-
-Commit validates the entire document, references, pins, sources and resources,
-then rechecks owner and starting version in the write transaction. It saves one
-snapshot and receipt and clears the draft atomically. Retry the same commit commandId and draftId after a lost response.
-Validation errors preserve scratch content for correction. Notifications use the
-normal committed-review path.
-
-Ownership belongs to the server instance and PID, with no heartbeat or expiry.
-Commit, abort and graceful shutdown release it; a dead PID permits orphan cleanup.
-A live owner is never evicted by elapsed time. No draft resume or automatic commit
-occurs. CI must terminate its server even if its agent fails.
 
 ## Review targets
 

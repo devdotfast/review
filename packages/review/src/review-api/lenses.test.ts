@@ -315,7 +315,7 @@ it("reads lenses saved as document blocks as the snapshot's lenses", async () =>
   db.prepare(
     "UPDATE versions SET snapshot=json_set(snapshot,'$.document',json(?)) WHERE session_id=? AND version=?",
   ).run(JSON.stringify(legacy), sessionId, version);
-  db.prepare("UPDATE reviews SET next_id=5 WHERE id=?").run(sessionId);
+  db.prepare("UPDATE sessions SET next_id=5 WHERE id=?").run(sessionId);
   db.close();
 
   const read = store.read(sessionId);

@@ -191,7 +191,7 @@ it("replaces a Codex review entry Review did not write", async () => {
   expect(config.model).toBe("gpt-5");
   expect(config.mcp_servers).toMatchObject({
     other: { command: "other" },
-    review: { args: ["mcp"], default_tools_approval_mode: "approve" },
+    review: { args: ["mcp"] },
   });
   expect(
     (await resolveCliInstallStatus({ packageRoot, homeDir, env })).mcp?.find(

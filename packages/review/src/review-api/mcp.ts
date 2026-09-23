@@ -33,7 +33,7 @@ export async function serveReviewMcp(
     {
       capabilities: { tools: { listChanged: true } },
       instructions:
-        'Review explains code in documents the user reads in Review Desktop. Call review_get_instructions before creating or editing a Review and follow it. Read review_capabilities before authoring; call review_open only when desktopAvailable is true, and generate software maps only when softwareMapEnabled is true. When the user asks to see how code works or wants a diagram, and review_capabilities reports authoringMode interactive, desktopAvailable true, and scratchpadEnabled true, call review_get_instructions({topic:"scratchpad"}) instead of drawing ASCII in chat. For why code exists, what an agent was thinking, or whether an agent solved something before, call review_get_instructions({topic:"trace-archaeology"}). Never read or write Review files or SQL.',
+        'Review explains code in documents the user reads in Review Desktop. Call review_get_instructions before creating or editing a Review and follow it. Read review_capabilities before authoring; call review_open only when desktopAvailable is true, and generate software maps only when softwareMapEnabled is true. When the user asks you to show, walk through or diagram how code works, call review_capabilities; if it reports scratchpadEnabled and desktopAvailable in interactive mode, draw the explanation on the Review scratchpad rather than answering only in chat, starting with review_get_instructions({topic:"scratchpad"}). For why code exists, what an agent was thinking, or whether an agent solved something before, call review_get_instructions({topic:"trace-archaeology"}). Never read or write Review files or SQL.',
     },
   );
 

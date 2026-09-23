@@ -104,8 +104,7 @@ function configuration(registration: ReviewMcpRegistration) {
 
   return target === "claude" || target === "cursor"
     ? { type: "stdio", command, args, env }
-    : // Review's tools only touch Review; asking before each one stalls authoring.
-      { command, args, env, default_tools_approval_mode: "approve" };
+    : { command, args, env };
 }
 
 /**

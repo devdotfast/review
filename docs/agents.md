@@ -32,8 +32,7 @@ Node installation, agent CLI, port, or token configuration is needed. The
 desktop server remains the owner of every review.
 
 App updates refresh the launcher and repair missing MCP entries. For Codex,
-Review replaces any existing `review` server entry with its own and marks
-Review's tools as approved, so Codex does not ask before each one; setting
+Review replaces any existing `review` server entry with its own; setting
 `enabled = false` on that entry turns Review off in Codex, and Review leaves it
 alone. For other agents Review leaves customized entries alone and explains how
 to replace them. Uninstall removes only entries Review created. Restart the

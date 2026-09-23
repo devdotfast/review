@@ -75,7 +75,7 @@ export function authoringTools(
       "get_instructions",
       "Read Review's guidance before creating or editing a Review. The default topic gives this server's authoring workflow. Other topics cover headless use and prepared worktrees. Call review_get_instructions({topic:\"trace-archaeology\"}) for why code exists, what an agent was thinking, or whether an agent solved this before." +
         (scratchpadAvailable
-          ? ' When asked to show how code works or draw a diagram, call review_get_instructions({topic:"scratchpad"}) and draw in Review instead of ASCII diagrams in chat.'
+          ? ' When the user asks you to show, walk through or diagram how code works, draw it on the Review scratchpad rather than answering only in chat: call review_get_instructions({topic:"scratchpad"}) first.'
           : ""),
       instructionsQuerySchema.partial(),
       "GET",

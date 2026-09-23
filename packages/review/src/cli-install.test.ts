@@ -1021,3 +1021,32 @@ it("keeps Pi's pointer at startup while Pi is in use, and only then reports Pi",
     )?.installed,
   ).toBe(true);
 });
+
+it("cleans the shared skills root at startup when the stamp never named its agents", async () => {
+  const homeDir = await temporaryHome("review-startup-shared-root-");
+  const env = profileEnvironment(homeDir, "/bin/sh");
+
+  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    consent: "granted",
+    targets: ["claude", "cursor", "opencode"],
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  } satisfies ReviewCliInstallStamp);
+
+  const trace = await seedManagedSkill(homeDir, ".agents", "trace-archaeology");
+
+  const custom = path.join(
+    homeDir,
+    ".agents",
+    "skills",
+    "my-skill",
+    "SKILL.md",
+  );
+
+  await mkdir(path.dirname(custom), { recursive: true });
+  await writeFile(custom, "---\nname: my-skill\ndescription: mine\n---\n");
+
+  await removeRetiredReviewSkills({ homeDir, env });
+
+  expect(existsSync(trace)).toBe(false);
+  expect(existsSync(custom)).toBe(true);
+});

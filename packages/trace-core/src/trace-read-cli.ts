@@ -12,8 +12,8 @@ import {
   describeTraceSession,
   inferRepoFromGit,
   listRepositoryTraceSessionIds,
-  listWhiteboardTraceSessions,
-  loadWhiteboardAgentTrace,
+  listReviewTraceSessions,
+  loadReviewAgentTrace,
   lookupReviewTraceBlame,
   lookupReviewTraceCommit,
   lookupReviewTraceSession,
@@ -26,20 +26,18 @@ import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 
 /**
  * The repository-scoped read commands. A caller that knows a Review passes
- * its change range as a value; this file never opens the Session store.
+ * its change range as a value; this file never opens the Review store.
  */
 
-/** A Review's change range, resolved by the caller from the Session store. */
-export interface TraceWhiteboardScope {
+/** A Review's change range, resolved by the caller from the Review store. */
+export interface TraceReviewScope {
   uuid: string;
   repoRoot: string;
   baseCommit: string;
   headCommit: string;
 }
 
-export type TraceListScope =
-  | { commit: string }
-  | { review: TraceWhiteboardScope };
+export type TraceListScope = { commit: string } | { review: TraceReviewScope };
 
 export type TracePullScope =
   | TraceListScope
@@ -61,10 +59,10 @@ export async function resolveTraceReadStorage(
 }
 
 async function listSessionsForReviewScope(
-  review: TraceWhiteboardScope,
+  review: TraceReviewScope,
   storage?: TraceStorage | null,
 ) {
-  return listWhiteboardTraceSessions({
+  return listReviewTraceSessions({
     rootPath: review.repoRoot,
     baseCommit: review.baseCommit,
     headCommit: review.headCommit,
@@ -173,7 +171,7 @@ export async function runTraceShow(input: {
 }): Promise<number> {
   const traceName = input.trace === "main" ? undefined : input.trace;
 
-  const loaded = await loadWhiteboardAgentTrace({
+  const loaded = await loadReviewAgentTrace({
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
@@ -520,7 +518,7 @@ function printCommitResolution(
     stdout.write(`    ${session}${metaSuffix}\n`);
     stdout.write(`      trace: by-session/${session}/trace.jsonl\n`);
     stdout.write(
-      `      pull for FFF: ${traceCommandPrefix()} pull --agent-session ${session}\n`,
+      `      pull for FFF: ${traceCommandPrefix()} pull --session ${session}\n`,
     );
   }
 }

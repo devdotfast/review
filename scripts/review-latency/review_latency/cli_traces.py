@@ -1,4 +1,4 @@
-"""Load `review` CLI span files (DEV_FAST_WHITEBOARD_TRACE_DIR output) as spans.
+"""Load `review` CLI span files (DEV_FAST_REVIEW_TRACE_DIR output) as spans.
 
 Each file is one CLI process: `timeOrigin` is the epoch-ms process start, and
 every span's `start`/`end` is milliseconds after it.

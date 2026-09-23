@@ -95,7 +95,7 @@ const s = (ms) => (ms/1000).toFixed(1) + 's';
 const mmss = (ms) => { const x = Math.round(ms/1000); return String(Math.floor(x/60)).padStart(2,'0') + ':' + String(x%60).padStart(2,'0'); };
 
 document.getElementById('title').textContent = T.run.id + ' — PR #' + T.run.pr + ' (' + T.run.repo_name + ', ' + T.run.mode + ')';
-document.getElementById('subtitle').textContent = (T.run.harness || 'claude-code') + ' · model ' + T.run.model + ' @ ' + (T.run.effort || 'inherited effort') + (T.fork ? ' · forked from ' + T.fork.source_session.slice(0,8) + ' at record ' + T.fork.cut_index + '/' + T.fork.records : '') + ' · review ' + (T.review ? T.review.uuid : 'none') + ' · session ' + s(total) + (T.surface ? ' · surface' + (T.surface.skill ? ' skill(installed):' + (typeof T.surface.skill === 'string' ? T.surface.skill : T.surface.skill.claude + '/' + T.surface.skill.agents) : '') + (T.surface.skill_repo ? ' repo:' + T.surface.skill_repo : '') + ' cli:' + T.surface.cli_help : '');
+document.getElementById('subtitle').textContent = (T.run.harness || 'claude-code') + ' · model ' + T.run.model + ' @ ' + (T.run.effort || 'inherited effort') + (T.fork ? ' · forked from ' + T.fork.source_session.slice(0,8) + ' at record ' + T.fork.cut_index + '/' + T.fork.records : '') + ' · review ' + (T.review ? T.review.uuid : 'none') + ' · session ' + s(total) + (T.surface ? ' · surface skill(installed):' + (typeof T.surface.skill === 'string' ? T.surface.skill : T.surface.skill.claude + '/' + T.surface.skill.agents) + (T.surface.skill_repo ? ' repo:' + T.surface.skill_repo : '') + ' cli:' + T.surface.cli_help : '');
 
 const S = T.summary;
 const cards = [
@@ -208,7 +208,7 @@ document.getElementById('phases').innerHTML = '<tr><th>phase</th><th>start</th><
   phases.map(p => '<tr><td>'+p.name+'</td><td class="num">'+mmss(p.start_ms-t0)+'</td><td class="num">'+s(p.end_ms-p.start_ms)+'</td><td class="num">'+(100*(p.end_ms-p.start_ms)/total).toFixed(0)+'%</td></tr>').join('');
 
 document.getElementById('commands').innerHTML = '<tr><th>command</th><th>duration</th><th>review</th></tr>' +
-  S.review_commands.map(c => '<tr><td><code>review '+escapeHtml(c.command)+'</code></td><td class="num">'+s(c.duration_s*1000)+'</td><td>'+(c.attributes.whiteboardUuid ? c.attributes.whiteboardUuid.slice(0,8) : '')+'</td></tr>').join('');
+  S.review_commands.map(c => '<tr><td><code>review '+escapeHtml(c.command)+'</code></td><td class="num">'+s(c.duration_s*1000)+'</td><td>'+(c.attributes.reviewUuid ? c.attributes.reviewUuid.slice(0,8) : '')+'</td></tr>').join('');
 
 document.getElementById('publishes').innerHTML = '<tr><th>#</th><th>start</th><th>duration</th><th>ok</th><th>errors</th></tr>' +
   S.publish_attempts_detail.map((p,i) => '<tr><td>'+(i+1)+'</td><td class="num">'+mmss(p.start_ms-t0)+'</td><td class="num">'+s(p.duration_ms)+'</td><td>'+(p.ok?'yes':'no')+'</td><td class="err">'+escapeHtml(p.errors.join('\\n'))+'</td></tr>').join('');

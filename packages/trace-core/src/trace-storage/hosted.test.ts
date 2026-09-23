@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearTraceEnvCache,
-  loadWhiteboardAgentTrace,
+  loadReviewAgentTrace,
   lookupReviewTraceSession,
   pullReviewTraceCorpus,
   syncReviewTrace,
@@ -91,9 +91,9 @@ describe("hosted trace storage", () => {
       mkdirSync(dir, { recursive: true });
     }
 
-    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
+    vi.stubEnv("DEV_REVIEW_HOME", devHome);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
-    vi.stubEnv("WHITEBOARD_TEST_TRACE_SEARCH_DIR", corpusRoot);
+    vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", corpusRoot);
     execFileSync("git", ["init", "--quiet"], { cwd: repoDir });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
     execFileSync("git", ["config", "user.email", "test@test.com"], {
@@ -365,7 +365,7 @@ describe("hosted trace storage", () => {
       ),
     ]);
     expect(
-      await loadWhiteboardAgentTrace({ sessionId, cwd: repoDir, storage }),
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage }),
     ).toBeNull();
   });
 
@@ -407,7 +407,7 @@ describe("hosted trace storage", () => {
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
     });
     expect(
-      await loadWhiteboardAgentTrace({ sessionId, cwd: repoDir, storage }),
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage }),
     ).not.toBeNull();
     // Access is revoked: the store now answers forbidden.
     const listSessions = transport.listSessions;
@@ -428,7 +428,7 @@ describe("hosted trace storage", () => {
 
     try {
       expect(
-        await loadWhiteboardAgentTrace({
+        await loadReviewAgentTrace({
           sessionId,
           cwd: repoDir,
           storage: revoked,
@@ -460,7 +460,7 @@ describe("hosted trace storage", () => {
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "first")}\n` },
     });
 
-    const first = await loadWhiteboardAgentTrace({
+    const first = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       storage,
@@ -490,7 +490,7 @@ describe("hosted trace storage", () => {
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "later")}\n` },
     });
 
-    const second = await loadWhiteboardAgentTrace({
+    const second = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       storage: HostedTraceStorage.fromParts({
@@ -522,11 +522,7 @@ describe("hosted trace storage", () => {
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "hosted")}\n` },
     });
     expect(
-      await loadWhiteboardAgentTrace({
-        sessionId,
-        cwd: repoDir,
-        storage: hosted,
-      }),
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: hosted }),
     ).not.toBeNull();
 
     // An unscoped legacy copy under the classic owner/repo layout.
@@ -561,7 +557,7 @@ describe("hosted trace storage", () => {
     const s3 = await resolveTraceStorage({ cwd: repoDir });
     expect(s3?.kind).toBe("s3");
 
-    const viaDirect = await loadWhiteboardAgentTrace({
+    const viaDirect = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       repo: "acme/app",
@@ -582,11 +578,7 @@ describe("hosted trace storage", () => {
     });
 
     expect(
-      await loadWhiteboardAgentTrace({
-        sessionId,
-        cwd: repoDir,
-        storage: offline,
-      }),
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: offline }),
     ).toBeNull();
   });
 
@@ -662,11 +654,7 @@ describe("hosted trace storage", () => {
         traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
       });
       expect(
-        await loadWhiteboardAgentTrace({
-          sessionId,
-          cwd: repoDir,
-          storage: first,
-        }),
+        await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: first }),
       ).not.toBeNull();
 
       // Access is revoked: findStore answers forbidden.
@@ -700,7 +688,7 @@ describe("hosted trace storage", () => {
       ).rejects.toBeInstanceOf(TraceStorageDeniedError);
       // The saved copy is not served through a null storage either.
       await expect(
-        loadWhiteboardAgentTrace({ sessionId, cwd: repoDir }),
+        loadReviewAgentTrace({ sessionId, cwd: repoDir }),
       ).rejects.toBeInstanceOf(TraceStorageDeniedError);
     },
   );
@@ -717,7 +705,7 @@ describe("hosted trace storage", () => {
         },
       });
       expect(
-        await loadWhiteboardAgentTrace({
+        await loadReviewAgentTrace({
           sessionId,
           storage: HostedTraceStorage.fromParts({
             target: target(transport.storeId),
@@ -745,11 +733,11 @@ describe("hosted trace storage", () => {
           override: storageOverride,
           onWarning: () => undefined,
         }),
-      ).rejects.toThrow(/whiteboard login/);
+      ).rejects.toThrow(/review login/);
       writeConfig({ version: 2, "current-store": "hosted" });
       await expect(
-        loadWhiteboardAgentTrace({ sessionId, cwd: repoDir }),
-      ).rejects.toThrow(/whiteboard login/);
+        loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+      ).rejects.toThrow(/review login/);
     },
   );
 
@@ -776,11 +764,7 @@ describe("hosted trace storage", () => {
         },
       });
       expect(
-        await loadWhiteboardAgentTrace({
-          sessionId,
-          trace,
-          storage: storage(),
-        }),
+        await loadReviewAgentTrace({ sessionId, trace, storage: storage() }),
       ).not.toBeNull();
 
       if (trace === "main") transport.sessions.clear();
@@ -791,7 +775,7 @@ describe("hosted trace storage", () => {
           traces: { "main.jsonl.gz": sessionRecord(sessionId, "main") },
         });
       expect(
-        await loadWhiteboardAgentTrace({
+        await loadReviewAgentTrace({
           sessionId,
           trace,
           storage: storage(),
@@ -799,21 +783,17 @@ describe("hosted trace storage", () => {
         }),
       ).toBeNull();
       expect(
-        await loadWhiteboardAgentTrace({
-          sessionId,
-          trace,
-          storage: storage(),
-        }),
+        await loadReviewAgentTrace({ sessionId, trace, storage: storage() }),
       ).toBeNull();
       expect(
-        await loadWhiteboardAgentTrace({
+        await loadReviewAgentTrace({
           sessionId,
           trace,
           storage: storage(true),
         }),
       ).toBeNull();
 
-      const main = await loadWhiteboardAgentTrace({
+      const main = await loadReviewAgentTrace({
         sessionId,
         storage: storage(),
       });
@@ -833,7 +813,7 @@ describe("hosted trace storage", () => {
       },
     });
     expect(
-      await loadWhiteboardAgentTrace({
+      await loadReviewAgentTrace({
         sessionId,
         storage: HostedTraceStorage.fromParts({
           target: target(old.storeId),
@@ -849,7 +829,7 @@ describe("hosted trace storage", () => {
 
     for (const offline of [true, false]) {
       expect(
-        await loadWhiteboardAgentTrace({
+        await loadReviewAgentTrace({
           sessionId,
           storage: HostedTraceStorage.fromParts({
             target: target(transport.storeId),
@@ -879,7 +859,7 @@ describe("hosted trace storage", () => {
       traces: { "main.jsonl.gz": sessionRecord(sessionId, "old") },
     });
     expect(
-      await loadWhiteboardAgentTrace({ sessionId, storage: storage() }),
+      await loadReviewAgentTrace({ sessionId, storage: storage() }),
     ).not.toBeNull();
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
@@ -891,14 +871,10 @@ describe("hosted trace storage", () => {
     };
 
     await expect(
-      loadWhiteboardAgentTrace({
-        sessionId,
-        storage: storage(),
-        refresh: true,
-      }),
+      loadReviewAgentTrace({ sessionId, storage: storage(), refresh: true }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
     await expect(
-      loadWhiteboardAgentTrace({ sessionId, storage: storage() }),
+      loadReviewAgentTrace({ sessionId, storage: storage() }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
   });
 

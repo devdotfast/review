@@ -89,7 +89,7 @@ describe("hosted trace commands", () => {
     home = mkdtempSync(path.join(tmpdir(), "trace-hosted-cli-"));
     repo = path.join(home, "repo");
     devHome = path.join(home, ".dev");
-    env = { DEV_WHITEBOARD_HOME: devHome };
+    env = { DEV_REVIEW_HOME: devHome };
     execFileSync("git", ["init", "--quiet", repo]);
     execFileSync(
       "git",
@@ -198,9 +198,9 @@ describe("hosted trace commands", () => {
       expect(JSON.parse(out.text())).toEqual({
         event: "error",
         stage: "allow",
-        message: "Run `whiteboard login` first.",
+        message: "Run `review login` first.",
       });
-      expect(err.text()).toBe("Run `whiteboard login` first.\n");
+      expect(err.text()).toBe("Run `review login` first.\n");
       expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
     },
   );
@@ -316,7 +316,7 @@ describe("hosted trace commands", () => {
 
       const message =
         stage === "sessions"
-          ? `The trace store at ${ORIGIN} rejected the login. Run \`whiteboard login --origin ${ORIGIN}\`.`
+          ? `The trace store at ${ORIGIN} rejected the login. Run \`review login --origin ${ORIGIN}\`.`
           : "expired token";
 
       expect(JSON.parse(out.text())).toEqual({
@@ -585,7 +585,7 @@ describe("hosted trace commands", () => {
     );
     // The next page needs the same override, or it fails on this machine.
     expect(out.text()).toContain(
-      "whiteboard trace sessions --storage hosted --cursor session-0001",
+      "review trace sessions --storage hosted --cursor session-0001",
     );
   });
 
@@ -603,7 +603,7 @@ describe("hosted trace commands", () => {
         stderr: err.stream,
       }),
     ).toBe(1);
-    expect(err.text()).toContain(`whiteboard login --origin ${ORIGIN}`);
+    expect(err.text()).toContain(`review login --origin ${ORIGIN}`);
   });
 
   it("maps store refusals and an older store to explicit messages", async () => {
@@ -737,7 +737,7 @@ describe("hosted trace commands", () => {
 
     expect(code).toBe(0);
     expect(out.text()).toContain(
-      "whiteboard trace sessions --limit 10 --cursor session-0001",
+      "review trace sessions --limit 10 --cursor session-0001",
     );
   });
 
@@ -869,7 +869,7 @@ describe("hosted trace commands", () => {
 
     expect(code).toBe(1);
     expect(err.text()).toBe(
-      "acme/app has no trace store. Run `whiteboard trace store create` first.\n",
+      "acme/app has no trace store. Run `review trace store create` first.\n",
     );
   });
 
@@ -951,7 +951,7 @@ describe("hosted trace commands", () => {
       ),
     ).toContain("'/opt/review/bin/review' trace git-hook pre-push");
     expect(out.text()).toBe(
-      `Traces from acme/app may be published to ${ORIGIN}. Run \`whiteboard trace status\` to verify.\n`,
+      `Traces from acme/app may be published to ${ORIGIN}. Run \`review trace status\` to verify.\n`,
     );
   });
 
@@ -1082,10 +1082,10 @@ describe("hosted trace commands", () => {
       event: "error",
       stage: "allow",
       message:
-        "This machine sends traces to a bucket. Run `whiteboard trace storage use hosted` first.",
+        "This machine sends traces to a bucket. Run `review trace storage use hosted` first.",
     });
     expect(err.text()).toBe(
-      "This machine sends traces to a bucket. Run `whiteboard trace storage use hosted` first.\n",
+      "This machine sends traces to a bucket. Run `review trace storage use hosted` first.\n",
     );
     expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
   });
@@ -1095,7 +1095,7 @@ describe("hosted trace commands", () => {
     await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
-      whiteboardCommand: { file: "/opt/review/bin/review", args: [] },
+      reviewCommand: { file: "/opt/review/bin/review", args: [] },
     });
     const out = collect();
 
@@ -1107,7 +1107,7 @@ describe("hosted trace commands", () => {
     });
 
     expect(out.text().split("\n").slice(1, 5)).toEqual([
-      `Login: none. Run \`whiteboard login --origin ${ORIGIN}\`.`,
+      `Login: none. Run \`review login --origin ${ORIGIN}\`.`,
       "Capture switch: on",
       "Harness hooks: claude -> review, codex -> none, opencode -> none, pi -> none",
       "Git hooks: '/opt/review/bin/review'",

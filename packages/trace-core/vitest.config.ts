@@ -24,7 +24,7 @@ export default defineConfig({
     isolate: false,
     testTimeout: 15000,
     env: {
-      DEV_WHITEBOARD_HOME: path.join(
+      DEV_REVIEW_HOME: path.join(
         os.tmpdir(),
         `trace-core-tests-${process.pid}`,
       ),

@@ -48,7 +48,7 @@ describe("runTraceGitHook", () => {
     repo = await mkdtemp(path.join(os.tmpdir(), "trace-git-hook-"));
     devHome = path.join(repo, ".dev");
     stderrText = "";
-    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
+    vi.stubEnv("DEV_REVIEW_HOME", devHome);
     vi.stubEnv("HOME", repo);
     await git(repo, ["init", "-b", "main"]);
     await git(repo, ["config", "user.name", "Test"]);
@@ -199,12 +199,12 @@ describe("runTraceGitHook", () => {
       .spyOn(hookRunner, "spawnDetachedTraceSync")
       .mockImplementation(() => undefined);
 
-    expect(await prePush({ file: "/opt/whiteboard" })).toBe(0);
+    expect(await prePush({ file: "/opt/review" })).toBe(0);
     expect(spawned).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec9",
         cwd: repo,
-        command: { file: "/opt/whiteboard" },
+        command: { file: "/opt/review" },
       }),
     );
     expect(spawned).toHaveBeenCalledWith(

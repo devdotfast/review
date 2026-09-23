@@ -8,11 +8,11 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "../atomic-write";
 import { normalizeStoreOrigin } from "../store-origin";
-import { devWhiteboardHome } from "../trace-home";
+import { devReviewHome } from "../trace-home";
 import { withFileLock } from "../with-file-lock";
 
 /**
- * The shared trace configuration at `$DEV_WHITEBOARD_HOME/trace/config.json`.
+ * The shared trace configuration at `$DEV_REVIEW_HOME/trace/config.json`.
  *
  * Version 2 names the machine's current store, holds one entry per store
  * under `stores`, and lists hosted publication consent under
@@ -181,7 +181,7 @@ export interface TraceConfigScope {
 export function traceConfigPath(scope: TraceConfigScope = {}): string {
   const devHome =
     scope.devHome ??
-    devWhiteboardHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
+    devReviewHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
 
   return path.join(devHome, "trace", "config.json");
 }

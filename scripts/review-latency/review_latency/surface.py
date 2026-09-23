@@ -1,4 +1,4 @@
-"""Fingerprint of the model-facing surface: docs and whiteboard CLI contract.
+"""Fingerprint of the model-facing surface: skill, docs, and review CLI contract.
 
 Runs that share a fingerprint saw the same instructions and API; a changed
 fingerprint explains a changed trajectory.
@@ -11,7 +11,13 @@ from pathlib import Path
 
 from review_latency.config import REPO_ROOT, SOURCE_CLI
 
-PACKAGE = REPO_ROOT / "packages" / "whiteboard"
+PACKAGE = REPO_ROOT / "packages" / "review"
+SKILL_DIRS = [PACKAGE / "skills" / "dev-review"]
+# What the agents actually read: the app-managed installed copies.
+INSTALLED_SKILLS = {
+    "claude": [Path.home() / ".claude" / "skills" / "dev-review"],
+    "agents": [Path.home() / ".agents" / "skills" / "dev-review"],
+}
 DOCS_DIR = REPO_ROOT / "docs"
 AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts"]
 CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "rebind"]
@@ -51,13 +57,19 @@ def surface_fingerprint(review_bin: str) -> dict:
         ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
     ).stdout.strip()
     dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--", "packages/whiteboard", "docs"],
+        ["git", "status", "--porcelain", "--", "packages/review", "docs"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip() != ""
     return {
+        # skill = the bytes the agents read (installed copies); skill_repo =
+        # the source tree, so drift between them is visible per run.
+        "skill": {
+            harness: hash_paths(paths) for harness, paths in INSTALLED_SKILLS.items()
+        },
+        "skill_repo": hash_paths(SKILL_DIRS),
         "docs": hash_paths([DOCS_DIR]),
         "authoring_types": hash_paths(AUTHORING_TYPES),
         "cli_help": cli_help_surface(review_bin),

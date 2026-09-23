@@ -21,7 +21,7 @@ import {
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-consent";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 
 export interface TraceRepositoryTarget {
@@ -94,7 +94,7 @@ export async function rememberTraceRepositoryTarget(input: {
   checkout?: string;
   devHome?: string;
 }): Promise<void> {
-  const devHome = input.devHome ?? devWhiteboardHome();
+  const devHome = input.devHome ?? devReviewHome();
   const origin = normalizeStoreOrigin(input.target.origin);
   const filePath = await cachedTargetPath(input.cwd, origin, devHome);
 
@@ -116,7 +116,7 @@ export async function readCachedTraceRepositoryTarget(input: {
   origin: string;
   devHome?: string;
 }): Promise<TraceRepositoryTarget | null> {
-  const devHome = input.devHome ?? devWhiteboardHome();
+  const devHome = input.devHome ?? devReviewHome();
   const origin = normalizeStoreOrigin(input.origin);
   const filePath = await cachedTargetPath(input.cwd, origin, devHome);
 

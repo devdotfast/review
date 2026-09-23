@@ -127,7 +127,7 @@ describe("trace-store-transport", () => {
       mkdirSync(dir, { recursive: true });
     }
 
-    vi.stubEnv("DEV_WHITEBOARD_HOME", devHome);
+    vi.stubEnv("DEV_REVIEW_HOME", devHome);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
 
     execFileSync("git", ["init", "--quiet"], { cwd: repoDir });

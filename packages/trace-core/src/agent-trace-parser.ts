@@ -13,15 +13,15 @@ import {
   parseJsonText,
 } from "@dev.fast/json";
 import {
-  type WhiteboardAgentTraceEvent,
-  type WhiteboardAgentTraceSession,
+  type ReviewAgentTraceEvent,
+  type ReviewAgentTraceSession,
 } from "@dev.fast/trace-protocol";
 
 export const AGENT_TRACE_PARSER_VERSION = "1";
 
-export type AgentTraceHarness = WhiteboardAgentTraceSession["harness"];
+export type AgentTraceHarness = ReviewAgentTraceSession["harness"];
 
-export type AgentTraceEvent = WhiteboardAgentTraceEvent;
+export type AgentTraceEvent = ReviewAgentTraceEvent;
 
 export type AgentTraceUserEvent = Extract<AgentTraceEvent, { kind: "user" }>;
 

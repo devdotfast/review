@@ -1,0 +1,2882 @@
+/* Whiteboard restyle. Layered after styles.css: it only re-dresses surfaces,
+   the layout rules stay where they are. One board, one marker: chrome is the
+   tray, content is the board, committed things are crisp vector, anything the
+   agent is still thinking about is marker ink trailing one blue dot, and
+   erased history lingers as ghost ink. Tokens come from styles.css; the
+   whiteboard-only ones are --tray, --well, --ghost, --marker-tint,
+   --marker-glow, --raised and --board-grid. */
+
+.review-app {
+  --chrome-control-height: 24px;
+  --chrome-control-radius: 6px;
+  --chrome-font-size: 12px;
+  --chrome-font-size-small: 11px;
+  --chrome-hover-bg: var(--well);
+  --chrome-border: var(--rule);
+  --wb-caps: 0.08em;
+}
+
+/* ---------------------------------------------------------------------------
+   Topbar. Views are words on the tray; the marker is drawn under the active one.
+   --------------------------------------------------------------------------- */
+.review-topbar {
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+/* Segmented choice controls: a tray-colored track, the chosen side raised
+   on a hairline. One part for every "pick one of a few" setting (diff
+   layout, theme, keymap). The surface tabs on the left of the top bar are
+   the exception below: words on the tray with the marker under the current
+   one. (The diff settings popover also lives in the top bar, so the
+   exception is keyed on the left group, not the bar.) */
+.review-segmented {
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--tray);
+}
+
+.review-segment {
+  position: relative;
+  gap: 6px;
+  height: 20px;
+  padding: 0 10px;
+  border-radius: 4px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.review-segment:hover:not(.review-segment--active) {
+  background: var(--transparent);
+  color: var(--ink);
+}
+
+.review-segmented .review-segment:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+.review-segment--active {
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--rule-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-topbar-left .review-segmented {
+  gap: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+}
+
+.review-topbar-left .review-segment {
+  height: var(--review-header-height);
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.review-topbar-left .review-segment--active {
+  background: var(--transparent);
+  box-shadow: none;
+  font-weight: 600;
+}
+
+/* The marker is drawn, not painted: the stroke is revealed left to right
+   by a clip that slides open, so the pen's progress is the same whatever
+   the tab's width (a dash offset would not be: the stroke keeps its 2px
+   width through non-scaling-stroke, and under that the dash is measured
+   before the SVG is stretched, so a wide tab's dash ends early). Hover
+   draws a lighter stroke under any other surface; the current one keeps a
+   full stroke. Leaving fades the ink and only then closes the clip, so the
+   pen never runs backwards. */
+.review-marker-underline {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  overflow: visible;
+  clip-path: inset(-2px 100% -2px 0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    clip-path 0s linear 140ms;
+}
+
+.review-marker-underline path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.review-segment:hover .review-marker-underline,
+.review-segment--active .review-marker-underline {
+  clip-path: inset(-2px 0 -2px 0);
+  transition:
+    opacity 0s,
+    clip-path 260ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.review-segment:hover .review-marker-underline {
+  opacity: 0.7;
+}
+
+.review-segment--active .review-marker-underline {
+  opacity: 1;
+}
+
+.review-topbar-left .review-segment--active .review-segment-count {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-marker-underline,
+  .review-segment:hover .review-marker-underline,
+  .review-segment--active .review-marker-underline {
+    transition: opacity 100ms ease;
+  }
+}
+
+.review-segment-count {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* The Review tab while the agent writes (study 05, bar B): marker ink sweeps
+   through the word itself; when the document becomes ready while the reader
+   is elsewhere, an unread dot is tucked past the word's top right. Neither
+   touches the tab's layout: the dot is out of flow and only color moves. */
+.review-topbar-left .review-segment-word {
+  position: relative;
+}
+
+.review-topbar-left .review-segment-unread {
+  position: absolute;
+  top: 1px;
+  right: -7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.review-topbar-left .review-segment-word[data-working] {
+  background: linear-gradient(
+    100deg,
+    var(--ink-muted) 0 40%,
+    var(--accent) 50%,
+    var(--ink-muted) 60% 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--transparent);
+  animation: wb-shimmer 1.8s linear infinite;
+}
+
+.review-topbar-left .review-segment--active .review-segment-word[data-working] {
+  background-image: linear-gradient(
+    100deg,
+    var(--ink) 0 40%,
+    var(--accent) 50%,
+    var(--ink) 60% 100%
+  );
+}
+
+@keyframes wb-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-topbar-left .review-segment-word[data-working] {
+    background: none;
+    color: var(--ink-muted);
+    animation: none;
+  }
+}
+
+.review-open-source-tree,
+.review-topbar-icon-button {
+  border-radius: var(--chrome-control-radius);
+  color: var(--ink-muted);
+}
+
+.review-open-source-tree:hover,
+.review-topbar-icon-button:hover {
+  background: var(--well);
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   The badge. The mini courier says whether an agent is here: he marches
+   while one is, and goes grey and slumps when the stream has dropped.
+   Nothing else in the chrome moves.
+   --------------------------------------------------------------------------- */
+.host-authoring-activity {
+  gap: 7px;
+  height: var(--chrome-control-height);
+  margin-inline: 4px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--transparent);
+  color: var(--ink-muted);
+  font: 500 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+button.host-authoring-activity[data-locatable] {
+  cursor: pointer;
+}
+
+button.host-authoring-activity[data-locatable]:hover {
+  background: var(--marker-glow);
+}
+
+button.host-authoring-activity[data-locatable]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.host-authoring-activity[data-active] {
+  background: var(--marker-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.host-authoring-courier {
+  color: var(--ink-faint);
+  transform: translateY(2px) rotate(-8deg);
+}
+
+.host-authoring-activity[data-active] .host-authoring-courier {
+  color: var(--accent);
+  transform: none;
+  animation: courier-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.host-authoring-activity[data-active] .courier-leg--left {
+  animation: courier-march-left 480ms ease-in-out infinite;
+}
+
+.host-authoring-activity[data-active] .courier-leg--right {
+  animation: courier-march-right 480ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .host-authoring-activity[data-active] .host-authoring-courier,
+  .host-authoring-activity[data-active] .courier-leg--left,
+  .host-authoring-activity[data-active] .courier-leg--right {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Home. Mono display heading, serif card titles, status as marker washes.
+   --------------------------------------------------------------------------- */
+.review-home-page-header h1 {
+  font: 600 32px/42px var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+.review-home-search {
+  width: 256px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.review-home-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-tint);
+}
+
+.review-home-workspace-header {
+  height: auto;
+  justify-content: space-between;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.review-home-workspace-header strong {
+  font-size: 15px;
+  line-height: 24px;
+}
+
+.review-home-scratchpad-glyph {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.review-home-workspace-header > span,
+.review-home-workspace-header--group > span {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.review-home-card {
+  height: 100%;
+  min-height: 128px;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+/* Paper card layout, using the app's existing serif and mono typefaces. */
+.review-home-card:not(.review-home-scratchpad-card) {
+  padding: 0;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-card-main {
+  width: 100%;
+  padding: 12px 14px;
+  gap: 8px;
+}
+
+.review-home-card-repository {
+  min-height: 20px;
+  padding-right: 24px;
+  color: var(--ink-faint);
+  font: 12px/18px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.review-home-card-repository > span[aria-hidden] {
+  padding-inline: 5px;
+}
+
+.review-home-card-repository strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-review-title {
+  font-size: 17px;
+  line-height: 22px;
+  min-height: 44px;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-card-meta {
+  gap: 6px 10px;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.review-home-card:not(.review-home-scratchpad-card)
+  .review-home-card-meta
+  > *
+  + *::before {
+  content: none;
+}
+
+.review-home-card:not(.review-home-scratchpad-card) .review-home-pr:has(+ *) {
+  padding-right: 10px;
+  border-right: 1px solid var(--rule);
+}
+
+.review-home-card-footer {
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--tray);
+  border-top: 1px solid var(--rule);
+  flex-wrap: nowrap;
+}
+
+.review-home-card-footer .review-home-status {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.review-home-card-provenance {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 6px;
+  color: var(--ink-faint);
+  font: 11px/18px var(--font-mono);
+}
+
+.review-home-card-provenance .review-home-origin-worktree {
+  min-width: 0;
+}
+
+.review-home-card-updated {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.review-home-card-updated::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+.review-home-card-shell .review-home-dismiss {
+  top: 12px;
+  right: 12px;
+  width: 20px;
+  height: 20px;
+  opacity: 1;
+  background: transparent;
+}
+
+.review-home-scratchpad .review-home-cards {
+  grid-template-columns: minmax(0, 336px);
+}
+
+.review-home-card:hover:not(:disabled) {
+  border-color: var(--rule-soft);
+}
+
+.review-home-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-tint);
+}
+
+.review-home-card-meta {
+  font-family: var(--font-mono);
+}
+
+.review-home-pr {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.review-home-status {
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.review-home-status--ready {
+  background: var(--diff-added-bg);
+  color: var(--change-added);
+}
+
+.review-home-status--dismissed {
+  border-color: var(--rule);
+  color: var(--ink-muted);
+}
+
+.review-home-status--in-review {
+  background: var(--marker-tint);
+  color: var(--accent);
+}
+
+.review-home-status circle {
+  fill-opacity: 0;
+  stroke-width: 1.2;
+}
+
+.review-home-setup-banner {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--tray);
+}
+
+.review-home-dismissed-toggle {
+  color: var(--ink-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Contents rail. Mono, numbered; the active entry gets the marker underline.
+   --------------------------------------------------------------------------- */
+.review-toc {
+  border-color: var(--rule);
+  background: var(--surface);
+}
+
+.review-toc-toggle:hover,
+.review-toc-toggle:focus-visible {
+  background: var(--well);
+}
+
+.review-toc--rail {
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.review-toc-head {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: var(--wb-caps);
+}
+
+.review-toc-list {
+  gap: 6px;
+}
+
+.review-toc-link {
+  position: relative;
+  gap: 10px;
+  padding: 2px 0;
+  border-radius: 0;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.review-toc-item--h2 .review-toc-link {
+  font-weight: 400;
+}
+
+.review-toc-number {
+  min-width: 22px;
+  font-size: 11px;
+}
+
+.review-toc-item--active .review-toc-link {
+  background: var(--transparent);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-toc-item--active .review-toc-number {
+  color: var(--ink);
+}
+
+.review-toc-link:hover,
+.review-toc-link:focus-visible {
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   The document. Newsreader prose at 17/27, mono byline, callouts as a rule.
+   --------------------------------------------------------------------------- */
+.review-document {
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.review-document h1 {
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+}
+
+.review-document h2 {
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 32px;
+}
+
+/* The scratchpad has no title above its blocks, so its opening heading sits
+   at the page's top padding instead of carrying a section's headroom. */
+.review-document[data-kind="scratchpad"]
+  > .api-document-node:first-child
+  :is(h1, h2, h3):first-child {
+  margin-top: 0;
+}
+
+.review-document h3 {
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.review-doc-meta {
+  gap: 12px;
+  font-size: 12px;
+}
+
+.review-doc-meta-pr {
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.review-stack-selector {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+}
+
+.review-stack-selector > summary {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.review-stack-position-marker {
+  display: none;
+}
+
+.review-section-header {
+  gap: 12px;
+}
+
+.review-section-toggle {
+  left: -28px;
+  color: var(--ink-faint);
+  opacity: 1;
+}
+
+.review-section-meta {
+  color: var(--ink-faint);
+}
+
+.review-section--collapsed .review-section-heading h2 {
+  color: var(--ghost);
+}
+
+.review-document blockquote[data-tone] {
+  margin: 18px 0;
+  padding: 12px 16px;
+  border-left: 2px solid var(--ink-faint);
+  border-radius: 0 6px 6px 0;
+  background: var(--tray);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.review-document blockquote[data-tone="info"] {
+  border-left-color: var(--accent);
+  background: var(--marker-tint);
+}
+
+.review-document blockquote[data-tone="warning"] {
+  border-left-color: var(--change-modified);
+  background: var(--diff-modified-bg);
+}
+
+.review-document blockquote[data-tone="danger"] {
+  border-left-color: var(--change-removed);
+  background: var(--diff-removed-bg);
+}
+
+.review-document blockquote[data-tone="success"] {
+  border-left-color: var(--change-added);
+  background: var(--diff-added-bg);
+}
+
+.review-document code {
+  border-radius: 3px;
+  background: var(--well);
+  font-size: 0.85em;
+}
+
+/* ---------------------------------------------------------------------------
+   Code blocks. The same figure as a diagram: hairline frame, tray header with
+   the language as its kind, the caption as its title, a line count and an
+   icon-only copy button; then the code, scrolling sideways, never wrapping.
+   JSON code blocks and fenced markdown share it.
+   --------------------------------------------------------------------------- */
+.rendered-code-block {
+  min-width: 0;
+  max-width: 100%;
+  margin-block: 24px;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.agent-markdown .rendered-code-block {
+  margin-block: 8px;
+}
+
+.rendered-code-block > .diagram-header {
+  padding-right: 8px;
+}
+
+.rendered-code-block .diagram-header-meta {
+  margin-left: 0;
+}
+
+.rendered-code-copy {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.rendered-code-copy > .ui-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5px;
+}
+
+.rendered-code-copy:hover,
+.rendered-code-copy[data-copied] {
+  background: var(--well);
+}
+
+.rendered-code-copy[data-copied] {
+  color: var(--ink);
+}
+
+.rendered-code-copy:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.rendered-code-body {
+  display: flex;
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink);
+  font: 13px/20px var(--font-mono);
+  text-align: left;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ghost) var(--tray);
+}
+
+.rendered-code-body::-webkit-scrollbar {
+  height: 4px;
+}
+
+.rendered-code-body::-webkit-scrollbar-track {
+  background: var(--tray);
+}
+
+.rendered-code-body::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--ghost);
+}
+
+.rendered-code-block .rendered-code-body code {
+  display: block;
+  flex: 1 0 auto;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: var(--transparent);
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+}
+
+.rendered-code-gutter {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  min-width: 50px;
+  padding: 12px 14px;
+  background: var(--surface);
+  color: var(--ghost);
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+}
+
+.rendered-code-gutter + code {
+  padding-left: 0;
+}
+
+/* The Whiteboard palette: ink at three strengths, the marker for keywords,
+   two more blues for types and functions, one warm pencil for strings and one
+   plum for numbers. Comments are quiet and italic. Diff green and red are
+   reserved for the diff language. The editor themes carry the same values. */
+.rendered-code-block .shj-syn-kwd {
+  color: var(--accent);
+}
+
+.rendered-code-block .shj-syn-type {
+  color: var(--syntax-type);
+}
+
+.rendered-code-block .shj-syn-class {
+  color: var(--syntax-type);
+  font-weight: 500;
+}
+
+.rendered-code-block .shj-syn-func {
+  color: var(--syntax-function);
+}
+
+.rendered-code-block .shj-syn-section {
+  color: var(--syntax-function);
+  font-weight: 600;
+}
+
+.rendered-code-block .shj-syn-var {
+  color: var(--ink);
+}
+
+.rendered-code-block .shj-syn-str {
+  color: var(--syntax-string);
+}
+
+.rendered-code-block .shj-syn-num {
+  color: var(--syntax-number);
+}
+
+.rendered-code-block .shj-syn-bool {
+  color: var(--syntax-number);
+  font-weight: 500;
+}
+
+.rendered-code-block .shj-syn-cmnt {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.rendered-code-block .shj-syn-oper {
+  color: var(--syntax-operator);
+}
+
+.rendered-code-block .shj-syn-insert {
+  color: var(--syntax-inserted);
+}
+
+.rendered-code-block .shj-syn-deleted {
+  color: var(--syntax-deleted);
+}
+
+.rendered-code-block .shj-syn-err {
+  color: var(--syntax-deleted);
+  text-decoration: wavy underline;
+}
+
+/* ---------------------------------------------------------------------------
+   Figures. Hairline frame, tray header and footer, a dot grid on the board.
+   --------------------------------------------------------------------------- */
+.diagram-header,
+.sequence-diagram figcaption.diagram-header {
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.diagram-kind-badge {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--well);
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 18px;
+  letter-spacing: var(--wb-caps);
+}
+
+.diagram-header-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Header meta ("5 stops", "4 nodes") is a quiet count, not a chip: the
+   sequence figcaption used to box and uppercase its `em`. */
+.diagram-header-meta,
+.sequence-diagram > .diagram-header em,
+.sequence-diagram figcaption em {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  color: var(--ink-faint);
+  font: 400 11px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.flow-diagram {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.flow-diagram-body {
+  border-top: 0;
+}
+
+.flow-diagram-canvas {
+  background: var(--surface) var(--board-grid) repeat;
+}
+
+.flow-diagram > footer {
+  border-top: 1px solid var(--rule);
+  background: var(--tray);
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* Flow nodes are React Flow nodes: a shape (rect, pill or diamond) under
+   the label. The handles exist only so edges can attach. */
+.lens-flow .react-flow,
+.lens-flow .react-flow__pane,
+.lens-flow .react-flow__viewport {
+  background: var(--transparent);
+}
+
+.lens-flow .react-flow__node {
+  cursor: default;
+}
+
+.flow-node {
+  position: relative;
+  box-sizing: border-box;
+  cursor: pointer;
+  font: 12px/1.4 var(--font-mono);
+  color: var(--ink);
+}
+
+.flow-node-handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flow-node-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.flow-node-shape :is(rect, polygon) {
+  fill: var(--surface);
+  stroke: var(--rule-soft);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transition:
+    fill 200ms ease,
+    stroke 200ms ease;
+}
+
+.lens-flow-node--added .flow-node-shape :is(rect, polygon) {
+  fill: var(--diff-added-bg);
+  stroke: var(--change-added);
+}
+
+.lens-flow-node--removed .flow-node-shape :is(rect, polygon) {
+  fill: var(--diff-removed-bg);
+  stroke: var(--change-removed);
+}
+
+.lens-flow-node--modified .flow-node-shape :is(rect, polygon) {
+  fill: var(--diff-modified-bg);
+  stroke: var(--change-modified);
+}
+
+.lens-flow-node.is-selected .flow-node-shape :is(rect, polygon),
+.lens-flow-node:focus-visible .flow-node-shape :is(rect, polygon) {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.lens-flow-node:focus-visible {
+  outline: none;
+}
+
+.lens-flow-node.is-viewed {
+  opacity: 0.42;
+}
+
+.flow-node-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+/* A decision rests as a dashed box. The trace draws it solid and the dashes
+   appear once it settles. The rect's pathLength is 1, so dash lengths are
+   fractions of its outline: about 4px on, 3px off. */
+.lens-flow-node--decision:not([data-motion]) .flow-node-shape rect {
+  stroke: var(--ink-muted);
+  stroke-dasharray: 0.0075 0.0057;
+}
+
+.flow-node-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.flow-node-caption {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.lens-flow-edge {
+  stroke: var(--ink-muted);
+  stroke-width: 1.4;
+  fill: none;
+}
+
+.lens-flow .react-flow__edge-path.lens-flow-edge {
+  stroke: var(--ink-muted);
+}
+
+.lens-flow-edge-label {
+  font: 9px var(--font-mono);
+  fill: var(--ink-muted);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Diff workspace. The sidebar is the tray; washes at 8%, marker for viewed.
+   --------------------------------------------------------------------------- */
+.diff-workspace-sidebar {
+  background: var(--tray);
+  border-right: 1px solid var(--rule);
+}
+
+.diff-global-progress {
+  min-height: 52px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.diff-progress-ring circle {
+  stroke: var(--well);
+  stroke-width: 2.5;
+}
+
+.diff-progress-ring circle + circle {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.diff-sidebar-heading {
+  padding: 10px 14px 6px 16px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: var(--wb-caps);
+}
+
+.diff-lens-section {
+  border-bottom: 0;
+}
+
+/* The section wears no wash; the pressed toggle already says open. */
+.diff-lens-section.is-expanded {
+  background: var(--transparent);
+}
+
+.review-lens-sidebar [aria-current="true"] {
+  background: var(--marker-tint);
+  font-weight: 600;
+}
+
+.review-lens-sidebar [aria-current="true"]::before {
+  content: none;
+}
+
+.diff-lens-toggle {
+  padding: 6px 12px 6px 16px;
+  font-size: 12px;
+}
+
+.diff-lens-toggle:hover {
+  background: var(--well);
+}
+
+.diff-lens-toggle.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.diff-lens-name small {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.diff-counts {
+  font-size: 11px;
+}
+
+.diff-count-added {
+  color: var(--change-added);
+}
+
+.diff-count-removed {
+  color: var(--change-removed);
+}
+
+.viewed-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--surface);
+  font-size: 10px;
+}
+
+.viewed-check--viewed {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  opacity: 1;
+}
+
+.diff-workspace .is-viewed {
+  opacity: 0.55;
+}
+
+.diff-workspace .is-viewed .viewed-check--viewed {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   Controls. 28px, 6px radius, one filled button per screen.
+   --------------------------------------------------------------------------- */
+.review-corner-dismiss,
+.review-home-setup-banner button,
+.review-home-prompt-copy,
+.agent-setup-card button,
+.tutorial-guide button {
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.review-home-setup-banner button {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.review-home-setup-banner button:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+/* ---------------------------------------------------------------------------
+   Commits. A timeline down the left, each commit a crisp card on the board.
+   --------------------------------------------------------------------------- */
+.review-commits-range {
+  gap: 16px;
+  align-items: baseline;
+  padding-bottom: 16px;
+}
+
+.review-commits-range > div:first-child {
+  min-width: 0;
+}
+
+.review-commits-range strong {
+  flex-shrink: 0;
+  font: 600 15px/20px var(--font-mono);
+  white-space: nowrap;
+}
+
+.review-commits-range > div:first-child > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-commits-range-shas {
+  flex-shrink: 0;
+}
+
+.review-commit-date {
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: var(--wb-caps);
+  text-transform: uppercase;
+}
+
+.review-commit-card {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.review-commit-card:hover {
+  border-color: var(--rule-soft);
+}
+
+.review-commit-card--expanded {
+  border-color: var(--rule-soft);
+}
+
+.review-commit-open {
+  height: 24px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.review-commit-open:hover {
+  background: var(--well);
+}
+
+/* ---------------------------------------------------------------------------
+   Software map. The board is dotted; the boxes are hairlines drawn by the
+   map stylesheet itself from the base palette.
+   --------------------------------------------------------------------------- */
+.review-map-view .react-flow__pane {
+  background-image: var(--board-grid) !important;
+  background-repeat: repeat !important;
+}
+
+/* ---------------------------------------------------------------------------
+   One glyph, one pair, one control. Shared by every surface.
+   --------------------------------------------------------------------------- */
+.review-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  color: var(--ink-faint);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    transform 120ms ease,
+    color 120ms ease;
+}
+
+.review-chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+button:hover > .review-chevron,
+button:focus-visible > .review-chevron {
+  color: var(--ink);
+}
+
+.diagram-tour-button,
+.review-commit-open,
+.database-use-case-select {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 11px var(--font-mono);
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.diagram-tour-button:hover,
+.review-commit-open:hover,
+.database-use-case-select:hover {
+  background: var(--well);
+}
+
+.diagram-tour-button:focus-visible,
+.review-commit-open:focus-visible,
+.database-use-case-select:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.database-use-case-select {
+  width: 100%;
+  min-width: 0;
+  padding-right: 26px;
+  overflow: hidden;
+  appearance: none;
+  background-image: var(--chevron-down);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 12px;
+  text-overflow: ellipsis;
+}
+
+/* File marks: status as one stroke in the chevron's 16px slot. Added and
+   deleted take the two change colors, modified the warn amber the diagrams use,
+   renamed ink-muted, referenced context a ghost file outline. */
+.review-file-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.review-file-mark circle {
+  fill: currentcolor;
+  stroke: none;
+}
+
+.review-file-mark-added {
+  color: var(--change-added);
+}
+
+.review-file-mark-deleted {
+  color: var(--change-removed);
+}
+
+.review-file-mark-modified {
+  color: var(--change-modified);
+}
+
+.review-file-mark-renamed {
+  color: var(--ink-muted);
+}
+
+.review-file-mark-unchanged {
+  color: var(--ghost);
+}
+
+.review-commit-stats,
+.review-home-card-meta,
+.review-doc-meta {
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Meta lines are one sentence of facts joined by a middle dot. */
+.review-home-card-meta > * + *::before,
+.review-doc-meta > * + *::before {
+  content: "· ";
+  color: var(--ink-faint);
+  white-space: pre;
+}
+
+.review-doc-meta > [data-row-start]::before {
+  visibility: hidden;
+}
+
+/* A box is the state of a thing (viewed, enabled); it is the same 14px
+   hairline box everywhere, filled with the marker when checked. */
+.review-settings-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--surface) center / 10px 10px no-repeat;
+  appearance: none;
+  cursor: pointer;
+}
+
+.review-settings-toggle input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: var(--check-mark);
+}
+
+/* ---------------------------------------------------------------------------
+   The courier (study 05 "Drawing", section E). One character for the whole
+   board, drawn with the marker: outline on the board color, two dot eyes,
+   two feet. He stands on the top edge of whatever the cursor names, hops to
+   the next (260ms, arc scaled to the distance, capped at 72px, a squash on
+   landing), marches in place while the lease is live and nothing is
+   arriving, sits after three seconds, and hops up and out when the lease
+   ends. Click him and he jumps. courier.tsx measures and moves him; every
+   pose is drawn here. Reduced motion keeps him and drops the hops.
+   --------------------------------------------------------------------------- */
+.courier-figure .courier-shell,
+.host-authoring-courier .courier-shell {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.courier-figure .courier-eye,
+.host-authoring-courier .courier-eye {
+  fill: currentColor;
+}
+
+.courier-figure .courier-leg,
+.host-authoring-courier .courier-leg,
+.courier-figure .courier-lids,
+.host-authoring-courier .courier-lids {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.courier-figure .courier-lids,
+.host-authoring-courier .courier-lids {
+  stroke-width: 1.4;
+  opacity: 0;
+}
+
+.courier-figure .courier-whoosh,
+.host-authoring-courier .courier-whoosh {
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.courier {
+  position: absolute;
+  z-index: 4;
+  width: 32px;
+  height: 39px;
+  margin: -39px 0 0 -16px;
+  color: var(--accent);
+  pointer-events: none;
+  transition:
+    left 260ms linear,
+    top 260ms linear;
+}
+
+.courier[data-state="unknown"] {
+  color: var(--ink-faint);
+}
+
+.courier-figure {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.courier-figure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.courier-arc,
+.courier-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.courier-body {
+  transform-origin: 50% 100%;
+}
+
+.courier-body svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.courier-shadow {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  width: 18px;
+  height: 4px;
+  margin-left: -9px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.18;
+}
+
+.courier-tag {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font: 500 10px var(--font-mono);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+.courier-figure:hover .courier-tag,
+.courier-figure:focus-visible .courier-tag {
+  opacity: 1;
+}
+
+/* The hop: the wrapper slides, the arc lifts, the body squashes on landing. */
+.courier[data-motion="hopping"] .courier-arc {
+  animation: courier-hop-arc 260ms ease-out;
+}
+
+.courier[data-motion="hopping"] .courier-body {
+  animation: courier-hop-squash 340ms ease-out;
+}
+
+.courier[data-motion="hopping"] .courier-shadow {
+  animation: courier-hop-shadow 260ms ease-out;
+}
+
+@keyframes courier-hop-arc {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(calc(var(--courier-arc, 40px) * -1));
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-hop-squash {
+  0% {
+    transform: scale(1.1, 0.9);
+  }
+  30% {
+    transform: scale(0.92, 1.1);
+  }
+  76% {
+    transform: scale(0.92, 1.06);
+  }
+  84% {
+    transform: scale(1.14, 0.84);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes courier-hop-shadow {
+  0% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  45% {
+    transform: scale(0.6);
+    opacity: 0.08;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+}
+
+/* The jump, on click: higher, with a wobble and happy eyes. */
+.courier[data-motion="jumping"] .courier-arc {
+  animation: courier-jump-arc 420ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+
+.courier[data-motion="jumping"] .courier-body {
+  animation: courier-jump-squash 520ms ease-out;
+}
+
+.courier[data-motion="jumping"] .courier-lids {
+  animation: courier-happy 520ms steps(1) forwards;
+}
+
+.courier[data-motion="jumping"] .courier-shadow {
+  animation: courier-jump-shadow 420ms cubic-bezier(0.3, 0, 0.2, 1);
+}
+
+@keyframes courier-jump-arc {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-58px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-jump-squash {
+  0% {
+    transform: scale(1.25, 0.7);
+  }
+  18% {
+    transform: scale(0.82, 1.24) rotate(-6deg);
+  }
+  50% {
+    transform: scale(0.9, 1.1) rotate(6deg);
+  }
+  80% {
+    transform: scale(0.9, 1.06) rotate(0);
+  }
+  88% {
+    transform: scale(1.22, 0.76);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+
+@keyframes courier-jump-shadow {
+  0% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+  50% {
+    transform: scale(0.45);
+    opacity: 0.05;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.18;
+  }
+}
+
+@keyframes courier-happy {
+  0%,
+  10% {
+    opacity: 0;
+  }
+  12%,
+  70% {
+    opacity: 1;
+  }
+  72%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Idle: march in place, then sit. */
+.courier[data-idle="march"] .courier-leg--left,
+.host-authoring-activity[data-active] .courier-leg--left {
+  animation: courier-march-left 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-leg--right,
+.host-authoring-activity[data-active] .courier-leg--right {
+  animation: courier-march-right 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-body {
+  animation: courier-march-bob 480ms ease-in-out infinite;
+}
+
+.courier[data-idle="march"] .courier-whoosh {
+  opacity: 0.5;
+}
+
+@keyframes courier-march-left {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes courier-march-right {
+  0%,
+  100% {
+    transform: translateY(-4px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes courier-march-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(2deg);
+  }
+}
+
+.courier[data-idle="sit"] .courier-leg--left {
+  transform: rotate(-80deg);
+  transform-origin: 9px 24px;
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-leg--right {
+  transform: rotate(80deg);
+  transform-origin: 19px 24px;
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-body {
+  transform: translateY(7px);
+  transition: transform 300ms ease;
+}
+
+.courier[data-idle="sit"] .courier-eyes {
+  animation: courier-doze 5s steps(1) infinite;
+}
+
+@keyframes courier-doze {
+  0%,
+  80% {
+    transform: translateY(0);
+  }
+  81%,
+  100% {
+    transform: translateY(1.5px);
+  }
+}
+
+/* The lease ended: up and out. Unknown: grey and slumped, no motion. */
+.courier[data-motion="leaving"] .courier-arc {
+  animation: courier-leave 420ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes courier-leave {
+  0% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(-260px);
+    opacity: 0;
+  }
+}
+
+.courier[data-state="unknown"] .courier-body {
+  transform: translateY(2px) rotate(-8deg);
+}
+
+/* Arriving: the badge's mini courier drops in when a lease begins. */
+@keyframes courier-arrive {
+  0% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  70% {
+    transform: translateY(2px) scale(1.1, 0.9);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .courier {
+    transition: none;
+  }
+
+  .courier .courier-arc,
+  .courier .courier-body,
+  .courier .courier-shadow,
+  .courier .courier-leg,
+  .courier .courier-eyes,
+  .courier .courier-lids {
+    animation: none !important;
+    transition: none;
+  }
+
+  .courier .courier-tag {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Drawing (study 05). Each accepted edit is drawn as it lands, one at a
+   time, from the draw queue in draw-queue.ts; the courier stands on the one
+   being drawn. Blocks and units carry `data-motion` for their phase and
+   everything below is the drawing itself. Outline first, then fill: a new
+   flow node is traced clockwise from its top-left on its real geometry
+   (pathLength=1 on the rect), pulses once, and its label composes; an edge
+   is one stroke from source to target; a new block gets a slot, then wipes
+   in behind the marker dot; a rewritten block is erased in three diagonal
+   passes and rewritten; a focused block wears the attention ring for as long
+   as the agent is on it. Queued content waits unseen so nothing lands twice.
+   --------------------------------------------------------------------------- */
+@property --wb-wipe {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@property --wb-sweep {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: -20%;
+}
+
+.api-document-node[data-motion="queued"] {
+  visibility: hidden;
+}
+
+/* Landing: a dashed slot, then the content wipes in behind the dot while
+   the slot takes the marker wash and a solid outline; both fade on settle. */
+.api-document-node[data-motion="landing"] {
+  position: relative;
+  border-radius: 8px;
+  animation: wb-land-slot 680ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.api-document-node[data-motion="landing"] > :not(.host-authoring-activity) {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  animation: wb-wipe 420ms cubic-bezier(0.2, 0.7, 0.2, 1) 260ms both;
+}
+
+.api-document-node[data-motion="landing"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: var(--wb-wipe);
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-glow);
+  pointer-events: none;
+  animation:
+    wb-wipe 420ms cubic-bezier(0.2, 0.7, 0.2, 1) 260ms both,
+    wb-dot-fade 150ms ease 680ms both;
+}
+
+@keyframes wb-land-slot {
+  0% {
+    outline: 1px dashed var(--rule-soft);
+    outline-offset: -1px;
+    background: var(--transparent);
+  }
+  38% {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+    background: var(--marker-tint);
+  }
+  70% {
+    outline: 1px solid var(--accent);
+    background: var(--marker-tint);
+  }
+  100% {
+    outline: 1px solid var(--transparent);
+    outline-offset: -1px;
+    background: var(--transparent);
+  }
+}
+
+@keyframes wb-wipe {
+  from {
+    --wb-wipe: 0%;
+  }
+  to {
+    --wb-wipe: 108%;
+  }
+}
+
+@keyframes wb-dot-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Rewriting: the eraser (a flat well-gray block) lands and makes three
+   diagonal passes; the text under it drops away, then the new ink wipes in
+   behind the dot. */
+.api-document-node[data-motion="rewriting"] {
+  position: relative;
+}
+
+.api-document-node[data-motion="rewriting"] > :not(.host-authoring-activity) {
+  animation:
+    wb-erase 400ms linear 200ms both,
+    wb-rewrite 500ms cubic-bezier(0.2, 0.7, 0.2, 1) 600ms both;
+}
+
+.api-document-node[data-motion="rewriting"]::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 44px;
+  height: 18px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--well);
+  opacity: 0;
+  pointer-events: none;
+  animation:
+    wb-eraser-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    wb-eraser-sweeps 400ms linear 200ms both,
+    wb-eraser-out 200ms ease 600ms both;
+}
+
+@keyframes wb-erase {
+  from {
+    --wb-sweep: -20%;
+    opacity: 1;
+    -webkit-mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+    mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+  }
+  to {
+    --wb-sweep: 130%;
+    opacity: 1;
+    -webkit-mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+    mask-image: linear-gradient(
+      115deg,
+      transparent calc(var(--wb-sweep) - 12%),
+      #000 var(--wb-sweep)
+    );
+  }
+}
+
+@keyframes wb-rewrite {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes wb-eraser-in {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) rotate(-6deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) rotate(-6deg);
+  }
+}
+
+@keyframes wb-eraser-sweeps {
+  0% {
+    transform: translate(0, 0) rotate(-6deg);
+  }
+  33% {
+    transform: translate(520px, 22px) rotate(-8deg);
+  }
+  34% {
+    transform: translate(30px, 26px) rotate(-6deg);
+  }
+  66% {
+    transform: translate(540px, 50px) rotate(-8deg);
+  }
+  67% {
+    transform: translate(60px, 54px) rotate(-6deg);
+  }
+  100% {
+    transform: translate(560px, 78px) rotate(-8deg);
+  }
+}
+
+@keyframes wb-eraser-out {
+  to {
+    opacity: 0;
+    transform: translate(600px, 88px) rotate(-8deg);
+  }
+}
+
+/* Retitle: a section or callout heading recomposes; its children stay. */
+.api-document-node[data-motion="retitle"] .review-section-heading h2,
+.api-document-node[data-motion="retitle"] > blockquote > strong {
+  animation: wb-label 420ms steps(14) both;
+}
+
+/* Erasing: a removed block gets the eraser's three passes, then the board
+   closes over the gap. Nothing is left behind. */
+.api-document-node[data-motion="erasing"] {
+  position: relative;
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  animation: wb-collapse 260ms cubic-bezier(0.2, 0.7, 0.2, 1) 400ms both;
+}
+
+.api-document-node[data-motion="erasing"] > :not(.host-authoring-activity) {
+  animation: wb-erase 400ms linear both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+.api-document-node[data-motion="erasing"]::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 44px;
+  height: 18px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--well);
+  opacity: 0;
+  pointer-events: none;
+  animation:
+    wb-eraser-in 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    wb-eraser-sweeps 400ms linear both,
+    wb-eraser-out 120ms ease 400ms both;
+}
+
+@keyframes wb-collapse {
+  from {
+    height: auto;
+    margin-block: 0;
+  }
+  to {
+    height: 0;
+    margin-block: 0;
+  }
+}
+
+/* Attention: the ring is drawn on and held while the agent is on the block. */
+.api-document-node[data-motion="attention"] {
+  border-radius: 8px;
+  outline: 1px solid var(--accent);
+  outline-offset: 6px;
+  background: var(--marker-tint);
+  animation: wb-attention 250ms ease-out both;
+}
+
+@keyframes wb-attention {
+  from {
+    outline-color: var(--transparent);
+    background: var(--transparent);
+  }
+}
+
+/* Flow units. Queued: unseen. Outline: the tron trace runs the rect (or the
+   edge) end to end, brightest at the head; nothing is inside yet. Fill: the
+   marker wash and a pulse, then the label. Relabel: only the label goes. */
+.lens-flow-node[data-motion="queued"],
+.lens-flow-edge[data-motion="queued"],
+.lens-flow-edge-label[data-motion="queued"] {
+  opacity: 0;
+}
+
+/* Stroke: one quick pass over a diagram written whole. Each unit is traced
+   in one short stroke and its label follows at once. */
+.lens-flow-node[data-motion="stroke"] .flow-node-shape :is(rect, polygon) {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.lens-flow-node[data-motion="stroke"] .flow-node-text {
+  animation: wb-label 160ms steps(8) 60ms both;
+}
+
+.lens-flow-edge[data-motion="stroke"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.lens-flow-edge-label[data-motion="stroke"] {
+  animation: wb-label 120ms steps(6) 100ms both;
+}
+
+.lens-flow-node[data-motion="outline"] .flow-node-shape :is(rect, polygon) {
+  fill: var(--transparent);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.lens-flow-node[data-motion="outline"] .flow-node-text {
+  opacity: 0;
+}
+
+.lens-flow-node[data-motion="fill"] .flow-node-shape :is(rect, polygon) {
+  animation: wb-node-fill 330ms ease-out both;
+}
+
+.lens-flow-node[data-motion="fill"] .flow-node-text,
+.lens-flow-node[data-motion="relabel"] .flow-node-text {
+  animation: wb-label 330ms steps(12) 90ms both;
+}
+
+.lens-flow-node[data-motion="relabel"] .flow-node-shape :is(rect, polygon) {
+  animation: wb-node-fill 420ms ease-out both;
+}
+
+.lens-flow-edge[data-motion="outline"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.lens-flow-edge-label[data-motion="outline"] {
+  animation: wb-label 200ms steps(8) 300ms both;
+}
+
+.lens-flow-node[data-motion="attention"] .flow-node-shape :is(rect, polygon) {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  fill: var(--marker-tint);
+}
+
+@keyframes wb-trace {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes wb-node-fill {
+  0% {
+    fill: var(--marker-tint);
+    stroke: var(--accent);
+    stroke-width: 1.6;
+  }
+  60% {
+    fill: var(--marker-tint);
+    stroke: var(--accent);
+  }
+  100% {
+    stroke-width: 1;
+  }
+}
+
+@keyframes wb-label {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* A sequence step: the message line is one stroke drawn from its source
+   to its target, the arrowhead lands last, then the dot pops. */
+.sequence-message[data-motion="queued"],
+.sequence-message-dot[data-motion="queued"],
+.sequence-message-label-anchor[data-motion="queued"] {
+  opacity: 0;
+}
+
+.sequence-message[data-motion="stroke"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 220ms linear both;
+}
+
+.sequence-message-label-anchor[data-motion="outline"],
+.sequence-message-label-anchor[data-motion="stroke"] {
+  animation: wb-label 160ms steps(8) 120ms both;
+}
+
+.sequence-message[data-motion="outline"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  animation: wb-trace 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sequence-message[data-motion="fill"] {
+  stroke: var(--accent);
+}
+
+.sequence-message-dot[data-motion="fill"] {
+  animation: wb-step-pop 450ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sequence-message-dot[data-motion="attention"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-glow);
+}
+
+@keyframes wb-step-pop {
+  0% {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--marker-glow);
+  }
+  40% {
+    box-shadow: 0 0 0 8px var(--marker-glow);
+  }
+  100% {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--transparent);
+  }
+}
+
+/* The lens list on the Diffs page is the lenses' board: its courier stands
+   on the row being written, a new row lands like a block, a retitle
+   recomposes the name, a removed row is erased and the list closes over it. */
+.diff-sidebar-lenses {
+  position: relative;
+}
+
+.diff-sidebar-lenses:has(> .courier) {
+  padding-top: 14px;
+}
+
+.diff-lens-section[data-motion="queued"] {
+  visibility: hidden;
+}
+
+.diff-lens-section[data-motion="landing"] {
+  animation: wb-land-slot 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.diff-lens-section[data-motion="landing"] > .diff-lens-row {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(var(--wb-wipe) - 8%),
+    transparent var(--wb-wipe)
+  );
+  animation: wb-wipe 340ms cubic-bezier(0.2, 0.7, 0.2, 1) 180ms both;
+}
+
+.diff-lens-section[data-motion="relabel"] .diff-lens-name {
+  animation: wb-label 420ms steps(14) both;
+}
+
+.diff-lens-section[data-motion="attention"] {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--marker-tint);
+  animation: wb-attention 250ms ease-out both;
+}
+
+.diff-lens-section[data-motion="erasing"] {
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  animation: wb-collapse 200ms cubic-bezier(0.2, 0.7, 0.2, 1) 320ms both;
+}
+
+.diff-lens-section[data-motion="erasing"] > .diff-lens-row {
+  animation: wb-erase 320ms linear both;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+/* Reduced motion: every phase is its finished frame. */
+@media (prefers-reduced-motion: reduce) {
+  .api-document-node[data-motion="landing"],
+  .api-document-node[data-motion="landing"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="landing"]::after,
+  .api-document-node[data-motion="rewriting"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="rewriting"]::before,
+  .api-document-node[data-motion="erasing"],
+  .api-document-node[data-motion="erasing"] > :not(.host-authoring-activity),
+  .api-document-node[data-motion="erasing"]::before,
+  .api-document-node[data-motion="retitle"] .review-section-heading h2,
+  .api-document-node[data-motion="retitle"] > blockquote > strong,
+  .api-document-node[data-motion="attention"],
+  .lens-flow-node[data-motion] .flow-node-shape :is(rect, polygon),
+  .lens-flow-node[data-motion] .flow-node-text,
+  .lens-flow-edge[data-motion],
+  .lens-flow-edge-label[data-motion],
+  .sequence-message[data-motion],
+  .sequence-message-dot[data-motion],
+  .sequence-message-label-anchor[data-motion],
+  .diff-lens-section[data-motion],
+  .diff-lens-section[data-motion] > .diff-lens-row,
+  .diff-lens-section[data-motion] .diff-lens-name {
+    animation: none !important;
+    -webkit-mask-image: none;
+    mask-image: none;
+    clip-path: none;
+  }
+
+  .api-document-node[data-motion="landing"]::after,
+  .api-document-node[data-motion="rewriting"]::before,
+  .api-document-node[data-motion="erasing"]::before {
+    display: none;
+  }
+
+  .api-document-node[data-motion="erasing"],
+  .diff-lens-section[data-motion="erasing"] {
+    display: none;
+  }
+}
+
+/* Paper desktop table: fixed metadata lanes and a flexible title column. */
+.review-home-table-section {
+  margin-top: 24px;
+}
+
+.review-home-table-toolbar,
+.review-home-table-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.review-home-table-toolbar {
+  padding: 8px 0 12px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font: 15px/24px var(--font-mono);
+}
+
+.review-home-table-menu {
+  position: relative;
+}
+.review-home-table-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font: 13px/18px var(--font-mono);
+  cursor: pointer;
+}
+.review-home-table-menu-trigger strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+.review-home-table-menu-trigger[aria-expanded="true"] {
+  background: var(--tray);
+  border-color: var(--ink-faint);
+}
+.review-home-table-menu svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.review-home-table-menu .review-home-menu-chevron {
+  width: 12px;
+  height: 12px;
+}
+.review-home-table-menu-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  width: max-content;
+  min-width: 208px;
+  max-width: min(360px, 80vw);
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.review-home-table-menu-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/18px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.review-home-table-menu-options button:hover,
+.review-home-table-menu-options button[aria-checked="true"] {
+  background: var(--tray);
+}
+
+.review-home-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.review-home-table {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font: 12px/18px var(--font-mono);
+}
+
+.review-home-col-pr {
+  width: 88px;
+}
+.review-home-col-branch {
+  width: 296px;
+}
+.review-home-col-date {
+  width: 136px;
+}
+.review-home-col-action {
+  width: 56px;
+}
+
+.review-home-table th {
+  height: 36px;
+  background: var(--tray);
+  color: var(--ink-muted);
+  font: 600 11px/16px var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.review-home-table th,
+.review-home-table td {
+  padding: 0 8px;
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-home-table th:first-child,
+.review-home-table td:first-child {
+  padding-left: 16px;
+}
+
+.review-home-table td {
+  height: 60px;
+  color: var(--ink-muted);
+}
+
+.review-home-table td:first-child,
+.review-home-table td:nth-child(5) {
+  color: var(--ink);
+}
+
+.review-home-table tr:last-child td {
+  border-bottom: 0;
+}
+.review-home-table tbody tr {
+  cursor: pointer;
+}
+.review-home-table tbody tr:hover,
+.review-home-table tbody tr:focus-within {
+  background: var(--tray);
+}
+
+.review-home-table-open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.review-home-table .review-home-review-title {
+  display: block;
+  width: 100%;
+  font: 500 17px/22px var(--font-serif);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-home-table-repository {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-faint);
+  font: 11px/14px var(--font-mono);
+}
+
+.review-home-table-repository strong {
+  font-weight: 400;
+}
+.review-home-table-repository > span[aria-hidden] {
+  padding-inline: 5px;
+}
+.review-home-table .review-home-dismiss {
+  position: static;
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+}
+.review-home-table tr:hover .review-home-dismiss,
+.review-home-table tr:focus-within .review-home-dismiss {
+  opacity: 1;
+}
+.review-home-action-heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@container review-canvas (max-width: 660px) {
+  .review-home-table-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .review-home-table-controls {
+    flex-wrap: wrap;
+  }
+}
+
+.review-home-search {
+  font-size: 15px;
+  gap: 12px;
+}
+.review-home-search > svg {
+  width: 18px;
+  height: 18px;
+}
+.review-home-table td:first-child {
+  font-size: 13px;
+  font-weight: 500;
+}
+.review-home-table td:nth-child(4),
+.review-home-table td:nth-child(5) {
+  font-size: 13px;
+}
+@container review-canvas (max-width: 1100px) {
+  .review-home-col-branch {
+    width: 200px;
+  }
+}
+
+.review-home-row-actions {
+  display: flex;
+  justify-content: center;
+}
+.review-home-row-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  opacity: 0;
+  cursor: pointer;
+}
+.review-home-row-menu-trigger svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.review-home-table tr:hover .review-home-row-menu-trigger,
+.review-home-table tr:focus-within .review-home-row-menu-trigger,
+.review-home-row-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+.review-home-row-menu-trigger:hover,
+.review-home-row-menu-trigger[aria-expanded="true"] {
+  background: var(--well);
+}
+.review-home-row-menu {
+  position: fixed;
+  inset: auto;
+  top: calc(anchor(bottom) + 6px);
+  right: anchor(right);
+  position-try-fallbacks: flip-block;
+  margin: 0;
+  width: 168px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+.review-home-menu-delete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--change-removed);
+  font: 13px/18px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.review-home-menu-delete:hover {
+  background: var(--tray);
+}
+.review-home-menu-delete svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Paper's review header: identity, title, then source and diff metadata. */
+.review-document-header {
+  width: min(100%, var(--review-prose-max-width));
+  margin: 28px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 36px;
+  border-bottom: 1px solid var(--rule-soft);
+  font: 13px/18px var(--font-mono);
+  color: var(--ink-faint);
+}
+
+.review-header-top,
+.review-header-identity,
+.review-header-details,
+.review-header-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.review-header-top {
+  justify-content: space-between;
+  gap: 10px 24px;
+}
+.review-header-identity {
+  gap: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-header-separator {
+  color: var(--ink-faint);
+}
+.review-header-updated {
+  margin-left: auto;
+}
+.review-document-header .review-doc-meta-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+}
+.review-document-header svg {
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.review-document .review-document-header h1 {
+  margin: 0;
+  width: 100%;
+  max-width: 1000px;
+  font-size: 32px;
+  line-height: 38px;
+  letter-spacing: -0.015em;
+}
+.review-header-details {
+  gap: 12px 20px;
+  padding-top: 12px;
+}
+.review-document-header .review-doc-meta-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--well);
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.review-doc-meta-branch svg {
+  color: var(--ink-faint);
+}
+.review-doc-meta-branch > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-document-header .review-branch-range {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-document-header .review-branch-ref {
+  gap: 8px;
+}
+.review-document-header .review-branch-copy {
+  padding: 0;
+}
+.review-header-stats {
+  gap: 10px;
+}
+.review-header-stats .diff-counts {
+  font-size: 13px;
+  gap: 10px;
+}
+.review-header-change-bar {
+  display: flex;
+  flex: 0 0 42px;
+  gap: 2px;
+  height: 8px;
+}
+.review-header-change-bar > span {
+  min-width: 1px;
+  background: var(--change-added);
+  border-radius: 1px;
+}
+.review-header-change-bar > .is-removed {
+  background: var(--change-removed);
+}
+
+.review-document:has(.review-document-header) {
+  --review-prose-max-width: 760px;
+  max-width: 900px;
+}
+
+.review-header-comparison {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.review-header-comparison .review-branch-name {
+  color: var(--ink-muted);
+}
+
+.review-document-header + .api-document-node .review-section-header {
+  margin-top: 40px;
+}
+
+.review-app:has(.review-document-header) .review-toc--rail {
+  left: max(24px, calc((100% - 1320px) / 2));
+  width: 240px;
+  padding: 6px 0 0;
+}
+
+.review-app:has(.review-document-header) .review-toc--rail .review-toc-head {
+  padding: 0 0 10px 14px;
+}
+
+.review-app:has(.review-document-header) .review-toc--rail .review-toc-list {
+  gap: 4px;
+}
+
+.review-app:has(.review-document-header) .review-toc--rail .review-toc-link {
+  min-height: 30px;
+  gap: 12px;
+  padding-block: 0;
+  font-size: 13px;
+}
+
+.review-app:has(.review-document-header) .review-toc--rail .review-toc-number {
+  flex: 0 0 12px;
+  min-width: 12px;
+  font-size: 12px;
+}

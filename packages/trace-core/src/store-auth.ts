@@ -1,7 +1,7 @@
 // Login, logout, and identity for the hosted trace store.
 //
 // A device-flow login (ported from the dev CLI's auth/device.ts) stores a
-// bearer token under $DEV_WHITEBOARD_HOME/auth.json. Every store-bound command
+// bearer token under $DEV_REVIEW_HOME/auth.json. Every store-bound command
 // reads that file back through requireStoreClient.
 
 import { readFile, rm } from "node:fs/promises";
@@ -21,7 +21,7 @@ import { errorMessage } from "./error-message";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
 export const DEFAULT_STORE_ORIGIN = DEFAULT_HOSTED_ORIGIN;
@@ -39,7 +39,7 @@ export type StoreAuth = z.infer<typeof storeAuthSchema>;
 const SLOW_DOWN_MS = 5_000;
 
 export function storeAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(devWhiteboardHome(env), "auth.json");
+  return path.join(devReviewHome(env), "auth.json");
 }
 
 export async function readStoreAuth(

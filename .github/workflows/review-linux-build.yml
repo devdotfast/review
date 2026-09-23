@@ -29,7 +29,7 @@ jobs:
       BUILD_SOURCEVERSION: ${{ inputs.commit }}
       REVIEW_LINUX_PACKAGE_REVISION: ${{ inputs.package_revision }}
       GNUPGHOME: ${{ github.workspace }}/.linux-signing
-      WHITEBOARD_SIGNING_PASSPHRASE_FILE: ${{ github.workspace }}/.linux-signing/passphrase
+      REVIEW_SIGNING_PASSPHRASE_FILE: ${{ github.workspace }}/.linux-signing/passphrase
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -41,15 +41,15 @@ jobs:
         run: |
           QUALITY=stable
           if [[ "$VERSION" == *-preview.* ]]; then QUALITY=preview; fi
-          node apps/whiteboard-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
+          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version-file: apps/whiteboard-desktop/code-oss/.nvmrc
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Test publication failure boundaries
-        run: python3 apps/whiteboard-desktop/scripts/linux/test-publication.py
+        run: python3 apps/review-desktop/scripts/linux/test-publication.py
       - name: Install native build and package tools
         run: |
           sudo apt-get update
@@ -62,23 +62,23 @@ jobs:
       - name: Build and assemble Linux app
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          WHITEBOARD_DESKTOP_CI_FAST: "1"
+          REVIEW_DESKTOP_CI_FAST: "1"
           # Only stamped releases ship the telemetry key.
-          WHITEBOARD_POSTHOG_KEY: ${{ inputs.version != '' && vars.WHITEBOARD_POSTHOG_KEY || '' }}
+          REVIEW_POSTHOG_KEY: ${{ inputs.version != '' && vars.REVIEW_POSTHOG_KEY || '' }}
         run: |
           pnpm desktop:build
           pnpm desktop:package:linux
       - name: Configure packaged Electron sandbox
         run: |
-          sudo chown root:root apps/whiteboard-desktop/VSCode-linux-x64/chrome-sandbox
-          sudo chmod 4755 apps/whiteboard-desktop/VSCode-linux-x64/chrome-sandbox
+          sudo chown root:root apps/review-desktop/VSCode-linux-x64/chrome-sandbox
+          sudo chmod 4755 apps/review-desktop/VSCode-linux-x64/chrome-sandbox
       - name: Smoke test the packaged app
-        run: xvfb-run -a node apps/whiteboard-desktop/scripts/smoke-launch-packaged.mjs --app apps/whiteboard-desktop/VSCode-linux-x64
+        run: xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app apps/review-desktop/VSCode-linux-x64
       # Preview versions build the dev-fast-review-preview package; see
       # code-oss/build/linux/review-package.ts for the channel mapping.
       - name: Create Fedora RPM
         run: |
-          pnpm --filter @dev.fast/whiteboard-desktop app:package:linux:distributions
+          pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
       - name: Prepare repository signing key
         id: signing
         env:
@@ -89,7 +89,7 @@ jobs:
         run: |
           install -d -m 0700 "$GNUPGHOME"
           umask 077
-          printf '%s' "$SIGNING_PASSPHRASE" > "$WHITEBOARD_SIGNING_PASSPHRASE_FILE"
+          printf '%s' "$SIGNING_PASSPHRASE" > "$REVIEW_SIGNING_PASSPHRASE_FILE"
           if [ "$RELEASE_SIGNING" = true ]; then
             test -n "$SIGNING_KEY"
             [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
@@ -105,23 +105,23 @@ jobs:
           CHANNEL: ${{ contains(inputs.version, '-preview.') && 'preview' || 'stable' }}
         run: |
           # The RPM version is the tilde form of a preview version.
-          VERSION=$(node -p "require('./apps/whiteboard-desktop/package.json').version.replace('-preview.', '~preview.')")
-          python3 apps/whiteboard-desktop/scripts/build-linux-repository.py \
-            --packages apps/whiteboard-desktop/dist/linux \
-            --output apps/whiteboard-desktop/dist/linux-repository \
+          VERSION=$(node -p "require('./apps/review-desktop/package.json').version.replace('-preview.', '~preview.')")
+          python3 apps/review-desktop/scripts/build-linux-repository.py \
+            --packages apps/review-desktop/dist/linux \
+            --output apps/review-desktop/dist/linux-repository \
             --version "$VERSION" --revision "$REVIEW_LINUX_PACKAGE_REVISION" \
             --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT" --channel "$CHANNEL"
-          find apps/whiteboard-desktop/dist/linux-repository -name '*.rpm' -exec cp {} apps/whiteboard-desktop/dist/linux/ \;
-          tar --zstd -cf apps/whiteboard-desktop/dist/linux/linux-publication.tar.zst -C apps/whiteboard-desktop/dist/linux-repository .
+          find apps/review-desktop/dist/linux-repository -name '*.rpm' -exec cp {} apps/review-desktop/dist/linux/ \;
+          tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
       - name: Validate clean installs and rejected signatures
-        run: bash apps/whiteboard-desktop/scripts/linux/verify-repository.sh apps/whiteboard-desktop/dist/linux-repository
+        run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: linux-packages
           path: |
-            apps/whiteboard-desktop/dist/linux/*.rpm
-            apps/whiteboard-desktop/dist/linux/*.tar.zst
+            apps/review-desktop/dist/linux/*.rpm
+            apps/review-desktop/dist/linux/*.tar.zst
           retention-days: 7
           compression-level: 0
       - name: Remove signing credentials

@@ -41,8 +41,8 @@ describe("store-auth", () => {
     expect(browserOpenCommand("linux")).toBe("xdg-open");
   });
 
-  it("writes auth.json under DEV_WHITEBOARD_HOME with mode 0600", async () => {
-    vi.stubEnv("DEV_WHITEBOARD_HOME", tmp);
+  it("writes auth.json under DEV_REVIEW_HOME with mode 0600", async () => {
+    vi.stubEnv("DEV_REVIEW_HOME", tmp);
     await writeStoreAuth({
       origin: "https://app.dev.fast",
       token: "t",
@@ -55,7 +55,7 @@ describe("store-auth", () => {
   });
 
   it("treats a login for an invalid origin as no login", async () => {
-    vi.stubEnv("DEV_WHITEBOARD_HOME", tmp);
+    vi.stubEnv("DEV_REVIEW_HOME", tmp);
     await writeStoreAuth({
       origin: "https://App.dev.fast/",
       token: "t",
@@ -94,7 +94,7 @@ describe("store-auth", () => {
   it.each([false, true])(
     "completes device login even with an expired saved token: %s",
     async (expired) => {
-      vi.stubEnv("DEV_WHITEBOARD_HOME", tmp);
+      vi.stubEnv("DEV_REVIEW_HOME", tmp);
       const stdout = outputStream();
       const stderr = outputStream();
 

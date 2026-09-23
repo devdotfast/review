@@ -34,7 +34,7 @@ import {
 
 /**
  * The writer's commands: capture switches, hook installation, and the
- * detached sync. Nothing here reads the Session store.
+ * detached sync. Nothing here reads the Review store.
  */
 
 export { runTraceGitHook, runTraceHook };
@@ -158,7 +158,7 @@ export async function runTraceEnable(input: {
   const result = await enableTraceRepository({
     cwd: input.cwd,
     scope: input.scope,
-    whiteboardCommand: input.traceCommand,
+    reviewCommand: input.traceCommand,
   });
 
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
@@ -253,7 +253,7 @@ export async function runTraceRepair(input: {
   const result = await repairTraceRepository({
     cwd: input.cwd,
     scope: input.scope,
-    whiteboardCommand: input.traceCommand,
+    reviewCommand: input.traceCommand,
   });
 
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);

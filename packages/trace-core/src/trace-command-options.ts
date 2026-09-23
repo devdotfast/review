@@ -25,10 +25,10 @@ import type {
 import type { runTraceBlame, runTraceShow } from "./trace-read-cli";
 import type { TraceStorageKind } from "./trace-storage/types";
 
-/** `trace list` as the CLI calls it; the review shape resolves `sessionId`. */
+/** `trace list` as the CLI calls it; the review shape resolves `reviewUuid`. */
 export interface TraceListCommandInput {
   cwd: string;
-  sessionId?: string;
+  reviewUuid?: string;
   commitSha?: string;
   storage?: TraceStorageKind;
   json?: boolean;
@@ -38,7 +38,7 @@ export interface TraceListCommandInput {
 export interface TracePullCommandInput {
   cwd: string;
   repo?: string;
-  sessionId?: string;
+  reviewUuid?: string;
   commitSha?: string;
   session?: string;
   mainOnly?: boolean;
@@ -71,7 +71,6 @@ export interface TraceCommandRuntime {
 }
 
 export interface RegisterTraceCommandsOptions {
-  /** Whiteboard sessions and agent conversations use distinct selectors. */
   runtime: TraceCommandRuntime;
   traceCommand: TraceCommand;
   scope: TraceScope;
@@ -86,7 +85,7 @@ export interface RegisterTraceCommandsOptions {
   /** Receives every action's exit code. */
   setExitCode: (code: number) => void;
   /**
-   * The command `allow` names on its last line, such as `whiteboard trace status`.
+   * The command `allow` names on its last line, such as `review trace status`.
    * `<prefix> status` when absent.
    */
   verifyCommand?: string;

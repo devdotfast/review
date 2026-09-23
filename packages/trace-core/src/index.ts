@@ -38,7 +38,7 @@ export {
 export {
   type TraceListScope,
   type TracePullScope,
-  type TraceWhiteboardScope,
+  type TraceReviewScope,
   runTraceBlame,
   runTraceList,
   runTracePull,
@@ -127,7 +127,7 @@ export {
   humanStream,
 } from "./cli-output";
 
-export { DEV_WHITEBOARD_HOME_ENV, devWhiteboardHome } from "./trace-home";
+export { DEV_REVIEW_HOME_ENV, devReviewHome } from "./trace-home";
 
 export {
   selectTraceStorage,
@@ -181,8 +181,8 @@ export {
   findLocalTrace,
   indexCodexTraceFiles,
   listFilesRecursive,
-  listWhiteboardTraceSessions,
-  loadWhiteboardAgentTrace,
+  listReviewTraceSessions,
+  loadReviewAgentTrace,
   pullReviewTraceCorpus,
 } from "./review-agent-traces";
 

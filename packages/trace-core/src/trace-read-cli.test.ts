@@ -31,11 +31,11 @@ describe("trace-read-cli", () => {
 
     for (const [name, value] of Object.entries({
       TRACE_ENV_FILE: path.join(tempDir, "env"),
-      DEV_WHITEBOARD_HOME: path.join(tempDir, ".dev"),
+      DEV_REVIEW_HOME: path.join(tempDir, ".dev"),
       TRACE_SETTINGS_FILE: path.join(tempDir, "settings.json"),
       TRACE_R2_MODE: "mock",
       TRACE_R2_MOCK_DIR: mockR2Dir,
-      WHITEBOARD_TEST_TRACE_SEARCH_DIR: searchDir,
+      REVIEW_TEST_TRACE_SEARCH_DIR: searchDir,
     }))
       vi.stubEnv(name, value);
     clearTraceEnvCache();

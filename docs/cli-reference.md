@@ -2,50 +2,51 @@
 
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
--> Maps -> Agent connection and migration.
+-> Maps -> Agent installation and migration.
 -->
 
-The `whiteboard` command is the control surface shared by Whiteboard and coding
-agents. Whiteboard installs the preferred CLI in `~/.local/bin` and keeps
+The `review` command is the control surface shared by Review Desktop and coding
+agents. Review Desktop installs the preferred CLI in `~/.local/bin` and keeps
 it matched to the running app.
 
-Run `whiteboard <command> --help` for the authoritative options in your installed
+Run `review <command> --help` for the authoritative options in your installed
 version.
 
 ## Compatibility
 
-Whiteboard is in beta. Before 1.0, command syntax and JSON event fields may change
-between releases. Whiteboard installs an app-managed CLI that matches the
+Review is in beta. Before 1.0, command syntax and JSON event fields may change
+between releases. Review Desktop installs an app-managed CLI that matches the
 running app; use that copy instead of relying on compatibility between
 different CLI and Desktop versions.
 
-The `whiteboard map` command group is experimental. Its verbs, Git-notes storage
+The `review map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
-The `whiteboard trace` command group and trace capture are experimental and off
-by default. `whiteboard trace storage use s3` configures S3/R2 capture and
-`whiteboard trace install` installs the per-agent hooks; Whiteboard Desktop exposes it
-under Settings ▸ Experimental Features. See [Trace storage](#trace-storage)
-for the hosted store and the storage selection commands.
+The `review trace` command group and trace capture are experimental and off
+by default. `review install` configures S3/R2 capture only when
+`--trace-*` credentials are given; Review Desktop exposes it under Settings ▸
+Experimental Features. See [Trace storage](#trace-storage) for the hosted
+store and the storage selection commands.
 
 ## Common workflow
 
 ```sh
-whiteboard app launch
-whiteboard info
-whiteboard api tools
-whiteboard app pick --session <uuid>
+review app launch
+review info
+review api tools
+review app pick --review <uuid>
 ```
 
-Most people let their coding agent drive this workflow: it authors through
-`whiteboard api` or the Whiteboard MCP tools. See [Coding agents](agents.md).
+Most people let the installed Review skill drive this workflow: it authors
+through `review api` or the Review MCP tools. See
+`packages/review/skills/dev-review/SKILL.md`.
 
-`whiteboard api` prints a tool's JSON result, except for text replies such as
-`session_get` and `session_diff` patches, which print as-is. List arguments are
+`review api` prints a tool's JSON result, except for text replies such as
+`review_get` and `review_diff` patches, which print as-is. List arguments are
 JSON arrays:
 
 ```sh
-whiteboard api session_diff '{"sessionId":"<uuid>","format":"patch","paths":["src/app.ts","docs"]}'
+review api review_diff '{"reviewId":"<uuid>","format":"patch","paths":["src/app.ts","docs"]}'
 ```
 
 ## Machine-readable output
@@ -53,10 +54,10 @@ whiteboard api session_diff '{"sessionId":"<uuid>","format":"patch","paths":["sr
 Commands that expose `--json` accept it after the complete command path:
 
 ```sh
-whiteboard info --json
-whiteboard app pick --json
-whiteboard map check --json
-whiteboard version --json
+review info --json
+review app pick --json
+review map check --json
+review version --json
 ```
 
 Stdout then contains newline-delimited JSON events only. Human progress moves
@@ -66,7 +67,7 @@ for coding agents and automation.
 For example, the installed CLI reports its version as one JSONL event:
 
 ```console
-$ whiteboard version --json
+$ review version --json
 {"event":"version","version":"0.0.1"}
 ```
 
@@ -74,78 +75,80 @@ $ whiteboard version --json
 
 | Command                | Purpose                                                           |
 | ---------------------- | ----------------------------------------------------------------- |
-| `whiteboard app`           | Start Whiteboard (background unless `--focus`). Bare `whiteboard app` aliases `app launch`. |
-| `whiteboard app launch`    | Start Whiteboard, or activate a running one with `--focus`.   |
-| `whiteboard app pick`      | Select a published session and optionally choose its opened view.  |
-| `whiteboard info`          | List sessions associated with the current checkout.                |
-| `whiteboard api`           | Call a JSON Whiteboard authoring tool; `whiteboard api tools` lists them. |
-| `whiteboard mcp`           | Serve the same authoring tools over stdio MCP.                    |
-| `whiteboard server start`  | Run the foreground authoring server without Desktop.              |
-| `whiteboard server status` | Check readiness of the selected headless server.                  |
-| `whiteboard map`           | Author, validate, and share experimental software maps.           |
-| `whiteboard connect`       | Print the prompt that connects a coding agent to Whiteboard.          |
-| `whiteboard migrate apply` | Migrate supported legacy Whiteboard data.                             |
-| `whiteboard version`       | Print the Whiteboard package version.                                 |
+| `review app`           | Start Review Desktop (background unless `--focus`). Bare `review app` aliases `app launch`. |
+| `review app launch`    | Start Review Desktop, or activate a running one with `--focus`.   |
+| `review app pick`      | Select a published Review and optionally choose its opened view.  |
+| `review info`          | List Reviews associated with the current checkout.                |
+| `review api`           | Call a JSON Review authoring tool; `review api tools` lists them. |
+| `review mcp`           | Serve the same authoring tools over stdio MCP.                    |
+| `review server start`  | Run the foreground authoring server without Desktop.              |
+| `review server status` | Check readiness of the selected headless server.                  |
+| `review map`           | Author, validate, and share experimental software maps.           |
+| `review install`       | Install Review skills for supported coding agents.                |
+| `review migrate apply` | Migrate supported legacy Review data.                             |
+| `review version`       | Print the Review package version.                                 |
 
 ## Headless authoring
 
-`whiteboard server start` runs the authoring server in the foreground without a
-Desktop installation. `whiteboard server status --json` checks readiness. Stop the
+`review server start` runs the authoring server in the foreground without a
+Desktop installation. `review server status --json` checks readiness. Stop the
 server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
-and instructions as Desktop.
+and shared `dev-review` skill as Desktop.
 
-Set `DEV_WHITEBOARD_SERVER_DIR` for the server and clients to select a job's saved
-state, or use `whiteboard --state-dir <path> server start` and
-`whiteboard --state-dir <path> api …`. The default is
-`$DEV_WHITEBOARD_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
+Set `DEV_REVIEW_SERVER_DIR` for the server and clients to select a job's saved
+state, or use `review --state-dir <path> server start` and
+`review --state-dir <path> api …`. The default is
+`$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Each accepted edit is saved as a version immediately; the author holds a
-`session_activity` lease while writing, exactly as with Desktop.
+`review_activity` lease while writing, exactly as with Desktop.
 
-For local testing, open Desktop on the same `DEV_WHITEBOARD_HOME` and select the
-session from Home. Both hosts use `review-api.db`; edits appear live with the same
-session ID, history, and resources. The headless server may be stopped after
-authoring. For a custom `--state-dir` or `DEV_WHITEBOARD_SERVER_DIR`, launch Desktop
-with `DEV_WHITEBOARD_HOME` set to that directory. From this checkout, use `pnpm dev`
-to launch the matching Desktop build. `whiteboard server open` has been removed.
+For local testing, open Desktop on the same `DEV_REVIEW_HOME` and select the
+review from Home. Both hosts use `review-api.db`; edits appear live with the same
+review ID, history, and resources. The headless server may be stopped after
+authoring. For a custom `--state-dir` or `DEV_REVIEW_SERVER_DIR`, launch Desktop
+with `DEV_REVIEW_HOME` set to that directory. From this checkout, use `pnpm dev`
+to launch the matching Desktop build. `review server open` has been removed.
 
 ## Desktop and discovery
 
 ```sh
-whiteboard app launch
-whiteboard app pick
-whiteboard app pick --session <uuid> --view diff
-whiteboard info
-whiteboard info --all
+review app launch
+review app pick
+review app pick --review <uuid> --view diff
+review info
+review info --all
 ```
 
 Launches stay in the background; add `--focus` to bring the window forward.
-`whiteboard app pick` opens an interactive picker when no UUID is given. `whiteboard
+`review app pick` opens an interactive picker when no UUID is given. `review
 info` reports titles, UUIDs, status, and whether each
-Whiteboard is in sync. It requires Whiteboard to be running. `--all` includes
-active sessions for every worktree in the current repository.
+Review is in sync. It requires Review Desktop to be running. `--all` includes
+active Reviews for every worktree in the current repository.
 
-The legacy `whiteboard app --session <uuid>` form remains a compatibility alias for
-`whiteboard app pick --session <uuid>`.
+The legacy `review app --review <uuid>` form remains a compatibility alias for
+`review app pick --review <uuid>`.
 
-`whiteboard app pick` accepts `--view` with one of `whiteboard`, `commits`, `diff`,
+`review app pick` accepts `--view` with one of `review`, `commits`, `diff`,
 `map`, or `trace`.
 
 ## Authoring
 
-Whiteboards are created and edited through the JSON API: `whiteboard api` or the Whiteboard
-MCP tools. See `packages/whiteboard/src/session-api/README.md` for the authoring
-workflow and the full tool/route list. `whiteboard api tools` prints the current
-tool catalog.
+Reviews are created and edited through the JSON API: `review api`, the Review
+MCP tools, or the installed dev-review skill. See
+`packages/review/skills/dev-review/SKILL.md`
+and `packages/review/src/review-api/README.md`
+for the authoring workflow and the full tool/route list. `review api tools`
+prints the current tool catalog.
 
-### Session targets
+### Review targets
 
-Register a local checkout with `session_register_repository({path})`, then pass
-its `repositoryId` in `target` to `session_create`. Use `session_set_target` to
-change an existing session's target while preserving its authored content.
-These tools are available through `whiteboard api` and MCP.
+Register a local checkout with `review_register_repository({path})`, then pass
+its `repositoryId` in `target` to `review_create`. Use `review_set_target` to
+change an existing review's target while preserving its authored content.
+These tools are available through `review api` and MCP.
 Live source follows the checkout even in older authored versions; update references
 as source changes. Choose a commit target when source must stay fixed.
 
@@ -156,23 +159,23 @@ as source changes. Choose a commit target when source must stay fixed.
 
 Revisions resolve when the command is accepted. To review the changes introduced
 by one commit, use its parent as `base`; omitting the base is equivalent to
-`base=head`. For a GitHub PR, `session_create({pullRequestUrl})` needs no
-target: Whiteboard fetches the PR into a registered checkout of its repository
+`base=head`. For a GitHub PR, `review_create({pullRequestUrl})` needs no
+target: Review fetches the PR into a registered checkout of its repository
 (using `gh`, or the public GitHub API for metadata) and pins GitHub's head and
 diff base, titled from the PR. The pins stay fixed; a later create for the same
-PR returns the session with `headMoved` when the PR has moved on.
+PR returns the review with `headMoved` when the PR has moved on.
 See [live and pinned worktrees](how-review-works.md#live-and-pinned-worktrees)
 for how each target runs language services.
 
 ## Software maps
 
 ```sh
-whiteboard map open <rev>
-whiteboard map open <rev> --force
-whiteboard map check [<rev>] [--session <uuid>]
-whiteboard map prune
-whiteboard map push
-whiteboard map fetch
+review map open <rev>
+review map open <rev> --force
+review map check [<rev>] [--review <uuid>]
+review map prune
+review map push
+review map fetch
 ```
 
 Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
@@ -183,30 +186,30 @@ Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
 - `prune` removes unreachable notes and fully flushed scratch buffers.
 - `push` and `fetch` share map notes through `origin`.
 
-Every map verb accepts `--json`. Run `whiteboard map --help` for the storage model
+Every map verb accepts `--json`. Run `review map --help` for the storage model
 and exact verb syntax.
 
 ## Trace storage
 
 ```sh
-whiteboard trace status
-whiteboard trace storage use s3 [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
-whiteboard trace storage use hosted [--origin <url>]
-whiteboard trace config migrate [--dry-run] [--keep-legacy]
-whiteboard trace list|show|pull|blame ... [--storage s3|hosted]
-whiteboard trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted] [--json]
-whiteboard login [--traces] [--origin <url>] [--no-browser] [--json]
-whiteboard logout
-whiteboard whoami
-whiteboard trace store create|delete|info [path]
-whiteboard trace install [--no-harness-hooks] [--all-harnesses] [--json]
-whiteboard trace uninstall-hooks [--json]
-whiteboard trace allow [path] [--no-harness-hooks] [--all-harnesses]
-whiteboard trace deny [path]
+review trace status
+review trace storage use s3 [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
+review trace storage use hosted [--origin <url>]
+review trace config migrate [--dry-run] [--keep-legacy]
+review trace list|show|pull|blame ... [--storage s3|hosted]
+review trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted] [--json]
+review login [--traces] [--origin <url>] [--no-browser] [--json]
+review logout
+review whoami
+review trace store create|delete|info [path]
+review trace install [--no-harness-hooks] [--all-harnesses] [--json]
+review trace uninstall-hooks [--json]
+review trace allow [path] [--no-harness-hooks] [--all-harnesses]
+review trace deny [path]
 ```
 
-`whiteboard login` signs in with GitHub identity and verified email access. It does
-not enable trace collection. `whiteboard login --traces` also requests GitHub
+`review login` signs in with GitHub identity and verified email access. It does
+not enable trace collection. `review login --traces` also requests GitHub
 repository access. Use `--no-browser` on a remote machine, then open the printed
 URL on your desktop. Repository access does not replace per-repository trace
 capture consent.
@@ -214,31 +217,31 @@ capture consent.
 A foreground hosted trace command offers to authorize repositories and resumes
 once login succeeds. With `--json`, redirected input, or a hook, it never prompts.
 A missing grant produces `repository_authorization_required` and the remedy
-`whiteboard login --traces`. Local and direct S3 operations do not request GitHub
-permissions. `whiteboard login` supplies credentials for both sharing and hosted traces.
+`review login --traces`. Local and direct S3 operations do not request GitHub
+permissions. `review login` supplies credentials for both sharing and hosted traces.
 
-### Sharing a session
+### Sharing a review
 
 ```sh
-whiteboard share --session <id> [--version <number>] [--request-id <uuid>] [--json]
-whiteboard share revoke <share-id> [--json]
+review share --review <id> [--version <number>] [--request-id <uuid>] [--json]
+review share revoke <share-id> [--json]
 ```
 
-The local Whiteboard host must be running. Sharing uploads one immutable saved
+The local Review host must be running. Sharing uploads one immutable saved
 version; an omitted version is resolved once when the request starts. The result
-contains `shareId`, `version`, and `url`. Running Share again creates a new link unless the same `--request-id` is reused with the same session/version.
-Recipients do not need a session account. They do need Git access to the GitHub
-repository. Open the link in Whiteboard, or use **Open Shared Session** in
-the command palette. The app downloads the session and fetches its exact base
+contains `shareId`, `version`, and `url`. Running Share again creates a new link unless the same `--request-id` is reused with the same review/version.
+Recipients do not need a Review account. They do need Git access to the GitHub
+repository. Open the link in Review Desktop, or use **Open Shared Review** in
+the command palette. The app downloads the review and fetches its exact base
 and head commits into a dedicated managed checkout before opening it.
 
 Pin live worktree reviews to commits before sharing.
 Push the reviewed commits to GitHub before sharing. Publication verifies both
 commits through a fresh fetch and never pushes them for you. Git uses the
 machine's existing credentials. Sharing does not request hosted-trace scopes;
-use `whiteboard login --traces` only when enabling hosted traces.
+use `review login --traces` only when enabling hosted traces.
 
-A share includes the saved session, sender attribution, images, retained maps,
+A share includes the saved review, sender attribution, images, retained maps,
 and whole retained trace conversations. Code, diffs, and commit lists come
 from Git. Anyone with the link can download retained resources, while GitHub
 separately controls repository access. Imported reviews are read-only and
@@ -250,20 +253,20 @@ Revocation stops new downloads. Already-issued object URLs may work for up to
 five minutes, and saved copies remain readable. Branch movement and later
 edits do not change a published snapshot.
 
-`whiteboard server start` supports publishing without Desktop. The CLI selects the
-same server/profile as `whiteboard api`, including `--state-dir`. CI can supply
-`DEV_WHITEBOARD_SHARE_TOKEN` instead of a saved `whiteboard login`; optional
-`DEV_WHITEBOARD_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
+`review server start` supports publishing without Desktop. The CLI selects the
+same server/profile as `review api`, including `--state-dir`. CI can supply
+`DEV_REVIEW_SHARE_TOKEN` instead of a saved `review login`; optional
+`DEV_REVIEW_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
 credentials are not written to the profile. Git credentials are still needed
 for the verification fetch.
 
 The exporter, importer and hosted client remain available from
-`@dev.fast/whiteboard/sharing` for other hosts.
+`@dev.fast/review/sharing` for other hosts.
 
-Whiteboard stores traces in one selected place per machine: an **s3** store (an
+Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at
 `https://app.dev.fast`. The configuration lives in
-`$DEV_WHITEBOARD_HOME/trace/config.json`:
+`$DEV_REVIEW_HOME/trace/config.json`:
 
 ```json
 {
@@ -272,7 +275,7 @@ S3-compatible bucket you own, R2 included) or the **hosted** store at
   "stores": {
     "s3": {
       "endpoint": "https://<account>.r2.cloudflarestorage.com",
-      "bucket": "whiteboard-traces",
+      "bucket": "review-traces",
       "accessKeyId": "…",
       "secretAccessKey": "…",
       "region": "auto",
@@ -302,16 +305,16 @@ S3-compatible bucket you own, R2 included) or the **hosted** store at
 - `repositories` is hosted-only consent: the repositories you allowed to
   publish complete session transcripts, and the hosted origins each may
   publish to (`enabledOrigins` defaults to `https://app.dev.fast`). Written by
-  `whiteboard trace allow` and `whiteboard trace deny`. Bucket uploads never read it.
+  `review trace allow` and `review trace deny`. Bucket uploads never read it.
 
 An existing bucket setup keeps working unchanged. Without a config file,
 `~/.config/dev-trace/env` and `settings.json` (or exported `TRACE_R2_*`
 variables) select the bucket exactly as before; no login, migration, or new
 configuration is required.
 
-`whiteboard trace storage use s3` selects the bucket. With `--endpoint`,
+`review trace storage use s3` selects the bucket. With `--endpoint`,
 `--bucket`, `--key`, and `--secret` it also saves `stores.s3` after checking
-the bucket is reachable. `whiteboard trace config migrate` copies an existing
+the bucket is reachable. `review trace config migrate` copies an existing
 legacy setup into `stores.s3`, refusing to overwrite a different entry or to
 switch away from a hosted selection; `--dry-run` previews without writing
 and never prints secrets. After a successful migration the legacy `env` and
@@ -320,25 +323,18 @@ their originals so the new file is the only active source; pass
 `--keep-legacy` to leave them in place. To roll back, rename them back and
 delete the config file.
 
-`whiteboard trace store` manages the hosted store of one repository. `store create`
+`review trace store` manages the hosted store of one repository. `store create`
 creates it, one time for each repository, and needs push access. `store info`
 reports the store id, the status, and the stored bytes. `store delete` asks the
 store to delete the hosted copies, which a repository admin may do; the consent
-of this machine stays until `whiteboard trace deny` removes it. `whiteboard trace
-install` installs the harness hooks of this machine for every detected agent,
-or for all of them with `--all-harnesses`, and touches no repository. Claude
-Code, Codex, OpenCode, and Pi have hooks; Cursor has none. For a bucket:
+of this machine stays until `review trace deny` removes it. `review trace
+install` installs the harness hooks of this machine and touches no repository.
 
-```sh
-whiteboard trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>
-whiteboard trace install
-```
-
-`whiteboard trace uninstall-hooks` removes tracing hooks while keeping the CLI,
+`review trace uninstall-hooks` removes tracing hooks while keeping the CLI,
 login, consent, and captured traces.
 
-`whiteboard trace storage use hosted` requires `whiteboard login` for the origin,
-a store that answers the current contract, and `whiteboard trace allow` for the
+`review trace storage use hosted` requires `review login` for the origin,
+a store that answers the current contract, and `review trace allow` for the
 checkout's repository at that origin; only then does it persist the
 selection. Bucket credentials stay saved and inactive. Logging in or
 creating a store never selects hosted storage by itself, a legacy bucket always
@@ -350,17 +346,17 @@ Before setup, review [hosted trace consent and access](privacy.md#hosted-trace-s
 Use a Desktop release that supports v2 configuration before migration. `--keep-legacy`
 does not prevent older apps from uploading to their saved bucket.
 
-`whiteboard version --verbose [--json]` reports CLI paths, delegation, and build
-identity. Set `DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
+`review version --verbose [--json]` reports CLI paths, delegation, and build
+identity. Set `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
 
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
-settings, or consent. `whiteboard trace status` names the effective store, the
+settings, or consent. `review trace status` names the effective store, the
 configuration sources in use, and the config file, without revealing
 secrets. On a hosted machine it also prints `Stored bytes`, the size of every
 completed upload in the repository's store.
 
-`whiteboard trace sessions` lists every published session of the current
+`review trace sessions` lists every published session of the current
 repository's hosted store, ordered by session id, 50 per page. The command
 needs the hosted store. On a machine that selects s3, pass
 `--storage hosted`. `--limit` selects a different page size, from 1 to 200.
@@ -369,43 +365,43 @@ bytes. When more sessions follow, the last line names the `--cursor` value of
 the next page, and repeats `--limit` when you gave one. The command refuses a
 bad `--limit` or `--cursor` before it reads the store.
 
-The command reads the store live. It needs `whiteboard login` for the hosted
+The command reads the store live. It needs `review login` for the hosted
 origin and GitHub read access to the repository. It does not need
-`whiteboard trace allow`. It never serves saved copies and prints no signed
+`review trace allow`. It never serves saved copies and prints no signed
 download URL. The hosted store is the only store it lists, so it refuses
 `--storage s3`. Under `--json` the command prints one `trace.sessions` event.
 A store older than contract 0.3.0 answers "does not support listing every
-session yet"; use `whiteboard trace list --commit <sha>` there.
+session yet"; use `review trace list --commit <sha>` there.
 
 ### Desktop and npm installed together
 
-Trace hooks keep the absolute executable of the first working Whiteboard
+Trace hooks keep the absolute executable of the first working Review
 installation. Installing or refreshing the other installation preserves those
 harness and repository hooks. If the old executable is missing, setup can
-replace it. Without a Desktop launcher, npm tracing resolves `whiteboard` from PATH
+replace it. Without a Desktop launcher, npm tracing resolves `review` from PATH
 and records that absolute path.
 
-Desktop preserves an existing npm launcher at `~/.local/bin/whiteboard`. Removing
+Desktop preserves an existing npm launcher at `~/.local/bin/review`. Removing
 Desktop's trace setup leaves another working installation's hooks and shared
-capture settings enabled. `whiteboard trace uninstall-hooks` is an explicit reset
-of Whiteboard hooks in the selected profile, regardless of which installation
+capture settings enabled. `review trace uninstall-hooks` is an explicit reset
+of Review hooks in the selected profile, regardless of which installation
 created them.
 
 ### Tracing without Desktop
 
-The `whiteboard trace` commands run without a desktop installation or session.
-Install the `@dev.fast/whiteboard` npm package with Node 24, then run:
+The `review trace` commands run without a desktop installation or session.
+Install the `@dev.fast/review` npm package with Node 24, then run:
 
 ```sh
-whiteboard login
-whiteboard trace store create
-whiteboard trace allow .
-whiteboard trace status
+review login
+review trace store create
+review trace allow .
+review trace status
 ```
 
 `allow` writes hooks only for harnesses present on the machine. Use
 `--all-harnesses` to write all four or `--no-harness-hooks` to write none.
-These flags also work with `whiteboard trace install`.
+These flags also work with `review trace install`.
 
 ## Environment variables
 
@@ -414,40 +410,34 @@ and telemetry administration:
 
 | Variable                                         | Meaning, precedence, and default                                                                                                                                                                                               |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `TRACE_ENV_FILE`                                 | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `whiteboard trace setup` update the legacy files unless an S3 profile already exists.  |
-| `TRACE_SETTINGS_FILE`                            | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `whiteboard trace setup` update the legacy files unless an S3 profile already exists. |
+| `TRACE_ENV_FILE`                                 | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists.  |
+| `TRACE_SETTINGS_FILE`                            | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
 | `TRACE_HOME_DIR`                                 | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home.                                             |
-| `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Whiteboard writes fresh OpenCode session exports. The default is `$DEV_WHITEBOARD_HOME/opencode-traces`.                                                                                                                 |
-| `DEV_FAST_WHITEBOARD_DESKTOP_STATE_ROOT`             | Gives a launched Whiteboard instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
-| `DEV_FAST_WHITEBOARD_DESKTOP_BACKGROUND` | Set to `1` by `whiteboard app` launches without `--focus`. Whiteboard then shows its first window without taking focus and ignores focus requests until you click it or run `whiteboard app launch --focus`. |
-| `PROGRESSIVE_WHITEBOARD_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
-| `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_WHITEBOARD_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
-| `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_WHITEBOARD_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |
+| `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`.                                                                                                                 |
+| `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT`             | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
+| `DEV_FAST_REVIEW_DESKTOP_BACKGROUND` | Set to `1` by `review app` launches without `--focus`. Review Desktop then shows its first window without taking focus and ignores focus requests until you click it or run `review app launch --focus`. |
+| `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
+| `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
+| `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |
 | `DO_NOT_TRACK`                                   | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 | `DNT`                                            | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED`          | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED`          | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 | `DEV_FAST_TELEMETRY_DISABLED`                    | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `DEV_FAST_PROGRESSIVE_WHITEBOARD_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
-| `DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED`             | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_REVIEW_TELEMETRY_DISABLED`             | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 
 See [Telemetry and privacy](telemetry.md) for the complete telemetry controls
 and data policy.
 
-## Agent connection and migration
+## Agent integration and migration
 
 ```sh
-whiteboard connect [<agent>...] [--json]
-whiteboard migrate apply
-whiteboard migrate apply --force
-whiteboard version
+review install [claude|claude-code|codex|cursor|all]
+review migrate apply
+review migrate apply --force
+review version
 ```
 
-`whiteboard connect` prints the prompt that connects an agent to Whiteboard, the same
-text Whiteboard Desktop copies. Paste it into a session of that agent. Agents are
-`claude` (or `claude-code`), `codex`, `cursor`, `opencode`, `pi`, and `all`.
-With no agent, it prints every prompt under a heading per agent. `--json` emits one
-`connect` event whose `prompts` field maps each agent to its prompt. See
-[Coding agents](agents.md#connect-an-agent).
-
-Migration is only for legacy Whiteboard state; use `--force` only to restart an
-interrupted migration.
+The app normally installs and updates agent skills. Use `review install` for a
+headless environment. Migration is only for legacy Review state; use `--force`
+only to restart an interrupted migration.

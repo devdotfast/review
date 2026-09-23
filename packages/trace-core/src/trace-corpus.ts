@@ -12,7 +12,7 @@ import {
   extractTraceEventText,
 } from "./agent-trace-parser";
 import { writeFileAtomic } from "./atomic-write";
-import { devWhiteboardHome } from "./trace-home";
+import { devReviewHome } from "./trace-home";
 import { parseRepo } from "./trace-repo";
 import { type TraceStorage } from "./trace-storage/types";
 
@@ -167,8 +167,8 @@ export interface ReviewTracePullResult {
 /** Creates and returns the configured local search corpus directory; it performs no remote lookup. */
 export function traceSearchCorpusDir(): string {
   const dir =
-    process.env.WHITEBOARD_TEST_TRACE_SEARCH_DIR ??
-    path.join(devWhiteboardHome(), "trace-search");
+    process.env.REVIEW_TEST_TRACE_SEARCH_DIR ??
+    path.join(devReviewHome(), "trace-search");
 
   mkdirSync(dir, { recursive: true });
 

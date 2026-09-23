@@ -36,19 +36,19 @@ const FORBIDDEN_MODULES = [
   "trace-cli.ts",
   "trace-storage/s3.ts",
   "tutorial-trace.ts",
-  "whiteboard-home.ts",
+  "review-home.ts",
   "review-state-store.ts",
-  "whiteboard-vcs.ts",
-  "whiteboard-head-checkout.ts",
-  "whiteboard-worktree-target.ts",
+  "review-vcs.ts",
+  "review-head-checkout.ts",
+  "review-worktree-target.ts",
   "server/cli-install.ts",
   "install.ts",
-  "whiteboard-telemetry.ts",
+  "review-telemetry.ts",
   "startup-trace.ts",
 ];
 
 const FORBIDDEN_PACKAGES = [
-  "@dev.fast/whiteboard",
+  "@dev.fast/review",
   "isomorphic-git",
   "react",
   "node:sqlite",
@@ -249,17 +249,17 @@ describe("trace-core package independence", () => {
       boundaryViolations(
         file,
         `
-      import type { App } from "@dev.fast/whiteboard";
-      export type { App } from "@dev.fast/whiteboard/authoring";
-      const app = import("../../whiteboard/src/runtime");
-      type AppType = import("../../whiteboard/src/authoring").App;
+      import type { App } from "@dev.fast/review";
+      export type { App } from "@dev.fast/review/authoring";
+      const app = import("../../review/src/runtime");
+      type AppType = import("../../review/src/authoring").App;
     `,
       ),
     ).toEqual([
-      "@dev.fast/whiteboard",
-      "@dev.fast/whiteboard/authoring",
-      "../../whiteboard/src/runtime",
-      "../../whiteboard/src/authoring",
+      "@dev.fast/review",
+      "@dev.fast/review/authoring",
+      "../../review/src/runtime",
+      "../../review/src/authoring",
     ]);
   });
 });

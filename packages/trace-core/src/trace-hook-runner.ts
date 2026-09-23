@@ -40,7 +40,7 @@ const execFileAsync = promisify(execFile);
 const SESSION_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 
 /**
- * Starts `whiteboard trace sync` detached for one session. The attempt names
+ * Starts `review trace sync` detached for one session. The attempt names
  * the destination it was started for; the sync rechecks the selection and
  * consent before any transfer. A missing CLI reports asynchronously and
  * never fails the caller.
@@ -175,7 +175,7 @@ export async function runTraceHook(input: RunTraceHookInput): Promise<number> {
     await enableTraceRepository({
       cwd: input.cwd,
       scope: input.scope,
-      whiteboardCommand: input.traceCommand,
+      reviewCommand: input.traceCommand,
     }).catch(() => undefined);
   }
 

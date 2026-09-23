@@ -12,12 +12,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { findReviewPackageRoot } from "./package-paths";
 import type { PostHogCaptureInput } from "./posthog-capture-client";
 import {
+  REVIEW_APP_SESSION_ID_ENV,
   REVIEW_APP_VERSION_ENV,
   ReviewTelemetry,
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
 } from "./review-telemetry";
 import {
+  REVIEW_CHANNEL_ENV,
   type ReviewTelemetryInstallConfig,
   normalizeTelemetryInstallConfig,
 } from "./telemetry-config";
@@ -53,7 +55,7 @@ describe("ReviewTelemetry", () => {
     expect(events[0].distinctId).toBe("install-123");
     expect(events[1].distinctId).toBe("install-123");
     expect(events[1].properties).toMatchObject({
-      product: "review-cli",
+      surface: "cli",
       command_path: "info",
       exit_code: 0,
       has_base_ref: false,
@@ -63,9 +65,15 @@ describe("ReviewTelemetry", () => {
     );
   });
 
-  it("adds package version and internal status to common properties", async () => {
+  it("sends one envelope on every event", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
-      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
+      env: {
+        PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1",
+        [REVIEW_APP_VERSION_ENV]: "0.0.34",
+        [REVIEW_CHANNEL_ENV]: "preview",
+        [REVIEW_APP_SESSION_ID_ENV]: "app-session-1",
+      },
+      surface: "desktop",
     });
 
     cleanupPaths.push(rootPath);
@@ -77,11 +85,57 @@ describe("ReviewTelemetry", () => {
     });
 
     expect(events).toHaveLength(1);
+    const version = await reviewPackageVersion();
     expect(events[0].properties).toMatchObject({
-      product: "review-cli",
-      package: "@dev.fast/review",
-      version: await reviewPackageVersion(),
+      cli_version: version,
+      version,
+      app_version: "0.0.34",
+      channel: "preview",
+      environment: "internal",
+      surface: "desktop",
       internal: true,
+      ci: false,
+      platform: process.platform,
+      arch: process.arch,
+      os_version: os.release(),
+      app_session_id: "app-session-1",
+    });
+    expect(events[0].properties).not.toHaveProperty("product");
+    expect(events[0].properties).not.toHaveProperty("package");
+  });
+
+  it("defaults to the cli surface and the stable channel", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "0" },
+    });
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandStarted({
+      command: "info",
+      commandRunId: "run-12345678",
+    });
+
+    expect(events[0].properties).toMatchObject({
+      surface: "cli",
+      channel: "stable",
+      environment: "production",
+    });
+    expect(events[0].properties).not.toHaveProperty("app_session_id");
+  });
+
+  it("exposes the envelope for bug reports and persists the internal marker", async () => {
+    const { configPath, rootPath, telemetry } = createTelemetry();
+
+    cleanupPaths.push(rootPath);
+    await telemetry.setInternal(true);
+
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      internal: true,
+    });
+    await expect(telemetry.envelope()).resolves.toMatchObject({
+      internal: true,
+      environment: "internal",
+      surface: "cli",
     });
   });
 
@@ -458,6 +512,7 @@ function createTelemetry(input?: {
   env?: NodeJS.ProcessEnv;
   installationId?: string;
   commandRunId?: string;
+  surface?: ReviewTelemetryOptions["surface"];
 }) {
   const rootPath = path.join(
     os.tmpdir(),
@@ -482,6 +537,7 @@ function createTelemetry(input?: {
     legacyInstallConfigPath: legacyConfigPath,
     idFactory: () => input?.installationId ?? "install-123",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
+    surface: input?.surface,
   };
 
   const commandRunId = input?.commandRunId;

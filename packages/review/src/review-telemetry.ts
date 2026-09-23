@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import path from "node:path";
+import os from "node:os";
 
 import {
   jsonObject,
@@ -12,7 +12,7 @@ import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
-import { findReviewPackageRoot } from "./package-paths";
+import { readReviewPackageVersion as readReviewPackageVersionSync } from "./package-paths";
 import {
   PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
   PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV,
@@ -22,16 +22,20 @@ import {
 } from "./posthog-capture-client";
 import {
   type ReviewTelemetryInstallConfig,
+  type ReviewTelemetrySurface,
   createTelemetryInstallConfig,
   isInternalTelemetry,
   isTelemetryOptedOut,
   legacyAppTelemetryConfigPath,
   normalizeTelemetryInstallConfig,
+  reviewTelemetryChannel,
   reviewTelemetryConfigPath,
+  reviewTelemetryEnvironment,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
 
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
+export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
 
 export type ReviewCliCommand = "review" | "map" | "status";
 
@@ -172,6 +176,8 @@ export interface ReviewTelemetryOptions {
   now?: () => Date;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Which process family sends this instance's events. */
+  surface?: ReviewTelemetrySurface;
 }
 
 /** A single structured value a log line may carry beside its message. */
@@ -222,8 +228,9 @@ export class ReviewTelemetry {
   private readonly idFactory: () => string;
   private readonly commandRunIdFactory: () => string;
   private readonly now: () => Date;
+  private readonly surface: ReviewTelemetrySurface;
+  private readonly packageVersion: string;
   private installConfig: ReviewTelemetryInstallConfig | undefined;
-  private packageVersion: Promise<string> | undefined;
 
   constructor(options: ReviewTelemetryOptions = {}) {
     this.env = options.env ?? process.env;
@@ -240,10 +247,15 @@ export class ReviewTelemetry {
     this.commandRunIdFactory = options.randomUUID ?? randomUUID;
     this.idFactory = options.idFactory ?? this.commandRunIdFactory;
     this.now = options.now ?? (() => new Date());
+    this.surface = options.surface ?? "cli";
+    this.packageVersion = readReviewPackageVersionSync(import.meta.url);
   }
 
-  static fromEnv(env: NodeJS.ProcessEnv = process.env): ReviewTelemetry {
-    return new ReviewTelemetry({ env });
+  static fromEnv(
+    env: NodeJS.ProcessEnv = process.env,
+    options: Omit<ReviewTelemetryOptions, "env"> = {},
+  ): ReviewTelemetry {
+    return new ReviewTelemetry({ ...options, env });
   }
 
   async getInstallationId(): Promise<string> {
@@ -266,6 +278,21 @@ export class ReviewTelemetry {
     if (!enabled) {
       await this.captureClient.discard?.().catch(() => undefined);
     }
+  }
+
+  async setInternal(internal: boolean): Promise<void> {
+    await this.withConfigLock(async () => {
+      const config = await this.readOrCreateInstallConfig();
+      config.internal = internal;
+      this.writeInstallConfig(config);
+      this.installConfig = config;
+      sharedInstallConfigs.set(this.installConfigPath, config);
+    }, 5_000);
+  }
+
+  /** The common properties every event carries; bug reports embed them. */
+  async envelope(): Promise<PostHogCaptureProperties> {
+    return this.commonProperties(await this.loadInstallConfig());
   }
 
   async captureInstallationCreated(): Promise<void> {
@@ -591,27 +618,28 @@ export class ReviewTelemetry {
     config: Pick<ReviewTelemetryInstallConfig, "internal">,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
+    const appSessionId = nonEmpty(this.env[REVIEW_APP_SESSION_ID_ENV]);
 
     const properties: PostHogCaptureProperties = {
-      product: "review-cli",
-      package: "@dev.fast/review",
-      version: await this.readPackageVersion(),
+      cli_version: this.packageVersion,
+      // Kept for one release while the DAU/WAU insights still read it.
+      version: this.packageVersion,
+      channel: reviewTelemetryChannel(this.env),
+      environment: reviewTelemetryEnvironment(this.env, config),
+      surface: this.surface,
       node_major: Number(process.versions.node.split(".", 1)[0]),
       platform: process.platform,
       arch: process.arch,
+      os_version: os.release(),
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
     };
 
     if (appVersion) properties.app_version = appVersion;
 
+    if (appSessionId) properties.app_session_id = appSessionId;
+
     return properties;
-  }
-
-  private readPackageVersion(): Promise<string> {
-    this.packageVersion ??= readReviewPackageVersion();
-
-    return this.packageVersion;
   }
 
   private sessionAgent(): ReviewSessionAgent {
@@ -730,20 +758,4 @@ function reviewAppVersion(env: NodeJS.ProcessEnv): string | undefined {
   const value = nonEmpty(env[REVIEW_APP_VERSION_ENV]);
 
   return value && validSemver(value) ? value : undefined;
-}
-
-async function readReviewPackageVersion(): Promise<string> {
-  try {
-    const packageRoot = findReviewPackageRoot(import.meta.url);
-
-    const packageJson = jsonObject(
-      parseJsonText(
-        await readFile(path.join(packageRoot, "package.json"), "utf8"),
-      ),
-    );
-
-    return jsonString(packageJson?.version) ?? "unknown";
-  } catch {
-    return "unknown";
-  }
 }

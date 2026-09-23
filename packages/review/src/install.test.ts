@@ -330,3 +330,32 @@ describe("runInstall", () => {
     );
   });
 });
+
+describe("Pi pointer in the shared skills root", () => {
+  it("survives a later Codex install while Pi is detected", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+
+    await mkdir(path.join(homeDir, ".pi"), { recursive: true });
+    expect(
+      await runInstall({
+        targets: ["pi"],
+        homeDir,
+        packageRoot,
+        ...silentStreams(),
+      }),
+    ).toBe(0);
+    expect(
+      await runInstall({
+        targets: ["codex"],
+        homeDir,
+        packageRoot,
+        ...silentStreams(),
+      }),
+    ).toBe(0);
+
+    expect(
+      existsSync(path.join(homeDir, ".agents/skills/dev-review/SKILL.md")),
+    ).toBe(true);
+  });
+});

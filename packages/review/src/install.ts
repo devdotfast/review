@@ -186,17 +186,18 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installed: InstalledItem[] = [];
   const visitedRoots = new Set<string>();
 
+  const piInUse =
+    input.targets.includes("pi") ||
+    Boolean(input.preservePiSkill) ||
+    (await piDetected(homeDir));
+
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
 
     if (!visitedRoots.has(destRoot)) {
       visitedRoots.add(destRoot);
 
-      const keep = keptSkillNames(
-        destRoot,
-        homeDir,
-        input.targets.includes("pi") || Boolean(input.preservePiSkill),
-      );
+      const keep = keptSkillNames(destRoot, homeDir, piInUse);
 
       const { kept } = await removeManagedReviewSkills(destRoot, keep);
 
@@ -396,6 +397,11 @@ export async function removeManagedReviewSkills(
   }
 
   return { removed, kept };
+}
+
+/** Pi is in use on this machine when its home exists. */
+export function piDetected(homeDir: string): Promise<boolean> {
+  return isDirectory(path.join(homeDir, ".pi"));
 }
 
 /** Codex and Pi share ~/.agents/skills; Pi's pointer skill stays there while Pi is managed. */

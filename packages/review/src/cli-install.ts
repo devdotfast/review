@@ -60,6 +60,7 @@ import {
   type InstallTarget,
   hasManagedSkillsToRemove,
   keptSkillNames,
+  piDetected,
   removeInstalledSkills,
   removeReviewSkillsEverywhere,
   resolveInstalledSkills,
@@ -370,7 +371,7 @@ export async function removeRetiredReviewSkills(
 
   const piManaged =
     (stamp?.consent === "granted" && Boolean(stamp.targets?.includes("pi"))) ||
-    (await detectPresentAgents(homeDir)).has("pi");
+    (await piDetected(homeDir));
 
   return removeReviewSkillsEverywhere(homeDir, piManaged);
 }
@@ -717,9 +718,10 @@ async function removeCliInstallUnlocked(
       keptSkillNames(
         skillsDestRoot(homeDir, target),
         homeDir,
-        previous?.consent === "granted" &&
-          Boolean(previous.targets?.includes("pi")) &&
-          !input.targets.includes("pi"),
+        !input.targets.includes("pi") &&
+          ((previous?.consent === "granted" &&
+            Boolean(previous.targets?.includes("pi"))) ||
+            (await piDetected(homeDir))),
       ),
     );
 

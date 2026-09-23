@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import type { ActivitySnapshot } from "../../src/review-api/activity";
 import type { EditSummary } from "../../src/review-api/document";
-import { type AuthoringCursor, nextCursor } from "./authoring-cursor";
+import {
+  type AuthoringCursor,
+  nextCursor,
+  scopeLive,
+} from "./authoring-cursor";
 
 const working = (targetId?: string) => ({
   workingCount: 1,
@@ -108,5 +113,102 @@ describe("nextCursor", () => {
     expect(
       nextCursor(null, {}, { version: 0, activity: working() }),
     ).toBeNull();
+  });
+
+  it("keeps one courier per lease scope, each on its own edits and focus", () => {
+    const documentMemory = {},
+      lensMemory = {};
+
+    const lensInsert: EditSummary = {
+      type: "insert",
+      targetId: "lens-4",
+      blockId: "lens-4",
+      kind: "lens",
+    };
+
+    const markdown: EditSummary = {
+      type: "insert",
+      targetId: "block-1",
+      blockId: "block-1",
+      kind: "markdown",
+    };
+
+    const both = (
+      focuses: ActivitySnapshot["focuses"] = [],
+    ): ActivitySnapshot => ({
+      workingCount: 2,
+      expiresAt: null,
+      scopes: ["document", "lenses"],
+      focuses,
+    });
+
+    let documentCursor = nextCursor(null, documentMemory, {
+      version: 1,
+      lastEdit: markdown,
+      activity: both(),
+    });
+
+    let lensCursor = nextCursor(
+      null,
+      lensMemory,
+      { version: 1, lastEdit: markdown, activity: both() },
+      "lenses",
+    );
+
+    expect(documentCursor).toMatchObject({ targetId: "block-1" });
+    expect(lensCursor).toBeNull();
+
+    // A lens edit moves only the lenses' courier.
+    const lensVersion = { version: 2, lastEdit: lensInsert, activity: both() };
+    expect(nextCursor(documentCursor, documentMemory, lensVersion)).toBe(
+      documentCursor,
+    );
+    lensCursor = nextCursor(lensCursor, lensMemory, lensVersion, "lenses");
+    expect(lensCursor).toMatchObject({
+      targetId: "lens-4",
+      source: "edit",
+      edit: lensInsert,
+    });
+
+    // Each lease's focus moves its own courier.
+    const focused = {
+      version: 2,
+      activity: both([
+        { description: "Explaining", targetId: "block-9" },
+        { description: "Grouping tests", targetId: "lens-5", scope: "lenses" },
+      ]),
+    };
+
+    documentCursor = nextCursor(documentCursor, documentMemory, focused);
+    lensCursor = nextCursor(lensCursor, lensMemory, focused, "lenses");
+    expect(documentCursor).toMatchObject({
+      targetId: "block-9",
+      source: "focus",
+    });
+    expect(lensCursor).toMatchObject({ targetId: "lens-5", source: "focus" });
+  });
+
+  it("reads a scope as live from the lease scopes, or from a bare count as the document's", () => {
+    expect(scopeLive(undefined, "document")).toBe(false);
+    expect(scopeLive("unknown", "lenses")).toBe(false);
+    expect(
+      scopeLive(
+        { workingCount: 1, expiresAt: null, scopes: ["lenses"] },
+        "document",
+      ),
+    ).toBe(false);
+    expect(
+      scopeLive(
+        { workingCount: 1, expiresAt: null, scopes: ["lenses"] },
+        "lenses",
+      ),
+    ).toBe(true);
+    // A host from before scopes reports only its one lease.
+    expect(scopeLive({ workingCount: 1, expiresAt: null }, "document")).toBe(
+      true,
+    );
+    expect(scopeLive({ workingCount: 1, expiresAt: null }, "lenses")).toBe(
+      false,
+    );
   });
 });

@@ -89,6 +89,7 @@ export function ApiCanvas({
   const [coverageRevision, setCoverageRevision] = useState(0);
   const [activity, setActivity] = useState<ActivitySnapshot | "unknown">();
   const [cursor, setCursor] = useState<AuthoringCursor | null>(null);
+  const [lensCursor, setLensCursor] = useState<AuthoringCursor | null>(null);
   useEffect(() => setVersion(content.version), [content.version]);
   const [data, setData] = useState<ApiDocumentData>();
   const dataRef = useRef(data);
@@ -102,7 +103,10 @@ export function ApiCanvas({
     setData(undefined);
     setActivity(undefined);
     setCursor(null);
+    setLensCursor(null);
+    // One stream, two couriers: each scope folds its own edits and focus.
     const cursorMemory: CursorMemory = {};
+    const lensMemory: CursorMemory = {};
 
     const show = async (snapshot: Snapshot) => {
       const next = await loader.load(snapshot);
@@ -156,6 +160,9 @@ export function ApiCanvas({
         async (snapshot) => {
           setActivity(snapshot.activity);
           setCursor((current) => nextCursor(current, cursorMemory, snapshot));
+          setLensCursor((current) =>
+            nextCursor(current, lensMemory, snapshot, "lenses"),
+          );
           setCoverageRevision(snapshot.coverageRevision ?? 0);
 
           if (version !== undefined) return;
@@ -187,6 +194,20 @@ export function ApiCanvas({
                   version: cursorMemory.version ?? 0,
                   activity: "unknown",
                 })
+              : current,
+          );
+
+          setLensCursor((current) =>
+            current
+              ? nextCursor(
+                  current,
+                  lensMemory,
+                  {
+                    version: lensMemory.version ?? 0,
+                    activity: "unknown",
+                  },
+                  "lenses",
+                )
               : current,
           );
 
@@ -358,19 +379,26 @@ export function ApiCanvas({
                 <DrawQueueProvider
                   cursor={version === undefined ? cursor : undefined}
                 >
-                  <DisplayedReviewVersionContext.Provider
-                    value={data.snapshot.version}
+                  <DrawQueueProvider
+                    scope="lenses"
+                    cursor={version === undefined ? lensCursor : undefined}
                   >
-                    <MapEnabled.Provider
-                      value={content.softwareMapEnabled === true}
+                    <DisplayedReviewVersionContext.Provider
+                      value={data.snapshot.version}
                     >
-                      <CanvasDocument
-                        data={data}
-                        findHost={findHost}
-                        softwareMapEnabled={content.softwareMapEnabled === true}
-                      />
-                    </MapEnabled.Provider>
-                  </DisplayedReviewVersionContext.Provider>
+                      <MapEnabled.Provider
+                        value={content.softwareMapEnabled === true}
+                      >
+                        <CanvasDocument
+                          data={data}
+                          findHost={findHost}
+                          softwareMapEnabled={
+                            content.softwareMapEnabled === true
+                          }
+                        />
+                      </MapEnabled.Provider>
+                    </DisplayedReviewVersionContext.Provider>
+                  </DrawQueueProvider>
                 </DrawQueueProvider>
               </AuthoringActivityContext.Provider>
             </TutorialProvider>

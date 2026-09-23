@@ -1,7 +1,12 @@
 import { createContext, useContext, useState } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
-import { AuthoringCursorContext } from "./courier";
+import { scopeLive } from "./authoring-cursor";
+import {
+  AuthoringCursorContext,
+  LensCursorContext,
+  lensRowElement,
+} from "./courier";
 import { CourierFigure } from "./courier-figure";
 import { cursorElement } from "./cursor-element";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
@@ -18,19 +23,27 @@ export const AuthoringActivityContext = createContext<
  * The top-bar badge: the mini courier and what the agent is doing. While an
  * agent works, clicking it opens the Review surface; when the courier is on
  * the board, it also takes the reader to him, and he jumps so the eye finds
- * him.
+ * him. When only lenses are being written, or only the lenses' courier is
+ * out, it opens the Diffs page and finds the courier in the lens list.
  */
 export function AuthoringActivityBadge({
   onLocate,
 }: {
-  /** Show the Review surface (before scrolling to the courier, if any). */
-  onLocate?(): void;
+  /** Show the surface (before scrolling to its courier, if any). */
+  onLocate?(view: "review" | "diff"): void;
 }) {
   const activity = useContext(AuthoringActivityContext);
-  const cursor = useContext(AuthoringCursorContext);
+  const documentCursor = useContext(AuthoringCursorContext);
+  const lensCursor = useContext(LensCursorContext);
   const roots = useReviewRoots();
 
   const working = activity && activity !== "unknown";
+
+  const toLenses =
+    (scopeLive(activity, "lenses") && !scopeLive(activity, "document")) ||
+    (!documentCursor && !!lensCursor);
+
+  const cursor = toLenses ? lensCursor : documentCursor;
 
   const focuses = working ? (activity.focuses ?? []) : [];
 
@@ -45,20 +58,32 @@ export function AuthoringActivityBadge({
   );
 
   const locate = () => {
-    onLocate?.();
+    onLocate?.(toLenses ? "diff" : "review");
 
     if (!cursor) return;
 
-    // The Review surface may only be mounting now; measure after it paints.
+    // The surface may only be showing now; measure after it paints.
     requestAnimationFrame(() => {
-      const article = roots?.articleRef.current;
+      const container = toLenses
+        ? roots?.appRef.current?.querySelector<HTMLElement>(
+            ".diff-sidebar-lenses",
+          )
+        : roots?.articleRef.current;
 
-      if (!article) return;
-      const target = cursorElement(article, cursor);
+      if (!container) return;
+
+      const target = (toLenses ? lensRowElement : cursorElement)(
+        container,
+        cursor,
+      );
 
       if (!target) return;
       target.scrollIntoView?.({ block: "center", behavior: "smooth" });
-      article.querySelector<HTMLButtonElement>(".courier-figure")?.click();
+      container
+        .querySelector<HTMLButtonElement>(
+          `.courier[data-scope="${toLenses ? "lenses" : "document"}"] .courier-figure`,
+        )
+        ?.click();
     });
   };
 
@@ -127,6 +152,7 @@ export function ReviewSurfaceLabel({
   const activity = useContext(AuthoringActivityContext);
   const version = useContext(DisplayedReviewVersionContext) ?? null;
 
+  // Any live lease, document or lenses, means the review is not ready yet.
   const live =
     activity !== undefined &&
     activity !== "unknown" &&

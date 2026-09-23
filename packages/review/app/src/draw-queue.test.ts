@@ -230,6 +230,43 @@ describe("draw queue", () => {
     expect(standingCursor(state)?.targetId).toBe("node-2");
   });
 
+  it("lands a new lens row, relabels a retitle, draws nothing for a targets-only update, and erases a removed row", () => {
+    const lens = (
+      type: "insert" | "update" | "remove",
+      fields?: string[],
+    ): AuthoringCursor => ({
+      targetId: "lens-3",
+      blockId: "lens-3",
+      source: "edit",
+      edit: {
+        type,
+        targetId: "lens-3",
+        blockId: "lens-3",
+        kind: "lens",
+        ...(fields && { fields }),
+      },
+      seq: ++seq,
+    });
+
+    const timeline = (cursor: AuthoringCursor) => {
+      const seen: (string | undefined)[] = [];
+      let state = arrive(EMPTY_QUEUE, cursor, 0);
+
+      for (let due = nextDue(state); due !== null; due = nextDue(state)) {
+        seen.push(phases(state).get("lens-3"));
+        state = tick(state, due);
+      }
+
+      return seen;
+    };
+
+    expect(timeline(lens("insert"))).toEqual(["landing"]);
+    expect(timeline(lens("update", ["title"]))).toEqual(["relabel"]);
+    expect(timeline(lens("update", ["targets"]))).toEqual([]);
+    expect(timeline(lens("update", ["title", "targets"]))).toEqual(["relabel"]);
+    expect(timeline(lens("remove"))).toEqual(["erasing"]);
+  });
+
   it("draws only what an update changed", () => {
     const update = (
       id: string,

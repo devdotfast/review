@@ -15,7 +15,10 @@ import {
   selectionKey,
 } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
-import { UNCATEGORIZED_LENS_ID } from "../../src/review-api/diff-lenses";
+import {
+  type Lens,
+  UNCATEGORIZED_LENS_ID,
+} from "../../src/review-api/diff-lenses";
 import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import type { FileLineRange } from "../../src/source";
@@ -36,6 +39,8 @@ export interface ResolvedRange extends FileLineRange {
 interface Lenses {
   progress: ReviewProgress | null;
   lenses: ReviewProgress["lenses"];
+  /** The lenses as authored on the version shown, targets and all. */
+  authored: readonly Lens[];
   availability(
     sources: readonly LensSource[],
   ): "pending" | "ready" | "unavailable";
@@ -216,6 +221,7 @@ export function ReviewLensesProvider({
     () => ({
       progress,
       lenses,
+      authored: snapshot.lenses ?? [],
       availability: (sources) => {
         if (
           sources.some(

@@ -63,7 +63,7 @@ export interface IReviewDesktopConnectionService {
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
 	deleteTutorial(): Promise<void>;
-	getCliInstallStatus(refresh?: boolean): Promise<ReviewCliInstallStatus>;
+	getCliInstallStatus(): Promise<ReviewCliInstallStatus>;
 	applyCliInstall(request: {
 		autoUpdate?: boolean;
 		targets: readonly ReviewCliInstallTarget[];
@@ -96,7 +96,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 	private initializePromise: Promise<void> | null = null;
 	private tutorialPreparePromise: Promise<void> | undefined;
 	private tutorialPrepareAttempted = false;
-	private cliInstallStatus: ReviewCliInstallStatus | undefined;
 	private cliInstallStatusPromise: Promise<ReviewCliInstallStatus> | undefined;
 	private readonly controller = new AbortController();
 	private controlAttached = false;
@@ -323,18 +322,15 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		throw new Error(typeof payload.error === "string" ? payload.error : `${what} returned ${response.status}.`);
 	}
 
-	async getCliInstallStatus(refresh = false): Promise<ReviewCliInstallStatus> {
+	async getCliInstallStatus(): Promise<ReviewCliInstallStatus> {
 		await this.initialize();
-		if (!refresh && this.cliInstallStatus) return this.cliInstallStatus;
 		this.cliInstallStatusPromise ??= (async () => {
 			const response = await fetch(`${this.serverUrl}/install/status`, {
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			});
 			await this.requireOk(response, "Review install status");
-			const status = parseReviewCliInstallStatus(await response.json());
-			this.cliInstallStatus = status;
-			return status;
+			return parseReviewCliInstallStatus(await response.json());
 		})().finally(() => {
 			this.cliInstallStatusPromise = undefined;
 		});
@@ -365,7 +361,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			signal: AbortSignal.timeout(120_000),
 		});
 		const payload: JsonValue = await response.json().catch(() => ({}));
-		this.cliInstallStatus = undefined;
 		if (!response.ok) {
 			const detail = payload as { output?: unknown; error?: unknown };
 			throw new Error(
@@ -403,7 +398,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		if (!response.ok) {
 			throw new Error(`Review install remove returned ${response.status}.`);
 		}
-		this.cliInstallStatus = undefined;
 	}
 
 	async declineCliInstall(): Promise<void> {
@@ -428,7 +422,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		if (!response.ok) {
 			throw new Error(`Review install ${verb} returned ${response.status}.`);
 		}
-		this.cliInstallStatus = undefined;
 	}
 
 	attachControl(dispatch: (value: JsonValue) => Promise<ReviewVerbResponse>): void {

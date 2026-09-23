@@ -7,7 +7,7 @@ import type {
 import { type ReactNode, useState } from "react";
 
 import { AgentSetupCard, TARGET_LABELS } from "./agent-setup-card";
-import { DisclosureChevron } from "./icons";
+import { DisclosureChevron, RefreshIcon } from "./icons";
 import { PromptCard, promptAgent } from "./prompt-card";
 
 /**
@@ -69,6 +69,8 @@ export function WelcomePage({
   const hasAgents =
     status?.agents.some((agent) => agent.present || agent.installed) ?? false;
 
+  const compactRefresh = hasAgents && !setupError;
+
   const refreshInstall = async () => {
     if (!setupActions) return;
     setLoadedInstall(await setupActions.load());
@@ -100,8 +102,7 @@ export function WelcomePage({
                 {install
                   ? "No coding agents detected."
                   : "Agent setup is unavailable."}{" "}
-                You can install the <code>review</code> command now and connect
-                an agent later.
+                Install <code>review</code> to get started.
               </p>
               {status?.shim.installed ? (
                 <p>
@@ -130,9 +131,20 @@ export function WelcomePage({
             <button
               type="button"
               disabled={setupBusy}
+              className={
+                compactRefresh ? "review-onboarding-refresh" : undefined
+              }
+              aria-label={setupBusy ? "Refreshing agents" : "Refresh agents"}
+              title="Refresh agents"
               onClick={() => void runSetup(refreshInstall)}
             >
-              {setupBusy ? "Refreshing…" : "Refresh agents"}
+              {compactRefresh ? (
+                <RefreshIcon />
+              ) : setupBusy ? (
+                "Refreshing…"
+              ) : (
+                "Refresh agents"
+              )}
             </button>
           ) : null}
           {setupError ? (
@@ -152,8 +164,7 @@ export function WelcomePage({
       body: (
         <>
           <p className="review-home-zero-hint">
-            A real review of a small sample repo, with live code, system views,
-            and interactive examples. About three minutes.
+            Explore a sample review in three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -190,16 +201,8 @@ export function WelcomePage({
                 Your codebase, explained by your agent.
               </h1>
               <p className="review-onboarding-sub">
-                Connect a coding agent once, then take a three-minute tour on a
-                bundled sample review. Your agent writes the next one from your
-                own repo.
+                Connect your agent. Explore a review. Create your own.
               </p>
-              <div className="review-onboarding-terminal">
-                <span className="review-onboarding-terminal-label">
-                  Prefer the terminal?
-                </span>
-                <code>$ review install</code>
-              </div>
               {onClose ? (
                 <button
                   type="button"

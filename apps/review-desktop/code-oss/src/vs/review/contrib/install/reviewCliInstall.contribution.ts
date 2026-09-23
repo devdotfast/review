@@ -161,7 +161,7 @@ class UninstallReviewDesktopAction extends Action2 {
 			targets.length > 0
 				? localize(
 						"review.uninstall.skills",
-						"Removes the app-managed Review MCP connections and Pi skill for {0}.",
+						"Removes Review's agent setup for {0}.",
 						formatTargets(targets),
 					)
 				: localize("review.uninstall.noSkills", "No agents are connected to Review."),

@@ -21,13 +21,12 @@ import {
 import { valid as validVersion } from "semver";
 
 import { installFffForTargets, isFffTarget } from "./agent-fff";
+import { REVIEW_MCP_TARGETS } from "./agent-review-mcp";
 import { isDirectory, isFile } from "./fs-utils";
 import { installDirectory } from "./install-directory";
 import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
-
-export const SKILL_TARGETS = ["pi"] as const;
 
 const REQUIRED_SKILL_NAMES = ["dev-review"] as const;
 
@@ -46,6 +45,45 @@ export const RETIRED_SKILL_NAMES = [
   "trace-archaeology",
   ...STALE_SKILL_NAMES,
 ] as const;
+
+/**
+ * Agents Review cannot register over MCP get one small pointer skill instead,
+ * which tells them to fetch instructions with `review api`. This list is the
+ * only place that decides which agents those are (today: Pi).
+ */
+export function isPointerSkillTarget(target: InstallTarget): boolean {
+  return !REVIEW_MCP_TARGETS.some((mcpTarget) => mcpTarget === target);
+}
+
+const AGENT_HOME_DIRS: Record<InstallTarget, string> = {
+  claude: ".claude",
+  codex: ".codex",
+  cursor: ".cursor",
+  opencode: ".config/opencode",
+  pi: ".pi",
+};
+
+export function agentDetected(
+  homeDir: string,
+  target: InstallTarget,
+): Promise<boolean> {
+  return isDirectory(path.join(homeDir, AGENT_HOME_DIRS[target]));
+}
+
+/** Pointer-skill agents that Review set up or that are installed here. */
+export async function pointerSkillTargetsInUse(
+  homeDir: string,
+  managed: readonly InstallTarget[],
+): Promise<InstallTarget[]> {
+  const inUse: InstallTarget[] = [];
+
+  for (const target of ALL_INSTALL_TARGETS.filter(isPointerSkillTarget)) {
+    if (managed.includes(target) || (await agentDetected(homeDir, target)))
+      inUse.push(target);
+  }
+
+  return inUse;
+}
 
 export const ALL_INSTALL_TARGETS: InstallTarget[] = [
   "claude",
@@ -78,7 +116,8 @@ export interface RunInstallInput {
   fff?: boolean;
   /** Desktop reconciliation skips skills already at the bundled release. */
   skipCurrentSkills?: boolean;
-  preservePiSkill?: boolean;
+  /** Targets Review already manages, so their pointer skills survive a narrower install. */
+  managedTargets?: InstallTarget[];
   reviewCommand?: string;
   trace?: {
     credentials?: TraceCredentialsInput;
@@ -102,7 +141,9 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
 
   const skillsDir = path.join(packageRoot, "skills");
 
-  const skillDirs = input.targets.includes("pi")
+  const wantsPointerSkill = input.targets.some(isPointerSkillTarget);
+
+  const skillDirs = wantsPointerSkill
     ? (await listSkillDirs(skillsDir)).filter((skill) =>
         REQUIRED_SKILL_NAMES.some((name) => name === skill.name),
       )
@@ -110,7 +151,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
 
   const skillNames = new Set(skillDirs.map((skill) => skill.name));
 
-  const missingSkills = input.targets.includes("pi")
+  const missingSkills = wantsPointerSkill
     ? REQUIRED_SKILL_NAMES.filter((name) => !skillNames.has(name))
     : [];
 
@@ -186,10 +227,10 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installed: InstalledItem[] = [];
   const visitedRoots = new Set<string>();
 
-  const piInUse =
-    input.targets.includes("pi") ||
-    Boolean(input.preservePiSkill) ||
-    (await piDetected(homeDir));
+  const pointerTargets = await pointerSkillTargetsInUse(homeDir, [
+    ...input.targets,
+    ...(input.managedTargets ?? []),
+  ]);
 
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
@@ -197,7 +238,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     if (!visitedRoots.has(destRoot)) {
       visitedRoots.add(destRoot);
 
-      const keep = keptSkillNames(destRoot, homeDir, piInUse);
+      const keep = keptSkillNames(destRoot, homeDir, pointerTargets);
 
       const { kept } = await removeManagedReviewSkills(destRoot, keep);
 
@@ -356,10 +397,10 @@ async function removeInstalledSkillsUnlocked(
   return result;
 }
 
-/** Removes Review's own skill copies from every agent root, keeping Pi's pointer when asked. */
+/** Removes Review's own skill copies from every agent root, keeping pointers for `pointerTargets`. */
 export async function removeReviewSkillsEverywhere(
   homeDir: string,
-  piManaged: boolean,
+  pointerTargets: readonly InstallTarget[],
 ): Promise<string[]> {
   return withSkillInstallLock(homeDir, async () => {
     const removed: string[] = [];
@@ -369,7 +410,7 @@ export async function removeReviewSkillsEverywhere(
     )) {
       const result = await removeManagedReviewSkills(
         root,
-        keptSkillNames(root, homeDir, piManaged),
+        keptSkillNames(root, homeDir, pointerTargets),
       );
 
       removed.push(...result.removed);
@@ -399,18 +440,18 @@ export async function removeManagedReviewSkills(
   return { removed, kept };
 }
 
-/** Pi is in use on this machine when its home exists. */
-export function piDetected(homeDir: string): Promise<boolean> {
-  return isDirectory(path.join(homeDir, ".pi"));
-}
-
-/** Codex and Pi share ~/.agents/skills; Pi's pointer skill stays there while Pi is managed. */
+/**
+ * Skills roots can be shared (Codex and Pi both read ~/.agents/skills), so a
+ * root keeps the pointer skill while any in-use pointer-skill agent reads it.
+ */
 export function keptSkillNames(
   root: string,
   homeDir: string,
-  piManaged: boolean,
+  pointerTargets: readonly InstallTarget[],
 ): string[] {
-  return piManaged && root === skillsDestRoot(homeDir, "pi")
+  return pointerTargets.some(
+    (target) => skillsDestRoot(homeDir, target) === root,
+  )
     ? [...REQUIRED_SKILL_NAMES]
     : [];
 }
@@ -418,14 +459,16 @@ export function keptSkillNames(
 export async function hasManagedSkillsToRemove(
   homeDir: string,
   targets: InstallTarget[],
-  piManaged = targets.includes("pi"),
+  pointerTargets: readonly InstallTarget[] = targets.filter(
+    isPointerSkillTarget,
+  ),
 ): Promise<boolean> {
   const roots = new Set(
     targets.map((target) => skillsDestRoot(homeDir, target)),
   );
 
   for (const root of roots) {
-    const keep = keptSkillNames(root, homeDir, piManaged);
+    const keep = keptSkillNames(root, homeDir, pointerTargets);
 
     for (const name of [...REQUIRED_SKILL_NAMES, ...RETIRED_SKILL_NAMES]) {
       if (
@@ -520,37 +563,33 @@ export async function resolveInstalledSkills(input: {
   targets: InstallTarget[];
 }): Promise<InstalledSkillStatus[]> {
   return Promise.all(
-    input.targets
-      .filter((target) =>
-        SKILL_TARGETS.some((skillTarget) => skillTarget === target),
-      )
-      .flatMap((target) =>
-        REQUIRED_SKILL_NAMES.map(async (name) => {
-          const bundledVersion = await readSkillVersion(
-            path.join(input.packageRoot, "skills", name, "SKILL.md"),
-            name,
-          );
+    input.targets.filter(isPointerSkillTarget).flatMap((target) =>
+      REQUIRED_SKILL_NAMES.map(async (name) => {
+        const bundledVersion = await readSkillVersion(
+          path.join(input.packageRoot, "skills", name, "SKILL.md"),
+          name,
+        );
 
-          const installedVersion = await readSkillVersion(
-            path.join(skillsDestRoot(input.homeDir, target), name, "SKILL.md"),
-            name,
-          );
+        const installedVersion = await readSkillVersion(
+          path.join(skillsDestRoot(input.homeDir, target), name, "SKILL.md"),
+          name,
+        );
 
-          const status: InstalledSkillStatus = {
-            target,
-            name,
-            bundledVersion,
-            installedVersion,
-            stale: !bundledVersion || installedVersion !== bundledVersion,
-          };
+        const status: InstalledSkillStatus = {
+          target,
+          name,
+          bundledVersion,
+          installedVersion,
+          stale: !bundledVersion || installedVersion !== bundledVersion,
+        };
 
-          if (!bundledVersion) {
-            status.error = `Bundled skill ${name} has no release version. Reinstall Review Desktop.`;
-          }
+        if (!bundledVersion) {
+          status.error = `Bundled skill ${name} has no release version. Reinstall Review Desktop.`;
+        }
 
-          return status;
-        }),
-      ),
+        return status;
+      }),
+    ),
   );
 }
 

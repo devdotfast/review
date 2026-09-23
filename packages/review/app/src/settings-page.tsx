@@ -114,8 +114,8 @@ export function SettingsPage({
                 label="review command"
                 description={
                   install.status.shim.installed
-                    ? `Installed at ${install.status.shim.path}. Trace capture and Pi use it; MCP agents do not need it.`
-                    : "Adds review to your shell PATH for trace capture and Pi. MCP agents do not need it."
+                    ? `Installed at ${install.status.shim.path}. Trace capture and agents without MCP support use it.`
+                    : "Adds review to your shell PATH for trace capture and agents without MCP support."
                 }
               >
                 <button

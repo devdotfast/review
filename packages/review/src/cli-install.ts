@@ -54,13 +54,15 @@ import {
   reviewMcpStatus,
   writeReviewMcpRegistration,
 } from "./agent-review-mcp";
-import { isDirectory, isFile } from "./fs-utils";
+import { isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
+  agentDetected,
   hasManagedSkillsToRemove,
+  isPointerSkillTarget,
   keptSkillNames,
-  piDetected,
+  pointerSkillTargetsInUse,
   removeInstalledSkills,
   removeReviewSkillsEverywhere,
   resolveInstalledSkills,
@@ -71,14 +73,6 @@ import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
 
 const installErrors = new Map<string, string>();
-
-const AGENT_HOME_DIR: Record<InstallTarget, string> = {
-  claude: ".claude",
-  codex: ".codex",
-  cursor: ".cursor",
-  opencode: ".config/opencode",
-  pi: ".pi",
-};
 
 const SHIM_MARKER = "Managed by Review Desktop";
 
@@ -120,11 +114,18 @@ export async function resolveInstalledReviewAgentStatus(
 }
 
 async function resolveAgentState(homeDir: string, env: NodeJS.ProcessEnv) {
-  const [present, stamp, piInstalled] = await Promise.all([
+  const [present, stamp] = await Promise.all([
     detectPresentAgents(homeDir),
     readCliInstallStamp(cliInstallStampPath(env)),
-    isFile(path.join(skillsDestRoot(homeDir, "pi"), "dev-review", "SKILL.md")),
   ]);
+
+  // A pointer skill sits in a root other agents may share (Codex's old skills
+  // lived in Pi's), so the file only counts once its agent is here or managed.
+  const pointerInstalled = async (target: InstallTarget) =>
+    (present.has(target) || Boolean(stamp?.targets?.includes(target))) &&
+    (await isFile(
+      path.join(skillsDestRoot(homeDir, target), "dev-review", "SKILL.md"),
+    ));
 
   const launcherExists = await isFile(reviewMcpLauncher(env));
 
@@ -141,49 +142,44 @@ async function resolveAgentState(homeDir: string, env: NodeJS.ProcessEnv) {
     }),
   );
 
-  const agents = ALL_INSTALL_TARGETS.map((target) => ({
-    target,
-    present: present.has(target),
-    installed:
-      target === "pi"
-        ? // Codex's old skills shared this root, so the file alone is not Pi.
-          piInstalled &&
-          (present.has("pi") || Boolean(stamp?.targets?.includes("pi")))
+  const agents = await Promise.all(
+    ALL_INSTALL_TARGETS.map(async (target) => ({
+      target,
+      present: present.has(target),
+      installed: isPointerSkillTarget(target)
+        ? await pointerInstalled(target)
         : mcp.some(
             (item) =>
               item.target === target &&
               (item.state === "ready" || item.state === "custom"),
           ),
-  }));
+    })),
+  );
 
   let managedTargets: InstallTarget[] = [];
 
   if (stamp?.consent === "granted") {
     managedTargets =
       stamp.targets ??
-      agents
-        .filter(
-          (agent) =>
-            agent.installed && (agent.target !== "pi" || present.has("pi")),
-        )
-        .map((agent) => agent.target);
+      agents.filter((agent) => agent.installed).map((agent) => agent.target);
 
+    // Stamps from before per-target records: an agent whose skills root still
+    // holds old Review skills was set up by Review, unless that root belongs to
+    // a pointer-skill agent in use and this agent isn't installed here.
     if (!stamp.targets) {
+      const pointerTargets = managedTargets.filter(isPointerSkillTarget);
+
       for (const target of REVIEW_MCP_TARGETS) {
-        if (
-          target === "codex" &&
-          managedTargets.includes("pi") &&
-          !present.has("codex")
-        )
-          continue;
+        const sharedWithPointer = pointerTargets.some(
+          (pointer) =>
+            skillsDestRoot(homeDir, pointer) ===
+            skillsDestRoot(homeDir, target),
+        );
 
         if (
           !managedTargets.includes(target) &&
-          (await hasManagedSkillsToRemove(
-            homeDir,
-            [target],
-            managedTargets.includes("pi"),
-          ))
+          (present.has(target) || !sharedWithPointer) &&
+          (await hasManagedSkillsToRemove(homeDir, [target], pointerTargets))
         )
           managedTargets.push(target);
       }
@@ -360,7 +356,7 @@ export async function registerReviewMcp(
 
 /**
  * Review manages its skills: Desktop removes its old copies at every startup,
- * whatever the setup consent. Pi keeps its pointer while Pi is in use.
+ * whatever the setup consent. Pointer skills stay for agents still in use.
  */
 export async function removeRetiredReviewSkills(
   input: { homeDir?: string; env?: NodeJS.ProcessEnv } = {},
@@ -369,11 +365,13 @@ export async function removeRetiredReviewSkills(
   const env = input.env ?? process.env;
   const stamp = await readCliInstallStamp(cliInstallStampPath(env));
 
-  const piManaged =
-    (stamp?.consent === "granted" && Boolean(stamp.targets?.includes("pi"))) ||
-    (await piDetected(homeDir));
-
-  return removeReviewSkillsEverywhere(homeDir, piManaged);
+  return removeReviewSkillsEverywhere(
+    homeDir,
+    await pointerSkillTargetsInUse(
+      homeDir,
+      stamp?.consent === "granted" ? (stamp.targets ?? []) : [],
+    ),
+  );
 }
 
 interface ApplyCliInstallInput {
@@ -495,7 +493,7 @@ async function applyCliInstallUnlocked(
       env,
       fff: input.fff,
       skipCurrentSkills: input.autoUpdate,
-      preservePiSkill: previousTargets.includes("pi"),
+      managedTargets: previousTargets,
       reviewCommand:
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
@@ -718,10 +716,12 @@ async function removeCliInstallUnlocked(
       keptSkillNames(
         skillsDestRoot(homeDir, target),
         homeDir,
-        !input.targets.includes("pi") &&
-          ((previous?.consent === "granted" &&
-            Boolean(previous.targets?.includes("pi"))) ||
-            (await piDetected(homeDir))),
+        (
+          await pointerSkillTargetsInUse(
+            homeDir,
+            previous?.consent === "granted" ? (previous.targets ?? []) : [],
+          )
+        ).filter((pointer) => !input.targets.includes(pointer)),
       ),
     );
 
@@ -915,7 +915,7 @@ async function detectPresentAgents(
   const present = new Set<InstallTarget>();
   await Promise.all(
     ALL_INSTALL_TARGETS.map(async (target) => {
-      if (await isDirectory(path.join(homeDir, AGENT_HOME_DIR[target]))) {
+      if (await agentDetected(homeDir, target)) {
         present.add(target);
       }
     }),

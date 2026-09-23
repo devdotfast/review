@@ -22,7 +22,7 @@ type InstallRequest = Pick<
 
 /**
  * Lets the reviewer connect each agent to Review: an MCP entry for agents
- * that support one, and the pointer skill for Pi. The card keeps the
+ * that support one, and a small pointer skill for the rest. The card keeps the
  * latest action result so its parent can advance without a host re-render.
  */
 export function AgentSetupCard({
@@ -155,8 +155,8 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Connects your agents to Review&apos;s MCP tools; Pi gets a small skill
-        that uses the <code>review</code> command.
+        Connects your agents to Review&apos;s MCP tools. Agents without MCP
+        support get a small Review skill instead.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>

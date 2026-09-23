@@ -1193,7 +1193,7 @@ function reviewInstallHelp(): string {
     "  codex    Codex (MCP in ~/.codex/config.toml)",
     "  cursor   Cursor (MCP in ~/.cursor/mcp.json)",
     "  opencode OpenCode (MCP in ~/.config/opencode/opencode.json)",
-    "  pi       Pi (pointer skill in ~/.agents/skills; uses the review command)",
+    "  pi       Pi (no MCP support: small skill in ~/.agents/skills that uses the review command)",
     "  all      Every supported agent (default)",
     "",
     "Examples:",

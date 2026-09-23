@@ -36,6 +36,7 @@ async function fixture() {
     }).trim();
 
   git("init");
+  git("checkout", "-b", "feature/shared-head");
   git("config", "user.name", "Fixture");
   git("config", "user.email", "fixture@example.invalid");
   await writeFile(path.join(repo, "main.ts"), "export const answer = 1;\n");
@@ -166,6 +167,7 @@ async function importFixture() {
 
 it("fetches pinned source into an independent repository and retains complete traces offline", async () => {
   const { bundle, imported, id, repo, app, recipient } = await importFixture();
+  expect(imported.get(id).snapshot.origin?.branch).toBe("feature/shared-head");
   await rename(repo, repo + "-hidden");
   expect(
     (await (await app.request(`/${id}/file?side=head&file=main.ts`)).json())

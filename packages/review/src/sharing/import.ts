@@ -538,6 +538,8 @@ export class SharedReviewStore {
 
         return {
           ...snapshot,
+          firstCreatedAt:
+            snapshot.version === 0 ? snapshot.createdAt : undefined,
           repositoryName: "Shared review",
           viewedAt: this.attention.get(id)?.viewedAt ?? null,
           dismissedAt: this.attention.get(id)?.dismissedAt ?? null,

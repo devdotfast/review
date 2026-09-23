@@ -20,6 +20,8 @@ export interface ReviewApiSummary {
     | { kind: "worktree"; repositoryId: string; base?: string }
     | { kind: "commits"; repositoryId: string; head: string; base?: string };
   createdAt: string;
+  /** Timestamp of the earliest retained review version, when known. */
+  firstCreatedAt?: string;
   /** Present on reviews imported from the legacy MDX store. */
   origin?: {
     branch?: string;

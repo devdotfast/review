@@ -12,6 +12,8 @@ export interface ReviewSessionData {
   pins?: { base: string; head: string };
   historicalRevision: string | null;
   updatedAtMs: number;
+  /** Head branch captured with the displayed snapshot. */
+  headBranch?: string;
   pullRequestNumber?: number;
   pullRequestUrl?: string;
   traces: ReadonlyMap<string, LoadedAgentTrace>;

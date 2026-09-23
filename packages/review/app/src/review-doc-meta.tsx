@@ -6,9 +6,9 @@ import {
 import {
   type MouseEvent,
   type ReactElement,
+  type ReactNode,
   useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -26,39 +26,14 @@ interface ReviewDocumentMetaState {
 }
 
 /**
- * The document byline: pull request number, changed-file count, diff stats,
- * and how recently the review document was generated. Rendered directly
- * under the document title.
+ * Automatic document header: repository and PR identity above the title,
+ * with the saved branch, commit range and diff statistics below it.
  */
-export function ReviewDocumentMetaLine(): ReactElement | null {
-  const metaRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const line = metaRef.current;
-
-    if (!line) return;
-    const items = Array.from(line.children);
-
-    const updateSeparators = () => {
-      const start = line.getBoundingClientRect().left;
-
-      const starts = items.map(
-        (item) => Math.abs(item.getBoundingClientRect().left - start) < 1,
-      );
-
-      items.forEach((item, index) => {
-        item.toggleAttribute("data-row-start", starts[index]);
-      });
-    };
-
-    updateSeparators();
-    const observer = new ResizeObserver(updateSeparators);
-    observer.observe(line);
-    items.forEach((item) => observer.observe(item));
-
-    return () => observer.disconnect();
-  });
-
+export function ReviewDocumentMetaLine({
+  children,
+}: {
+  children?: ReactNode;
+}): ReactElement {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const displayedVersion = useContext(DisplayedReviewVersionContext);
@@ -111,42 +86,108 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       ? relativeTimeLabel(meta.updatedAtMs, relativeTimeNowMs)
       : null;
 
+  const repository = meta.pullRequestUrl?.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
+  );
+
   return (
-    <div ref={metaRef} className="review-doc-meta" data-review-copy-ignore>
-      {meta?.pullRequestNumber != null &&
-        (meta.pullRequestUrl ? (
-          <a
-            className="review-doc-meta-pr"
-            href={meta.pullRequestUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+    <header className="review-document-header">
+      <div className="review-header-top" data-review-copy-ignore>
+        <div className="review-header-identity">
+          {repository ? (
+            <span>
+              {repository[1]} / {repository[2]}
+            </span>
+          ) : null}
+          {repository && meta.pullRequestNumber != null ? (
+            <span className="review-header-separator" aria-hidden="true">
+              ·
+            </span>
+          ) : null}
+          {meta.pullRequestNumber != null &&
+            (meta.pullRequestUrl ? (
+              <a
+                className="review-doc-meta-pr"
+                href={meta.pullRequestUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                PR #{meta.pullRequestNumber}
+                <svg
+                  width="11"
+                  height="11"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                >
+                  <path d="M7 4h9v9M16 4 5 15" />
+                </svg>
+              </a>
+            ) : (
+              <span className="review-doc-meta-pr">
+                PR #{meta.pullRequestNumber}
+              </span>
+            ))}
+          {stackLayers.length > 1 ? (
+            <>
+              <span className="review-header-separator" aria-hidden="true">
+                ·
+              </span>
+              <ReviewStackSelector layers={stackLayers} />
+            </>
+          ) : null}
+        </div>
+        {updatedLabel && (
+          <span className="review-header-updated">Updated {updatedLabel}</span>
+        )}
+      </div>
+      {children}
+      <div className="review-header-details" data-review-copy-ignore>
+        {review.headBranch?.trim() ? (
+          <span
+            className="review-doc-meta-branch"
+            title={`Head branch: ${review.headBranch}`}
           >
-            PR #{meta.pullRequestNumber}
-          </a>
-        ) : (
-          <span className="review-doc-meta-pr">
-            PR #{meta.pullRequestNumber}
+            <svg width="13" height="13" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="5" cy="4.5" r="2" />
+              <circle cx="5" cy="15.5" r="2" />
+              <circle cx="15" cy="6.5" r="2" />
+              <path d="M5 6.5v7M15 8.5c0 3-10 2-10 5" />
+            </svg>
+            <span>{review.headBranch}</span>
           </span>
-        ))}
-      {stackLayers.length > 1 ? (
-        <ReviewStackSelector layers={stackLayers} />
-      ) : null}
-      {diff && review.pins && (
-        <>
-          <span>
-            {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}
-          </span>
-          <DiffCount additions={diff.additions} deletions={diff.deletions} />
-        </>
-      )}
-      {updatedLabel && <span>updated {updatedLabel}</span>}
+        ) : null}
+        {diff && review.pins && (
+          <div className="review-header-stats">
+            <span>
+              {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}
+            </span>
+            <DiffCount additions={diff.additions} deletions={diff.deletions} />
+            {diff.additions + diff.deletions > 0 ? (
+              <span className="review-header-change-bar" aria-hidden="true">
+                {diff.additions > 0 ? (
+                  <span style={{ flexGrow: diff.additions }} />
+                ) : null}
+                {diff.deletions > 0 ? (
+                  <span
+                    className="is-removed"
+                    style={{ flexGrow: diff.deletions }}
+                  />
+                ) : null}
+              </span>
+            ) : null}
+          </div>
+        )}
+      </div>
       {review.pins && (
-        <ReviewBranchRange
-          baseRef={review.pins.base}
-          headRef={review.pins.head}
-        />
+        <div className="review-header-comparison" data-review-copy-ignore>
+          <span>Comparing</span>
+          <ReviewBranchRange
+            baseRef={review.pins.base}
+            headRef={review.pins.head}
+          />
+        </div>
       )}
-    </div>
+    </header>
   );
 }
 

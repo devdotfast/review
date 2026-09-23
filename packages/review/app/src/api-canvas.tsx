@@ -267,6 +267,7 @@ export function ApiCanvas({
           : undefined,
         historicalRevision: version === undefined ? null : String(version),
         updatedAtMs: Date.parse(snapshot.createdAt),
+        headBranch: snapshot.origin?.branch,
         pullRequestNumber: snapshot.origin?.pullRequestNumber,
         pullRequestUrl: snapshot.origin?.pullRequestUrl,
         traces: new Map(

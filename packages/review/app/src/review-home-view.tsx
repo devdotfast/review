@@ -9,6 +9,7 @@ import type {
 import {
   Fragment,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -18,14 +19,15 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
-import { DiffCount } from "./diff-count";
 import { ArchiveIcon } from "./review-corner-action";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTopbarPopover } from "./use-topbar-popover";
 import { WelcomePage } from "./welcome-page";
 
 interface ReviewHomeProps {
   reviews: readonly ReviewApiSummary[];
   onOpen(review: ReviewApiSummary): void;
-  // Deletion is immediate and permanent, so only a dismissed review offers it.
+  // Deletion is permanent and requires an arming click.
   // Absent when the host does not support deletion.
   onDelete?(review: ReviewApiSummary): Promise<void>;
   // Dismissal is reversible. Absent when the host does not
@@ -41,6 +43,7 @@ interface ReviewHomeProps {
 }
 
 interface ReviewAttentionActions {
+  onDelete?(review: ReviewApiSummary): Promise<void>;
   onDismiss?(review: ReviewApiSummary): Promise<void>;
   onRestore?(review: ReviewApiSummary): Promise<void>;
 }
@@ -78,16 +81,6 @@ function MatchedText({ text }: { text: string }) {
   );
 }
 
-interface ReviewTimeGroup {
-  label: string;
-  reviews: ReviewApiSummary[];
-}
-
-interface ReviewStatusDisplay {
-  label: string;
-  tone: "ready" | "dismissed";
-}
-
 export function ReviewHome({
   reviews,
   onOpen,
@@ -102,7 +95,59 @@ export function ReviewHome({
 }: ReviewHomeProps) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
-  const [now, setNow] = useState(Date.now);
+  const [, setNow] = useState(Date.now);
+
+  const [deletions, setDeletions] = useState(
+    new Map<string, "pending" | "deleted">(),
+  );
+
+  const [deleteError, setDeleteError] = useState<string>();
+
+  // Keep successful deletions hidden until the catalog acknowledges removal.
+  useEffect(() => {
+    setDeletions((current) => {
+      const next = new Map(current);
+
+      for (const [id, status] of current) {
+        if (
+          status === "deleted" &&
+          !reviews.some((review) => review.reviewId === id)
+        ) {
+          next.delete(id);
+        }
+      }
+
+      return next.size === current.size ? current : next;
+    });
+  }, [reviews, deletions]);
+
+  const deleteReview = useCallback(
+    async (review: ReviewApiSummary) => {
+      if (!onDelete) return;
+      setDeleteError(undefined);
+      setDeletions((current) =>
+        new Map(current).set(review.reviewId, "pending"),
+      );
+
+      try {
+        await onDelete(review);
+        setDeletions((current) =>
+          new Map(current).set(review.reviewId, "deleted"),
+        );
+      } catch {
+        setDeletions((current) => {
+          const next = new Map(current);
+          next.delete(review.reviewId);
+
+          return next;
+        });
+        setDeleteError(
+          `Could not delete “${reviewTitle(review)}”. Please try again.`,
+        );
+      }
+    },
+    [onDelete],
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60_000);
@@ -111,8 +156,12 @@ export function ReviewHome({
   }, []);
 
   const actions = useMemo(
-    () => ({ onDismiss, onRestore }),
-    [onDismiss, onRestore],
+    () => ({
+      onDismiss,
+      onRestore,
+      onDelete: onDelete ? deleteReview : undefined,
+    }),
+    [onDismiss, onRestore, onDelete, deleteReview],
   );
 
   const needle = query.trim();
@@ -130,8 +179,12 @@ export function ReviewHome({
     scratchpad !== undefined && matchesQuery(scratchpad, needle);
 
   const found = useMemo(
-    () => listed.filter((review) => matchesQuery(review, needle)),
-    [listed, needle],
+    () =>
+      listed.filter(
+        (review) =>
+          !deletions.has(review.reviewId) && matchesQuery(review, needle),
+      ),
+    [listed, needle, deletions],
   );
 
   /* Dismissed leaves the main list entirely: it is the one group you asked to
@@ -142,12 +195,10 @@ export function ReviewHome({
     .filter((review) => review.dismissedAt)
     .sort(latestFirst);
 
-  const groups = groupReviewsByTime(active, now);
-
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
  */
-  if (listed.length === 0) {
+  if (listed.length === 0 && deletions.size === 0 && !deleteError) {
     return (
       <WelcomePage
         install={install}
@@ -169,6 +220,7 @@ export function ReviewHome({
               <SearchBox query={query} onChange={setQuery} />
             </div>
           </div>
+          {deleteError ? <p role="alert">{deleteError}</p> : null}
           {/* Keyed off the active list, not the whole result: a query that hits
               only dismissed reviews empties the main area, and the collapsed
               Dismissed count alone does not explain why. */}
@@ -185,7 +237,7 @@ export function ReviewHome({
                 <ScratchpadGroup review={scratchpad} onOpen={onOpen} />
               ) : null}
               {active.length > 0 ? (
-                <CardView groups={groups} onOpen={onOpen} />
+                <ReviewTable reviews={active} onOpen={onOpen} />
               ) : null}
               {dismissed.length > 0 ? (
                 <DismissedSection
@@ -193,7 +245,7 @@ export function ReviewHome({
                   expanded={showDismissed}
                   onToggle={() => setShowDismissed((open) => !open)}
                   onOpen={onOpen}
-                  onDelete={onDelete}
+                  onDelete={actions.onDelete}
                 />
               ) : null}
             </AttentionActionsContext.Provider>
@@ -276,7 +328,7 @@ function SearchBox({
         ref={input}
         type="search"
         value={query}
-        placeholder="Search"
+        placeholder="Search reviews"
         aria-label="Search reviews"
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
@@ -383,77 +435,310 @@ function RestoreReviewButton({ review }: { review: ReviewApiSummary }) {
   );
 }
 
-function CardView({
-  groups,
+type ReviewSort = "newest" | "oldest" | "updated" | "pr" | "title";
+
+function ReviewTable({
+  reviews,
   onOpen,
 }: {
-  groups: readonly ReviewTimeGroup[];
+  reviews: readonly ReviewApiSummary[];
   onOpen(review: ReviewApiSummary): void;
 }) {
+  const [repository, setRepository] = useState("");
+  const [sort, setSort] = useState<ReviewSort>("newest");
+  const repositories = [...new Set(reviews.map(repositoryLabel))].sort();
+
+  const filtered = reviews.filter(
+    (review) => !repository || repositoryLabel(review) === repository,
+  );
+
+  const sorted = [...filtered].sort((left, right) => {
+    const created = (review: ReviewApiSummary) =>
+      Date.parse(review.firstCreatedAt ?? review.createdAt) || 0;
+
+    switch (sort) {
+      case "oldest":
+        return created(left) - created(right);
+      case "updated":
+        return latestFirst(left, right);
+      case "pr":
+        return (
+          (right.origin?.pullRequestNumber ?? -1) -
+            (left.origin?.pullRequestNumber ?? -1) || latestFirst(left, right)
+        );
+      case "title":
+        return reviewTitle(left).localeCompare(reviewTitle(right));
+      default:
+        return created(right) - created(left);
+    }
+  });
+
   return (
-    <div className="review-home-workspaces">
-      {groups.map((group) => (
-        <section
-          className="review-home-workspace"
-          key={group.label}
-          aria-label={group.label}
-        >
-          <TimeGroupHeader
-            label={group.label}
-            count={group.reviews.length}
-            newestFirst
+    <section className="review-home-table-section" aria-label="Reviews">
+      <div className="review-home-table-toolbar">
+        <span>{countLabel(filtered.length, "review")}</span>
+        <div className="review-home-table-controls">
+          <TableMenu
+            label="Filter"
+            ariaLabel="Filter by repository"
+            value={repository}
+            options={[
+              { value: "", label: "All repos" },
+              ...repositories.map((name) => ({ value: name, label: name })),
+            ]}
+            onChange={setRepository}
           />
-          <div className="review-home-cards">
-            {group.reviews.map((review) => (
-              <ReviewCard
-                key={review.reviewId}
-                review={review}
-                onOpen={onOpen}
-              />
+          <TableMenu<ReviewSort>
+            label="Sort"
+            ariaLabel="Sort reviews"
+            value={sort}
+            options={[
+              { value: "newest", label: "Newest first" },
+              { value: "oldest", label: "Oldest first" },
+              { value: "updated", label: "Recently updated" },
+              { value: "pr", label: "PR number" },
+              { value: "title", label: "Title A–Z" },
+            ]}
+            onChange={setSort}
+          />
+        </div>
+      </div>
+      <div className="review-home-table-scroll">
+        <table className="review-home-table">
+          <colgroup>
+            <col className="review-home-col-pr" />
+            <col />
+            <col className="review-home-col-branch" />
+            <col className="review-home-col-date" />
+            <col className="review-home-col-date" />
+            <col className="review-home-col-action" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">PR</th>
+              <th scope="col">Title</th>
+              <th scope="col">Head branch</th>
+              <th scope="col">Created</th>
+              <th scope="col">Updated</th>
+              <th scope="col">
+                <span className="review-home-action-heading">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((review) => (
+              <tr key={review.reviewId} onClick={() => onOpen(review)}>
+                <td>
+                  {review.origin?.pullRequestNumber
+                    ? `#${review.origin.pullRequestNumber}`
+                    : "—"}
+                </td>
+                <td>
+                  <button
+                    className="review-home-table-open"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpen(review);
+                    }}
+                    title={reviewTitle(review)}
+                  >
+                    <span className="review-home-review-title">
+                      <MatchedText text={reviewTitle(review)} />
+                    </span>
+                    <span
+                      className="review-home-table-repository"
+                      title={
+                        review.repositoryPath ??
+                        (review.shared ? "Shared review" : undefined)
+                      }
+                    >
+                      <RepositoryName review={review} />
+                    </span>
+                  </button>
+                </td>
+                <td title={review.origin?.branch}>
+                  <MatchedText
+                    text={readableSourceBranch(review.origin?.branch) ?? "—"}
+                  />
+                </td>
+                <td title={review.firstCreatedAt}>
+                  {formatCreatedTime(review.firstCreatedAt)}
+                </td>
+                <td title={reviewUpdatedAt(review)}>
+                  {formatRelativeTime(reviewUpdatedAt(review))}
+                </td>
+                <td>
+                  <ReviewRowActions review={review} />
+                </td>
+              </tr>
             ))}
-          </div>
-        </section>
-      ))}
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={6}>No reviews match this repository.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReviewRowActions({ review }: { review: ReviewApiSummary }) {
+  const { onDelete } = useContext(AttentionActionsContext);
+  const [open, setOpen] = useState(false);
+  const control = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const popover = useTopbarPopover(open, control);
+
+  useDismissOnOutside(control, open, setOpen);
+
+  if (!onDelete) return <DismissReviewButton review={review} />;
+
+  return (
+    <div
+      ref={control}
+      className="review-home-row-actions"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="review-home-row-menu-trigger"
+        aria-label={`Actions for ${reviewTitle(review)}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="4.5" cy="10" r="1.6" />
+          <circle cx="10" cy="10" r="1.6" />
+          <circle cx="15.5" cy="10" r="1.6" />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          ref={popover}
+          popover="manual"
+          role="menu"
+          aria-label="Review actions"
+          className="review-home-row-menu"
+        >
+          <DeleteReviewButton review={review} onDelete={onDelete} menu />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function ReviewCard({
-  review,
-  onOpen,
+function TableMenu<T extends string>({
+  label,
+  ariaLabel,
+  value,
+  options,
+  onChange,
 }: {
-  review: ReviewApiSummary;
-  onOpen(review: ReviewApiSummary): void;
+  label: "Filter" | "Sort";
+  ariaLabel: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange(value: T): void;
 }) {
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  useDismissOnOutside(container, open, setOpen);
+
   return (
-    <div className="review-home-card-shell">
+    <div
+      className="review-home-table-menu"
+      ref={container}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          trigger.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={trigger}
+        className="review-home-table-menu-trigger"
         type="button"
-        className="review-home-card"
-        onClick={() => onOpen(review)}
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen(!open)}
       >
-        <span className="review-home-card-main">
-          <span className="review-home-card-repository">
-            <RepositoryName review={review} />
-          </span>
-          <span className="review-home-review-title">
-            <MatchedText text={reviewTitle(review)} />
-          </span>
-          <ReviewMeta review={review} />
-        </span>
-        <span className="review-home-card-footer">
-          <StatusPill review={review} />
-          <span className="review-home-card-provenance">
-            <ReviewWorktree review={review} />
-            <span className="review-home-card-updated">
-              {formatRelativeTime(reviewUpdatedAt(review))}
-            </span>
-          </span>
-        </span>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path
+            d={
+              label === "Filter"
+                ? "M3 5h14M6 10h8M8.5 15h3"
+                : "M6 4v12m0 0-3-3m3 3 3-3M14 16V4m0 0-3 3m3-3 3 3"
+            }
+          />
+        </svg>
+        <span>{label}</span>
+        <strong>
+          {options.find((option) => option.value === value)?.label ?? value}
+        </strong>
+        <svg
+          className="review-home-menu-chevron"
+          viewBox="0 0 20 20"
+          aria-hidden="true"
+        >
+          <path d={open ? "m5 12 5-5 5 5" : "m5 8 5 5 5-5"} />
+        </svg>
       </button>
-      <DismissReviewButton review={review} />
+      {open ? (
+        <div
+          role="menu"
+          aria-label={ariaLabel}
+          className="review-home-table-menu-options"
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.value === value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+                trigger.current?.focus();
+              }}
+            >
+              <span>{option.label}</span>
+              {option.value === value ? (
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m5 10 3.5 3.5L15 6.5" />
+                </svg>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function formatCreatedTime(value: string | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return "—";
+
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 /**
@@ -551,15 +836,17 @@ function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
 
 /**
  * Two-step delete: the first click arms the button, the second click deletes
- * the review. Focus loss disarms it. Only a dismissed review offers it, so the
- * permanent action always follows the reversible one.
+ * the review. Focus loss disarms it. The row menu and dismissed section share
+ * this arming step.
  */
 function DeleteReviewButton({
   review,
   onDelete,
+  menu = false,
 }: {
   review: ReviewApiSummary;
   onDelete(review: ReviewApiSummary): Promise<void>;
+  menu?: boolean;
 }) {
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -568,9 +855,16 @@ function DeleteReviewButton({
   return (
     <button
       type="button"
-      className={armed ? "review-home-delete is-armed" : "review-home-delete"}
+      className={
+        menu
+          ? "review-home-menu-delete"
+          : armed
+            ? "review-home-delete is-armed"
+            : "review-home-delete"
+      }
+      role={menu ? "menuitem" : undefined}
       aria-label={armed ? `Confirm delete ${title}` : `Delete ${title}`}
-      title={armed ? "Click again to delete" : "Delete review"}
+      title={armed ? "Confirm delete" : "Delete review"}
       disabled={busy}
       onBlur={() => setArmed(false)}
       onKeyDown={(event) => event.stopPropagation()}
@@ -592,27 +886,17 @@ function DeleteReviewButton({
           });
       }}
     >
-      {armed ? "Delete?" : <TrashIcon />}
+      {menu ? (
+        <>
+          <TrashIcon />
+          <span>{armed ? "Confirm delete" : "Delete review"}</span>
+        </>
+      ) : armed ? (
+        "Delete?"
+      ) : (
+        <TrashIcon />
+      )}
     </button>
-  );
-}
-
-function TimeGroupHeader({
-  label,
-  count,
-  newestFirst,
-}: {
-  label: string;
-  count: number;
-  newestFirst?: boolean;
-}) {
-  return (
-    <div className="review-home-workspace-header review-home-workspace-header--group">
-      <strong>
-        {label} · {count}
-      </strong>
-      {newestFirst ? <span>Newest first ↓</span> : null}
-    </div>
   );
 }
 
@@ -635,97 +919,6 @@ function RepositoryName({ review }: { review: ReviewApiSummary }) {
       </strong>
     </>
   );
-}
-
-function ReviewWorktree({ review }: { review: ReviewApiSummary }) {
-  const branch = readableSourceBranch(review.origin?.branch);
-  const worktree = review.repositoryPath;
-
-  const label = review.shared
-    ? "Shared"
-    : worktree
-      ? worktreeLabel(worktree)
-      : "Worktree unavailable";
-
-  return (
-    <span
-      className="review-home-origin-worktree"
-      title={[worktree, branch].filter(Boolean).join(" · ") || label}
-    >
-      <MatchedText text={label} />
-    </span>
-  );
-}
-
-function ReviewMeta({ review }: { review: ReviewApiSummary }) {
-  const stats = review.diffStats;
-
-  return (
-    <span className="review-home-card-meta">
-      {review.origin?.pullRequestNumber ? (
-        <span className="review-home-pr">
-          PR #{review.origin?.pullRequestNumber}
-        </span>
-      ) : null}
-      {stats ? (
-        <>
-          <span>{countLabel(stats.fileCount, "file")}</span>
-          <DiffCount additions={stats.additions} deletions={stats.deletions} />
-        </>
-      ) : null}
-    </span>
-  );
-}
-
-function StatusPill({ review }: { review: ReviewApiSummary }) {
-  const status = statusDisplay(review);
-
-  return (
-    <span className={`review-home-status review-home-status--${status.tone}`}>
-      <StatusIcon tone={status.tone} />
-      <span>{status.label}</span>
-    </span>
-  );
-}
-
-function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
-  const path = tone === "dismissed" ? "M3.5 6h5" : "M3.7 6.1l1.4 1.4 3.2-3.1";
-
-  return (
-    <svg aria-hidden="true" viewBox="0 0 12 12">
-      <circle cx="6" cy="6" r="5" />
-      <path d={path} />
-    </svg>
-  );
-}
-
-const REVIEW_TIME_PERIODS = ["Last day", "Last week", "Older"] as const;
-
-function reviewTimePeriod(review: ReviewApiSummary, now: number): string {
-  const age = now - reviewUpdatedAtMs(review);
-
-  if (age < 24 * 60 * 60 * 1000) return "Last day";
-
-  if (age < 7 * 24 * 60 * 60 * 1000) return "Last week";
-
-  return "Older";
-}
-
-export function groupReviewsByTime(
-  reviews: readonly ReviewApiSummary[],
-  now = Date.now(),
-): ReviewTimeGroup[] {
-  const sorted = [...reviews].sort(latestFirst);
-
-  return REVIEW_TIME_PERIODS.values()
-    .map((label) => ({
-      label,
-      reviews: sorted.filter(
-        (review) => reviewTimePeriod(review, now) === label,
-      ),
-    }))
-    .filter((group) => group.reviews.length > 0)
-    .toArray();
 }
 
 export function reviewUpdatedAt(review: ReviewApiSummary): string {
@@ -766,12 +959,6 @@ export function formatRelativeTime(
     month: "short",
     day: "numeric",
   }).format(then);
-}
-
-function statusDisplay(review: ReviewApiSummary): ReviewStatusDisplay {
-  if (review.dismissedAt) return { label: "Dismissed", tone: "dismissed" };
-
-  return { label: review.viewedAt ? "Review ready" : "New", tone: "ready" };
 }
 
 function reviewTitle(review: ReviewApiSummary): string {
@@ -842,8 +1029,8 @@ function ClearIcon() {
 
 function TrashIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 4.5h10M6.5 4.5v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8M6.7 7v4M9.3 7v4" />
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M3.5 5.5h13M8 5.5V4h4v1.5M5 5.5l.8 11h8.4l.8-11M8.3 8.5l.3 5M11.7 8.5l-.3 5" />
     </svg>
   );
 }

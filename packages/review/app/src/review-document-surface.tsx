@@ -7,11 +7,10 @@ export function ReviewDocumentTitle({
   ...props
 }: ComponentProps<"h1">): ReactElement {
   return (
-    <>
+    <ReviewDocumentMetaLine>
       <h1 {...props} data-review-copy-prose>
         {children}
       </h1>
-      <ReviewDocumentMetaLine />
-    </>
+    </ReviewDocumentMetaLine>
   );
 }

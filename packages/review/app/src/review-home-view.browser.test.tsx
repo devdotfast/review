@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ReviewHome,
   formatRelativeTime,
-  groupReviewsByTime,
   setupBannerMessage,
 } from "./review-home-view";
 
@@ -29,30 +28,6 @@ describe("ReviewHome", () => {
     container.remove();
     Reflect.deleteProperty(navigator, "clipboard");
     vi.restoreAllMocks();
-  });
-
-  it("uses rolling day/week boundaries and sorts newest first", () => {
-    const now = Date.parse("2026-09-22T12:00:00Z");
-
-    const reviews = [
-      summary({ title: "Older", createdAt: "2026-09-15T12:00:00Z" }),
-      summary({ title: "Day boundary", createdAt: "2026-09-21T12:00:00Z" }),
-      summary({ title: "Recent", createdAt: "2026-09-22T11:00:00Z" }),
-      summary({ title: "Newest", createdAt: "2026-09-22T11:59:00Z" }),
-      summary({ title: "Week", createdAt: "2026-09-15T12:00:01Z" }),
-    ];
-
-    expect(groupReviewsByTime(reviews, now)).toMatchObject([
-      {
-        label: "Last day",
-        reviews: [{ title: "Newest" }, { title: "Recent" }],
-      },
-      {
-        label: "Last week",
-        reviews: [{ title: "Day boundary" }, { title: "Week" }],
-      },
-      { label: "Older", reviews: [{ title: "Older" }] },
-    ]);
   });
 
   it("groups chronologically across repositories and shows origins", async () => {
@@ -88,22 +63,102 @@ describe("ReviewHome", () => {
       root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
     );
     expect(
-      [
-        ...container.querySelectorAll(
-          ".review-home-workspace-header--group strong",
-        ),
-      ].map((el) => el.textContent),
-    ).toEqual(["Last day · 2", "Last week · 1", "Older · 1"]);
-    expect(
       [...container.querySelectorAll(".review-home-review-title")].map(
         (el) => el.textContent,
       ),
     ).toEqual(["Newest shared", "Recent local", "Week", "Old"]);
     expect(container.textContent).toContain("team/other");
-    expect(container.textContent).toContain("Shared");
     expect(
       container.querySelector('[title^="/worktrees/feature-a"]'),
     ).not.toBeNull();
+  });
+
+  it("filters repositories and changes sort order without losing review actions", async () => {
+    const reviews = [
+      summary({
+        reviewId: uuid(1),
+        title: "Zulu",
+        repositoryName: "alpha",
+        firstCreatedAt: "2026-01-01T00:00:00Z",
+        createdAt: "2026-03-01T00:00:00Z",
+        origin: { pullRequestNumber: 10 },
+      }),
+      summary({
+        reviewId: uuid(2),
+        title: "Alpha",
+        repositoryName: "beta",
+        firstCreatedAt: "2026-02-01T00:00:00Z",
+        createdAt: "2026-02-01T00:00:00Z",
+        origin: { pullRequestNumber: 20 },
+      }),
+    ];
+
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+
+    const onDismiss = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      async () => undefined,
+    );
+
+    await act(async () =>
+      root.render(
+        <ReviewHome reviews={reviews} onOpen={onOpen} onDismiss={onDismiss} />,
+      ),
+    );
+
+    const titles = () =>
+      [
+        ...container.querySelectorAll(
+          ".review-home-table-open .review-home-review-title",
+        ),
+      ].map((element) => element.textContent);
+
+    const select = async (label: string, value: string) => {
+      const names = new Map([
+        ["updated", "Recently updated"],
+        ["oldest", "Oldest first"],
+        ["pr", "PR number"],
+        ["title", "Title A–Z"],
+      ]);
+
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+          .click(),
+      );
+
+      const option = [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemradio"]',
+        ),
+      ].find((element) => element.textContent === (names.get(value) ?? value));
+
+      await act(async () => option!.click());
+    };
+
+    expect(titles()).toEqual(["Alpha", "Zulu"]);
+    await select("Sort reviews", "updated");
+    expect(titles()).toEqual(["Zulu", "Alpha"]);
+    await select("Sort reviews", "oldest");
+    expect(titles()).toEqual(["Zulu", "Alpha"]);
+    await select("Sort reviews", "pr");
+    expect(titles()).toEqual(["Alpha", "Zulu"]);
+    await select("Sort reviews", "title");
+    expect(titles()).toEqual(["Alpha", "Zulu"]);
+    await select("Filter by repository", "alpha");
+    expect(titles()).toEqual(["Zulu"]);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Dismiss Zulu"]')!
+        .click(),
+    );
+    expect(onDismiss).toHaveBeenCalledWith(reviews[0]);
+    expect(onOpen).not.toHaveBeenCalled();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".review-home-table-open")!
+        .click(),
+    );
+    expect(onOpen).toHaveBeenCalledWith(reviews[0]);
   });
 
   it("puts the scratchpad first, above the reviews and out of their workspaces", async () => {
@@ -138,9 +193,7 @@ describe("ReviewHome", () => {
     expect(padIndex).toBeLessThan(
       labels.findIndex((text) => text.includes("A review")),
     );
-    expect(container.querySelectorAll(".review-home-workspace")).toHaveLength(
-      1,
-    );
+    expect(container.querySelectorAll(".review-home-table")).toHaveLength(1);
     expect(container.textContent).not.toContain("Dismiss Scratchpad");
     expect(container.textContent).toContain("6 blocks");
     expect(container.textContent).toContain("2 diagrams");
@@ -171,7 +224,7 @@ describe("ReviewHome", () => {
     expect(onOpen).toHaveBeenCalledWith(item);
   });
 
-  it("groups cards from different repositories under one time header", async () => {
+  it("shows reviews from different repositories in one table", async () => {
     const reviews = [
       summary({ reviewId: uuid(1), title: "First dev review" }),
       summary({ reviewId: uuid(2), title: "Second dev review" }),
@@ -186,12 +239,46 @@ describe("ReviewHome", () => {
       root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
     );
 
-    expect(container.querySelectorAll(".review-home-workspace")).toHaveLength(
-      1,
-    );
-    expect(container.querySelectorAll(".review-home-card")).toHaveLength(3);
+    expect(container.querySelectorAll(".review-home-table")).toHaveLength(1);
+    expect(
+      container.querySelectorAll(".review-home-table tbody tr"),
+    ).toHaveLength(3);
     expect(container.querySelector('[title^="/repo/dev"]')).not.toBeNull();
     expect(container.querySelector('[title^="/repo/other"]')).not.toBeNull();
+  });
+
+  it("opens the row menu without opening the review and requires confirmation to delete", async () => {
+    const review = summary({ title: "Menu review" });
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+
+    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      async () => undefined,
+    );
+
+    await act(async () =>
+      root.render(
+        <ReviewHome reviews={[review]} onOpen={onOpen} onDelete={onDelete} />,
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Actions for Menu review"]',
+        )!
+        .click(),
+    );
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    const remove =
+      container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+
+    await act(async () => remove.click());
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(remove.textContent).toContain("Confirm delete");
+    await act(async () => remove.click());
+    expect(onDelete).toHaveBeenCalledWith(review);
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("deletes a review after an arming click without opening it", async () => {
@@ -238,6 +325,106 @@ describe("ReviewHome", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "optimistically deletes and restores failed deletions (dismissed: %s)",
+    async (isDismissed) => {
+      const review = summary({
+        title: "Pending review",
+        dismissedAt: isDismissed ? "2026-08-13T20:00:00.000Z" : null,
+      });
+
+      const deletion = Promise.withResolvers<void>();
+
+      const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+        () => deletion.promise,
+      );
+
+      await act(async () =>
+        root.render(
+          <ReviewHome
+            reviews={[review]}
+            onOpen={() => {}}
+            onDelete={onDelete}
+          />,
+        ),
+      );
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            isDismissed
+              ? ".review-home-dismissed-toggle"
+              : '[aria-label="Actions for Pending review"]',
+          )!
+          .click(),
+      );
+
+      const remove = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Delete Pending review"]',
+      )!;
+
+      await act(async () => remove.click());
+      expect(container.textContent).toContain("Pending review");
+      await act(async () => remove.click());
+      expect(onDelete).toHaveBeenCalledWith(review);
+      expect(container.textContent).not.toContain("Pending review");
+      expect(container.querySelector('[role="menu"]')).toBeNull();
+
+      await act(async () => deletion.reject(new Error("Offline")));
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Could not delete",
+      );
+      expect(
+        container.querySelector(
+          isDismissed
+            ? '[aria-label="Delete Pending review"]'
+            : '[aria-label="Actions for Pending review"]',
+        ),
+      ).not.toBeNull();
+    },
+  );
+
+  it("keeps a successful deletion hidden until the catalog catches up, and allows reimport", async () => {
+    const review = summary({ title: "Pending review" });
+    const deletion = Promise.withResolvers<void>();
+
+    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      () => deletion.promise,
+    );
+
+    const render = async (reviews: ReviewApiSummary[]) =>
+      act(async () =>
+        root.render(
+          <ReviewHome
+            reviews={reviews}
+            onOpen={() => {}}
+            onDelete={onDelete}
+          />,
+        ),
+      );
+
+    await render([review]);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Actions for Pending review"]',
+        )!
+        .click(),
+    );
+
+    const remove =
+      container.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+
+    await act(async () => remove.click());
+    await act(async () => remove.click());
+    expect(container.textContent).not.toContain("Pending review");
+    await act(async () => deletion.resolve());
+    await render([review]);
+    expect(container.textContent).not.toContain("Pending review");
+    await render([]);
+    await render([review]);
+    expect(container.textContent).toContain("Pending review");
+  });
+
   it("keeps attention actions on native summaries", async () => {
     const review = summary({
       title: "Native review",
@@ -268,10 +455,7 @@ describe("ReviewHome", () => {
       );
 
     await render(review);
-    expect(container.textContent).toContain("PR #320");
-    expect(container.querySelector(".review-home-status")?.textContent).toBe(
-      "New",
-    );
+    expect(container.textContent).toContain("#320");
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
@@ -301,9 +485,9 @@ describe("ReviewHome", () => {
     );
     expect(onRestore).toHaveBeenCalledWith(dismissed);
     await render({ ...dismissed, dismissedAt: null });
-    expect(container.querySelector(".review-home-status")?.textContent).toBe(
-      "Review ready",
-    );
+    expect(
+      container.querySelector(".review-home-table-open")?.textContent,
+    ).toContain("Native review");
   });
 
   it("hides the delete action when the host does not support deletion", async () => {
@@ -313,7 +497,7 @@ describe("ReviewHome", () => {
     expect(container.querySelector(".review-home-delete")).toBeNull();
   });
 
-  it("shows the native snapshot update time on cards", async () => {
+  it("shows the native snapshot update time in the table", async () => {
     vi.spyOn(Date, "now").mockReturnValue(
       Date.parse("2026-07-29T12:00:00.000Z"),
     );

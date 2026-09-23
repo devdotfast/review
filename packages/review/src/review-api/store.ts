@@ -167,6 +167,7 @@ export interface Result {
 }
 
 export interface ReviewProviders {
+  headBranch?(pins: Pins, headRef?: string): Promise<string | undefined>;
   projectSource?(snapshot: Snapshot, pins: Pins): Promise<Snapshot>;
   resolveTarget?(
     target: ReviewTarget,
@@ -385,6 +386,7 @@ export class ReviewStore {
     );
     this.drafts = new ReviewDrafts(this.db, {
       read: (id) => this.read(id),
+      headBranch: this.providers.headBranch?.bind(this.providers),
       assertInteractiveUnlocked: (id) => this.activity.assertWrite(id),
       validate: async (snapshot) => {
         if (snapshot.pins) await this.providers.validatePins(snapshot.pins);
@@ -727,6 +729,7 @@ export class ReviewStore {
     const reviews = this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
+          (SELECT json_extract(first.snapshot,'$.createdAt') FROM versions AS first WHERE first.review_id=reviews.id ORDER BY first.version LIMIT 1) AS first_created_at,
           review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name, repositories.path AS repository_path
         FROM reviews
         JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
@@ -761,6 +764,9 @@ export class ReviewStore {
 
         const listed: ReviewApiSummary = {
           ...summary,
+          firstCreatedAt: row.first_created_at
+            ? String(row.first_created_at)
+            : undefined,
           repositoryPath: row.repository_path
             ? String(row.repository_path)
             : undefined,
@@ -1051,11 +1057,36 @@ export class ReviewStore {
 
       let targetId: string | undefined;
 
+      if (
+        (op.type === "create" ||
+          op.type === "set_target" ||
+          op.type === "repin") &&
+        this.providers.headBranch
+      ) {
+        const pins =
+          resolvedTarget?.pins ??
+          (op.type === "repin" ? op.pins : snapshot.pins);
+
+        if (pins) {
+          const headRef =
+            requestedTarget?.kind === "commits"
+              ? requestedTarget.head
+              : undefined;
+
+          const branch = await this.providers.headBranch(pins, headRef);
+
+          snapshot.origin = { ...snapshot.origin, branch };
+        }
+      }
+
       switch (op.type) {
         case "create":
           if (initial) {
             snapshot.document = documentSchema.parse(initial.document);
-            snapshot.origin = structuredClone(initial.origin);
+            snapshot.origin = {
+              ...snapshot.origin,
+              ...structuredClone(initial.origin),
+            };
 
             for (const block of snapshot.document)
               assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);

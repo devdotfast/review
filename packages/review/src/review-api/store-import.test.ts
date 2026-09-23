@@ -98,6 +98,12 @@ describe("importVersion", () => {
     });
 
     expect(result.version).toBe(1);
+    expect(store.list().find((review) => review.reviewId === id)).toMatchObject(
+      {
+        firstCreatedAt: "2026-01-01T00:00:00.000Z",
+        createdAt: "2026-01-05T00:00:00.000Z",
+      },
+    );
     expect(store.read(id).title).toBe("v1");
     expect(store.read(id).document.map((block) => block.id)).toEqual([
       "block-2",

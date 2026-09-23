@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 
 import {
   type BlobBatchReader,
@@ -624,6 +626,43 @@ export class LocalReviewData {
 
     return snapshot.pins;
   }
+  /** Capture a label only when its ref still resolves to these exact pins. */
+  async headBranch(pins: Pins, headRef?: string): Promise<string | undefined> {
+    const vcs = await this.vcs(pins.repositoryId);
+
+    if (!vcs || vcs.kind !== "git") return undefined;
+
+    try {
+      const run = promisify(execFile);
+
+      const { stdout } = await run("git", [
+        "-C",
+        vcs.rootPath,
+        "rev-parse",
+        "--symbolic-full-name",
+        "--verify",
+        "--end-of-options",
+        !headRef || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(headRef)
+          ? "HEAD"
+          : headRef,
+      ]);
+
+      const ref = stdout.trim();
+
+      if (!ref.startsWith("refs/heads/") && !ref.startsWith("refs/remotes/"))
+        return undefined;
+
+      const resolved = await vcs.resolveRevision(ref);
+
+      if (resolved?.commit !== pins.head) return undefined;
+
+      return ref.replace(/^refs\/(heads|remotes)\//, "");
+    } catch {
+      // Optional provenance must not block authoring in a detached checkout.
+      return undefined;
+    }
+  }
+
   async resolveTarget(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }> {
@@ -1318,6 +1357,7 @@ export function openLocalReviewStore(
   const store: ReviewStore = new ReviewStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
     resolveTarget: (target) => data.resolveTarget(target),
+    headBranch: (pins, headRef) => data.headBranch(pins, headRef),
     sourcePins: (snapshot) => data.sourcePins(snapshot),
     unavailableAnchors: (snapshot) => data.unavailableAnchors(snapshot),
     validatePins: (pins) => data.validatePins(pins),

@@ -4542,6 +4542,11 @@ button {
   font-size: 12px;
 }
 
+.review-doc-meta-branch {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .review-doc-meta-pr {
   color: var(--accent);
   font-weight: 600;

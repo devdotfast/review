@@ -506,6 +506,7 @@ describe("ReviewHome", () => {
           bubbles: true,
           cancelable: true,
         });
+
         await act(async () => document.body.dispatchEvent(event));
 
         return event;

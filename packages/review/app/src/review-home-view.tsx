@@ -267,6 +267,7 @@ function SearchBox({
   // find bar. Ctrl+F stays forward-char on the Mac.
   useEffect(() => {
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+
     const keydown = (event: KeyboardEvent) => {
       if (
         (mac ? event.metaKey : event.ctrlKey) &&

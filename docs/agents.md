@@ -93,6 +93,15 @@ and Codex marketplace commands work once the plugins are on `main`.
 | OpenCode | npm plugin `@dev.fast/opencode-whiteboard` | add `"@dev.fast/opencode-whiteboard"` to `"plugin"` in `~/.config/opencode/opencode.json` |
 | Pi | npm package `@dev.fast/pi-whiteboard` with the `whiteboard` skill | `pi install npm:@dev.fast/pi-whiteboard` |
 
+Where each install comes from:
+
+- Claude Code and Codex read the marketplace files at this repository's root
+  (`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`) from
+  the default branch on GitHub. What is on `main` is what installs; there is no
+  release or package.
+- OpenCode and Pi install from npm.
+- Cursor uses the link on the connect card. A marketplace listing is separate.
+
 Every plugin runs the same command as the prompt. Claude Code hides the
 plugin's server when a user-level `whiteboard` server has the identical command,
 so installing both does not create two servers.

@@ -108,8 +108,7 @@ export function ConnectCard({
   const noun = mode === "prompt" ? "prompt" : "install command";
 
   // Prompts run to a dozen lines; show the opening and let the reader expand.
-  const collapsible =
-    Boolean(text) && text.split("\n").length > COLLAPSED_LINES;
+  const collapsible = (text?.split("\n").length ?? 0) > COLLAPSED_LINES;
 
   const collapsed = collapsible && !expanded;
 

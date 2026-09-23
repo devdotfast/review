@@ -20,6 +20,17 @@ The Claude Code and Codex marketplace files (`.claude-plugin/marketplace.json`
 and `.agents/plugins/marketplace.json`) sit at the repo root and point into
 this directory.
 
+## Distribution
+
+| Harness | Source | Publish step |
+| --- | --- | --- |
+| Claude Code, Codex | this repo's default branch, via the root marketplace files | none; merge to `main` |
+| OpenCode, Pi | npm (`@dev.fast/opencode-whiteboard`, `@dev.fast/pi-whiteboard`) | `npm publish --access public` |
+| Cursor | deeplink on the connect card | none; marketplace listing is a manual submission |
+
+Anything on `main` under `packages/agent-plugins/claude` or `codex` is live for
+new installs immediately; the manifest test below is the guard.
+
 ## The launch command
 
 Every MCP registration Whiteboard hands out, in prompts and in these plugins, uses
@@ -51,5 +62,5 @@ Nothing here is published yet. To publish:
 3. The Claude Code and Codex marketplace files are live on `main` once merged;
    nothing else to publish for those two.
 4. Submit the Cursor plugin at cursor.com/marketplace/publish. The listing
-   needs a manual whiteboard; the connect card's deeplink works without it.
+   needs a manual review; the connect card's deeplink works without it.
 5. Tell users in the release notes.

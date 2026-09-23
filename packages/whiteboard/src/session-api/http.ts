@@ -16,6 +16,8 @@ import { resolveWhiteboardStackLayers } from "../whiteboard-stack.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { SessionInputError, fileLineRangeSchema } from "./document.js";
+import type { AuthoringMode } from "./drafts.js";
+import { instructionsQuerySchema, renderInstructions } from "./instructions.js";
 import type { LocalSessionData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -67,6 +69,7 @@ export function createSessionApi(
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
+  authoringMode: AuthoringMode = "interactive",
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -183,7 +186,29 @@ export function createSessionApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) => context.json(authoringTools()));
+  app.get("/authoring", async (context) => {
+    const { desktopAvailable } = await capabilities();
+
+    return context.json(
+      authoringTools(
+        authoringMode,
+        authoringMode === "interactive" &&
+          desktopAvailable &&
+          scratchpadEnabled(),
+      ),
+    );
+  });
+  app.get("/instructions", async (context) => {
+    const { topic } = instructionsQuerySchema.parse(context.req.query());
+
+    return context.json(
+      await renderInstructions(topic, {
+        ...(await capabilities()),
+        authoringMode,
+        scratchpadEnabled: scratchpadEnabled(),
+      }),
+    );
+  });
   app.get("/:id/progress", async (context) => {
     if (!data) throw new SessionInputError("Source data is unavailable.", 409);
 
@@ -303,6 +328,7 @@ export function createSessionApi(
   app.get("/capabilities", async (context) =>
     context.json({
       ...(await capabilities()),
+      authoringMode,
       scratchpadEnabled: scratchpadEnabled(),
     }),
   );

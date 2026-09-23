@@ -2,12 +2,17 @@ import { z } from "zod";
 
 import { activitySchema } from "./activity.js";
 import { fileLineRangeSchema } from "./document.js";
+import type { AuthoringMode } from "./drafts.js";
+import { instructionsQuerySchema } from "./instructions.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
-export function authoringTools() {
+export function authoringTools(
+  authoringMode: AuthoringMode = "interactive",
+  scratchpadAvailable = false,
+) {
   const id = z.string().min(1);
   const session = { sessionId: id };
   const version = z.number().int().nonnegative().optional();
@@ -54,10 +59,20 @@ export function authoringTools() {
   return [
     tool(
       "capabilities",
-      "Discover whether Desktop is available and optional software-map generation is enabled. Read before authoring. Map uploads remain supported regardless of generation permission.",
+      `Discover authoring mode (${authoringMode}), whether Desktop is available and optional software-map generation is enabled. Read before authoring. Map uploads remain supported regardless of generation permission.`,
       z.strictObject({}),
       "GET",
       "/capabilities",
+    ),
+    tool(
+      "get_instructions",
+      "Read Whiteboard's guidance before creating or editing a session. The default topic gives this server's authoring workflow. Other topics cover headless use and prepared worktrees. Read trace-archaeology for why code exists or whether an agent solved this before." +
+        (scratchpadAvailable
+          ? ' When asked to show how code works or draw a diagram, read the scratchpad topic and draw in Whiteboard.'
+          : ""),
+      instructionsQuerySchema.partial(),
+      "GET",
+      "/instructions",
     ),
     tool(
       "activity",

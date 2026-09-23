@@ -4,29 +4,6 @@ Repository: https://github.com/microsoft/vscode.git
 Upstream commit: 8a7abeba6e03ea3af87bfbce9a1b7e48fed567b8
 Serialization tag: code-oss-upstream-8a7abeba
 
-## Native code navigation source restoration
-
-The native workspace navigator needs upstream modules that were removed from
-this fork. Its prerequisite restoration reintroduces 63 files (19,695 lines)
-verbatim from the source pin above:
-
-- Search and Search Editor, including the notebook-search, search-history,
-  and replacement modules imported by the upstream implementation.
-- Native pane composites, the banner part and its stylesheet, and the
-  titlebar/menu implementations and registrations.
-- Native workspace editing and its shared implementation.
-
-The scope follows the native workbench/bootstrap, Explorer, Search, and
-window-part dependencies. Existing fork files are preserved. Upstream's
-coupled search modules are retained intact, including AI-search types and
-helpers; restoring their source does not enable those features.
-
-This is a source-only prerequisite: it does not change application entry
-points, window routing, build registrations, or the Review navigation UI.
-The native navigator integration belongs in a separate change. The complete
-stock desktop manifests remain excluded because they also register unrelated
-product features.
-
 ## Post-vendor security and reliability backports
 
 Review applies these focused VS Code changes without changing the source pin:

@@ -59,9 +59,6 @@ const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
 
 const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
 
-const SHADOWING_HELP_URL =
-  "https://github.com/devdotfast/review/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
-
 type ApplyResult = { code: number; output: string; shimPath?: string };
 
 export function cliInstallStampPath(
@@ -698,7 +695,7 @@ export async function installReviewCommand(input: {
   const profileOutput = await ensureShellProfilePath({ homeDir, env });
 
   const shadowingOutput = shadowingCommand
-    ? `Warning: ${shadowingCommand} currently shadows ${shimPath}. See ${SHADOWING_HELP_URL}\n`
+    ? `Warning: ${shadowingCommand} currently shadows ${shimPath}. Remove that PATH entry or put ${path.dirname(shimPath)} before it.\n`
     : "";
 
   return {

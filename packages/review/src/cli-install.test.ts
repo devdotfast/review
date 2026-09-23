@@ -496,9 +496,6 @@ describe("review command installation", () => {
     });
 
     expect(applied.output).toContain(path.join(foreignBin, "whiteboard"));
-    expect(applied.output).toContain(
-      "docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options",
-    );
   });
 
   it("removes the owned command and profile block", async () => {

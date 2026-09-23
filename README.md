@@ -2,126 +2,40 @@
   <img
     src="docs/assets/review-logo.png"
     width="96"
-    alt="Review logo"
+    alt="Whiteboard logo"
   />
-  <h1>Review</h1>
+  <h1>Whiteboard</h1>
   <p><strong>Cursor for code review.</strong></p>
   <p>
     <a href="https://install.dev.fast">Download for macOS</a> ·
-    <a href="docs/README.md">Docs</a> ·
     <a href="https://dev.fast">Website</a> ·
-    <a href="CONTRIBUTING.md">Contributing</a>
+    <a href="https://discord.gg/wYvd2cpMQg">Discord</a>
   </p>
 </div>
 
-Review is an open-source desktop app for understanding and reviewing
+Whiteboard is an open-source desktop app for understanding and reviewing
 agent-written code. Coding agents turn a branch or pull request into a guided,
-interactive Review connected to the exact code behind it.
+interactive Whiteboard connected to the exact code behind it.
 
-Explore architecture and data flow, inspect diffs, and explore
-coding traces from one interface.
+Explore architecture and data flow, inspect diffs, and explore coding traces
+from one interface.
 
 <p align="center">
   <img
-    src="docs/assets/review-overview.png"
+    src="docs/assets/whiteboard-overview.png"
     width="880"
-    alt="Review Desktop showing a guided code review and interactive sequence diagram"
+    alt="Whiteboard showing a guided code review and interactive sequence diagram"
   />
 </p>
 
-<!-- prettier-ignore -->
-> [!NOTE]
-> Review is in beta and currently ships for macOS on Apple silicon.
-
 ## Quickstart
 
-1. [Download Review](https://install.dev.fast) and open the app.
-2. Connect Claude Code, Codex, and other coding agents from the welcome screen.
-3. Ask your agent to review your current branch against up-to-date main and open
-   the result in Review.
+1. [Download Whiteboard](https://install.dev.fast) and open the app.
+2. Connect Claude Code, Codex, or another coding agent from the welcome screen.
+3. Ask your agent to review your current branch against up-to-date main and
+   open the result in Whiteboard.
 
-Review works especially well for large changes where a file-by-file diff does
-not explain whether the system is right. See the
-[quickstart](docs/quickstart.md) for the complete first-review flow.
-
-Review authors can add user and repository guidance for generated documents.
-See [Review guidance](docs/quickstart.md#add-review-guidance).
-
-## Documentation
-
-[How Review works](docs/how-review-works.md) · [Coding agents](docs/agents.md) ·
-[CLI](docs/cli-reference.md) · [Privacy](docs/privacy.md) ·
-[Troubleshooting](docs/troubleshooting.md)
-
-## Known limitations
-
-- Review was engineered with reviewing changes to one repo. Your coding agent
-  can obviously pull context from other repos on your machine, but we haven't
-  engineered it to map architectural changes across repos. If you need this, let
-  us know!
-- Review doesn't properly handle stacked PRs right now, but this is coming soon.
-- It's currently a pain to share reviews between machines; self-hostable
-  collaboration tools are also on our roadmap.
-
-_If there are any other features you need, feel free to ask on Discord or open
-an issue or discussion!_
-
-## FAQs
-
-<details>
-<summary><strong>Who is the Review app for?</strong></summary>
-
-- If you still want the gains of generating code with AI but also want to
-  understand how your codebase works and maintain quality, Review is for you.
-- If you don't use AI to write a lot of code and are content reading diffs line
-  by line, Review probably isn't for you.
-
-</details>
-
-<details>
-<summary>
-<strong>How is this different from Greptile, Bugbot, CodeRabbit, etc.?</strong>
-</summary>
-
-These tools review your LLM-generated code with another LLM. Review is a
-complementary tool. Review doesn't review your code for you, but helps you
-understand it and spot regressions quickly.
-
-</details>
-
-<details>
-<summary><strong>How is this different from Plannotator?</strong></summary>
-
-Plannotator is meant as an alternative to using the terminal for reviewing plans
-and simple code diffs. Review takes some inspiration from Plannotator in its
-lifecycle but is engineered as an opinionated framework for reviewing
-AI-generated code diffs.
-
-</details>
-
-<details>
-<summary><strong>How are you guys gonna make money on this?</strong></summary>
-
-Eventually, we'll charge companies for a hosted Review product that manages
-review creation alongside features like trajectory storage, review sharing,
-etc., but everything will remain easily self-hostable.
-
-</details>
-
-## Development
-
-Review requires Node.js 24 and pnpm 11. See the
-[desktop prerequisites](apps/review-desktop/README.md#prerequisites), then run:
-
-```sh
-pnpm install
-pnpm dev
-```
-
-Run `pnpm run ci` before submitting a pull request. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for more.
-
-### A note on vendoring Code OSS
+## Why vendor Code OSS?
 
 With everyone using dedicated agent TUIs and desktop apps, we only use our text
 editors for reviewing line-by-line diffs now, so we figured why not have a text
@@ -135,17 +49,25 @@ Code (i.e., ~45% of the codebase is Copilot these days 😬) that we don't need.
 We regularly monitor upstream Code OSS and merge in security/feature patches as
 they come in.
 
+## Contributing
+
+We welcome bug reports, fixes, and features. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request workflow, and
+follow our [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as
+described in [SECURITY.md](SECURITY.md). Questions? Ask on
+[Discord](https://discord.gg/wYvd2cpMQg).
+
 ## Privacy
 
-Review runs against local checkouts. Anonymous telemetry does not include your
-code, diffs, Review text, prompts, or model output. Read
-the [privacy overview](docs/privacy.md), inspect the complete
+Whiteboard runs against local checkouts. Anonymous telemetry does not include
+your code, diffs, Whiteboard text, prompts, or model output. Read the
+[privacy overview](docs/privacy.md), inspect the complete
 [telemetry reference](docs/telemetry.md), or turn telemetry off at any time.
 
 ## License
 
-Review is available under the [MIT License](LICENSE). The vendored Code - OSS
-fork retains Microsoft's MIT license and third-party notices; see
+Whiteboard is available under the [MIT License](LICENSE). The vendored Code -
+OSS fork retains Microsoft's MIT license and third-party notices; see
 [`apps/review-desktop/LICENSE`](apps/review-desktop/LICENSE) and
 [`apps/review-desktop/UPSTREAM`](apps/review-desktop/UPSTREAM).
 

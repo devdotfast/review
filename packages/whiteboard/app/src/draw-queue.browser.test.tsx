@@ -196,20 +196,20 @@ it("traces a new flow node, then fills it, with the courier on it, and settles",
 
 it("stands on an edit already on the board when the reader arrives, drawing nothing", async () => {
   await render({ ...insert("b1"), source: "standing" });
-  expect(motion('[data-review-node-id="b1"]')).toBeUndefined();
+  expect(motion('[data-whiteboard-node-id="b1"]')).toBeUndefined();
   await vi.waitFor(() => expect(courier()).toBeTruthy());
 
   const block = article
-    .querySelector('[data-review-node-id="b1"]')!
+    .querySelector('[data-whiteboard-node-id="b1"]')!
     .getBoundingClientRect();
 
   const base = article.getBoundingClientRect();
   expect(parseFloat(courier()!.style.top)).toBeCloseTo(block.top - base.top, 0);
-  expect(motion('[data-review-node-id="b1"]')).toBeUndefined();
+  expect(motion('[data-whiteboard-node-id="b1"]')).toBeUndefined();
 
   // The agent's next edit is drawn as usual.
   await render(insert("b2"));
-  expect(motion('[data-review-node-id="b2"]')).toBe("landing");
+  expect(motion('[data-whiteboard-node-id="b2"]')).toBe("landing");
 });
 
 it("keeps a queued block unseen until its turn, then lands it", async () => {

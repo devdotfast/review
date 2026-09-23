@@ -12,8 +12,10 @@ test("readiness requires this launch's authenticated, connected desktop", async 
   t.after(() => rm(root, { recursive: true, force: true }));
   let connected = false;
   let requests = 0;
+
   const server = createServer((req, res) => {
     requests++;
+
     if (req.url !== "/sessions-api/capabilities") {
       res.writeHead(404).end();
     } else if (req.headers["x-whiteboard-token"] !== "test-secret") {
@@ -23,14 +25,21 @@ test("readiness requires this launch's authenticated, connected desktop", async 
       res.end(JSON.stringify({ desktopAvailable: connected }));
     }
   });
+
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const file = path.join(root, "server.json");
+
   const record = {
+    version: 3,
+    instanceId: "smoke-test",
+    serverPid: process.pid,
+    startedAt: Date.now(),
     appPid: process.pid,
     token: "test-secret",
     url: `http://127.0.0.1:${server.address().port}`,
   };
+
   assert.equal(await desktopResponds(file, process.pid), false);
   await writeFile(file, "{");
   assert.equal(await desktopResponds(file, process.pid), false);
@@ -58,6 +67,10 @@ test("an unresponsive server cannot stall the startup deadline", async (t) => {
   await writeFile(
     file,
     JSON.stringify({
+      version: 3,
+      instanceId: "smoke-test",
+      serverPid: process.pid,
+      startedAt: Date.now(),
       appPid: process.pid,
       token: "test-secret",
       url: `http://127.0.0.1:${server.address().port}`,

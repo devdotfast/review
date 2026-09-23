@@ -26,6 +26,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { parseWhiteboardDesktopDiscovery } from "@dev.fast/whiteboard-protocol";
+
 import { assertNoBlockedWhiteboardRequests } from "./whiteboard-network-policy.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
@@ -45,20 +47,21 @@ const POLL_INTERVAL_MS = 500;
 /** Probe the private discovery record created by this launch, never another app. */
 export async function desktopResponds(discoveryPath, appPid, timeoutMs = 2000) {
   try {
-    const discovery = JSON.parse(await readFile(discoveryPath, "utf8"));
-    if (
-      discovery.appPid !== appPid ||
-      typeof discovery.token !== "string" ||
-      !discovery.token
-    )
-      return false;
+    const discovery = parseWhiteboardDesktopDiscovery(
+      JSON.parse(await readFile(discoveryPath, "utf8")),
+    );
+
+    if (discovery.appPid !== appPid) return false;
     const url = new URL(discovery.url);
+
     if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") return false;
+
     const response = await fetch(new URL("/sessions-api/capabilities", url), {
       headers: { "x-whiteboard-token": discovery.token },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: "error",
     });
+
     return response.ok && (await response.json()).desktopAvailable === true;
   } catch {
     // Discovery, the HTTP listener, and the desktop connection arrive separately.
@@ -158,6 +161,7 @@ export async function smokeLaunch({
     DEV_WHITEBOARD_HOME: path.join(userDataDir, "whiteboard-home"),
     DEV_WHITEBOARD_IMPORT_FROM: "none",
   };
+
   delete env.ELECTRON_RUN_AS_NODE;
 
   const child = spawn(
@@ -176,11 +180,13 @@ export async function smokeLaunch({
   let mainLog = "";
   let exited;
   let serverReady = false;
+
   const discoveryPath = path.join(
     env.DEV_WHITEBOARD_HOME,
     "review-desktop",
     "server.json",
   );
+
   const closed = new Promise((resolve) => child.once("close", resolve));
   child.stdout.on("data", (chunk) => (output += chunk));
   child.stderr.on("data", (chunk) => (output += chunk));
@@ -219,6 +225,7 @@ export async function smokeLaunch({
         child.pid,
         Math.max(1, Math.min(2000, deadline - Date.now())),
       );
+
       if (!exited && hasRenderer(userDataDir) && serverReady) {
         console.log(
           `Packaged app opened a renderer and started the Whiteboard server in ${((timeoutMs - (deadline - Date.now())) / 1000).toFixed(1)}s: ${app}`,

@@ -483,6 +483,43 @@ describe("ReviewHome", () => {
     ).toContain("Native review");
   });
 
+  it.each([
+    { platform: "MacIntel", find: { metaKey: true }, other: { ctrlKey: true } },
+    { platform: "Win32", find: { ctrlKey: true }, other: { metaKey: true } },
+    {
+      platform: "Linux x86_64",
+      find: { ctrlKey: true },
+      other: { metaKey: true },
+    },
+  ])(
+    "focuses the search box on the $platform find shortcut",
+    async ({ platform, find, other }) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+      await act(async () =>
+        root.render(<ReviewHome reviews={[summary()]} onOpen={() => {}} />),
+      );
+
+      const press = async (modifiers: KeyboardEventInit) => {
+        const event = new KeyboardEvent("keydown", {
+          key: "f",
+          ...modifiers,
+          bubbles: true,
+          cancelable: true,
+        });
+        await act(async () => document.body.dispatchEvent(event));
+
+        return event;
+      };
+
+      const search = container.querySelector('[aria-label="Search sessions"]');
+
+      expect((await press(other)).defaultPrevented).toBe(false);
+      expect(document.activeElement).not.toBe(search);
+      expect((await press(find)).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(search);
+    },
+  );
+
   it("hides the delete action when the host does not support deletion", async () => {
     await act(async () =>
       root.render(<ReviewHome reviews={[summary()]} onOpen={() => {}} />),

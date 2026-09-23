@@ -263,6 +263,29 @@ function SearchBox({
 }) {
   const input = useRef<HTMLInputElement>(null);
 
+  // ⌘F (Ctrl+F off the Mac) jumps to the filter instead of the browser's
+  // find bar. Ctrl+F stays forward-char on the Mac.
+  useEffect(() => {
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    const keydown = (event: KeyboardEvent) => {
+      if (
+        (mac ? event.metaKey : event.ctrlKey) &&
+        !(mac ? event.ctrlKey : event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        input.current?.focus();
+        input.current?.select();
+      }
+    };
+
+    window.addEventListener("keydown", keydown);
+
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
+
   return (
     <div className="review-home-search">
       <SearchIcon />

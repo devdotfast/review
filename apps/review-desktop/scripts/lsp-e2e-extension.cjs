@@ -25,9 +25,15 @@ exports.activate = function (context) {
           request.character ?? 0,
         );
 
-        if (request.open) {
-          const document = await vscode.workspace.openTextDocument(uri);
+        const document = uri && (await vscode.workspace.openTextDocument(uri));
 
+        if (request.navigate) {
+          await vscode.commands.executeCommand("vscode.open", uri, {
+            selection: new vscode.Range(position, position),
+          });
+        }
+
+        if (request.open && !request.feature) {
           const editor = await vscode.window.showTextDocument(document, {
             preview: false,
           });
@@ -118,6 +124,10 @@ exports.activate = function (context) {
         const active = vscode.window.activeTextEditor;
         response = {
           result,
+          document: document && {
+            uri: document.uri.toString(),
+            text: document.getText(),
+          },
           active: active && {
             uri: active.document.uri.toString(),
             text: active.document.getText(),

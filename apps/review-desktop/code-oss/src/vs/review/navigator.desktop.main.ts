@@ -20,6 +20,11 @@ import '../workbench/services/workspaces/electron-browser/workspaceEditingServic
 import '../workbench/contrib/search/browser/search.contribution.js';
 import '../workbench/contrib/searchEditor/browser/searchEditor.contribution.js';
 import '../workbench/services/notebook/common/notebookDocumentService.js';
+import '../workbench/services/aiRelatedInformation/common/aiRelatedInformationService.js';
+import { registerAction2 } from '../platform/actions/common/actions.js';
+import { Extensions as QuickAccessExtensions, IQuickAccessRegistry } from '../platform/quickinput/common/quickAccess.js';
+import { CommandsQuickAccessProvider, ShowAllCommandsAction } from '../workbench/contrib/quickaccess/browser/commandsQuickAccess.js';
+import { ChatAgentService, IChatAgentService } from '../workbench/contrib/chat/common/participants/chatAgents.js';
 import { InstantiationType, registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { INotebookService } from '../workbench/contrib/notebook/common/notebookService.js';
 import { NotebookService } from '../workbench/contrib/notebook/browser/services/notebookServiceImpl.js';
@@ -46,6 +51,15 @@ class NavigatorDefaults {
 }
 
 registerWorkbenchContribution2('review.navigator.defaults', NavigatorDefaults, WorkbenchPhase.BlockStartup);
+
+Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
+	ctor: CommandsQuickAccessProvider,
+	prefix: CommandsQuickAccessProvider.PREFIX,
+	contextKey: 'inCommandsPicker',
+	helpEntries: [{ description: 'Show and Run Commands', commandId: ShowAllCommandsAction.ID }],
+});
+registerAction2(ShowAllCommandsAction);
+registerSingleton(IChatAgentService, ChatAgentService, InstantiationType.Delayed);
 
 registerSingleton(INotebookService, NotebookService, InstantiationType.Delayed);
 registerSingleton(INotebookEditorService, NotebookEditorWidgetService, InstantiationType.Delayed);

@@ -99,6 +99,11 @@ export interface IDocumentDiff {
 	};
 	/** Optional authoritative zero-based source row correspondence. Null denotes padding. */
 	readonly contextGaps?: readonly IDocumentContextGap[];
+	/** Syntax scopes supplied by the context plugin, as zero-based half-open line ranges. */
+	readonly contextScopes?: {
+		readonly original: readonly (readonly [number, number])[];
+		readonly modified: readonly (readonly [number, number])[];
+	};
 	readonly sourceLineAlignment?: readonly (readonly [number | null, number | null])[];
 	/**
 	 * If true, both text models are identical (byte-wise).

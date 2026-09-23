@@ -79,13 +79,16 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
 };
 
 const SHIM_MARKER = "Managed by Whiteboard";
+
 const LEGACY_SHIM_MARKER = "Managed by Review Desktop";
+
 function hasManagedShimMarker(source: string): boolean {
   return source.includes(SHIM_MARKER) || source.includes(LEGACY_SHIM_MARKER);
 }
 
 const PROFILE_MARKER =
   "# Managed by Whiteboard: whiteboard command PATH. Do not edit.";
+
 const LEGACY_PROFILE_MARKER =
   "# Managed by Review Desktop: review command PATH. Do not edit.";
 
@@ -958,8 +961,10 @@ export async function ensureShellProfilePath(input: {
       profilePath,
       source.replaceAll(LEGACY_PROFILE_MARKER, PROFILE_MARKER),
     );
+
     return "";
   }
+
   if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
     return "";
   }
@@ -982,6 +987,7 @@ export async function removeShellProfilePath(
       PROFILE_MARKER,
       LEGACY_PROFILE_MARKER,
     );
+
     if (!source.includes(PROFILE_BLOCK) && !source.includes(oldBlock)) continue;
     await writeTextAtomic(
       profilePath,

@@ -33,6 +33,7 @@ export interface AgentTraceHookInstallResult {
 }
 
 const PI_EXTENSION_MARKER = "Managed by Whiteboard trace setup";
+
 const LEGACY_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
 
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;

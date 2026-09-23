@@ -585,6 +585,131 @@ describe("snapshot authoring", () => {
     ).rejects.toThrow(/does not exist/);
   });
 
+  it("names what an insert or replace wrote: the target's type and its first-level children", async () => {
+    const { reviewId } = await create();
+
+    const section = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "section",
+        title: "Design",
+        children: [
+          { type: "markdown", markdown: "First" },
+          {
+            type: "callout",
+            tone: "info",
+            children: [{ type: "markdown", markdown: "Nested" }],
+          },
+          { type: "markdown", markdown: "Last" },
+        ],
+      },
+    });
+
+    const saved = () => {
+      const block = store.read(reviewId).document[0]!;
+
+      if (block.type !== "section") throw new Error("Expected section");
+
+      return block;
+    };
+
+    const listed = () =>
+      saved().children.map(({ id, type }) => ({ id: id!, type }));
+
+    // Grandchildren inside the callout are one read away, not listed here.
+    expect(section).toMatchObject({
+      targetId: saved().id,
+      type: "section",
+      children: listed(),
+    });
+    expect(section.children?.map((child) => child.type)).toEqual([
+      "markdown",
+      "callout",
+      "markdown",
+    ]);
+
+    const leaf = await edit(reviewId, {
+      type: "insert",
+      parentId: section.targetId,
+      content: { type: "markdown", markdown: "Leaf" },
+    });
+
+    expect(leaf.type).toBe("markdown");
+    expect(leaf).not.toHaveProperty("children");
+
+    const replaced = await edit(reviewId, {
+      type: "replace",
+      targetId: section.targetId,
+      content: {
+        type: "section",
+        title: "Design",
+        children: [
+          { type: "markdown", markdown: "Fresh" },
+          { type: "markdown", markdown: "Fresher" },
+        ],
+      },
+    });
+
+    expect(replaced).toMatchObject({
+      targetId: section.targetId,
+      type: "section",
+      children: listed(),
+    });
+    expect(
+      replaced.children?.some((child) =>
+        section.children?.some((old) => old.id === child.id),
+      ),
+    ).toBe(false);
+
+    const updated = await edit(reviewId, {
+      type: "update",
+      targetId: replaced.children![0]!.id,
+      changes: { markdown: "Still a leaf" },
+    });
+
+    expect(updated.type).toBe("markdown");
+    expect(updated).not.toHaveProperty("children");
+  });
+
+  it("lists a diagram's units as its children: steps, or nodes then edges", async () => {
+    const { reviewId } = await create();
+
+    const flow = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "flow_diagram",
+        title: "Lease",
+        nodes: [
+          { key: "a", label: "A", attachments: [] },
+          { key: "b", label: "B", attachments: [] },
+        ],
+        edges: [{ from: "a", to: "b" }],
+      },
+    });
+
+    const block = store.read(reviewId).document[0]!;
+
+    if (block.type !== "flow_diagram") throw new Error("Expected flow");
+    expect(flow).toMatchObject({
+      type: "flow_diagram",
+      children: [
+        { id: block.nodes[0]!.id, type: "flow_node" },
+        { id: block.nodes[1]!.id, type: "flow_node" },
+        { id: block.edges[0]!.id, type: "flow_edge" },
+      ],
+    });
+
+    const sequence = await edit(reviewId, { type: "insert", content: diagram });
+
+    const steps = store.read(reviewId).document[1]!;
+
+    if (steps.type !== "sequence") throw new Error("Expected sequence");
+    expect(sequence).toMatchObject({
+      type: "sequence",
+      children: steps.steps.map((step) => ({ id: step.id, type: "step" })),
+    });
+  });
+
   it("lists a whole diagram's units in drawing order: each edge once both ends are drawn", async () => {
     const { reviewId } = await create();
 

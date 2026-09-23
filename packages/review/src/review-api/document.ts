@@ -411,9 +411,19 @@ export interface EditSummary {
   units?: string[];
 }
 
-/** What applying an edit produced: the target, and the edge a node came with. */
+/** A component an edit wrote, named so the author can address it. */
+export interface WrittenComponent {
+  id: string;
+  type: Element["type"];
+}
+
+/** What applying an edit produced: the target, what it is, the first-level
+ * children an insert or replace gave it fresh IDs, and the edge a node came
+ * with. */
 export interface Applied {
   targetId: string;
+  type: Element["type"];
+  children?: WrittenComponent[];
   linkId?: string;
 }
 
@@ -711,13 +721,13 @@ export function applyEdit(
       fresh(edge);
       place(edge, edit.parentId);
 
-      return { targetId: node.id!, linkId: edge.id! };
+      return { targetId: node.id!, type: node.type, linkId: edge.id! };
     }
 
     fresh(edit.content);
     place(edit.content, edit.parentId, edit.afterId);
 
-    return { targetId: edit.content.id! };
+    return written(edit.content);
   }
 
   const { element, siblings } = locate(edit.targetId);
@@ -778,7 +788,8 @@ export function applyEdit(
       fresh(edit.content);
       edit.content.id = element.id;
       siblings[index] = edit.content;
-      break;
+
+      return written(edit.content);
     case "move":
       // Names are diagram-local: moving a unit between diagrams is an explicit replacement, not a move.
       if (
@@ -792,7 +803,22 @@ export function applyEdit(
       break;
   }
 
-  return { targetId: edit.targetId };
+  return { targetId: edit.targetId, type: element.type };
+}
+
+/** An inserted or replaced component and its first-level children: blocks
+ * in a container, or a diagram's steps, or its nodes then its edges. */
+function written(element: Element): Applied {
+  const applied: Applied = { targetId: element.id!, type: element.type };
+
+  const list = children(element).map((child) => ({
+    id: child.id!,
+    type: child.type,
+  }));
+
+  if (list.length) applied.children = list;
+
+  return applied;
 }
 
 /** Rewrite only parsed destinations, simultaneously, preserving surrounding Markdown. */

@@ -5,10 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
-import type {
-  CallToolRequest,
-  JSONRPCRequest,
-} from "@modelcontextprotocol/sdk/types.js";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -17,7 +13,6 @@ import { runReviewCli } from "../cli-runner.js";
 import { connectReviewApi } from "../review-api/agent-client.js";
 import { ReviewApiClient } from "../review-api/client.js";
 import type { Pins } from "../review-api/document.js";
-import type { AuthoringMode, Draft } from "../review-api/drafts.js";
 import { createReviewApi } from "../review-api/http.js";
 import { serveReviewMcp } from "../review-api/mcp.js";
 import { openReviewProfile } from "../review-api/profile.js";
@@ -49,7 +44,6 @@ afterEach(async () => {
 async function start(
   stateDir = path.join(root, "server"),
   softwareMapEnabled = false,
-  authoringMode: AuthoringMode = "interactive",
 ) {
   const controller = new AbortController();
   const ready = Promise.withResolvers<ReviewServerDiscovery>();
@@ -57,7 +51,6 @@ async function start(
   const running = runHeadlessServer({
     stateDir,
     softwareMapEnabled,
-    authoringMode,
     signal: controller.signal,
     onReady: ready.resolve,
   });
@@ -649,216 +642,19 @@ it("does not connect to another instance through stale discovery", async () => {
   await expect(connectReviewApi(server.env)).rejects.toThrow(/not ready/);
 });
 
-it("authors one batch snapshot through MCP and CLI with draft source reads, uploads and shutdown cleanup", async () => {
-  const repo = await repository();
-  const server = await start(path.join(root, "batch"), false, "batch");
-  const { client } = server;
-
-  const registered = await client.post<{ id: string }>("/repositories", {
-    path: repo.directory,
-  });
-
-  const pins = await client.post<Pins>("/pins", {
-    repositoryId: registered.id,
-    base: repo.base,
-    head: repo.head,
-  });
-
-  const stdin = new PassThrough(),
-    stdout = new PassThrough();
-
-  const mcp = await serveReviewMcp(
-    () => connectReviewApi(server.env),
-    stdin,
-    stdout,
+it("refuses the removed batch authoring mode instead of ignoring it", async () => {
+  const result = await cli(
+    [
+      "--state-dir",
+      path.join(root, "refused"),
+      "server",
+      "start",
+      "--authoring-mode",
+      "batch",
+    ],
+    process.env,
   );
 
-  const replies = new Map<
-    number,
-    { content?: { text: string }[]; isError?: boolean }
-  >();
-
-  let buffer = "",
-    id = 0;
-
-  stdout.on("data", (chunk) => {
-    buffer += chunk;
-    let end: number;
-
-    while ((end = buffer.indexOf("\n")) >= 0) {
-      const reply = JSON.parse(buffer.slice(0, end));
-      replies.set(reply.id, reply.result);
-      buffer = buffer.slice(end + 1);
-    }
-  });
-
-  const send = async (method: string, params: JSONRPCRequest["params"]) => {
-    const requestId = ++id;
-    stdin.write(
-      JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n",
-    );
-    await expect.poll(() => replies.has(requestId)).toBe(true);
-
-    return replies.get(requestId)!;
-  };
-
-  try {
-    await send("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "Batch CI", version: "1" },
-    });
-
-    const call = (
-      name: string,
-      args: NonNullable<CallToolRequest["params"]["arguments"]>,
-    ) => send("tools/call", { name, arguments: args });
-
-    const capabilities = await call("review_capabilities", {});
-    expect(JSON.parse(capabilities.content![0]!.text)).toMatchObject({
-      authoringMode: "batch",
-      desktopAvailable: false,
-    });
-
-    const begun = await call("review_draft_begin", {
-      title: "Batch review",
-      pins,
-    });
-
-    expect(begun.isError).not.toBe(true);
-    const d: Draft = JSON.parse(begun.content![0]!.text);
-    expect(await client.read("")).toEqual([]);
-
-    const file = await cli(
-      [
-        "api",
-        "review_file",
-        JSON.stringify({
-          draftId: d.draftId,
-          side: "head",
-          file: "example.ts",
-        }),
-      ],
-      server.env,
-    );
-
-    expect(file).toMatchObject({
-      exitCode: 0,
-      output: expect.stringContaining("value = 2"),
-    });
-
-    for (const tool of ["review_tree", "review_diff", "review_commits"])
-      expect(
-        (
-          await cli(
-            ["api", tool, JSON.stringify({ draftId: d.draftId })],
-            server.env,
-          )
-        ).exitCode,
-      ).toBe(0);
-
-    const quote = await call("review_source", {
-      draftId: d.draftId,
-      source: { side: "head", file: "example.ts", fromLine: 1, toLine: 1 },
-    });
-
-    expect(quote.isError).not.toBe(true);
-    const traceId = randomUUID();
-    await client.post("/resources", {
-      id: traceId,
-      repositoryId: registered.id,
-      kind: "trace",
-      trace: {
-        label: "Evidence",
-        events: [{ id: "answer", role: "assistant", text: "Checked value" }],
-      },
-    });
-
-    expect(
-      await client.read(`/drafts/${d.draftId}/resources/${traceId}`),
-    ).toMatchObject({ label: "Evidence" });
-
-    const document = [
-      {
-        type: "section",
-        title: "Summary",
-        children: [
-          {
-            type: "trace_quote",
-            traceId,
-            eventId: "answer",
-            text: "Checked value",
-          },
-        ],
-      },
-    ];
-
-    expect(
-      (
-        await cli(
-          [
-            "api",
-            "review_draft_write",
-            JSON.stringify({ draftId: d.draftId, document }),
-          ],
-          server.env,
-        )
-      ).exitCode,
-    ).toBe(0);
-    expect(await client.read("")).toEqual([]);
-
-    const legacy = await cli(
-      ["api", "review_edit", JSON.stringify({ reviewId: d.reviewId })],
-      server.env,
-    );
-
-    expect(legacy.exitCode).not.toBe(0);
-    expect(
-      (
-        await call("review_activity", {
-          reviewId: d.reviewId,
-          action: "begin",
-          leaseId: randomUUID(),
-        })
-      ).isError,
-    ).toBe(true);
-    const request = { draftId: d.draftId, commandId: randomUUID() };
-    const committed = await call("review_draft_commit", request);
-    expect(committed.isError).not.toBe(true);
-    expect(JSON.parse(committed.content![0]!.text)).toEqual({
-      reviewId: d.reviewId,
-      version: 0,
-    });
-    expect(await call("review_draft_commit", request)).toEqual(committed);
-    expect(await client.read(`/${d.reviewId}/history`)).toHaveLength(1);
-    expect(await client.read(`/${d.reviewId}?full=true`)).toMatchObject({
-      document: [{ type: "section", title: "Summary" }],
-    });
-
-    const abandoned = await client.post<Draft>("/draft-commands/begin", {
-      reviewId: d.reviewId,
-    });
-
-    await client.post("/draft-commands/write", {
-      draftId: abandoned.draftId,
-      document: [],
-    });
-    await server.stop();
-    const restarted = await start(server.stateDir, false, "batch");
-
-    const next = await restarted.client.post<Draft>("/draft-commands/begin", {
-      reviewId: d.reviewId,
-    });
-
-    expect(next.document).toMatchObject([
-      { type: "section", title: "Summary" },
-    ]);
-    await expect(
-      restarted.client.read(`/drafts/${abandoned.draftId}`),
-    ).rejects.toThrow(/not found/i);
-  } finally {
-    await mcp.close();
-    stdin.destroy();
-    stdout.destroy();
-  }
+  expect(result.exitCode).not.toBe(0);
+  expect(result.errors).toContain("--authoring-mode was removed");
 });

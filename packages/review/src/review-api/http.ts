@@ -1,6 +1,6 @@
 import type { ReviewStructuralDiffEvent } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
-import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
 import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection.js";
@@ -15,7 +15,6 @@ import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
-import type { AuthoringMode } from "./drafts.js";
 import type { LocalReviewData } from "./local-data.js";
 import {
   inspectQuerySchema,
@@ -37,7 +36,6 @@ import {
 import { listPinnedTraces, readStoredTrace } from "./traces.js";
 
 export interface AuthoringCapabilities {
-  authoringMode: AuthoringMode;
   desktopAvailable: boolean;
   softwareMapEnabled: boolean;
   /** Off, the host neither makes nor lists the scratchpad, and refuses its id. */
@@ -57,14 +55,11 @@ export function createReviewApi(
   }) => Promise<{ softwareMapEnabled: boolean }>,
   shared?: SharedReviewStore,
   capabilities: () =>
-    | Omit<AuthoringCapabilities, "authoringMode" | "scratchpadEnabled">
-    | Promise<
-        Omit<AuthoringCapabilities, "authoringMode" | "scratchpadEnabled">
-      > = () => ({
+    | Omit<AuthoringCapabilities, "scratchpadEnabled">
+    | Promise<Omit<AuthoringCapabilities, "scratchpadEnabled">> = () => ({
     desktopAvailable: Boolean(open),
     softwareMapEnabled: false,
   }),
-  authoringMode: AuthoringMode = "interactive",
   // Synchronous because the catalog is read inside watch callbacks. The host
   // keeps it current from its preferences file.
   scratchpadEnabled: () => boolean = () => false,
@@ -102,16 +97,11 @@ export function createReviewApi(
     operation: z.object({ reviewId: z.string().optional() }),
   });
 
-  // The host that can show the scratchpad keeps it: Desktop, interactively,
-  // while the preference is on. Batch authoring and headless servers never
-  // make one, and a pad made earlier stays in the store while it is off.
+  // The host that can show the scratchpad keeps it: Desktop, while the
+  // preference is on. Headless servers never make one, and a pad made earlier
+  // stays in the store while it is off.
   const ensureScratchpad = async (id?: string) => {
-    if (
-      authoringMode === "interactive" &&
-      open &&
-      scratchpadEnabled() &&
-      (!id || id === SCRATCHPAD_ID)
-    )
+    if (open && scratchpadEnabled() && (!id || id === SCRATCHPAD_ID))
       await store.ensureScratchpad();
   };
 
@@ -180,9 +170,7 @@ export function createReviewApi(
       catalog(coverageModeSchema.parse(context.req.query("mode"))),
     );
   });
-  app.get("/authoring", (context) =>
-    context.json(authoringTools(authoringMode)),
-  );
+  app.get("/authoring", (context) => context.json(authoringTools()));
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
@@ -287,48 +275,9 @@ export function createReviewApi(
   app.get("/capabilities", async (context) =>
     context.json({
       ...(await capabilities()),
-      authoringMode,
       scratchpadEnabled: scratchpadEnabled(),
     }),
   );
-
-  if (authoringMode === "batch") {
-    app.post("/draft-commands/:operation", async (context) => {
-      const input = z
-        .record(z.string(), z.unknown())
-        .parse(await readBoundedRequestJson(context.req.raw));
-
-      return context.json(
-        await store.executeDraft({
-          ...input,
-          type: context.req.param("operation"),
-        }),
-      );
-    });
-    app.get("/drafts/:draftId", (context) =>
-      context.json(store.drafts.read(context.req.param("draftId"))),
-    );
-  }
-
-  const sourcePaths = (suffix: string) =>
-    authoringMode === "batch"
-      ? [`/:id/${suffix}`, `/drafts/:draftId/${suffix}`]
-      : [`/:id/${suffix}`];
-
-  const sourceSnapshot = (context: Context, version?: number) => {
-    const draftId = context.req.param("draftId");
-
-    if (draftId) {
-      if (version !== undefined)
-        throw new ReviewInputError(
-          "Draft source reads do not take a committed version.",
-        );
-
-      return store.drafts.source(draftId);
-    }
-
-    return readReview(z.string().parse(context.req.param("id")), version);
-  };
 
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
@@ -341,11 +290,6 @@ export function createReviewApi(
     );
   });
   app.post("/:id/activity", async (context) => {
-    if (authoringMode === "batch")
-      throw new ReviewInputError(
-        "Batch authoring uses server-owned drafts, not activity leases.",
-        409,
-      );
     const input = await readBoundedRequestJson(context.req.raw);
     const id = context.req.param("id");
     store.assertExists(id);
@@ -603,18 +547,18 @@ export function createReviewApi(
 
       return context.json(result);
     });
-    app.on("GET", sourcePaths("tree"), async (context) => {
+    app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 
       const { pins } = await data.resolveSource(
-        sourceSnapshot(context, input.version),
+        readReview(context.req.param("id"), input.version),
         input.commit,
         queryAnchor(input),
       );
 
       return context.json(await data!.tree(pins, input.side, input.path));
     });
-    app.on("GET", sourcePaths("maps/:resourceId"), async (context) => {
+    app.get("/:id/maps/:resourceId", async (context) => {
       const query = readQuerySchemas.maps.parse(context.req.query());
       const id = context.req.param("id");
 
@@ -628,7 +572,7 @@ export function createReviewApi(
 
       return context.json(
         await data.map(
-          await data.sourcePins(sourceSnapshot(context, query.version)),
+          await data.sourcePins(readReview(id, query.version)),
           z.string().parse(context.req.param("resourceId")),
         ),
       );
@@ -660,9 +604,9 @@ export function createReviewApi(
         ),
       ),
     );
-    app.on("GET", sourcePaths("resources/:resourceId"), async (context) => {
+    app.get("/:id/resources/:resourceId", async (context) => {
       const id = context.req.param("id");
-      const snapshot = sourceSnapshot(context);
+      const snapshot = readReview(id);
 
       const resource =
         id && isShared(id)
@@ -686,7 +630,7 @@ export function createReviewApi(
         },
       });
     });
-    app.on("POST", sourcePaths("source"), async (context) => {
+    app.post("/:id/source", async (context) => {
       const input = z
         .strictObject({
           version: z.number().int().nonnegative().optional(),
@@ -696,7 +640,7 @@ export function createReviewApi(
         .parse(await readBoundedRequestJson(context.req.raw));
 
       const { pins } = await data.resolveSource(
-        sourceSnapshot(context, input.version),
+        readReview(context.req.param("id"), input.version),
         input.commit,
         input.source.pins,
       );
@@ -761,14 +705,14 @@ export function createReviewApi(
         ),
       );
     });
-    app.on("GET", sourcePaths("file"), async (context) => {
+    app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
       const id = context.req.param("id");
 
       const anchor = queryAnchor(input);
 
       const { snapshot, pins } = await data.resolveSource(
-        sourceSnapshot(context, input.version),
+        readReview(id, input.version),
         input.commit,
         anchor,
       );
@@ -834,7 +778,7 @@ export function createReviewApi(
         },
       });
     });
-    app.on("GET", sourcePaths("diff"), async (context) => {
+    app.get("/:id/diff", async (context) => {
       const query = context.req.query();
       const paths = context.req.queries("paths");
       const input = readQuerySchemas.diff.parse({ ...query, paths });
@@ -845,7 +789,7 @@ export function createReviewApi(
         );
 
       const { pins } = await data.resolveSource(
-        sourceSnapshot(context, input.version),
+        readReview(context.req.param("id"), input.version),
         input.commit,
         queryAnchor(input),
       );
@@ -861,13 +805,16 @@ export function createReviewApi(
         }),
       );
     });
-    app.on("GET", sourcePaths("commits"), async (context) => {
+    app.get("/:id/commits", async (context) => {
       const input = readQuerySchemas.commits.parse(context.req.query());
 
       return context.json(
         await data.commits(
-          (await data.resolveSource(sourceSnapshot(context, input.version)))
-            .pins,
+          (
+            await data.resolveSource(
+              readReview(context.req.param("id"), input.version),
+            )
+          ).pins,
         ),
       );
     });
@@ -1089,11 +1036,6 @@ export function createReviewApi(
 
     const input = commandSchema.parse(request);
 
-    if (authoringMode === "batch" && input.operation.type !== "attention")
-      throw new ReviewInputError(
-        "Use batch draft tools to author content, then commit the draft once.",
-        409,
-      );
     const command = sharedCommandSchema.safeParse(input);
 
     if (command.success) {

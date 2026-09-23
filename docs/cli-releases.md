@@ -102,8 +102,5 @@ next version. An explicitly pushed tag is retried by rerunning its workflow.
 
 ```sh
 npm install --global @dev.fast/review@<version>
-review server start --authoring-mode batch
+review server start
 ```
-
-Set the same exact version as `review-version` in the
-[author-and-share action](https://github.com/devdotfast/review/blob/main/actions/author-and-share/README.md).

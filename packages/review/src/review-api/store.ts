@@ -43,7 +43,6 @@ import {
   sourceReferences,
   summarizeEdit,
 } from "./document.js";
-import { ReviewDrafts, draftCommandSchema } from "./drafts.js";
 import { pullRequestKey, pullRequestUrl, setPullRequest } from "./origin.js";
 
 const reviewId = z.string().min(1);
@@ -178,7 +177,7 @@ export interface Result {
   target?: ReviewTarget;
   /** The requested head differs from the existing review's. */
   headMoved?: boolean;
-  /** A live authoring lease or batch draft that is not the caller's. */
+  /** A live authoring lease that is not the caller's. */
   ownedBy?: "another session";
   /** Older reviews that also name the PR, newest first. */
   otherReviewIds?: string[];
@@ -224,7 +223,6 @@ export interface ReviewProviders {
  */
 export class ReviewStore {
   readonly activity: ReviewActivity;
-  readonly drafts: ReviewDrafts;
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -405,21 +403,9 @@ export class ReviewStore {
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
-    this.activity = new ReviewActivity(
-      this.db,
-      (id) => this.assertExists(id),
-      (id) => this.drafts.assertUnlocked(id),
-    );
-    this.drafts = new ReviewDrafts(this.db, {
-      read: (id) => this.read(id),
-      headBranch: this.providers.headBranch?.bind(this.providers),
-      assertInteractiveUnlocked: (id) => this.activity.assertWrite(id),
-      validate: async (snapshot) => {
-        if (snapshot.pins) await this.providers.validatePins(snapshot.pins);
-        await this.validateExternal(snapshot);
-      },
-      notify: (result) => this.notify(result),
-    });
+    // Batch authoring's scratch drafts were removed; drop their leftover table.
+    this.db.exec("DROP TABLE IF EXISTS authoring_drafts");
+    this.activity = new ReviewActivity(this.db, (id) => this.assertExists(id));
 
     // Homes written before map resumption lack the column.
     if (
@@ -671,7 +657,6 @@ export class ReviewStore {
     clearInterval(this.externalChanges);
     clearInterval(this.refreshTimer);
     await this.pending;
-    this.drafts.close();
     this.listeners.clear();
     this.catalogListeners.clear();
     this.activity.close();
@@ -888,18 +873,6 @@ export class ReviewStore {
 
     return inspectSnapshot(snapshot, targetId);
   }
-  /** Serialize scratch writes and commits with the host's other mutations. */
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Draft command boundary: parse before queueing any mutation.
-  executeDraft(input: unknown) {
-    if (this.closing)
-      return Promise.reject(new Error("Review store is closing."));
-    const command = draftCommandSchema.parse(input);
-    const run = this.pending.then(() => this.drafts.execute(command));
-    this.pending = run.catch(() => {});
-
-    return run;
-  }
-
   /** The host can seed a managed document; transport callers only supply a command. */
   execute(
     // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
@@ -941,7 +914,6 @@ export class ReviewStore {
       const op = command.operation;
 
       if (op.type !== "create" && op.type !== "attention") {
-        this.drafts.assertUnlocked(op.reviewId);
         this.activity.assertWrite(op.reviewId, command.leaseId);
       }
 
@@ -1319,9 +1291,7 @@ export class ReviewStore {
       snapshot.pins?.repositoryId !== requested.repositoryId ||
       snapshot.pins?.head !== requested.head;
 
-    const ownedBy =
-      this.activity.heldByAnother(reviewId, leaseId) ||
-      this.drafts.held(reviewId);
+    const ownedBy = this.activity.heldByAnother(reviewId, leaseId);
 
     const note = [
       "Returned the existing review for this PR instead of creating one; the requested title and target were not applied. Update it in place (read it with review_get first), or pass reuseExisting:false to create a separate review.",
@@ -1382,7 +1352,6 @@ export class ReviewStore {
     version: number | undefined,
     leaseId?: string,
   ) {
-    this.drafts.assertUnlocked(reviewId);
     this.activity.assertWrite(reviewId, leaseId);
 
     const current = this.db
@@ -1450,7 +1419,6 @@ export class ReviewStore {
       return Promise.reject(new Error("Import versions of one review only."));
 
     const run = this.pending.then(async () => {
-      this.drafts.assertUnlocked(reviewId);
       this.activity.assertWrite(reviewId);
 
       const existing = this.db

@@ -66,18 +66,15 @@ export async function callAuthoringTool(
 
   const fields = { ...input };
 
-  const route = tool.path.replace(
-    /:(reviewId|draftId)\b/g,
-    (_match, name: string) => {
-      const value = fields[name];
+  const route = tool.path.replace(/:reviewId\b/g, () => {
+    const value = fields.reviewId;
 
-      if (!isStringValue(value) || !value)
-        throw new Error(`${name} is required.`);
-      delete fields[name];
+    if (!isStringValue(value) || !value)
+      throw new Error("reviewId is required.");
+    delete fields.reviewId;
 
-      return encodeURIComponent(value);
-    },
-  );
+    return encodeURIComponent(value);
+  });
 
   if (tool.method === "POST")
     return client.post<JsonValue>(route, fields, signal);

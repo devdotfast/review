@@ -32,7 +32,6 @@ export class ReviewActivity {
   constructor(
     private readonly db: DatabaseSync,
     private readonly assertReview?: (reviewId: string) => void,
-    private readonly assertAvailable?: (reviewId: string) => void,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS authoring_sessions(
       review_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL,
@@ -124,8 +123,6 @@ export class ReviewActivity {
 
     try {
       this.assertReview?.(reviewId);
-
-      if (action !== "end") this.assertAvailable?.(reviewId);
       const previous = this.active(reviewId);
 
       if (action === "end") {

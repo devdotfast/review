@@ -1,5 +1,9 @@
 # Share the authoring database; keep one workspace owner
 
+> Superseded in part: batch authoring removed (2026-09-22). Only the
+> renewable interactive session remains; the batch draft ownership described
+> below is in git history.
+
 Desktop and the foreground headless server share `review-api.db` under the same
 profile directory, defaulting to `DEV_REVIEW_HOME`. This makes locally authored
 reviews visible in Desktop without copying content or assigning new review IDs.

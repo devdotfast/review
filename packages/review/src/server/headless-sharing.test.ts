@@ -10,7 +10,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createShareFixture } from "../../test/fixtures/share/create.js";
 import { runReviewCli } from "../cli-runner.js";
 import { ReviewApiClient } from "../review-api/client.js";
-import type { Draft } from "../review-api/drafts.js";
 import type { ReviewServerDiscovery } from "../server-discovery.js";
 import * as repository from "../sharing/repository.js";
 import { runHeadlessServer } from "./headless-host.js";
@@ -96,7 +95,6 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
 
   const running = runHeadlessServer({
     stateDir,
-    authoringMode: "batch",
     signal: abort.signal,
     onReady: ready.resolve,
   });
@@ -118,9 +116,13 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       path: fixture.repo,
     });
 
-    const d = await client.post<Draft>("/draft-commands/begin", {
-      title: "CI review",
-      pins: { ...pins, repositoryId: registered.id },
+    const d = await client.post<{ reviewId: string }>("/commands", {
+      commandId: randomUUID(),
+      operation: {
+        type: "create",
+        title: "CI review",
+        pins: { ...pins, repositoryId: registered.id },
+      },
     });
 
     const traceId = randomUUID();
@@ -133,34 +135,35 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
         events: [{ id: "one", role: "user", text: "Explain the answer" }],
       },
     });
-    await client.post("/draft-commands/write", {
-      draftId: d.draftId,
-      document: [
-        {
-          type: "section",
-          title: "Summary",
-          children: [
-            {
-              type: "code_peek",
-              source: {
-                file: fixture.sourceFile,
-                start: { side: "head", line: 1 },
-                end: { side: "head", line: 1 },
-              },
-            },
-            {
-              type: "trace_quote",
-              traceId,
-              eventId: "one",
-              text: "Explain the answer",
-            },
-          ],
-        },
-      ],
-    });
-    await client.post("/draft-commands/commit", {
-      draftId: d.draftId,
+    await client.post("/commands", {
       commandId: randomUUID(),
+      operation: {
+        type: "edit",
+        reviewId: d.reviewId,
+        edit: {
+          type: "insert",
+          content: {
+            type: "section",
+            title: "Summary",
+            children: [
+              {
+                type: "code_peek",
+                source: {
+                  file: fixture.sourceFile,
+                  start: { side: "head", line: 1 },
+                  end: { side: "head", line: 1 },
+                },
+              },
+              {
+                type: "trace_quote",
+                traceId,
+                eventId: "one",
+                text: "Explain the answer",
+              },
+            ],
+          },
+        },
+      },
     });
     const requestId = randomUUID();
 
@@ -181,7 +184,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
           "--review",
           d.reviewId,
           "--version",
-          "0",
+          "1",
           "--request-id",
           requestId,
           "--json",
@@ -195,7 +198,7 @@ it("commits and uploads through a real headless server and CLI without Desktop, 
       });
 
       expect(code).toBe(0);
-      expect(JSON.parse(output)).toEqual({ shareId, url: link, version: 0 });
+      expect(JSON.parse(output)).toEqual({ shareId, url: link, version: 1 });
       expect(output).not.toContain("ci-publish-token");
     }
 

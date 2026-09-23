@@ -71,7 +71,7 @@ export class StructuralDiffProvider implements IDocumentDiffProvider {
 		const path = this.pairs.get(original.uri.with({ fragment: "" }).toString() + "\n" + modified.uri.with({ fragment: "" }).toString());
 		this.path = path;
 		if (path !== undefined && this.unchanged.has(path)) {
-			if (original.getValue() !== modified.getValue()) throw new Error("Referenced context file changed; reload the review.");
+			if (original.getValue() !== modified.getValue()) throw new Error("Referenced context file changed; reload the session.");
 			return { changes: [], moves: [], identical: true, quitEarly: false };
 		}
 		if (path !== undefined && this.session.getFileResult(path)?.diff?.type === "binary") {
@@ -86,7 +86,7 @@ export class StructuralDiffProvider implements IDocumentDiffProvider {
 			modified.getLinesContent().join("\n") !== right
 		) {
 			throw new Error(
-				"diffr sources differ from Review's editor snapshots; reload the review.",
+				"diffr sources differ from Whiteboard's editor snapshots; reload the session.",
 			);
 		}
 		const rows = structuralRows(diff);

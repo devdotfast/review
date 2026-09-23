@@ -38,7 +38,7 @@ export class ReviewWorkspaceContextService extends Disposable implements IWorksp
 		private readonly uriIdentityService: IUriIdentityService,
 	) {
 		super();
-		this.workspace = new Workspace(workspaceIdentifier.id, [], false, workspaceIdentifier.configPath, uri => uriIdentityService.extUri.ignorePathCasing(uri), localize('reviewWindow', "Review"));
+		this.workspace = new Workspace(workspaceIdentifier.id, [], false, workspaceIdentifier.configPath, uri => uriIdentityService.extUri.ignorePathCasing(uri), localize('reviewWindow', "Whiteboard"));
 	}
 
 	getCompleteWorkspace(): Promise<IWorkspace> {

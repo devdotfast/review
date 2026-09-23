@@ -277,7 +277,7 @@ function ReviewStackLayerRow({
         <span className="review-stack-branch">{layer.branch}</span>
       </span>
       <span className="review-stack-relation">
-        {!layer.sessionId && !current ? "No Review" : layer.relation}
+        {!layer.sessionId && !current ? "No session" : layer.relation}
       </span>
     </>
   );
@@ -298,8 +298,8 @@ function ReviewStackLayerRow({
       disabled={!layer.sessionId}
       title={
         layer.sessionId
-          ? "Open Review (Cmd/Ctrl-click to open in the background)"
-          : "No generated Review exists for this pull request"
+          ? "Open session (Cmd/Ctrl-click to open in the background)"
+          : "No generated session exists for this pull request"
       }
       onClick={(event) => onOpen(layer, event)}
       onAuxClick={(event) => {

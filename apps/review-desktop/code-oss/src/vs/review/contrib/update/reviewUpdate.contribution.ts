@@ -48,7 +48,7 @@ import {
 /** The update downloaded and waiting for a restart. */
 const STAGED_UPDATE_STORAGE_KEY = 'review.update.staged.v1';
 /** Target commit the reader asked not to be prompted about again. */
-const SKIPPED_UPDATE_STORAGE_KEY = 'review.update.skipped.v1';
+const SKIPPED_UPDATE_STORAGE_KEY = 'whiteboard.update.skipped.v1';
 /** Failed update attempt that Review already announced. */
 const FAILED_UPDATE_NOTICE_STORAGE_KEY = 'review.update.failedNotice.v1';
 
@@ -139,8 +139,8 @@ class ReviewUpdateNotifications extends Disposable {
 		this.notificationService.notify({
 			severity: Severity.Info,
 			message: notice.productVersion
-				? localize('review.update.applied', "Review updated to {0}.", notice.productVersion)
-				: localize('review.update.applied.unknownVersion', "Review has been updated."),
+				? localize('review.update.applied', "Whiteboard updated to {0}.", notice.productVersion)
+				: localize('review.update.applied.unknownVersion', "Whiteboard has been updated."),
 		});
 	}
 
@@ -160,9 +160,9 @@ class ReviewUpdateNotifications extends Disposable {
 			this.readyCommit = state.update.version;
 			this.readyHandle = this.notificationService.notify({
 				severity: Severity.Info,
-				message: localize('review.update.linuxAvailable', "Review {0} is available. Update with your system package manager, then reopen Review.", state.update.productVersion ?? ''),
+				message: localize('review.update.linuxAvailable', "Whiteboard {0} is available. Update with your system package manager, then reopen Whiteboard.", state.update.productVersion ?? ''),
 				actions: { primary: [toAction({
-					id: 'review.update.instructions', label: localize('review.update.instructions', "Update Instructions"),
+					id: 'whiteboard.update.instructions', label: localize('whiteboard.update.instructions', "Update Instructions"),
 					run: () => this.updateService.downloadUpdate(true),
 				})] },
 			});
@@ -216,20 +216,20 @@ class ReviewUpdateNotifications extends Disposable {
 			// Waits for a decision rather than expiring unseen.
 			sticky: true,
 			message: next.productVersion
-				? localize('review.update.ready', "Review {0} is ready to install.", next.productVersion)
-				: localize('review.update.ready.unknownVersion', "A Review update is ready to install."),
+				? localize('review.update.ready', "Whiteboard {0} is ready to install.", next.productVersion)
+				: localize('review.update.ready.unknownVersion', "A Whiteboard update is ready to install."),
 			actions: {
 				primary: [
 					toAction({
-						id: 'review.update.restart',
-						label: localize('review.update.restart', "Restart to Update"),
+						id: 'whiteboard.update.restart',
+						label: localize('whiteboard.update.restart', "Restart to Update"),
 						run: () => {
 							void this.updateService.quitAndInstall();
 						},
 					}),
 					toAction({
-						id: 'review.update.skip',
-						label: localize('review.update.skip', "Skip This Version"),
+						id: 'whiteboard.update.skip',
+						label: localize('whiteboard.update.skip', "Skip This Version"),
 						run: () => {
 							this.storageService.store(
 								SKIPPED_UPDATE_STORAGE_KEY,
@@ -261,8 +261,8 @@ class ReviewCheckForUpdatesAction extends Action2 {
 
 	constructor() {
 		super({
-			id: 'review.checkForUpdates',
-			title: localize2('review.checkForUpdates', "Check for Updates..."),
+			id: 'whiteboard.checkForUpdates',
+			title: localize2('whiteboard.checkForUpdates', "Check for Updates..."),
 			f1: true,
 		});
 	}

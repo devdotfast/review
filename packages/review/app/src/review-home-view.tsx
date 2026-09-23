@@ -215,7 +215,7 @@ export function ReviewHome({
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
           <div className="review-home-page-header">
-            <h1>Reviews</h1>
+            <h1>Sessions</h1>
             <div className="review-home-page-header-tools">
               <SearchBox query={query} onChange={setQuery} />
             </div>
@@ -227,8 +227,8 @@ export function ReviewHome({
           {needle && active.length === 0 && !scratchpadShown ? (
             <p className="review-home-search-empty">
               {dismissed.length > 0
-                ? `No active reviews match “${needle}”. Look in Dismissed below.`
-                : `No reviews match “${needle}”.`}
+                ? `No active sessions match “${needle}”. Look in Dismissed below.`
+                : `No sessions match “${needle}”.`}
             </p>
           ) : null}
           <SearchQueryContext.Provider value={needle}>
@@ -287,11 +287,11 @@ export function setupBannerMessage(
 
     if (present.length === 0) return null;
 
-    return "Review is not set up for your coding agents yet.";
+    return "Whiteboard is not set up for your coding agents yet.";
   }
 
   if (status.stale) {
-    return "The installed Review skills are older than this app.";
+    return "The installed Whiteboard skills are older than this app.";
   }
 
   const missing = status.agents.filter(
@@ -299,7 +299,7 @@ export function setupBannerMessage(
   );
 
   if (missing.length > 0) {
-    return `The Review skills are not installed for ${missing
+    return `The Whiteboard skills are not installed for ${missing
       .map((agent) => TARGET_LABELS[agent.target])
       .join(", ")}.`;
   }
@@ -328,8 +328,8 @@ function SearchBox({
         ref={input}
         type="search"
         value={query}
-        placeholder="Search reviews"
-        aria-label="Search reviews"
+        placeholder="Search sessions"
+        aria-label="Search sessions"
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
@@ -359,7 +359,7 @@ function SearchBox({
 }
 
 /**
- * Dismissed reviews, collapsed by default and kept out of the workspace
+ * Dismissed sessions, collapsed by default and kept out of the workspace
  * grouping. Reviews stay saved until the reader deletes them.
  */
 function DismissedSection({
@@ -376,7 +376,7 @@ function DismissedSection({
   onDelete?(review: SessionSummary): Promise<void>;
 }) {
   return (
-    <section className="review-home-dismissed" aria-label="Dismissed reviews">
+    <section className="review-home-dismissed" aria-label="Dismissed sessions">
       <button
         type="button"
         className="review-home-dismissed-toggle"
@@ -818,7 +818,7 @@ function DismissReviewButton({ review }: { review: SessionSummary }) {
       type="button"
       className="review-home-dismiss"
       aria-label={`Dismiss ${title}`}
-      title="Dismiss review"
+      title="Dismiss session"
       disabled={busy}
       onKeyDown={(event) => event.stopPropagation()}
       onClick={(event) => {
@@ -864,7 +864,7 @@ function DeleteReviewButton({
       }
       role={menu ? "menuitem" : undefined}
       aria-label={armed ? `Confirm delete ${title}` : `Delete ${title}`}
-      title={armed ? "Confirm delete" : "Delete review"}
+      title={armed ? "Confirm delete" : "Delete session"}
       disabled={busy}
       onBlur={() => setArmed(false)}
       onKeyDown={(event) => event.stopPropagation()}
@@ -962,7 +962,7 @@ export function formatRelativeTime(
 }
 
 function reviewTitle(review: SessionSummary): string {
-  return review.title.trim() || "Untitled review";
+  return review.title.trim() || "Untitled session";
 }
 
 function matchesQuery(review: SessionSummary, query: string): boolean {

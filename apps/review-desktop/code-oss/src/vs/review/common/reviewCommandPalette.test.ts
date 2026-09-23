@@ -10,7 +10,7 @@ import { reviewCommandPaletteLabel } from './reviewCommandPalette.js';
 
 test('uses the human-readable command title', () => {
 	assert.equal(
-		reviewCommandPaletteLabel('review.installCliInPath', {
+		reviewCommandPaletteLabel('whiteboard.installCliInPath', {
 			title: { value: 'Review: Install CLI in PATH', original: 'Review: Install CLI in PATH' },
 		}),
 		'Review: Install CLI in PATH',

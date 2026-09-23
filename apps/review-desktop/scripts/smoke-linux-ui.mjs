@@ -18,7 +18,7 @@ const output = path.resolve(process.argv[3] ?? "apps/review-desktop/dist/linux-u
 
 await mkdir(output, { recursive: true });
 
-for (const [controls, theme, scale] of [["native", "Review Dark", 1], ["custom", "Review Light", 1.25]]) {
+for (const [controls, theme, scale] of [["native", "Whiteboard Dark", 1], ["custom", "Whiteboard Light", 1.25]]) {
   const profile = await mkdtemp(path.join(os.tmpdir(), "review-linux-ui-"));
   await mkdir(path.join(profile, "User"));
   await writeFile(path.join(profile, "User/settings.json"), JSON.stringify({

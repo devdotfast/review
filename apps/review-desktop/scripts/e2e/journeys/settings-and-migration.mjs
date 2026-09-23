@@ -25,11 +25,11 @@ const LEGACY_RECORD = { schemaVersion: 1, uuid: LEGACY_UUID };
 const THEME_SETTINGS = {
   dark: {
     "window.autoDetectColorScheme": false,
-    "workbench.colorTheme": "Review Dark",
+    "workbench.colorTheme": "Whiteboard Dark",
   },
   light: {
     "window.autoDetectColorScheme": false,
-    "workbench.colorTheme": "Review Light",
+    "workbench.colorTheme": "Whiteboard Light",
   },
 };
 
@@ -107,8 +107,8 @@ export async function run(ctx) {
   );
   // The preference is the whole effect under test; the harness runs with telemetry disabled whichever way it sits.
   await until(
-    () => readUserSettings(userData)["review.telemetry.enabled"] === !before,
-    `review.telemetry.enabled to be ${!before} in the workbench settings`,
+    () => readUserSettings(userData)["whiteboard.telemetry.enabled"] === !before,
+    `whiteboard.telemetry.enabled to be ${!before} in the workbench settings`,
   );
 
   const theme =
@@ -147,9 +147,9 @@ export async function run(ctx) {
   );
 
   assert.equal(
-    restored["review.telemetry.enabled"],
+    restored["whiteboard.telemetry.enabled"],
     !before,
-    "review.telemetry.enabled did not survive the restart",
+    "whiteboard.telemetry.enabled did not survive the restart",
   );
   assert.deepEqual(
     Object.fromEntries(

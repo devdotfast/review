@@ -96,7 +96,7 @@ export function SettingsPage({
             <h1>Settings</h1>
           </div>
           <p className="review-settings-lede">
-            Settings apply to Review Desktop on this machine.
+            Settings apply to Whiteboard on this machine.
           </p>
 
           {install ? (
@@ -135,7 +135,7 @@ export function SettingsPage({
           </Section>
 
           <Section label="Editor">
-            <Row label="Theme" description="How Review Desktop looks.">
+            <Row label="Theme" description="How Whiteboard looks.">
               <Choice
                 label="Theme"
                 value={theme}
@@ -211,7 +211,7 @@ export function SettingsPage({
             ) : null}
             <Row
               label="Software Map"
-              description="Show the experimental Software Map view in reviews."
+              description="Show the experimental Software Map view in sessions."
             >
               <label className="review-settings-toggle">
                 <input

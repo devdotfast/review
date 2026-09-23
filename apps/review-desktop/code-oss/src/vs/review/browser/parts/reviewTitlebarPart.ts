@@ -180,14 +180,14 @@ export class ReviewTitlebarPart extends Part implements ITitlebarPart {
 		const toggle = append(this.leftContent, $('div.review-titlebar-file-tree-toggle', {
 			role: 'button',
 			tabindex: '0',
-			title: localize('review.toggleFileTree.tooltip', "Toggle File Tree"),
-			'aria-label': localize('review.toggleFileTree.tooltip', "Toggle File Tree"),
+			title: localize('whiteboard.toggleFileTree.tooltip', "Toggle File Tree"),
+			'aria-label': localize('whiteboard.toggleFileTree.tooltip', "Toggle File Tree"),
 		}));
 
 		append(toggle, renderIcon(Codicon.layoutSidebarLeft)).classList.add('review-file-tree-icon-open');
 		append(toggle, renderIcon(Codicon.layoutSidebarLeftOff)).classList.add('review-file-tree-icon-closed');
 
-		const run = () => void this.commandService.executeCommand('review.toggleFileTree');
+		const run = () => void this.commandService.executeCommand('whiteboard.toggleFileTree');
 		this._register(addDisposableListener(toggle, 'click', run));
 		this._register(addDisposableListener(toggle, 'keydown', event => {
 			const keyboardEvent = new StandardKeyboardEvent(event);

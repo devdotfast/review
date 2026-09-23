@@ -1,7 +1,7 @@
 {
 	"name": "review-themes",
 	"displayName": "Review Themes",
-	"description": "Themes for /dev/fast Review.",
+	"description": "Themes for /dev/fast Whiteboard.",
 	"categories": [
 		"Themes"
 	],
@@ -14,12 +14,12 @@
 	"contributes": {
 		"themes": [
 			{
-				"label": "Review Dark",
+				"label": "Whiteboard Dark",
 				"uiTheme": "vs-dark",
 				"path": "./themes/review-dark.json"
 			},
 			{
-				"label": "Review Light",
+				"label": "Whiteboard Light",
 				"uiTheme": "vs",
 				"path": "./themes/review-light.json"
 			}

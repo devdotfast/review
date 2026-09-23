@@ -23,6 +23,7 @@ import { getUserDataPath } from './vs/platform/environment/node/userDataPath.js'
 // keys from the import-free `vs/review/common/reviewConfigurationDefaults.ts`
 // rather than from `reviewConfiguration.ts`, which owns the registry calls.
 // Enforced by apps/review-desktop/scripts/main-bootstrap-imports.test.mjs.
+import { migrateWhiteboardUserConfig } from './vs/review/node/whiteboardUserConfigMigration.js';
 import { importReviewUserConfig, type ReviewUserConfigImportMode } from './vs/review/node/reviewUserConfigImport.js';
 import { registerReviewOptionalExtensionInstaller } from './vs/review/node/reviewOptionalExtensionInstaller.js';
 import { writeReviewBootstrapBreadcrumb } from './vs/review/node/reviewBootstrapBreadcrumb.js';
@@ -81,6 +82,7 @@ registerReviewOptionalExtensionInstaller(validatedIpcMain, {
 	request: options => net.request(options)
 });
 try {
+	migrateWhiteboardUserConfig(userDataPath);
 	importReviewUserConfig({ userDataPath, log: message => console.log(message) });
 } catch (error) {
 	console.error('Review could not import VS Code settings and keybindings:', error);

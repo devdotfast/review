@@ -71,7 +71,7 @@ const OPTIONAL_GROUPS: readonly { group: string; label: string; detail?: string 
 	{
 		group: 'csharp',
 		label: localize('review.curated.csharp', "C#"),
-		detail: localize('review.curated.csharp.requiresDotnet', "Requires a system .NET SDK. Review does not download .NET.")
+		detail: localize('review.curated.csharp.requiresDotnet', "Requires a system .NET SDK. Whiteboard does not download .NET.")
 	},
 	{
 		group: 'go',
@@ -154,7 +154,7 @@ export async function setCuratedExtensionsEnabled(
  * rust-analyzer, Python, and Go.
  *
  * The extension enablement moves here rather than at the next launch, because
- * CuratedExtensionDefaults reconciles enablement against `review.keymap` on
+ * CuratedExtensionDefaults reconciles enablement against `whiteboard.keymap` on
  * startup and would force a surprise reload if the two disagreed.
  */
 async function applyReviewKeymap(accessor: ServicesAccessor, keymap: ReviewKeymap): Promise<void> {
@@ -190,10 +190,10 @@ async function applyReviewKeymap(accessor: ServicesAccessor, keymap: ReviewKeyma
 	// rather than force it.
 	const reload = await dialogService.confirm({
 		type: 'info',
-		message: localize('review.keymap.reload', "Reload Review to apply the keymap?"),
-		detail: localize('review.keymap.reloadDetail', "Keymap extensions only take effect after the extension host restarts."),
-		primaryButton: localize('review.keymap.reloadNow', "&&Reload"),
-		cancelButton: localize('review.keymap.reloadLater', "Later"),
+		message: localize('whiteboard.keymap.reload', "Reload Whiteboard to apply the keymap?"),
+		detail: localize('whiteboard.keymap.reloadDetail', "Keymap extensions only take effect after the extension host restarts."),
+		primaryButton: localize('whiteboard.keymap.reloadNow', "&&Reload"),
+		cancelButton: localize('whiteboard.keymap.reloadLater', "Later"),
 	});
 	if (reload.confirmed) {
 		await reviewTelemetryService.flush();
@@ -201,7 +201,7 @@ async function applyReviewKeymap(accessor: ServicesAccessor, keymap: ReviewKeyma
 	}
 }
 
-CommandsRegistry.registerCommand('review.setKeymap', (accessor, keymap: ReviewKeymap) =>
+CommandsRegistry.registerCommand('whiteboard.setKeymap', (accessor, keymap: ReviewKeymap) =>
 	applyReviewKeymap(accessor, keymap)
 );
 
@@ -249,8 +249,8 @@ async function stageRustAnalyzer(
 class ManageCuratedExtensionsAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.manageExtensions',
-			title: localize2('review.manageExtensions', "Manage Extensions..."),
+			id: 'whiteboard.manageExtensions',
+			title: localize2('whiteboard.manageExtensions', "Manage Extensions..."),
 			f1: true
 		});
 	}
@@ -360,7 +360,7 @@ class ManageCuratedExtensionsAction extends Action2 {
 					const confirmation = await dialogService.confirm({
 						type: 'warning',
 						message: localize('review.curated.confirmUninstall', "Uninstall {0}?", item.label),
-						detail: localize('review.curated.confirmUninstallDetail', "Review will remove all user-installed members of this language group."),
+						detail: localize('review.curated.confirmUninstallDetail', "Whiteboard will remove all user-installed members of this language group."),
 						primaryButton: localize('review.curated.uninstallNow', "&&Uninstall")
 					});
 					if (!confirmation.confirmed) {
@@ -390,7 +390,7 @@ class ManageCuratedExtensionsAction extends Action2 {
 					} catch (error) {
 						notificationService.error(localize(
 							'review.curated.uninstallFailed',
-							"Review could not uninstall the optional extension group: {0}",
+							"Whiteboard could not uninstall the optional extension group: {0}",
 							getErrorMessage(error)
 						));
 					}
@@ -475,13 +475,13 @@ class ManageCuratedExtensionsAction extends Action2 {
 				for (const rollbackError of error.rollbackErrors) {
 					notificationService.error(localize(
 						'review.curated.rollbackFailed',
-						"Review could not roll back an optional extension: {0}",
+						"Whiteboard could not roll back an optional extension: {0}",
 						getErrorMessage(rollbackError)
 					));
 				}
 				const message = error.phase === 'download'
-					? localize('review.curated.downloadFailed', "Review could not download an optional extension: {0}", getErrorMessage(error.originalError))
-					: localize('review.curated.installFailed', "Review could not install an optional extension: {0}", getErrorMessage(error.originalError));
+					? localize('review.curated.downloadFailed', "Whiteboard could not download an optional extension: {0}", getErrorMessage(error.originalError))
+					: localize('review.curated.installFailed', "Whiteboard could not install an optional extension: {0}", getErrorMessage(error.originalError));
 				notificationService.error(message);
 			} else {
 				notificationService.error(getErrorMessage(error));
@@ -531,8 +531,8 @@ registerAction2(ManageCuratedExtensionsAction);
 class ImportUserConfigAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.importUserConfig',
-			title: localize2('review.importUserConfig', "Review: Import VS Code Settings and Keybindings..."),
+			id: 'whiteboard.importUserConfig',
+			title: localize2('whiteboard.importUserConfig', "Whiteboard: Import VS Code Settings and Keybindings..."),
 			f1: true,
 		});
 	}
@@ -548,35 +548,35 @@ class ImportUserConfigAction extends Action2 {
 			) as ReviewUserConfigImportResult;
 			if (preview.status === 'disabled') {
 				await dialogService.info(
-					localize('review.importUserConfig.disabled', "VS Code settings import is disabled."),
-					localize('review.importUserConfig.disabledDetail', "Unset DEV_WHITEBOARD_IMPORT_FROM=none and restart Review to enable imports."),
+					localize('whiteboard.importUserConfig.disabled', "VS Code settings import is disabled."),
+					localize('whiteboard.importUserConfig.disabledDetail', "Unset DEV_WHITEBOARD_IMPORT_FROM=none and restart Whiteboard to enable imports."),
 				);
 				return;
 			}
 			if (preview.status === 'not-found' || !preview.source) {
 				await dialogService.info(
-					localize('review.importUserConfig.notFound', "No VS Code settings were found."),
-					localize('review.importUserConfig.notFoundDetail', "Review checks Code, Code - Insiders, VSCodium, and Cursor's default profiles."),
+					localize('whiteboard.importUserConfig.notFound', "No VS Code settings were found."),
+					localize('whiteboard.importUserConfig.notFoundDetail', "Whiteboard checks Code, Code - Insiders, VSCodium, and Cursor's default profiles."),
 				);
 				return;
 			}
 
 			const overwriteDetail = preview.wouldOverwrite.length > 0
 				? localize(
-					'review.importUserConfig.overwriteDetail',
-					"The following Review files will be overwritten:\n{0}",
+					'whiteboard.importUserConfig.overwriteDetail',
+					"The following Whiteboard files will be overwritten:\n{0}",
 					preview.wouldOverwrite.join('\n'),
 				)
 				: localize(
-					'review.importUserConfig.createDetail',
-					"Review will create settings files under its user profile. Source:\n{0}",
+					'whiteboard.importUserConfig.createDetail',
+					"Whiteboard will create settings files under its user profile. Source:\n{0}",
 					preview.source,
 				);
 			const confirmation = await dialogService.confirm({
 				type: 'warning',
-				message: localize('review.importUserConfig.confirm', "Import VS Code settings and keybindings?"),
+				message: localize('whiteboard.importUserConfig.confirm', "Import VS Code settings and keybindings?"),
 				detail: overwriteDetail,
-				primaryButton: localize('review.importUserConfig.import', "Import"),
+				primaryButton: localize('whiteboard.importUserConfig.import', "Import"),
 			});
 			if (!confirmation.confirmed) {
 				return;
@@ -592,16 +592,16 @@ class ImportUserConfigAction extends Action2 {
 
 			const reload = await dialogService.confirm({
 				type: 'info',
-				message: localize('review.importUserConfig.complete', "VS Code settings and keybindings were imported."),
-				detail: localize('review.importUserConfig.reloadDetail', "Reload Review to apply keybindings and keymap extension changes."),
-				primaryButton: localize('review.importUserConfig.reload', "Reload"),
+				message: localize('whiteboard.importUserConfig.complete', "VS Code settings and keybindings were imported."),
+				detail: localize('whiteboard.importUserConfig.reloadDetail', "Reload Whiteboard to apply keybindings and keymap extension changes."),
+				primaryButton: localize('whiteboard.importUserConfig.reload', "Reload"),
 			});
 			if (reload.confirmed) {
 				await commandService.executeCommand('workbench.action.reloadWindow');
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize('review.importUserConfig.error', "Review could not import VS Code settings and keybindings."),
+				localize('whiteboard.importUserConfig.error', "Whiteboard could not import VS Code settings and keybindings."),
 				String(error),
 			);
 		}
@@ -612,14 +612,14 @@ registerAction2(ImportUserConfigAction);
 
 MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
 	command: {
-		id: 'review.manageExtensions',
-		title: localize('review.manageExtensions.menu', "Manage Extensions...")
+		id: 'whiteboard.manageExtensions',
+		title: localize('whiteboard.manageExtensions.menu', "Manage Extensions...")
 	},
 	order: 1
 });
 
 /**
- * Seeds the shipped keymap defaults once per profile. An imported review.keymap
+ * Seeds the shipped keymap defaults once per profile. An imported whiteboard.keymap
  * selects Vim or Emacs; otherwise both remain off. After that the user's choice
  * in the picker wins.
  */

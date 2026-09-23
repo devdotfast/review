@@ -85,7 +85,7 @@ export async function run(ctx) {
   }, "three review cards");
   ctx.check("Home groups three reviews under two worktrees");
 
-  await home.locator('[aria-label="Search reviews"]').fill("Worktree B");
+  await home.locator('[aria-label="Search sessions"]').fill("Worktree B");
   await until(
     async () => (await cards.count()) === 1,
     "search narrows to one card",
@@ -155,7 +155,7 @@ export async function run(ctx) {
   const dismiss = async () => {
     await shellB.hover();
     await shellB.locator('[title="Dismiss review"]').click();
-    await home.locator('section[aria-label="Dismissed reviews"]').waitFor();
+    await home.locator('section[aria-label="Dismissed sessions"]').waitFor();
   };
 
   await dismiss();

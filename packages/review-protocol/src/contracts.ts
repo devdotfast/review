@@ -493,7 +493,7 @@ export interface ReviewDiffrConfigActions {
 }
 
 export interface ReviewCanvasSettingsContent {
-  // Backed by the `review.telemetry.enabled` workbench setting, which the
+  // Backed by the `whiteboard.telemetry.enabled` workbench setting, which the
   // review server and the CLI both read.
   telemetryEnabled: boolean;
   setTelemetryEnabled(enabled: boolean): Promise<boolean>;

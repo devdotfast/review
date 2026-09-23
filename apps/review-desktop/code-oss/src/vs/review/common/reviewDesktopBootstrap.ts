@@ -115,14 +115,14 @@ export class ReviewReadyEventReader {
       typeof token !== "string" ||
       typeof instanceId !== "string"
     ) {
-      throw new Error("The Review server ready event is malformed.");
+      throw new Error("The Whiteboard server ready event is malformed.");
     }
     if (
       token !== this.credentials.token ||
       instanceId !== this.credentials.instanceId
     ) {
       throw new Error(
-        "The Review server ready event carried unexpected credentials.",
+        "The Whiteboard server ready event carried unexpected credentials.",
       );
     }
     const cliPath = event["cliPath"];

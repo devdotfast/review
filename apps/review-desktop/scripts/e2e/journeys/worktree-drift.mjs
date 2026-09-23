@@ -131,7 +131,7 @@ export async function run(ctx) {
   );
 
   const info = await ctx.cliRaw(
-    ["info", "--review", review.sessionId, "--json"],
+    ["info", "--session", review.sessionId, "--json"],
     moved,
   );
 
@@ -166,7 +166,7 @@ export async function run(ctx) {
   // Nothing is left to read from, so the retained document has to say so rather than pass for a current one.
   await deleted.retained.waitFor();
 
-  const views = ctx.page.locator('[aria-label="Review views"]');
+  const views = ctx.page.locator('[aria-label="Session views"]');
 
   await views.locator('button[aria-label="Commits"]').click();
 

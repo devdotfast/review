@@ -242,7 +242,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	protected override createEditor(parent: HTMLElement): void {
 		parent.classList.add("review-canvas-part");
 		this.targetDocument = parent.ownerDocument;
-		parent.ownerDocument.title = "Review";
+		parent.ownerDocument.title = "Whiteboard";
 		parent.ownerDocument.body.dataset["reviewCanvasMode"] = "renderer";
 		const outer = $(".content.review-canvas-container");
 		this.container = $(".review-canvas-host");
@@ -343,7 +343,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				this.setCanvasState("active", sessionId);
 				void this.apiCatalog
 					.attention(sessionId, "view")
-					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
+					.catch((error) => this.logService.warn("[Whiteboard] Could not mark review viewed:", error));
 				let sourceSelection: ReviewSourceSelection = { sessionId, kind: "current" };
 				let sourceView: ReviewSourceView = resolveReviewSourceView({ sessionId, version: 0, pins: {} });
 				const source = this.apiSource.canvas(() => sourceView, this.inlineEditors, this.diffViews);
@@ -497,7 +497,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (input.target.kind === "welcome") {
 			void this.desktopConnection
 				.prepareTutorial()
-				.catch((error) => this.logService.warn("[Review] Tutorial preparation did not complete:", error));
+				.catch((error) => this.logService.warn("[Whiteboard] Tutorial preparation did not complete:", error));
 			this.renderedInput = input;
 			this.setCanvasState("home");
 			/* Same stale-resume guard as Home: the install fetch suspends, and
@@ -636,7 +636,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private setupActions(): ReviewCanvasSetupActions {
 		return {
 			load: () => this.loadInstallContent(),
-			installCli: async () => { await this.commandService.executeCommand("review.installCliInPath"); },
+			installCli: async () => { await this.commandService.executeCommand("whiteboard.installCliInPath"); },
 		};
 	}
 
@@ -680,7 +680,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// The command opens and focuses the tutorial tab itself, and reports
 		// its own failures. Welcome stays open behind it: it is a hub the
 		// reader comes back to, not a one-shot wizard.
-		void this.commandService.executeCommand("review.openTutorial");
+		void this.commandService.executeCommand("whiteboard.openTutorial");
 	}
 
 	/**
@@ -716,7 +716,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					setting: "keymap",
 					enabled: true,
 				});
-				await this.commandService.executeCommand("review.setKeymap", choice);
+				await this.commandService.executeCommand("whiteboard.setKeymap", choice);
 				return this.currentKeymap();
 			},
 			softwareMapEnabled: this.currentSoftwareMapEnabled(),
@@ -758,7 +758,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					return this.desktopConnection.setDiffrConfigValue(key, value);
 				},
 			},
-			manageExtensions: () => void this.commandService.executeCommand("review.manageExtensions"),
+			manageExtensions: () => void this.commandService.executeCommand("whiteboard.manageExtensions"),
 		};
 	}
 
@@ -848,7 +848,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					/* The keymap command may reload the window before its promise can
 					   settle. Persist the completed step first so the restored tutorial
 					   advances from the choice the user already made. */
-					await this.commandService.executeCommand("review.setKeymap", keymap);
+					await this.commandService.executeCommand("whiteboard.setKeymap", keymap);
 				} catch (error) {
 					setStep("chooseKeymap", false);
 					throw error;
@@ -970,7 +970,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			/* webpackIgnore: true */ trustedUrl as unknown as string
 		)) as ReviewCanvasAssetsModule;
 		if (typeof assets.mountReviewCanvas !== "function") {
-			throw new Error("Review canvas bundle has no mount function.");
+			throw new Error("Whiteboard canvas bundle has no mount function.");
 		}
 		await Promise.all(assets.reviewStylesheetUrls.map((stylesheet) => loadStylesheet(document, stylesheet)));
 		return assets;

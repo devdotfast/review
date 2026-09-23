@@ -1,9 +1,9 @@
 {
-  "title": "Review Desktop: three-minute tour",
+  "title": "Whiteboard: three-minute tour",
   "document": [
     {
       "type": "markdown",
-      "markdown": "# Review Desktop: three-minute tour\n"
+      "markdown": "# Whiteboard: three-minute tour\n"
     },
     {
       "type": "section",
@@ -11,18 +11,18 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "A Review is a guided, interactive explanation of a code change. The document\nkeeps the important code and system views in one place.\n"
+          "markdown": "A session is a guided, interactive explanation of a code change. The document\nkeeps the important code and system views in one place.\n"
         },
         {
           "type": "tutorial",
           "kind": "conversation",
           "conversation": {
             "version": 1,
-            "title": "How this Review was made",
+            "title": "How this session was made",
             "messages": [
               {
                 "role": "user",
-                "body": "/dev-review I'd like to review the feature we just worked on."
+                "body": "/whiteboard I'd like to review the feature we just worked on."
               },
               {
                 "role": "assistant",
@@ -33,7 +33,7 @@
         },
         {
           "type": "markdown",
-          "markdown": "### Your keybindings\n\nChoose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs.\n"
+          "markdown": "### Your keybindings\n\nChoose your editor keys. Whiteboard highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs.\n"
         },
         {
           "type": "tutorial",
@@ -60,7 +60,7 @@
         },
         {
           "type": "markdown",
-          "markdown": "Prose in the review also supports [links to code](whiteboard-source:head/src/orders/order-service.ts#L13-L29).\n"
+          "markdown": "Prose in the session also supports [links to code](whiteboard-source:head/src/orders/order-service.ts#L13-L29).\n"
         }
       ]
     },
@@ -70,7 +70,7 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "Review pins an exact base and head before the agent starts writing. Open\n**Commits** to see the change in author order. Expand the sample commit to see\nits files, then choose **Open diff** to inspect only that commit.\n\nThe **Diff** tab shows the complete change between the pinned base and head.\nChoose **Review** when you are ready to return to this tour.\n"
+          "markdown": "Whiteboard pins an exact base and head before the agent starts writing. Open\n**Commits** to see the change in author order. Expand the sample commit to see\nits files, then choose **Open diff** to inspect only that commit.\n\nThe **Diff** tab shows the complete change between the pinned base and head.\nChoose **Session** when you are ready to return to this tour.\n"
         },
         {
           "type": "tutorial",
@@ -319,7 +319,7 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "Trace quotes connect a Review to the agent conversation behind a change.\nSelect this quote from an illustrative session to read it in context:\n"
+          "markdown": "Trace quotes connect a session to the agent conversation behind a change.\nSelect this quote from an illustrative session to read it in context:\n"
         },
         {
           "type": "trace_quote",
@@ -339,7 +339,7 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "To manage the Review skills installed for your agents, open **Preferences \u2192\nSettings**. To revisit setup or take this tour again, open **Preferences \u2192\nGetting Started**.\n"
+          "markdown": "To manage the Whiteboard skills installed for your agents, open **Preferences \u2192\nSettings**. To revisit setup or take this tour again, open **Preferences \u2192\nGetting Started**.\n"
         }
       ]
     },

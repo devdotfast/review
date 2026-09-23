@@ -120,7 +120,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			}
 			if (!context?.rootPath) return undefined;
 			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity }).catch(error => {
-				this.log.debug("[Review] Language model unavailable", error);
+				this.log.debug("[Whiteboard] Language model unavailable", error);
 				return undefined;
 			});
 			const entry = { identity: context.identity, rootPath: context.rootPath, pending };
@@ -132,7 +132,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		} catch (error) {
 			const cached = this.sources.get(model);
 			if (cached) this.uncertainRoots.add(URI.file(cached.rootPath).toString());
-			this.log.debug("[Review] Language environment unavailable", error);
+			this.log.debug("[Whiteboard] Language environment unavailable", error);
 			return undefined;
 		}
 	}

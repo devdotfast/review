@@ -25,8 +25,8 @@ import { REVIEW_KEYMAPS, REVIEW_KEYMAP_SETTING, REVIEW_SOFTWARE_MAP_SETTING, REV
 const configurationRegistry = Registry.as<IConfigurationRegistry>(Extensions.Configuration);
 
 configurationRegistry.registerConfiguration({
-	id: 'review',
-	title: localize('reviewConfigurationTitle', "Review"),
+	id: 'whiteboard',
+	title: localize('reviewConfigurationTitle', "Whiteboard"),
 	type: 'object',
 	scope: ConfigurationScope.APPLICATION,
 	properties: {
@@ -34,22 +34,22 @@ configurationRegistry.registerConfiguration({
 			type: 'string',
 			enum: [...REVIEW_KEYMAPS],
 			default: 'none',
-			description: localize('review.keymap', "Select the curated keymap extension Review enables."),
+			description: localize('whiteboard.keymap', "Select the curated keymap extension Whiteboard enables."),
 		},
 		[REVIEW_TELEMETRY_SETTING]: {
 			type: 'boolean',
 			default: true,
-			description: localize('review.telemetry.enabled', "Send anonymous Review usage data."),
+			description: localize('whiteboard.telemetry.enabled', "Send anonymous Whiteboard usage data."),
 		},
 		[REVIEW_STRUCTURAL_DIFF_SETTING]: {
 			type: 'boolean',
 			default: true,
-			description: localize('review.experimental.structuralDiff.enabled', "Replace the standard diff view with structural diffs from diffr."),
+			description: localize('whiteboard.experimental.structuralDiff.enabled', "Replace the standard diff view with structural diffs from diffr."),
 		},
 		[REVIEW_SOFTWARE_MAP_SETTING]: {
 			type: 'boolean',
 			default: false,
-			description: localize('review.experimental.softwareMap.enabled', "Show the experimental Software Map view in reviews."),
+			description: localize('whiteboard.experimental.softwareMap.enabled', "Show the experimental Software Map view in sessions."),
 		},
 	},
 });

@@ -50,7 +50,9 @@ const storedValue = (ctx, key, timeout = 10000) =>
 export async function run(ctx) {
   const { page, until, userData } = ctx;
 
-  const dialog = page.getByText("Join the Review community", { exact: true });
+  const dialog = page.getByText("Join the Whiteboard community", {
+    exact: true,
+  });
 
   const dismissDialog = async () => {
     await page.getByRole("checkbox", { name: "Don't show again" }).check();
@@ -79,12 +81,15 @@ export async function run(ctx) {
 
   // Exact, because the screen-reader alert repeats the text with an "Info: " prefix.
   const notice = page.getByText(
-    "Review sends anonymous usage data. You can change this in Settings.",
+    "Whiteboard sends anonymous usage data. You can change this in Settings.",
     { exact: true },
   );
 
   // Sticky, so it outlives both the seeding reload and the 10 s a plain Info toast gets.
-  assert.ok(await appears(notice, 30000), "the telemetry notice never appeared");
+  assert.ok(
+    await appears(notice, 30000),
+    "the telemetry notice never appeared",
+  );
   await page.getByRole("button", { name: "Open Settings" }).click();
   await page
     .locator(".review-settings-page")
@@ -124,12 +129,12 @@ export async function run(ctx) {
   await ctx.page.waitForTimeout(3000);
   assert.equal(
     await ctx.page
-      .getByText("Join the Review community", { exact: true })
+      .getByText("Join the Whiteboard community", { exact: true })
       .count(),
     0,
   );
   assert.equal(
-    await ctx.page.getByText("Review sends anonymous usage data").count(),
+    await ctx.page.getByText("Whiteboard sends anonymous usage data").count(),
     0,
   );
   ctx.check("dismissed dialog and notice stay hidden after a restart");

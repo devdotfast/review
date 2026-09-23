@@ -18,8 +18,8 @@ interface IReviewThemeQuickPickItem extends IQuickPickItem {
 class SelectReviewThemeAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.selectTheme',
-			title: localize2('review.selectTheme', "Review: Theme"),
+			id: 'whiteboard.selectTheme',
+			title: localize2('whiteboard.selectTheme', "Whiteboard: Theme"),
 			f1: true
 		});
 	}
@@ -36,7 +36,7 @@ class SelectReviewThemeAction extends Action2 {
 		];
 
 		const picked = await quickInputService.pick(items, {
-			title: localize('review.theme.title', "Review: Theme"),
+			title: localize('review.theme.title', "Whiteboard: Theme"),
 			placeHolder: localize('review.theme.placeholder', "Select a theme")
 		});
 		if (!picked) {
@@ -51,8 +51,8 @@ registerAction2(SelectReviewThemeAction);
 
 MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
 	command: {
-		id: 'review.selectTheme',
-		title: localize('review.selectTheme.menu', "Theme...")
+		id: 'whiteboard.selectTheme',
+		title: localize('whiteboard.selectTheme.menu', "Theme...")
 	},
 	order: 0
 });

@@ -22,10 +22,10 @@
  * Enforced by `scripts/main-bootstrap-imports.test.mjs`.
  */
 
-export const REVIEW_KEYMAP_SETTING = 'review.keymap';
-export const REVIEW_TELEMETRY_SETTING = 'review.telemetry.enabled';
-export const REVIEW_STRUCTURAL_DIFF_SETTING = 'review.experimental.structuralDiff.enabled';
-export const REVIEW_SOFTWARE_MAP_SETTING = 'review.experimental.softwareMap.enabled';
+export const REVIEW_KEYMAP_SETTING = 'whiteboard.keymap';
+export const REVIEW_TELEMETRY_SETTING = 'whiteboard.telemetry.enabled';
+export const REVIEW_STRUCTURAL_DIFF_SETTING = 'whiteboard.experimental.structuralDiff.enabled';
+export const REVIEW_SOFTWARE_MAP_SETTING = 'whiteboard.experimental.softwareMap.enabled';
 export const REVIEW_KEYMAPS = ['none', 'vim', 'emacs'] as const;
 export type ReviewKeymap = typeof REVIEW_KEYMAPS[number];
 
@@ -42,13 +42,13 @@ export const reviewConfigurationDefaults = {
 	'workbench.commandPalette.experimental.enableNaturalLanguageSearch': false,
 	'workbench.settings.enableNaturalLanguageSearch': false,
 	'window.autoDetectColorScheme': true,
-	'workbench.colorTheme': 'Review Dark',
-	'workbench.preferredDarkColorTheme': 'Review Dark',
-	'workbench.preferredLightColorTheme': 'Review Light',
+	'workbench.colorTheme': 'Whiteboard Dark',
+	'workbench.preferredDarkColorTheme': 'Whiteboard Dark',
+	'workbench.preferredLightColorTheme': 'Whiteboard Light',
 	'workbench.startupEditor': 'none',
 	'workbench.activityBar.location': 'hidden',
 	'workbench.statusBar.visible': false,
-	'window.title': 'Review',
+	'window.title': 'Whiteboard',
 	'window.commandCenter': false,
 	'workbench.navigationControl.enabled': true,
 	'window.menuBarVisibility': 'hidden',

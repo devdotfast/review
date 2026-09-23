@@ -36,8 +36,8 @@ export class ReviewLinuxTitlebar extends Disposable {
 	) {
 		super();
 		const menu = append(left, $('button.review-application-menu', {
-			type: 'button', title: localize('review.menu.title', "Review menu (F10)"),
-			'aria-label': localize('review.menu.label', "Review menu"), 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+			type: 'button', title: localize('review.menu.title', "Whiteboard menu (F10)"),
+			'aria-label': localize('review.menu.label', "Whiteboard menu"), 'aria-haspopup': 'menu', 'aria-expanded': 'false',
 		}));
 		append(menu, renderIcon(Codicon.menu));
 		let dialogOpen = false;
@@ -52,14 +52,14 @@ export class ReviewLinuxTitlebar extends Disposable {
 				autoSelectFirstItem: true,
 				getActions: () => [
 					command('workbench.action.showCommands', localize('review.menu.commands', "Command Palette...")),
-					command('review.openSettings', localize('review.menu.settings', "Settings...")),
-					command('review.manageExtensions', localize('review.menu.extensions', "Manage Extensions...")),
-					command('review.openWelcome', localize('review.menu.welcome', "Getting Started...")),
+					command('whiteboard.openSettings', localize('review.menu.settings', "Settings...")),
+					command('whiteboard.manageExtensions', localize('review.menu.extensions', "Manage Extensions...")),
+					command('whiteboard.openWelcome', localize('review.menu.welcome', "Getting Started...")),
 					new Separator(),
-					command('review.checkForUpdates', localize('review.menu.updates', "Check for Updates...")),
-					toAction({ id: 'review.about', label: localize('review.menu.about', "About Review"), run: () => dialogService.about() }),
+					command('whiteboard.checkForUpdates', localize('review.menu.updates', "Check for Updates...")),
+					toAction({ id: 'whiteboard.about', label: localize('review.menu.about', "About Whiteboard"), run: () => dialogService.about() }),
 					new Separator(),
-					command('workbench.action.quit', localize('review.menu.quit', "Quit Review")),
+					command('workbench.action.quit', localize('review.menu.quit', "Quit Whiteboard")),
 				],
 				getKeyBinding: action => keybindingService.lookupKeybinding(action.id),
 				onHide: () => { menu.setAttribute('aria-expanded', 'false'); menu.focus(); },

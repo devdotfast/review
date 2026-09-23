@@ -130,7 +130,7 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 				case "openDiff":
 				case "reveal":
 				case "openReviewRevision":
-					throw new Error("This action requires a pinned review canvas.");
+					throw new Error("This action requires a pinned session canvas.");
 				case "focusCanvas":
 					this._onDidRequestCanvasFocus.fire();
 					break;
@@ -138,7 +138,7 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 					return { ok: true, result: await this.captureScreenshot() };
 				case "openReview": {
 					const review = this.apiCatalog.reviews.find((review) => review.sessionId === request.args.sessionId);
-					if (!review) throw new Error("Review not found.");
+					if (!review) throw new Error("Session not found.");
 					await this.tabsService.openApiReview(review.sessionId, review.title, request.args.active);
 					break;
 				}

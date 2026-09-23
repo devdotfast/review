@@ -58,7 +58,7 @@ await mkdir(profile, { recursive: true });
 await writeFile(
   path.join(profile, "settings.json"),
   JSON.stringify({
-    "review.experimental.softwareMap.enabled": true,
+    "whiteboard.experimental.softwareMap.enabled": true,
     "telemetry.telemetryLevel": "off",
     "workbench.startupEditor": "none",
     "security.workspace.trust.enabled": false,

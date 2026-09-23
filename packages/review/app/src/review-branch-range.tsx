@@ -26,7 +26,7 @@ export function ReviewBranchRange({
   };
 
   return (
-    <div className="review-branch-range" aria-label="Review commits">
+    <div className="review-branch-range" aria-label="Session commits">
       <BranchRef
         label="base"
         name={baseRef}

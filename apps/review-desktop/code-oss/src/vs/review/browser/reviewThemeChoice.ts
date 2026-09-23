@@ -8,13 +8,13 @@ import { ColorScheme } from '../../platform/theme/common/theme.js';
 import { IThemeService } from '../../platform/theme/common/themeService.js';
 
 /**
- * The theme choice, shared by the `review.selectTheme` quick pick and the
+ * The theme choice, shared by the `whiteboard.selectTheme` quick pick and the
  * Settings canvas tab. This module registers nothing, so the canvas part can
  * import it without pulling in a contribution.
  */
 
-const REVIEW_DARK_THEME = 'Review Dark';
-const REVIEW_LIGHT_THEME = 'Review Light';
+const REVIEW_DARK_THEME = 'Whiteboard Dark';
+const REVIEW_LIGHT_THEME = 'Whiteboard Light';
 
 export type ReviewThemeChoice = 'dark' | 'light' | 'system';
 

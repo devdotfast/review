@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -9,7 +8,6 @@ import { pathToFileURL } from "node:url";
 import { jsonString } from "@dev.fast/json";
 import {
   type JsonObject,
-  type JsonValue,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   type ReviewCliInstallApplyResponse,
   type ReviewDesktopDiscovery,
@@ -19,7 +17,6 @@ import {
   parseReviewCliInstallApplyRequest,
   reviewDiffrSummarizerInputSchema,
 } from "@dev.fast/review-protocol";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -33,6 +30,12 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
+import {
+  type ReviewDesktopChannel,
+  claimDesktopDiscovery,
+  releaseDesktopDiscovery,
+  reviewDesktopChannel,
+} from "../desktop-discovery-claim";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
@@ -128,7 +131,9 @@ export function createGlobalReviewServer(
   // settings endpoint below: this server is the only writer while it runs.
   let scratchpadEnabled = false;
 
-  const discovery: ReviewDesktopDiscovery = {
+  const discovery: ReviewDesktopDiscovery & {
+    channel: ReviewDesktopChannel;
+  } = {
     version: REVIEW_DESKTOP_DISCOVERY_VERSION,
     instanceId,
     url: urlForBoundPort(),
@@ -136,6 +141,7 @@ export function createGlobalReviewServer(
     serverPid: process.pid,
     token,
     startedAt: Date.now(),
+    channel: reviewDesktopChannel(),
   };
 
   // A source-run dev server has no built CLI to advertise.
@@ -566,13 +572,13 @@ export function createGlobalReviewServer(
       scratchpadEnabled = await readScratchpadEnabled();
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
-      await writePrivateJsonAtomic(discoveryPath, discovery);
+      await claimDesktopDiscovery(discoveryPath, discovery);
     },
     close: async () => {
       if (closing) return;
       closing = true;
 
-      await removeMatchingDiscovery(discoveryPath, discovery);
+      await releaseDesktopDiscovery(discoveryPath, discovery);
       relay.close();
 
       await closeHttpServer(httpServer);
@@ -621,26 +627,6 @@ function closeHttpServer(server: Server): Promise<void> {
 
     server.close((error) => (error ? reject(error) : resolve()));
   });
-}
-
-async function removeMatchingDiscovery(
-  filePath: string,
-  discovery: ReviewDesktopDiscovery,
-): Promise<void> {
-  try {
-    const current: JsonValue = JSON.parse(await readFile(filePath, "utf8"));
-
-    if (
-      isJsonObject(current) &&
-      current.instanceId === discovery.instanceId &&
-      current.appPid === discovery.appPid
-    ) {
-      await rm(filePath, { force: true });
-    }
-  } catch (error) {
-    // SAFETY: fs/promises rejects with a Node ErrnoException carrying `code`.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
 }
 
 /** `server.address()` is a string for pipe and socket listeners. */

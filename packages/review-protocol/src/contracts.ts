@@ -728,6 +728,8 @@ export const ReviewDesktopDiscoverySchema = z.object({
   // uses the exact runtime the app ships instead of whatever `node` is on
   // PATH.
   cliRuntimePath: requiredString.optional(),
+  /** Release channel of the app; absent in files written before channels. */
+  channel: z.enum(["stable", "preview"]).optional(),
 });
 
 export type ReviewDesktopDiscovery = z.infer<

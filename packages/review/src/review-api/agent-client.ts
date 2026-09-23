@@ -1,7 +1,4 @@
-import {
-  readHealthyReviewDesktopDiscovery,
-  readReviewDesktopDiscovery,
-} from "../desktop-discovery.js";
+import { readHealthyDesktopFromAnyChannel } from "../desktop-discovery-claim.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths.js";
 import {
   readReviewServerDiscovery,
@@ -33,10 +30,9 @@ export async function connectReviewApi(env = process.env) {
     return new ReviewApiClient({ serverUrl: server.url, token: server.token });
   }
 
-  const discovery = await readHealthyReviewDesktopDiscovery({
-    readDiscovery: () =>
-      readReviewDesktopDiscovery(reviewDesktopDiscoveryPath(env)),
-  });
+  const discovery = await readHealthyDesktopFromAnyChannel(
+    reviewDesktopDiscoveryPath(env),
+  );
 
   if (!discovery)
     throw new Error(

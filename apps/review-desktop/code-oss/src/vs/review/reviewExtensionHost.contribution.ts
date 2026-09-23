@@ -53,6 +53,7 @@ import '../workbench/api/browser/mainThreadStorage.js';
 import '../workbench/api/browser/mainThreadTelemetry.js';
 import '../workbench/api/browser/mainThreadTheming.js';
 import '../workbench/api/browser/mainThreadTreeViews.js';
+import '../workbench/api/browser/mainThreadWebviewManager.js';
 import '../workbench/api/browser/mainThreadDownloadService.js';
 import '../workbench/api/browser/mainThreadWindow.js';
 import '../workbench/api/browser/mainThreadWorkspace.js';

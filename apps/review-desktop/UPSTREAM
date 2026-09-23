@@ -175,6 +175,35 @@ theme tokens now live under `src/vs/workbench/common`. Shared chat styles use
 the existing platform font sizes. The agent-host MCP server type now lives
 under `src/vs/platform/agentHost/common`.
 
+## Restored extension webview API
+
+The vendored tree shipped the webview, webview panel, and webview view
+contributions but not the extension-host bridge that drives them, so the
+Markdown preview, extension webviews, and custom editors failed in the native
+source window with `Unknown actor MainThreadWebviews`. These files were absent
+without an entry here; they are now restored byte-for-byte from the upstream
+commit above, so they are not a fork divergence:
+
+- `src/vs/workbench/api/browser/`: `mainThreadWebviewManager.ts`,
+  `mainThreadWebviews.ts`, `mainThreadWebviewPanels.ts`,
+  `mainThreadWebviewViews.ts`, `mainThreadCustomEditors.ts`, and
+  `mainThreadChatOutputRenderer.ts` (the manager constructs it).
+- `src/vs/workbench/contrib/customEditor/`: `browser/customEditor.contribution.ts`,
+  `browser/customEditors.ts`, `browser/customEditorDiffInput.ts`,
+  `browser/customEditorInputFactory.ts`, `browser/media/customEditor.css`,
+  `common/contributedCustomEditors.ts`, `common/customEditorModelManager.ts`,
+  `common/customTextEditorModel.ts`, and `common/extensionPoint.ts`.
+- `src/vs/workbench/contrib/webviewView/browser/webviewView.contribution.ts`.
+
+Review's own manifests wire them up: `reviewExtensionHost.contribution.ts`
+imports the manager, and `editor.common.main.ts` imports the two contributions
+and registers upstream's `ChatOutputRendererService`, which upstream registers
+from the chat contribution Review does not load. Both windows load these.
+Webview resources still resolve only through
+`contrib/webview/browser/resourceLoading.ts`, so the CVE-2026-81383 fix above
+still applies, and every webview still loads through the `pre/index.html` host
+described below.
+
 ## Intentional fork divergence
 
 Compare a fresh checkout of the upstream commit with `code-oss/`, ignoring the
@@ -353,7 +382,11 @@ one of these entries:
   agent contributions, and the extension-host `browser` API is gated on a
   proposed API that `product.json` does not enable.
 - `src/vs/workbench/contrib/webview/browser/pre/index.html`: guard a transient
-  missing iframe body while polling active webview focus.
+  missing iframe body while polling active webview focus. The page's
+  `script-src` pins its inline script by hash, so the same edit replaces
+  upstream's `sha256-nXjt…` with the edited script's hash; the policy is
+  otherwise upstream's. Before that, the host script was blocked and every
+  webview stayed blank. `scripts/product-hardening.test.mjs` checks the hash.
 - `src/vs/workbench/electron-browser/parts/dialogs/dialog.contribution.ts`:
   append Review's PostHog install ID to the native About details and copied
   details after the embedded server announces its stored identity.

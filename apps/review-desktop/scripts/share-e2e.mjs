@@ -1,4 +1,3 @@
-import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Visible Desktop proof of an imported JSON review with an independently fetched pinned checkout. */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -8,6 +7,11 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import path from "node:path";
 import { parseArgs, promisify } from "node:util";
+
+import {
+  sessionModelRequest,
+  sessionModelResponse,
+} from "@dev.fast/review-protocol/session-model-transport";
 
 const exec = promisify(execFile);
 
@@ -174,7 +178,10 @@ try {
         "x-review-token": discovery.token,
         "content-type": "application/json",
       },
-      body: body === undefined ? undefined : JSON.stringify(sessionModelRequest(route, body)),
+      body:
+        body === undefined
+          ? undefined
+          : JSON.stringify(sessionModelRequest(route, body)),
     });
 
     const value = sessionModelResponse(route, await response.json());

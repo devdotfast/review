@@ -4,17 +4,17 @@ This stack changes public names. It does not add workflows or rewrite saved sess
 
 ## Review order
 
-Each row is a separate draft PR. Each branch builds on the preceding row.
+Each row is a separate draft PR. The stack starts at `dev-review-skill-rewrite`; each branch builds on the preceding row.
 
 | Layer | Change | PR |
 | --- | --- | --- |
 | Session API | Add session endpoints over the current store | [399](https://github.com/devdotfast/review/pull/399) |
 | CLI | Add `whiteboard`, session tools, and explicit agent-session selectors | [400](https://github.com/devdotfast/review/pull/400) |
-| Skills | Add `/whiteboard` and `/whiteboard-batch`; keep legacy skill pointers | [402](https://github.com/devdotfast/review/pull/402) |
+| Skills | Rename the rewritten skill to `/whiteboard`; keep `/dev-review` as a pointer | [402](https://github.com/devdotfast/review/pull/402) |
 | Installation | Migrate app-managed launchers, MCP registrations, and hooks | [403](https://github.com/devdotfast/review/pull/403) |
 | Visible names | Rename app titles and authored-session labels | [404](https://github.com/devdotfast/review/pull/404) |
 | Packaging | Publishable package name and Whiteboard release filenames | [405](https://github.com/devdotfast/review/pull/405) |
-| Public references | Update action inputs, current docs, and repository links | [406](https://github.com/devdotfast/review/pull/406) |
+| Public references | Update current docs and repository links | [406](https://github.com/devdotfast/review/pull/406) |
 | Consumers | Move first-party requests to the session API | [407](https://github.com/devdotfast/review/pull/407) |
 | Cutover | Return migration notices for retired interfaces | Top of stack |
 

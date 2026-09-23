@@ -1,4 +1,3 @@
-import { sessionModelRequest, sessionModelResponse } from "@dev.fast/review-protocol/session-model-transport";
 /** Real-review import smoke: launch the built Desktop on a COPIED review home
  * and verify every published legacy review imports into the JSON store, opens
  * in the JSON canvas, and renders without page errors.
@@ -24,6 +23,11 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
+
+import {
+  sessionModelRequest,
+  sessionModelResponse,
+} from "@dev.fast/review-protocol/session-model-transport";
 
 const appRoot = path.resolve(import.meta.dirname, "..");
 
@@ -193,14 +197,23 @@ const api = async (route, method = "GET", body) => {
       "x-review-token": discovery.token,
       "content-type": "application/json",
     },
-    body: body === undefined ? undefined : JSON.stringify(route.startsWith("/sessions-api") ? sessionModelRequest(route.slice("/sessions-api".length), body) : body),
+    body:
+      body === undefined
+        ? undefined
+        : JSON.stringify(
+            route.startsWith("/sessions-api")
+              ? sessionModelRequest(route.slice("/sessions-api".length), body)
+              : body,
+          ),
   });
 
   const value = await response.json().catch(() => null);
 
   return {
     status: response.status,
-    value: route.startsWith("/sessions-api") ? sessionModelResponse(route.slice("/sessions-api".length), value) : value,
+    value: route.startsWith("/sessions-api")
+      ? sessionModelResponse(route.slice("/sessions-api".length), value)
+      : value,
   };
 };
 

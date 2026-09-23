@@ -7,11 +7,24 @@ import {
 } from "@dev.fast/review-protocol";
 
 import {
+  type ReviewInstanceSelection,
   readHealthyReviewDesktopDiscovery,
   readReviewDesktopDiscovery,
+  reviewInstanceStartHint,
+  reviewInstanceUnavailable,
+  selectReviewInstance,
 } from "./desktop-discovery";
 
-const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
+const RELEASE_APPS = {
+  stable: {
+    bundleId: "dev.fast.review",
+    linuxLauncher: "/usr/bin/review-desktop",
+  },
+  preview: {
+    bundleId: "dev.fast.review.preview",
+    linuxLauncher: "/usr/bin/review-preview-desktop",
+  },
+};
 
 /** "1" on launches without --focus; Desktop opens inactive. */
 export const REVIEW_DESKTOP_BACKGROUND_ENV =
@@ -33,6 +46,7 @@ interface DesktopLaunchProcess {
 }
 
 interface ReviewAppLauncherRuntime {
+  selectInstance: () => Promise<ReviewInstanceSelection>;
   readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
   fetch: typeof globalThis.fetch;
   focusDesktop: (discovery: ReviewDesktopDiscovery) => Promise<void>;
@@ -71,6 +85,8 @@ export interface LaunchDesktopApplicationInput {
   electron?: boolean;
   env?: NodeJS.ProcessEnv;
   focus?: boolean;
+  /** An explicitly selected release instance; absent, the installed app's own. */
+  instance?: { key: "stable" | "preview"; appPath?: string };
   spawn?: (
     command: string,
     args: readonly string[],
@@ -85,6 +101,7 @@ export async function runReviewAppLaunch(
   const fetch = overrides.fetch ?? globalThis.fetch;
 
   const runtime: ReviewAppLauncherRuntime = {
+    selectInstance: () => selectReviewInstance({ fetch }),
     readReviewDesktopDiscovery,
     fetch,
     focusDesktop: (discovery) => focusReviewDesktop(discovery, fetch),
@@ -95,15 +112,34 @@ export async function runReviewAppLaunch(
     ...overrides,
   };
 
-  const running = await readLaunchHealthyDesktop(runtime);
+  const current = await readLaunchHealthyDesktop(runtime);
 
-  if (running) {
-    if (input.focus) await runtime.focusDesktop(running);
+  if (current) {
+    if (input.focus) await runtime.focusDesktop(current);
 
-    return launchEvent("running", running.instanceId);
+    return launchEvent("running", current.instanceId);
   }
 
-  const attempt = runtime.launchDesktop({ focus: input.focus });
+  const selection = await runtime.selectInstance();
+  const running = selection.instances.filter((instance) => instance.healthy);
+
+  if (selection.key !== "stable" && selection.key !== "preview")
+    throw new Error(
+      `${reviewInstanceStartHint(selection)}; \`whiteboard app launch\` starts only installed apps.`,
+    );
+
+  if (selection.source === "fallback" && running.length > 1)
+    throw reviewInstanceUnavailable(selection);
+
+  const launch: LaunchDesktopApplicationInput = { focus: input.focus };
+
+  if (selection.source !== "fallback")
+    launch.instance = {
+      key: selection.key,
+      appPath: selection.instance?.discovery.appPath,
+    };
+
+  const attempt = runtime.launchDesktop(launch);
 
   let completion: Promise<DesktopLaunchCompletion> | undefined =
     observedCompletion(attempt);
@@ -217,19 +253,29 @@ export function launchDesktopApplication(
     delete env.VSCODE_CLI;
   }
 
+  // An installed app must never inherit a dev Desktop's identity.
+  delete env.DEV_FAST_REVIEW_CHECKOUT;
+  const release = RELEASE_APPS[input.instance?.key ?? "stable"];
+  const appPath = input.instance?.appPath;
   let command = "/usr/bin/open";
-  let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
 
-  let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+  let method = appPath?.endsWith(".app")
+    ? `the macOS application at "${appPath}"`
+    : `the macOS bundle identifier "${release.bundleId}"`;
+
+  let args = appPath?.endsWith(".app")
+    ? ["-a", appPath]
+    : ["-b", release.bundleId];
 
   // open(1) drops the caller's env; --env carries the marker.
   if (!focus)
     args = ["-g", ...args, "--env", `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`];
 
   if (directLaunch) {
-    // The Fedora CLI wrappers name their own channel's launcher.
+    // With no selection, the Fedora CLI wrappers name their own channel's launcher.
     command =
-      env.DEV_FAST_REVIEW_DESKTOP_COMMAND?.trim() || "/usr/bin/review-desktop";
+      (input.instance ? "" : env.DEV_FAST_REVIEW_DESKTOP_COMMAND?.trim()) ||
+      release.linuxLauncher;
     method = `the installed Linux launcher at "${command}"`;
 
     if (electron) {

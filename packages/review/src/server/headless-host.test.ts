@@ -10,7 +10,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { runReviewCli } from "../cli-runner.js";
-import { connectReviewApi } from "../review-api/agent-client.js";
+import {
+  connectReviewApi,
+  connectReviewInstance,
+} from "../review-api/agent-client.js";
 import { ReviewApiClient } from "../review-api/client.js";
 import type { Pins } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
@@ -465,7 +468,7 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     stdout = new PassThrough();
 
   const mcp = await serveReviewMcp(
-    () => connectReviewApi(restarted.env),
+    () => connectReviewInstance(restarted.env),
     stdin,
     stdout,
   );

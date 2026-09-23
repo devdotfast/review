@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createReviewServerEnvironment } from './reviewServerSupervisor.js';
+import { applicationPath, createReviewServerEnvironment } from './reviewServerSupervisor.js';
 
 test('the trusted product version overrides inherited environment values', () => {
 	const environment = createReviewServerEnvironment({
@@ -51,3 +51,8 @@ for (const protocol of ['dev-fast-review', 'dev-fast-review-preview']) {
 		assert.equal(environment.DEV_FAST_REVIEW_APP_URL_PROTOCOL, protocol);
 	});
 }
+
+test('the app path names the macOS bundle, else the executable', () => {
+	assert.equal(applicationPath('/Applications/Review.app/Contents/MacOS/Review'), '/Applications/Review.app');
+	assert.equal(applicationPath('/usr/share/review-desktop/review-desktop'), '/usr/share/review-desktop/review-desktop');
+});

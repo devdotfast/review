@@ -721,6 +721,13 @@ export const ReviewDesktopDiscoverySchema = z.object({
   // uses the exact runtime the app ships instead of whatever `node` is on
   // PATH.
   cliRuntimePath: requiredString.optional(),
+  // Instance identity. Desktops that predate instance selection omit these
+  // and wrote the shared review-desktop/server.json instead.
+  key: requiredString.optional(),
+  channel: z.enum(["stable", "preview", "dev"]).optional(),
+  checkout: requiredString.optional(),
+  appPath: requiredString.optional(),
+  appVersion: requiredString.optional(),
 });
 
 export type ReviewDesktopDiscovery = z.infer<

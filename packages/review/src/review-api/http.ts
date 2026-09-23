@@ -1,3 +1,4 @@
+import type { JsonObject } from "@dev.fast/json";
 import type { ReviewStructuralDiffEvent } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -73,6 +74,8 @@ export function createReviewApi(
   scratchpadEnabled: () => boolean = () => false,
   // Read per request: capture can change from outside this server.
   traceEnabled: () => Promise<boolean> = async () => false,
+  /** Which server this is, for whiteboard_status. */
+  status: () => JsonObject = () => ({}),
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -322,6 +325,13 @@ export function createReviewApi(
       ),
     });
   });
+  app.get("/status", async (context) =>
+    context.json({
+      ...status(),
+      desktopAvailable: (await capabilities()).desktopAvailable,
+    }),
+  );
+
   app.get("/capabilities", async (context) =>
     context.json({
       ...(await capabilities()),

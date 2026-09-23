@@ -90,6 +90,55 @@ describe("Review Desktop launcher", () => {
     expect(launchDesktop).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    [
+      { key: "preview", source: "env" },
+      { key: "preview", appPath: undefined },
+    ],
+    [{ key: "stable", source: "fallback" }, undefined],
+  ] as const)(
+    "launches the selected release instance: %j",
+    async (selection, instance) => {
+      let readCount = 0;
+
+      const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
+        pendingAttempt(),
+      );
+
+      await runReviewAppLaunch(
+        { timeoutMs: 1_000 },
+        {
+          ...launcherRuntime([healthyResponse()], launchDesktop),
+          selectInstance: async () => ({ ...selection, instances: [] }),
+          readReviewDesktopDiscovery: async () =>
+            readCount++ === 0 ? null : discovery,
+        },
+      );
+      expect(launchDesktop).toHaveBeenCalledWith(
+        instance ? { focus: undefined, instance } : { focus: undefined },
+      );
+    },
+  );
+
+  it("never auto-launches a dev checkout", async () => {
+    const launchDesktop = vi.fn<typeof launchDesktopApplication>();
+    await expect(
+      runReviewAppLaunch(
+        {},
+        {
+          ...launcherRuntime([], launchDesktop),
+          selectInstance: async () => ({
+            key: "dev-review-0123456789ab",
+            source: "default",
+            instances: [],
+          }),
+          readReviewDesktopDiscovery: async () => null,
+        },
+      ),
+    ).rejects.toThrow("Start it with `pnpm dev` in its checkout");
+    expect(launchDesktop).not.toHaveBeenCalled();
+  });
+
   it("ignores unreadable discovery and launches Desktop", async () => {
     let readCount = 0;
     await expect(
@@ -413,6 +462,45 @@ describe("Review Desktop launcher", () => {
     );
     expect(attempt.method).toContain("/usr/bin/review-preview-desktop");
   });
+
+  it.each([
+    [
+      "darwin",
+      { key: "preview" },
+      "/usr/bin/open",
+      ["-g", "-b", "dev.fast.review.preview"],
+    ],
+    [
+      "darwin",
+      { key: "preview", appPath: "/Users/me/Apps/Review Preview.app" },
+      "/usr/bin/open",
+      ["-g", "-a", "/Users/me/Apps/Review Preview.app"],
+    ],
+    ["linux", { key: "preview" }, "/usr/bin/review-preview-desktop", []],
+  ] as const)(
+    "opens the selected channel on %s: %j",
+    (platform, instance, command, args) => {
+      const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+        () => new FakeChild(),
+      );
+
+      launchDesktopApplication({
+        platform,
+        electron: false,
+        instance,
+        env: {
+          DEV_FAST_REVIEW_DESKTOP_COMMAND: "/usr/bin/review-desktop",
+          DEV_FAST_REVIEW_CHECKOUT: "/src/review",
+        },
+        spawn,
+      });
+
+      const [spawned, spawnedArgs, options] = spawn.mock.calls[0]!;
+      expect(spawned).toBe(command);
+      expect(spawnedArgs.slice(0, args.length)).toEqual(args);
+      expect(options.env?.DEV_FAST_REVIEW_CHECKOUT).toBeUndefined();
+    },
+  );
 
   it("does not mark a focused direct launch as background", () => {
     const child = new FakeChild();

@@ -35,6 +35,7 @@ import { Argument, Command, CommanderError, Option } from "commander";
 import { isOwnedShim, pathShimPath } from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import { connectPrompts } from "./connect-prompts";
+import { selectReviewInstance } from "./desktop-discovery";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -48,8 +49,12 @@ import {
   type ReviewAppLaunchEvent,
   runReviewAppLaunch,
 } from "./review-app-launcher";
-import { reviewDesktopDiscoveryPath } from "./review-home-paths";
 import { runReviewInfo } from "./review-info";
+import {
+  clearReviewInstance,
+  listReviewInstancesCommand,
+  useReviewInstance,
+} from "./review-instances";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
 import {
   type ReviewCliCommand,
@@ -338,18 +343,26 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       .description("Print Review package version")
       .option("--verbose", "Show executing CLI paths and build identity"),
     "plain",
-  ).action((options: { verbose?: boolean }, command: Command) => {
+  ).action(async (options: { verbose?: boolean }, command: Command) => {
     const { json } = command.optsWithGlobals<{ json?: boolean }>();
 
     if (options.verbose) {
-      const info = cliRuntimeInfo(
-        input.cliPaths?.requestedPath ??
-          path.resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
-        input.cliPaths?.effectivePath,
-      );
+      const selection = await selectReviewInstance({ env });
+
+      const info = {
+        ...cliRuntimeInfo(
+          input.cliPaths?.requestedPath ??
+            path.resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
+          input.cliPaths?.effectivePath,
+        ),
+        instance: selection.key,
+        instanceRecord: selection.instance?.filePath ?? null,
+      };
 
       input.stdout.write(
-        json ? `${JSON.stringify(info)}\n` : describeCliRuntime(info),
+        json
+          ? `${JSON.stringify(info)}\n`
+          : `${describeCliRuntime(info)}Instance: ${info.instance} (${info.instanceRecord ?? "not running"})\n`,
       );
       state.exitCode = 0;
 
@@ -440,6 +453,44 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       .option("--focus", "bring Whiteboard Desktop to the foreground"),
     "plain",
   ).action(pickReview);
+
+  const instanceOutput = (command: Command) => ({
+    env,
+    stdout: input.stdout,
+    stderr: input.stderr,
+    json: command.optsWithGlobals<{ json?: boolean }>().json,
+  });
+
+  const instances = configureJsonOutput(
+    program
+      .command("instances")
+      .description("List running Reviews and the one commands use"),
+    "plain",
+  ).action(async (_options: { json?: boolean }, command: Command) => {
+    await listReviewInstancesCommand(instanceOutput(command));
+    state.exitCode = 0;
+  });
+
+  configureJsonOutput(
+    instances
+      .command("use")
+      .description("Make an instance this machine's default")
+      .argument("<key>", "stable, preview, or a dev-… key"),
+    "plain",
+  ).action(
+    async (key: string, _options: { json?: boolean }, command: Command) => {
+      await useReviewInstance(key, instanceOutput(command));
+      state.exitCode = 0;
+    },
+  );
+
+  configureJsonOutput(
+    instances.command("clear").description("Remove the machine default"),
+    "plain",
+  ).action(async (_options: { json?: boolean }, command: Command) => {
+    await clearReviewInstance(instanceOutput(command));
+    state.exitCode = 0;
+  });
 
   configureJsonOutput(
     program.command("info").description("Print Review information"),
@@ -1129,7 +1180,10 @@ function telemetryCommandPath(
     return `app.${name}`;
   }
 
-  if (name === "version" || name === "info") {
+  if (parent === "instances" && (name === "use" || name === "clear"))
+    return `instances.${name}`;
+
+  if (name === "version" || name === "info" || name === "instances") {
     return name;
   }
 

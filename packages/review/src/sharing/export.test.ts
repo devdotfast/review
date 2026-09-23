@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { selectSource } from "../lens-selection";
@@ -244,6 +245,92 @@ it("exports a review saved with the retired section status and imports a bundle 
   const shared = imported.get(id).snapshot.document[3];
   expect(shared).toMatchObject({ type: "section", title: "Notes" });
   expect(shared).not.toHaveProperty("status");
+});
+
+/** Rewrite a bundle's sealed snapshot, as an older Review would have sealed it. */
+function withSnapshot(
+  bundle: ShareBundle,
+  rewrite: (snapshot: JsonObject) => JsonObject,
+): ShareBundle {
+  const bytes = Buffer.from(
+    JSON.stringify(
+      rewrite(
+        JSON.parse(
+          Buffer.from(bundle.objects.get(bundle.manifest.snapshot)!).toString(),
+        ),
+      ),
+    ),
+  );
+
+  const id = digestBytes(bytes);
+  const objects = new Map(bundle.objects);
+  objects.delete(bundle.manifest.snapshot);
+  objects.set(id, bytes);
+
+  return {
+    ...bundle,
+    objects,
+    manifest: {
+      ...bundle.manifest,
+      snapshot: id,
+      objects: bundle.manifest.objects.map((object) =>
+        object.id === bundle.manifest.snapshot
+          ? { id, sha256: id, size: bytes.byteLength }
+          : object,
+      ),
+    },
+  };
+}
+
+it("shares a review's lenses and reads a bundle that holds them as document blocks", async () => {
+  const lens = {
+    title: "Changed code",
+    targets: [
+      { kind: "files", patterns: ["main.ts"] },
+      {
+        kind: "ranges",
+        sources: [
+          selectSource({
+            side: "head",
+            file: "new.ts",
+            fromLine: 1,
+            toLine: 1,
+          }),
+        ],
+      },
+    ],
+  };
+
+  const { imported, id } = await importFixture(async ({ local, reviewId }) => {
+    const { targetId } = await local.store.execute({
+      commandId: randomUUID(),
+      operation: {
+        type: "lens",
+        reviewId,
+        edit: { type: "insert", ...lens },
+      },
+    });
+
+    const exported = await exportShare({ ...local, reviewId, repository });
+    expect(validateShareBundle(exported).snapshot.lenses).toEqual([
+      { id: targetId, ...lens },
+    ]);
+
+    // An older Review sealed lenses into the document.
+    return withSnapshot(exported, ({ lenses, document, ...snapshot }) => ({
+      ...snapshot,
+      document: [
+        ...(Array.isArray(document) ? document : []),
+        ...(Array.isArray(lenses) ? lenses : []).map((item) =>
+          isJsonObject(item) ? { type: "file_lens", ...item } : item,
+        ),
+      ],
+    }));
+  });
+
+  const shared = imported.get(id).snapshot;
+  expect(shared.lenses).toEqual([{ id: expect.any(String), ...lens }]);
+  expect(JSON.stringify(shared.document)).not.toContain("file_lens");
 });
 
 it("fetches pinned source into an independent repository and retains complete traces offline", async () => {

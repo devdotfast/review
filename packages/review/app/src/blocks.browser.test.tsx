@@ -147,7 +147,6 @@ const rendered: Record<
   trace_quote: (c) =>
     has(c, ".review-trace-quote") && text(c).includes("queue the order"),
   // The map has drawn its system and is neither refreshing nor failed.
-  file_lens: (c) => !text(c).includes("Test file bucket"),
   flow_diagram: (c) =>
     has(c, ".flow-node") &&
     text(c).includes("Queue order") &&
@@ -368,7 +367,7 @@ describe("block components", () => {
 
       // Every visible block, nested ones included, mounts a node with content.
       const empty = elements(snapshot.document)
-        .filter((element) => !isUnit(element) && element.type !== "file_lens")
+        .filter((element) => !isUnit(element))
         .map((element) => element.id)
         .filter((id) => {
           const node = container.querySelector(`[data-review-node-id="${id}"]`);

@@ -240,7 +240,6 @@ export const blockComponents = {
   database_lens: DatabaseLensBlock,
   image: ImageBlock,
   trace_quote: TraceQuoteBlock,
-  file_lens: () => null,
   flow_diagram: ({ node, data }) => (
     <FlowDiagram node={node} snapshot={data.snapshot} />
   ),

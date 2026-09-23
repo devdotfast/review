@@ -10,14 +10,24 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { migrateStoredDocument } from "../stored-document-migration.js";
+import { sourceAnchors } from "../lens-selection.js";
+import {
+  liftFileLenses,
+  migrateStoredDocument,
+} from "../stored-document-migration.js";
 import {
   type Coverage,
   coverageSchema,
   emptyCoverage,
   updateCoverage,
 } from "../viewed-coverage.js";
-import { ReviewActivity } from "./activity.js";
+import { type LeaseScope, ReviewActivity } from "./activity.js";
+import {
+  type Lens,
+  applyLensEdit,
+  lensEditSchema,
+  lensSelections,
+} from "./diff-lenses.js";
 import {
   type Applied,
   type Block,
@@ -104,6 +114,7 @@ export const commandSchema = z.strictObject({
       target: reviewTargetSchema,
     }),
     z.strictObject({ type: z.literal("edit"), reviewId, edit: editSchema }),
+    z.strictObject({ type: z.literal("lens"), reviewId, edit: lensEditSchema }),
     z.strictObject({
       type: z.literal("rename"),
       reviewId,
@@ -156,6 +167,9 @@ export interface Snapshot {
   staleSources?: string[];
   sourceUnavailable?: boolean;
   document: Block[];
+  /** The Diff view's lenses, beside the document and versioned with it.
+   * Absent on a version with none. */
+  lenses?: Lens[];
   createdAt: string;
   origin?: SnapshotOrigin;
   /** The edit that produced this version, when one did; absent for a
@@ -193,7 +207,7 @@ export interface Result {
   /** The component an edit landed on, its type, and — for an insert or
    * replace — its first-level children with their fresh IDs. */
   targetId?: string;
-  type?: Element["type"];
+  type?: Element["type"] | "lens";
   children?: WrittenComponent[];
   attention?: true;
   deleted?: true;
@@ -714,10 +728,21 @@ export class ReviewStore {
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
     const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
+
     // SAFETY: stored blocks were validated on write; migration only replaces
     // retired attachment representations with their canonical equivalent and
     // drops retired fields.
-    snapshot.document = migrateStoredDocument(snapshot.document) as Block[];
+    // Lenses saved as document blocks read as the snapshot's own.
+    const { document, lenses } = liftFileLenses(
+      migrateStoredDocument(snapshot.document),
+    );
+
+    // SAFETY: stored blocks were validated on write; migration only replaces
+    // retired representations and lifts retired lens blocks out.
+    snapshot.document = document as Block[];
+
+    if (lenses.length)
+      snapshot.lenses = [...(snapshot.lenses ?? []), ...lenses];
 
     if (snapshot.pins)
       snapshot.target ??= {
@@ -960,13 +985,14 @@ export class ReviewStore {
       const op = command.operation;
 
       if (op.type !== "create" && op.type !== "attention") {
-        this.activity.assertWrite(op.reviewId, command.leaseId);
+        this.activity.assertWrite(op.reviewId, command.leaseId, scopeOf(op));
       }
 
       // The scratchpad is edited and restored like a review, and nothing else.
       if (
         op.type !== "create" &&
         op.type !== "edit" &&
+        op.type !== "lens" &&
         op.type !== "restore" &&
         this.read(op.reviewId).kind === "scratchpad"
       )
@@ -1144,6 +1170,7 @@ export class ReviewStore {
         : 0;
 
       let applied: Applied | undefined;
+      let lensTarget: { targetId: string; type: "lens" } | undefined;
 
       if (
         (op.type === "create" ||
@@ -1210,6 +1237,33 @@ export class ReviewStore {
           snapshot = this.read(id, op.version);
           delete snapshot.lastEdit;
           break;
+        case "lens": {
+          if (snapshot.kind === "scratchpad")
+            throw new ReviewInputError(
+              "The scratchpad has no changes of its own to lens.",
+              409,
+            );
+
+          const lenses = snapshot.lenses ?? [];
+          const lens = applyLensEdit(lenses, op.edit, () => `lens-${++nextId}`);
+
+          if (lenses.length) snapshot.lenses = lenses;
+          else delete snapshot.lenses;
+          lensTarget = { targetId: lens.id, type: "lens" };
+          snapshot.lastEdit = {
+            type: op.edit.type,
+            targetId: lens.id,
+            blockId: lens.id,
+            kind: "lens",
+            ...(op.edit.type === "update" && {
+              fields: Object.keys(op.edit).filter(
+                (key) => key !== "type" && key !== "targetId",
+              ),
+            }),
+          };
+          break;
+        }
+
         case "edit": {
           applied = applyEdit(
             snapshot.document,
@@ -1283,8 +1337,9 @@ export class ReviewStore {
         ...(op.type === "create" && { created: true }),
         reviewId: id,
         version: snapshot.version,
-        targetId: applied?.targetId,
+        targetId: applied?.targetId ?? lensTarget?.targetId,
         ...(applied && { type: applied.type }),
+        ...(lensTarget && { type: lensTarget.type }),
         ...(applied?.children && { children: applied.children }),
       };
 
@@ -1312,9 +1367,16 @@ export class ReviewStore {
             .run(id, snapshot.version, JSON.stringify(snapshot));
         },
         previous
-          ? () => this.assertMutation(id, previous.version, command.leaseId)
+          ? () =>
+              this.assertMutation(
+                id,
+                previous.version,
+                command.leaseId,
+                scopeOf(op),
+              )
           : undefined,
         command.leaseId,
+        scopeOf(op),
       );
 
       return result;
@@ -1417,6 +1479,7 @@ export class ReviewStore {
     apply: () => void,
     guard?: () => void,
     leaseId?: string,
+    scope: LeaseScope = "document",
   ) {
     this.db.exec("BEGIN IMMEDIATE");
     let extended = false;
@@ -1430,7 +1493,7 @@ export class ReviewStore {
         )
         .run(commandId, request, JSON.stringify(result));
       // An accepted write is proof of life: it renews the author's lease.
-      extended = this.activity.extend(result.reviewId, leaseId);
+      extended = this.activity.extend(result.reviewId, leaseId, scope);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1445,8 +1508,9 @@ export class ReviewStore {
     reviewId: string,
     version: number | undefined,
     leaseId?: string,
+    scope: LeaseScope = "document",
   ) {
-    this.activity.assertWrite(reviewId, leaseId);
+    this.activity.assertWrite(reviewId, leaseId, scope);
 
     const current = this.db
       .prepare("SELECT version FROM reviews WHERE id=?")
@@ -1653,7 +1717,11 @@ export class ReviewStore {
   ) {
     const warnings: string[] = [];
 
-    const references = (document: Block[], tolerant = false) => {
+    const references = (
+      document: Block[],
+      tolerant = false,
+      lenses: readonly Lens[] = [],
+    ) => {
       const sources = new Map<
         string,
         { source: FileLineRange; peek: boolean }
@@ -1670,13 +1738,17 @@ export class ReviewStore {
       for (const { source, peek } of sourceReferences(document, { tolerant }))
         add(source, peek === true);
 
+      // A lens range is a prose-like link: it must exist, not read as a peek.
+      for (const { source } of lensSelections(lenses))
+        for (const anchor of sourceAnchors(source)) add(anchor, false);
+
       for (const block of resourceReferences(document))
         resources.set(JSON.stringify(block), block);
 
       return { sources, resources };
     };
 
-    const current = references(snapshot.document, repin);
+    const current = references(snapshot.document, repin, snapshot.lenses);
 
     // Stored content is not re-validated: an edit may fix a link that the
     // current rules reject.
@@ -1685,7 +1757,12 @@ export class ReviewStore {
       JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins);
 
     const worktreeMoved = pinsChanged && snapshot.target?.kind === "worktree";
-    const retained = references(previous?.document ?? [], true);
+
+    const retained = references(
+      previous?.document ?? [],
+      true,
+      previous?.lenses,
+    );
 
     // Independent reads of immutable commits: run them concurrently.
     const checks: Promise<void>[] = [];
@@ -1754,6 +1831,11 @@ export class ReviewStore {
 
     return warnings.sort();
   }
+}
+
+/** Lens writes need the lenses lease; every other write needs the document's. */
+function scopeOf(operation: { type: string }): LeaseScope {
+  return operation.type === "lens" ? "lenses" : "document";
 }
 
 /** A new document's first version, before its initial content. Field order

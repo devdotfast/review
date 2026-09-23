@@ -22,9 +22,12 @@ import {
   readQuerySchemas,
 } from "./read-schemas.js";
 import {
+  type UncategorizedReport,
   coverageModeSchema,
+  lensReport,
   progressUpdateSchema,
   reviewProgress,
+  uncategorizedReport,
 } from "./review-progress.js";
 import {
   type ReviewStore,
@@ -271,6 +274,21 @@ export function createReviewApi(
         input.mode,
       ),
     );
+  });
+  // A lens author's cheap read: the lenses as authored, what each resolves
+  // to, and the changed lines no lens selects yet.
+  app.get("/:id/lenses", async (context) => {
+    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+
+    const snapshot = readReview(context.req.param("id"));
+
+    return context.json({
+      version: snapshot.version,
+      ...lensReport(
+        snapshot.lenses ?? [],
+        await reviewProgress(store, data, snapshot, context.req.raw.signal),
+      ),
+    });
   });
   app.get("/capabilities", async (context) =>
     context.json({
@@ -1029,6 +1047,37 @@ export function createReviewApi(
       query.full ? snapshot : inspectSnapshot(snapshot, query.targetId),
     );
   });
+
+  /** After a lens write: the changed lines still uncategorized at that
+   * version, so the author can fill the gaps. A comparison that cannot be
+   * read leaves a warning instead of failing the saved write. */
+  const lensGaps = async (
+    reviewId: string,
+    version: number,
+    request: Request,
+  ): Promise<{ uncategorized?: UncategorizedReport; warnings?: string[] }> => {
+    if (!data) return {};
+
+    try {
+      return {
+        uncategorized: uncategorizedReport(
+          await reviewProgress(
+            store,
+            data,
+            store.read(reviewId, version),
+            request.signal,
+          ),
+        ),
+      };
+    } catch (error) {
+      return {
+        warnings: [
+          `Uncategorized changes are unavailable: ${errorMessage(error)}`,
+        ],
+      };
+    }
+  };
+
   app.post("/commands", async (context) => {
     const { command: request, open: requestedOpen } = takeCreateOpen(
       await readBoundedRequestJson(context.req.raw),
@@ -1082,6 +1131,22 @@ export function createReviewApi(
     }
 
     const result = await store.execute(input);
+
+    if (input.operation.type === "lens") {
+      const gaps = await lensGaps(
+        result.reviewId,
+        result.version,
+        context.req.raw,
+      );
+
+      return context.json({
+        ...result,
+        ...gaps,
+        ...(gaps.warnings && {
+          warnings: [...(result.warnings ?? []), ...gaps.warnings],
+        }),
+      });
+    }
 
     if (input.operation.type !== "create") return context.json(result);
 

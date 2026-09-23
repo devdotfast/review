@@ -9,13 +9,13 @@ import {
 import { type FileLineRange, fileLineRangeSchema } from "../source.js";
 import { type CoverageFile, emptyCoverage } from "../viewed-coverage.js";
 import type { ComparisonCoverage } from "./comparison-coverage.js";
-import { type DiffLens, documentFileLenses } from "./diff-lenses.js";
 import {
-  type Pins,
-  anchorPins,
-  lensSourceReferences,
-  selectionReferences,
-} from "./document.js";
+  type DiffLens,
+  type Lens,
+  UNCATEGORIZED_LENS_ID,
+  lensSelections,
+} from "./diff-lenses.js";
+import { type Pins, anchorPins, selectionReferences } from "./document.js";
 import { resolveFileLens, uncategorizedSources } from "./file-lenses.js";
 import type { LocalReviewData } from "./local-data.js";
 import type { ReviewStore, Snapshot } from "./store.js";
@@ -205,19 +205,19 @@ export async function reviewProgress(
   };
 
   const lenses: ReviewProgress["lenses"] = await Promise.all(
-    documentFileLenses(snapshot.document).map(async (block) => {
-      const lens = { id: block.id!, title: block.title };
+    (snapshot.lenses ?? []).map(async (authored) => {
+      const lens = { id: authored.id, title: authored.title };
 
       try {
         // Explicit ranges use the same pin validation as diagram evidence.
         await Promise.all(
-          lensSourceReferences([block]).map(({ source }) =>
+          lensSelections([authored]).map(({ source }) =>
             resolveAvailable(source),
           ),
         );
 
         const resolved = resolveFileLens(
-          block,
+          authored,
           files,
           fileSources,
           (source) => resolvedSelections[selectionKey(source)] ?? [],
@@ -265,7 +265,7 @@ export async function reviewProgress(
       );
 
   lenses.push({
-    id: "automatic-uncategorized",
+    id: UNCATEGORIZED_LENS_ID,
     title: "Uncategorized changes",
     sources: uncategorized,
     wholeFiles: false,
@@ -295,5 +295,80 @@ export async function reviewProgress(
     lenses,
     resolvedSelections,
     unavailableSelections,
+  };
+}
+
+/** The most files an uncategorized report names; the rest are counted. */
+const REPORT_FILES = 50;
+
+export interface UncategorizedReport {
+  /** Changed lines, counting each side, that no lens selects. */
+  lines: number;
+  files: {
+    path: string;
+    lines: number;
+    ranges: Pick<FileLineRange, "side" | "fromLine" | "toLine">[];
+  }[];
+  /** Files past the first REPORT_FILES, left out of `files`. */
+  moreFiles?: number;
+}
+
+/** What a lens author still has to place: the changed lines no lens selects,
+ * grouped by file. */
+export function uncategorizedReport(
+  progress: ReviewProgress,
+): UncategorizedReport {
+  const sources =
+    progress.lenses.find((lens) => lens.id === UNCATEGORIZED_LENS_ID)
+      ?.sources ?? [];
+
+  const byPath = new Map<string, UncategorizedReport["files"][number]>();
+
+  for (const source of sources) {
+    const path =
+      progress.files.find(
+        (file) =>
+          source.file ===
+          (source.side === "base"
+            ? (file.previousPath ?? file.path)
+            : file.path),
+      )?.path ?? source.file;
+
+    const entry = byPath.get(path) ?? { path, lines: 0, ranges: [] };
+    entry.lines += source.toLine - source.fromLine + 1;
+    entry.ranges.push({
+      side: source.side,
+      fromLine: source.fromLine,
+      toLine: source.toLine,
+    });
+    byPath.set(path, entry);
+  }
+
+  const files = [...byPath.values()];
+
+  const report: UncategorizedReport = {
+    lines: files.reduce((total, file) => total + file.lines, 0),
+    files: files.slice(0, REPORT_FILES),
+  };
+
+  if (files.length > REPORT_FILES)
+    report.moreFiles = files.length - REPORT_FILES;
+
+  return report;
+}
+
+/** Each lens as authored, with what it resolves to, for a lens author. */
+export function lensReport(lenses: readonly Lens[], progress: ReviewProgress) {
+  return {
+    lenses: lenses.map((lens) => {
+      const resolved = progress.lenses.find((item) => item.id === lens.id);
+
+      return {
+        ...lens,
+        fileCount: resolved?.fileCount ?? 0,
+        ...(resolved?.unavailable && { unavailable: resolved.unavailable }),
+      };
+    }),
+    uncategorized: uncategorizedReport(progress),
   };
 }

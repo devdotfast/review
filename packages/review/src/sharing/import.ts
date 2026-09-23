@@ -13,7 +13,11 @@ import {
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/json";
-import { isJsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+} from "@dev.fast/review-protocol";
 import {
   MAX_SHARE_MANIFEST_BYTES,
   type ShareManifest,
@@ -23,6 +27,7 @@ import {
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
+import { lensSchema } from "../review-api/diff-lenses.js";
 import { ReviewInputError } from "../review-api/document.js";
 import {
   checkReferences,
@@ -39,7 +44,10 @@ import {
   normalizedSoftwareElementSchema,
   normalizedSoftwareRelationshipSchema,
 } from "../software-map-model.js";
-import { migrateStoredDocument } from "../stored-document-migration.js";
+import {
+  liftFileLenses,
+  migrateStoredDocument,
+} from "../stored-document-migration.js";
 import { type ShareBundle, digestBytes } from "./export.js";
 import {
   fetchPinnedRepository,
@@ -56,6 +64,7 @@ export const sharedSnapshotSchema = z.strictObject({
     head: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
   }),
   document: documentSchema,
+  lenses: z.array(lensSchema).optional(),
   createdAt: z.string(),
   origin: z
     .strictObject({
@@ -133,10 +142,11 @@ export function validateShareBundle(bundle: ShareBundle) {
   const stored = json(manifest.snapshot);
 
   // Bundles shared before a field was retired still open; the bytes stay
-  // sealed and only the parsed document drops the retired form.
+  // sealed and only the parsed document drops the retired form. Lenses
+  // shared as document blocks read as the snapshot's lenses.
   const snapshot = sharedSnapshotSchema.parse(
     isJsonObject(stored) && "document" in stored
-      ? { ...stored, document: migrateStoredDocument(stored.document) }
+      ? liftSharedLenses(stored, migrateStoredDocument(stored.document))
       : stored,
   );
 
@@ -194,6 +204,21 @@ export function validateShareBundle(bundle: ShareBundle) {
   }
 
   return { manifest, snapshot, presentation };
+}
+
+function liftSharedLenses(stored: JsonObject, migrated: JsonValue): JsonObject {
+  const { document, lenses } = liftFileLenses(migrated);
+
+  return {
+    ...stored,
+    document,
+    ...(lenses.length && {
+      lenses: [
+        ...(Array.isArray(stored.lenses) ? stored.lenses : []),
+        ...lenses,
+      ],
+    }),
+  };
 }
 
 export function sharedReviewId(origin: string, shareId: string) {

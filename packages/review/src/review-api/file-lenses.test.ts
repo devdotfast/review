@@ -105,7 +105,7 @@ it("unions mixed targets and canonicalizes renamed files without losing unchange
 
   const result = resolveFileLens(
     {
-      type: "file_lens",
+      id: "lens-1",
       title: "Mixed",
       targets: [
         { kind: "files", patterns: ["old.ts"] },
@@ -129,7 +129,11 @@ it("unions mixed targets and canonicalizes renamed files without losing unchange
   expect(result.wholeFiles).toBe(false);
   expect(
     resolveFileLens(
-      { type: "file_lens", title: "Legacy", patterns: ["old.ts"] },
+      {
+        id: "lens-2",
+        title: "Whole files",
+        targets: [{ kind: "files", patterns: ["old.ts"] }],
+      },
       [file],
       new Map([[file.path, [base, head]]]),
       sourceAnchors,

@@ -10,7 +10,9 @@ import {
 } from "@dev.fast/review-share-protocol";
 import { z } from "zod";
 
+import { sourceAnchors } from "../lens-selection.js";
 import { markdownNodes, parseMarkdown } from "../markdown.js";
+import { lensSelections } from "../review-api/diff-lenses.js";
 import { ReviewInputError } from "../review-api/document.js";
 import {
   anchorPins,
@@ -85,7 +87,19 @@ export async function exportShare(input: {
   const json = <Value>(value: Value) => add(Buffer.from(JSON.stringify(value)));
   const resources: ShareManifest["resources"] = [];
   const maps: Record<string, Awaited<ReturnType<LocalReviewData["map"]>>> = {};
-  const sources = sourceReferences(snapshot.document);
+
+  // Lens ranges travel with the snapshot and must resolve at its pins too.
+  const sources = [
+    ...sourceReferences(snapshot.document),
+    ...lensSelections(snapshot.lenses ?? []).flatMap((selection) =>
+      sourceAnchors(selection.source).map((source) => ({
+        ...selection,
+        source,
+        peek: false,
+      })),
+    ),
+  ];
+
   const pins = snapshot.pins;
 
   if (!pins)

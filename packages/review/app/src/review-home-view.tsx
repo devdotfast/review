@@ -1,10 +1,10 @@
 import type {
-  SessionSummary,
   ReviewCanvasHomeSetup,
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
   ReviewCanvasSetupActions,
   ReviewCliInstallStatus,
+  SessionSummary,
 } from "@dev.fast/review-protocol";
 import {
   Fragment,

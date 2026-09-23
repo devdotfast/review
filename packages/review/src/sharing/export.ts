@@ -61,7 +61,9 @@ export async function exportShare(input: {
   } = structuredClone(input.store.read(input.sessionId, input.version));
 
   if (target?.kind === "worktree")
-    throw new SessionInputError("Pin this review to commits before sharing it.");
+    throw new SessionInputError(
+      "Pin this review to commits before sharing it.",
+    );
 
   documentSchema.parse(snapshot.document);
   checkReferences(snapshot.document);

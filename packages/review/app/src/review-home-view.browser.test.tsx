@@ -1,6 +1,6 @@
 import type {
-  SessionSummary,
   ReviewCliInstallStatus,
+  SessionSummary,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";

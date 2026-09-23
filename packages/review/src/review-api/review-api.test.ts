@@ -18,9 +18,9 @@ import { documentText } from "./document-text.js";
 import { SessionInputError } from "./document.js";
 import { LocalSessionData } from "./local-data";
 import {
+  SCRATCHPAD_ID,
   type SessionProviders,
   SessionStore,
-  SCRATCHPAD_ID,
   inspectSnapshot,
 } from "./store.js";
 
@@ -123,7 +123,11 @@ describe("snapshot authoring", () => {
       store.read(sessionId, authored.version).origin?.pullRequestNumber,
     ).toBe(310);
     await store.execute(
-      request({ type: "repin", sessionId, pins: { ...pins, head: "new-head" } }),
+      request({
+        type: "repin",
+        sessionId,
+        pins: { ...pins, head: "new-head" },
+      }),
     );
     expect(store.read(sessionId).origin?.pullRequestNumber).toBe(311);
     await store.execute(
@@ -271,7 +275,11 @@ describe("snapshot authoring", () => {
 
     store.subscribe(documents);
     store.subscribeCatalog(catalog);
-    const dismiss = request({ type: "attention", sessionId, action: "dismiss" });
+    const dismiss = request({
+      type: "attention",
+      sessionId,
+      action: "dismiss",
+    });
     const result = await store.execute(dismiss);
     await store.execute(dismiss);
     await store.execute(
@@ -300,7 +308,8 @@ describe("snapshot authoring", () => {
       request({ type: "attention", sessionId, action: "restore" }),
     );
     expect(
-      store.list().find((review) => review.sessionId === sessionId)?.dismissedAt,
+      store.list().find((review) => review.sessionId === sessionId)
+        ?.dismissedAt,
     ).toBeNull();
   });
 
@@ -388,7 +397,10 @@ describe("snapshot authoring", () => {
       content: { type: "markdown", markdown: "Keep history" },
     });
 
-    await edit(first.sessionId, { type: "remove", targetId: inserted.targetId });
+    await edit(first.sessionId, {
+      type: "remove",
+      targetId: inserted.targetId,
+    });
     await store.close();
     store = new SessionStore(database, providers);
     expect(store.read(first.sessionId).document).toEqual([]);
@@ -486,7 +498,11 @@ describe("snapshot authoring", () => {
     });
 
     const result = await store.execute(
-      request({ type: "repin", sessionId, pins: { ...pins, head: "new-head" } }),
+      request({
+        type: "repin",
+        sessionId,
+        pins: { ...pins, head: "new-head" },
+      }),
     );
 
     expect(result.warnings).toEqual([
@@ -494,7 +510,11 @@ describe("snapshot authoring", () => {
     ]);
 
     const samePins = await store.execute(
-      request({ type: "repin", sessionId, pins: { ...pins, head: "new-head" } }),
+      request({
+        type: "repin",
+        sessionId,
+        pins: { ...pins, head: "new-head" },
+      }),
     );
 
     expect(samePins.warnings).toBeUndefined();
@@ -705,7 +725,10 @@ describe("snapshot authoring", () => {
       ],
     });
 
-    const sequence = await edit(sessionId, { type: "insert", content: diagram });
+    const sequence = await edit(sessionId, {
+      type: "insert",
+      content: diagram,
+    });
 
     const steps = store.read(sessionId).document[1]!;
 
@@ -962,7 +985,9 @@ describe("snapshot authoring", () => {
       kind: "flow_node",
       unit: "flow_node",
     });
-    await store.execute(request({ type: "rename", sessionId, title: "Leases" }));
+    await store.execute(
+      request({ type: "rename", sessionId, title: "Leases" }),
+    );
     expect(store.read(sessionId).lastEdit).toBeUndefined();
 
     // A node can arrive with the edge that attaches it, in one version.
@@ -1216,9 +1241,9 @@ describe("snapshot authoring", () => {
     ];
 
     for (const content of peekInserts)
-      await expect(edit(sessionId, { type: "insert", content })).rejects.toThrow(
-        /contains only whitespace/,
-      );
+      await expect(
+        edit(sessionId, { type: "insert", content }),
+      ).rejects.toThrow(/contains only whitespace/);
 
     expect(store.read(sessionId)).toEqual(before);
 
@@ -1272,7 +1297,11 @@ describe("snapshot authoring", () => {
 
     validated.length = 0;
     await store.execute(
-      request({ type: "repin", sessionId, pins: { ...pins, head: "new-head" } }),
+      request({
+        type: "repin",
+        sessionId,
+        pins: { ...pins, head: "new-head" },
+      }),
     );
 
     // Repinning the document re-checks inherited references only.

@@ -124,7 +124,11 @@ export function toolResultText(
 ) {
   if (result instanceof ToolText) return result.text;
 
-  return tool.name === "session_get" && isStringValue(result)
+  return (
+    (tool.name === "session_get" ||
+      tool.name === "session_get_instructions") &&
+    isStringValue(result)
+  )
     ? result
     : JSON.stringify(result);
 }

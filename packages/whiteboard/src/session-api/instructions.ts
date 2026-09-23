@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
-import { findReviewPackageRoot } from "../package-paths.js";
+import { findWhiteboardPackageRoot } from "../package-paths.js";
 import type { AuthoringMode } from "./drafts.js";
 
 export const INSTRUCTION_TOPICS = [
@@ -24,7 +24,14 @@ export interface InstructionContext {
   authoringMode: AuthoringMode;
   desktopAvailable: boolean;
   scratchpadEnabled: boolean;
-  softwareMapEnabled: boolean;
+}
+
+export function scratchpadAvailable(context: InstructionContext): boolean {
+  return (
+    context.authoringMode === "interactive" &&
+    context.desktopAvailable &&
+    context.scratchpadEnabled
+  );
 }
 
 const cache = new Map<string, Promise<string>>();
@@ -44,33 +51,12 @@ function read(root: string, name: string): Promise<string> {
   return content;
 }
 
-function withSoftwareMapGuidance(content: string, enabled: boolean): string {
-  const selected = enabled
-    ? content
-    : content.replace(
-        /^<!-- software-map-start -->[^\n]*<!-- software-map-end -->\n/gm,
-        "",
-      );
-
-  return selected.replace(
-    /<!-- software-map-start -->([\s\S]*?)<!-- software-map-end -->/g,
-    (_match, guidance: string) => (enabled ? guidance : ""),
-  );
-}
-
 export async function renderInstructions(
   topic: InstructionTopic,
   context: InstructionContext,
-  root = findReviewPackageRoot(import.meta.url),
+  root = findWhiteboardPackageRoot(import.meta.url),
 ): Promise<string> {
-  if (
-    topic === "scratchpad" &&
-    !(
-      context.scratchpadEnabled &&
-      context.desktopAvailable &&
-      context.authoringMode === "interactive"
-    )
-  ) {
+  if (topic === "scratchpad" && !scratchpadAvailable(context)) {
     return "The Review scratchpad is turned off or Review Desktop is not running. Answer in chat; the scratchpad can be turned on in Review Desktop Settings.";
   }
 
@@ -84,9 +70,7 @@ export async function renderInstructions(
   const more = [
     '- Headless servers and CI: `review_get_instructions({topic:"headless"})`',
     '- Reviews of prepared worktrees: `review_get_instructions({topic:"prepared-worktrees"})`',
-    ...(context.scratchpadEnabled &&
-    context.desktopAvailable &&
-    context.authoringMode === "interactive"
+    ...(scratchpadAvailable(context)
       ? [
           '- Explaining code visually outside a review: `review_get_instructions({topic:"scratchpad"})`',
         ]
@@ -95,11 +79,8 @@ export async function renderInstructions(
   ];
 
   return [
-    withSoftwareMapGuidance(workflow, context.softwareMapEnabled),
-    withSoftwareMapGuidance(
-      await read(root, "document-authoring"),
-      context.softwareMapEnabled,
-    ),
+    workflow,
+    await read(root, "document-authoring"),
     `## More guidance\n\n${more.join("\n")}`,
   ].join("\n\n");
 }

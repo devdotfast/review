@@ -6,6 +6,8 @@ import {
   connectSessionApi,
   toolResultText,
 } from "./agent-client.js";
+import { SessionApiError } from "./client.js";
+import { RECOVERY } from "./mcp.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -56,8 +58,24 @@ export async function runWhiteboardAgentCli(
       return 0;
     }
 
-    const client = await connect();
-    const tools = await client.read<AuthoringTool[]>("/authoring");
+    let client: Awaited<ReturnType<typeof connect>>;
+    let tools: AuthoringTool[];
+
+    try {
+      client = await connect();
+      tools = await client.read<AuthoringTool[]>("/authoring");
+    } catch (error) {
+      if (
+        name === "session_get_instructions" &&
+        !(error instanceof SessionApiError)
+      ) {
+        input.stderr.write(RECOVERY + "\n");
+
+        return 1;
+      }
+
+      throw error;
+    }
 
     if (name === "tools") {
       if (json) throw new Error(`whiteboard api tools takes no input.`);

@@ -13,6 +13,15 @@ import {
   toolResultText,
 } from "./agent-client.js";
 import type { SessionApiClient } from "./client.js";
+import { SessionApiError } from "./client.js";
+import { authoringTools } from "./authoring-tools.js";
+
+const INSTRUCTIONS_TOOL = authoringTools().find(
+  (tool) => tool.name === "session_get_instructions",
+)!;
+
+export const RECOVERY =
+  "Whiteboard is not running, so its tools and guidance are unavailable. Start Whiteboard Desktop (or `whiteboard server start` for headless use). If Whiteboard's tools still do not appear, reconnect the Whiteboard MCP server or start a new agent session.";
 
 export async function serveWhiteboardMcp(
   connect: () => Promise<SessionApiClient>,
@@ -20,18 +29,41 @@ export async function serveWhiteboardMcp(
   stdout: Writable,
   stderr: Writable = process.stderr,
 ) {
+  // Initialization is served once. Give a reachable host a short chance to
+  // supply its capability-specific prompt without delaying offline startup.
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const initialTools = await Promise.race([
+    connect()
+      .then((client) =>
+        client.read<AuthoringTool[]>("/authoring", controller.signal),
+      )
+      .catch(() => []),
+    new Promise<AuthoringTool[]>((resolve) => {
+      timer = setTimeout(() => resolve([]), 300);
+    }),
+  ]);
+
+  clearTimeout(timer);
+  controller.abort();
+
+  const initialInstructions =
+    initialTools.find((tool) => tool.name === INSTRUCTIONS_TOOL.name) ??
+    INSTRUCTIONS_TOOL;
+
   const server = new Server(
     { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      instructions: `Author through the running Whiteboard server. Read session_capabilities before authoring; session_create opens the new session in Desktop when it is available, so call session_open only for an existing session. Dispatch software-map workers only when softwareMapEnabled is true, and name the scratchpad only when scratchpadEnabled is true. Accepted edits are validated and saved immediately. Never read or write Whiteboard files or SQL. Reuse commandId and identical input after a lost response. Use returned target IDs to edit components; there is no expectedVersion or publish step.`,
+      instructions: `Author through the running Whiteboard server. Call session_get_instructions before creating or editing a session and follow its guidance. ${initialInstructions.description} Read session_capabilities before authoring; call session_open only for an existing session. Generate software maps only when softwareMapEnabled is true. Never read or write Whiteboard files or SQL.`,
     },
   );
 
   // Hosts list tools once, right after initialize, often before Desktop is up.
   // Answer from the last catalog (or none) instead of failing, and announce a
   // changed list once the host can be reached.
-  let catalog: AuthoringTool[] = [];
+  let catalog: AuthoringTool[] = initialTools;
   let announceCatalog = false;
 
   const load = async (signal?: AbortSignal) => {
@@ -59,7 +91,11 @@ export async function serveWhiteboardMcp(
     }
 
     return {
-      tools: tools.map(({ name, description, inputSchema }) => ({
+      tools: [
+        tools.find((tool) => tool.name === INSTRUCTIONS_TOOL.name) ??
+          INSTRUCTIONS_TOOL,
+        ...tools.filter((tool) => tool.name !== INSTRUCTIONS_TOOL.name),
+      ].map(({ name, description, inputSchema }) => ({
         name,
         description,
         inputSchema,
@@ -68,7 +104,23 @@ export async function serveWhiteboardMcp(
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     try {
-      const { client, tools } = await load(extra.signal);
+      let client: SessionApiClient;
+      let tools: AuthoringTool[];
+
+      try {
+        ({ client, tools } = await load(extra.signal));
+      } catch (error) {
+        announceCatalog = true;
+
+        if (
+          request.params.name === INSTRUCTIONS_TOOL.name &&
+          !(error instanceof SessionApiError)
+        )
+          return { content: [{ type: "text" as const, text: RECOVERY }] };
+
+        throw error;
+      }
+
       const tool = tools.find((tool) => tool.name === request.params.name);
 
       if (!tool)

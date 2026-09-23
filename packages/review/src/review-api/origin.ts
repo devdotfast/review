@@ -41,3 +41,22 @@ export function setPullRequest(
     pullRequestNumber: Number(url.split("/").at(-1)),
   };
 }
+
+/** The branch names a review's two sides came from. Labels only: the pins
+ * stay the source of truth, and a name left out is forgotten. */
+export function setBranchNames(
+  snapshot: Pick<Snapshot, "origin">,
+  names: { base?: string; head?: string },
+) {
+  if (!snapshot.origin && !names.base && !names.head) return;
+  const origin = { ...snapshot.origin };
+  delete origin.baseRef;
+  delete origin.branch;
+
+  if (names.base) origin.baseRef = names.base;
+
+  if (names.head) origin.branch = names.head;
+
+  if (Object.keys(origin).length) snapshot.origin = origin;
+  else delete snapshot.origin;
+}

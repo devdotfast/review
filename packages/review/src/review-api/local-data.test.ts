@@ -273,57 +273,6 @@ it("reads, resolves and retires a reference at its own pins in another repositor
   expect(local.store.read(reviewId).sourceUnavailable).toBeUndefined();
 });
 
-it("resolves saved branch names and fork links for the requested review version", async () => {
-  git("remote", "add", "origin", "https://github.com/devdotfast/review.git");
-  git("remote", "add", "fork", "git@github.com:contributor/review.git");
-  git("update-ref", "refs/remotes/origin/main", pins.base);
-  git("update-ref", "refs/remotes/fork/feature", pins.head);
-  const reviewId = randomUUID();
-
-  const saved = {
-    reviewId,
-    title: "Branch labels",
-    pins,
-    document: [],
-    createdAt: new Date().toISOString(),
-  };
-
-  const first = await local.store.importVersion({
-    ...saved,
-    origin: { baseRef: "main", branch: "feature", revision: "first" },
-  });
-
-  await local.store.importVersion({
-    ...saved,
-    origin: { baseRef: "main", branch: "local-work", revision: "second" },
-  });
-  const app = createReviewApi(local.store, local.data);
-  const current = await app.request(`/${reviewId}/branch-links`);
-  expect(current.status).toBe(200);
-  expect(await current.json()).toEqual({
-    ok: true,
-    baseRef: "main",
-    headRef: "local-work",
-    baseUrl: "https://github.com/devdotfast/review/tree/main",
-    headUrl: null,
-  });
-
-  const historical = await app.request(
-    `/${reviewId}/branch-links?version=${first.version}`,
-  );
-
-  expect(historical.status).toBe(200);
-  expect(await historical.json()).toEqual({
-    ok: true,
-    baseRef: "main",
-    headRef: "feature",
-    baseUrl: "https://github.com/devdotfast/review/tree/main",
-    headUrl: "https://github.com/contributor/review/tree/feature",
-  });
-  const missing = await app.request(`/${randomUUID()}/branch-links`);
-  expect(missing.status).toBe(404);
-});
-
 it("opens without waiting for acquisition and keeps diagnostic failures nonfatal", async () => {
   const created = await local.store.execute(
     command({ type: "create", title: "Immediate open", pins }),

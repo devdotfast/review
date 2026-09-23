@@ -3,12 +3,19 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { copyText } from "./copy-text";
 import { useTooltip } from "./use-tooltip";
 
+/** The two pinned commits, each shown by its branch name when the review
+ * knows it and by its short hash otherwise. A click copies what is shown, in
+ * full: the branch name, or the whole hash. */
 export function ReviewBranchRange({
   baseRef,
   headRef,
+  baseBranch,
+  headBranch,
 }: {
   baseRef: string;
   headRef: string;
+  baseBranch?: string;
+  headBranch?: string;
 }): ReactElement {
   const [copied, setCopied] = useState<"base" | "head" | null>(null);
 
@@ -18,8 +25,8 @@ export function ReviewBranchRange({
 
   useEffect(() => () => clearTimeout(resetTimer.current), []);
 
-  const copy = async (side: "base" | "head", ref: string) => {
-    if (!(await copyText(ref))) return;
+  const copy = async (side: "base" | "head", text: string) => {
+    if (!(await copyText(text))) return;
     clearTimeout(resetTimer.current);
     setCopied(side);
     resetTimer.current = setTimeout(() => setCopied(null), 1500);
@@ -29,18 +36,20 @@ export function ReviewBranchRange({
     <div className="review-branch-range" aria-label="Review commits">
       <BranchRef
         label="base"
-        name={baseRef}
+        commit={baseRef}
+        branch={baseBranch}
         copied={copied === "base"}
-        onCopy={() => void copy("base", baseRef)}
+        onCopy={(text) => void copy("base", text)}
       />
       <span className="review-branch-arrow" aria-hidden="true">
         →
       </span>
       <BranchRef
         label="head"
-        name={headRef}
+        commit={headRef}
+        branch={headBranch}
         copied={copied === "head"}
-        onCopy={() => void copy("head", headRef)}
+        onCopy={(text) => void copy("head", text)}
       />
     </div>
   );
@@ -48,20 +57,25 @@ export function ReviewBranchRange({
 
 function BranchRef({
   label,
-  name,
+  commit,
+  branch,
   copied,
   onCopy,
 }: {
   label: "base" | "head";
-  name: string;
+  commit: string;
+  branch?: string;
   copied: boolean;
-  onCopy: () => void;
+  onCopy: (text: string) => void;
 }): ReactElement {
-  const tooltip = useTooltip("Copy commit hash");
+  const name = branch?.trim() || undefined;
+  const tooltip = useTooltip(name ? "Copy branch name" : "Copy commit hash");
 
-  const displayName = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(name)
-    ? name.slice(0, 8)
-    : name;
+  const displayName =
+    name ??
+    (/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(commit)
+      ? commit.slice(0, 8)
+      : commit);
 
   return (
     <span className="review-branch-ref">
@@ -70,9 +84,13 @@ function BranchRef({
         type="button"
         className="review-branch-copy"
         data-copied={copied || undefined}
-        aria-label={`Copy ${label} commit hash ${name}`}
+        aria-label={
+          name
+            ? `Copy ${label} branch name ${name}`
+            : `Copy ${label} commit hash ${commit}`
+        }
         ref={tooltip}
-        onClick={onCopy}
+        onClick={() => onCopy(name ?? commit)}
       >
         <span className="review-branch-name">{displayName}</span>
         <span className="review-branch-feedback" role="status">

@@ -10,6 +10,8 @@ export interface ReviewSessionData {
   kind?: "scratchpad";
   /** Absent for a document whose references all carry their own pins. */
   pins?: { base: string; head: string };
+  /** The base branch's name, when the review's PR gave one. */
+  baseBranch?: string;
   historicalRevision: string | null;
   updatedAtMs: number;
   /** Head branch captured with the displayed snapshot. */

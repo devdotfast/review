@@ -76,6 +76,7 @@ import {
   readPullRequest,
 } from "./pull-request.js";
 import {
+  type PullRequestBranches,
   type ResolvedPullRequest,
   ReviewStore,
   type Snapshot,
@@ -764,7 +765,20 @@ export class LocalReviewData {
       target: { kind: "commits", repositoryId, head, base },
       pins: { repositoryId, base, head },
       title: pullRequest.title.trim() || `PR #${number}`,
+      branches: {
+        base: pullRequest.baseRefName,
+        head: pullRequest.headRefName,
+      },
     };
+  }
+  /** The PR's branch names from GitHub; nothing is fetched into a checkout. */
+  async pullRequestBranches(url: string): Promise<PullRequestBranches> {
+    const pullRequest = await readPullRequest(
+      url,
+      this.options.pullRequests ?? defaultPullRequestDeps,
+    );
+
+    return { base: pullRequest.baseRefName, head: pullRequest.headRefName };
   }
   /** A registered checkout with a remote for owner/repo, and that remote. */
   private async pullRequestCheckout(
@@ -1525,6 +1539,7 @@ export function openLocalReviewStore(
     resolvePullRequest: (url, repository) =>
       data.resolvePullRequest(url, repository),
     headBranch: (pins, headRef) => data.headBranch(pins, headRef),
+    pullRequestBranches: (url) => data.pullRequestBranches(url),
     sourcePins: (snapshot) => data.sourcePins(snapshot),
     unavailableAnchors: (snapshot) => data.unavailableAnchors(snapshot),
     validatePins: (pins) => data.validatePins(pins),

@@ -264,6 +264,7 @@ export function ApiCanvas({
         pins: snapshot.pins
           ? { base: snapshot.pins.base, head: snapshot.pins.head }
           : undefined,
+        baseBranch: snapshot.origin?.baseRef,
         historicalRevision: version === undefined ? null : String(version),
         updatedAtMs: Date.parse(snapshot.createdAt),
         headBranch: snapshot.origin?.branch,

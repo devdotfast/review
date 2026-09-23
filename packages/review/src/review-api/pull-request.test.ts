@@ -30,6 +30,7 @@ describe("reading a pull request", () => {
     title: "Add widgets",
     baseRefName: "main",
     baseRefOid: "a".repeat(40),
+    headRefName: "widgets",
   };
 
   const deps = (
@@ -73,7 +74,7 @@ describe("reading a pull request", () => {
         "--repo",
         "acme/widget",
         "--json",
-        "number,title,baseRefName,baseRefOid",
+        "number,title,baseRefName,baseRefOid,headRefName",
       ],
     ]);
   });
@@ -84,6 +85,7 @@ describe("reading a pull request", () => {
         number: 7,
         title: "Add widgets",
         base: { ref: "main", sha: record.baseRefOid },
+        head: { ref: "widgets" },
       }),
     );
 
@@ -133,6 +135,9 @@ describe("creating a review from a pull request URL alone", () => {
   let pr: Omit<PullRequestRecord, "slug">;
 
   let ghCalls: number;
+
+  /** gh and the public API both fail while this is set. */
+  let githubDown: boolean;
 
   const gitIn =
     (cwd: string) =>
@@ -184,6 +189,7 @@ describe("creating a review from a pull request URL alone", () => {
 
     pr = { number: 7, title: "Add widgets", baseRefName: "main" };
     ghCalls = 0;
+    githubDown = false;
     local = openLocalReviewStore(path.join(directory, "reviews.db"), {
       manageWorkspaces: false,
       pullRequests: {
@@ -192,6 +198,8 @@ describe("creating a review from a pull request URL alone", () => {
           if (file !== "gh")
             return defaultPullRequestDeps.run(file, args, options);
           ghCalls++;
+
+          if (githubDown) throw new Error("gh pr: not logged in");
 
           return JSON.stringify(pr);
         },
@@ -255,6 +263,31 @@ describe("creating a review from a pull request URL alone", () => {
       "+export const feature = 1;",
     );
     expect(userRefs(path.join(checkout, ".git"))).toBe(before);
+  });
+
+  it("saves the PR's base and head branch names, and refreshes them on retarget", async () => {
+    const { id: repositoryId } = await local.data.register(checkout);
+    pr.headRefName = "contributor";
+
+    const { reviewId } = await createFromUrl();
+    expect(local.store.read(reviewId).origin).toMatchObject({
+      baseRef: "main",
+      branch: "contributor",
+    });
+
+    pr.headRefName = "renamed";
+    await local.store.execute(
+      command({
+        type: "set_target",
+        reviewId,
+        target: { kind: "commits", repositoryId, head: trunk },
+      }),
+    );
+    expect(local.store.read(reviewId).origin).toMatchObject({
+      pullRequestUrl: url,
+      baseRef: "main",
+      branch: "renamed",
+    });
   });
 
   it("returns the existing review for a repeat, comparing against the PR's current head", async () => {
@@ -336,20 +369,114 @@ describe("creating a review from a pull request URL alone", () => {
     expect(local.store.list()).toEqual([]);
   });
 
-  it("uses an explicit target instead of asking GitHub", async () => {
+  it("uses an explicit target, asking GitHub only for the branch names", async () => {
     const { id: repositoryId } = await local.data.register(checkout);
     const head = gitIn(checkout)("rev-parse", "HEAD");
+
+    const refs = () =>
+      gitIn(checkout)("for-each-ref", "refs/review", "refs/heads", "refs/tags");
+
+    const before = refs();
+    pr.headRefName = "contributor";
 
     const { reviewId } = await createFromUrl({
       title: "Mine",
       target: { kind: "commits", repositoryId, head },
     });
 
-    expect(ghCalls).toBe(0);
+    expect(ghCalls).toBe(1);
+    expect(refs()).toBe(before);
     expect(local.store.read(reviewId)).toMatchObject({
       title: "Mine",
       pins: { base: head, head },
+      origin: { pullRequestUrl: url, baseRef: "main", branch: "contributor" },
     });
+  });
+
+  it("saves without the names when GitHub cannot be read, and keeps them on a retarget within the PR", async () => {
+    const { id: repositoryId } = await local.data.register(checkout);
+    const target = { kind: "commits" as const, repositoryId, head: trunk };
+    githubDown = true;
+
+    const created = await createFromUrl({ title: "Mine", target });
+
+    expect(created.warnings).toEqual([
+      expect.stringMatching(/^Saved without the PR branch names: /),
+    ]);
+    // No PR names, so only the local branch at the head commit is saved.
+    expect(local.store.read(created.reviewId).origin).toEqual({
+      branch: "main",
+      pullRequestUrl: url,
+      pullRequestNumber: 7,
+    });
+
+    githubDown = false;
+    await local.store.execute(
+      command({ type: "set_target", reviewId: created.reviewId, target }),
+    );
+    githubDown = true;
+
+    const retargeted = await local.store.execute(
+      command({ type: "set_target", reviewId: created.reviewId, target }),
+    );
+
+    expect(retargeted.warnings).toEqual([
+      expect.stringMatching(/^Kept the previous PR branch names: /),
+    ]);
+    expect(local.store.read(created.reviewId).origin).toMatchObject({
+      baseRef: "main",
+    });
+  });
+
+  it("follows the PR a repin names, and drops the names with the PR", async () => {
+    const { id: repositoryId } = await local.data.register(checkout);
+    const pins = { repositoryId, base: fork, head: trunk };
+
+    const { reviewId } = await createFromUrl({
+      title: "Mine",
+      target: { kind: "commits", ...pins },
+    });
+
+    pr.baseRefName = "release";
+    pr.headRefName = "other";
+    await local.store.execute(
+      command({
+        type: "repin",
+        reviewId,
+        pins,
+        pullRequestUrl: "https://github.com/acme/widget/pull/8",
+      }),
+    );
+    expect(local.store.read(reviewId).origin).toMatchObject({
+      pullRequestNumber: 8,
+      baseRef: "release",
+      branch: "other",
+    });
+
+    const calls = ghCalls;
+    await local.store.execute(
+      command({ type: "repin", reviewId, pins, pullRequestUrl: null }),
+    );
+    expect(ghCalls).toBe(calls);
+    // Without a PR the head falls back to the local branch at that commit.
+    expect(local.store.read(reviewId).origin).toEqual({ branch: "main" });
+  });
+
+  it("replays an identical retry without asking GitHub again", async () => {
+    const { id: repositoryId } = await local.data.register(checkout);
+
+    const create = command({
+      type: "create",
+      title: "Mine",
+      pullRequestUrl: url,
+      target: { kind: "commits", repositoryId, head: trunk },
+    });
+
+    const created = await local.store.execute(create);
+    const calls = ghCalls;
+
+    expect(await local.store.execute(create)).toEqual(created);
+    expect(ghCalls).toBe(calls);
   });
 
   it.skipIf(!hasJj)(

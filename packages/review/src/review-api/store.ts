@@ -8,6 +8,7 @@ import {
   type ReviewApiSummary,
   SCRATCHPAD_REVIEW_ID,
 } from "@dev.fast/review-protocol";
+import { errorMessage } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { migrateStoredDocument } from "../stored-document-migration.js";
@@ -43,7 +44,12 @@ import {
   sourceReferences,
   summarizeEdit,
 } from "./document.js";
-import { pullRequestKey, pullRequestUrl, setPullRequest } from "./origin.js";
+import {
+  pullRequestKey,
+  pullRequestUrl,
+  setBranchNames,
+  setPullRequest,
+} from "./origin.js";
 
 const reviewId = z.string().min(1);
 
@@ -205,6 +211,20 @@ export interface ResolvedPullRequest {
   target: ReviewTarget;
   pins: Pins;
   title: string;
+  branches: PullRequestBranches;
+}
+
+/** Branch names GitHub gives a PR's two sides; head is absent when unknown. */
+export interface PullRequestBranches {
+  base: string;
+  head?: string;
+}
+
+/** A command's one early read of its PR (see startPullRequest). */
+interface PendingPullRequest {
+  url: string;
+  branches: Promise<PullRequestBranches>;
+  comparison?: Promise<ResolvedPullRequest>;
 }
 
 export interface ReviewProviders {
@@ -216,6 +236,8 @@ export interface ReviewProviders {
     url: string,
     repository: { id?: string; preferred?: string },
   ): Promise<ResolvedPullRequest>;
+  /** Only what GitHub says about the PR: no refs or commits are fetched. */
+  pullRequestBranches?(url: string): Promise<PullRequestBranches>;
   resolveTarget?(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }>;
@@ -931,8 +953,6 @@ export class ReviewStore {
     // never uses this: its receipt answers first, below.
     const pullRequest = this.startPullRequest(command);
 
-    pullRequest?.catch(() => {});
-
     const run = this.pending.then(async () => {
       const receipt = this.db
         .prepare("SELECT request,response FROM receipts WHERE command_id=?")
@@ -1008,7 +1028,7 @@ export class ReviewStore {
           ? op.target
           : undefined;
 
-      const fromPullRequest = await pullRequest;
+      const fromPullRequest = await pullRequest?.comparison;
 
       const resolvedTarget = requestedTarget
         ? await this.providers.resolveTarget?.(requestedTarget)
@@ -1144,6 +1164,7 @@ export class ReviewStore {
         : 0;
 
       let applied: Applied | undefined;
+      let localHead: string | undefined;
 
       if (
         (op.type === "create" ||
@@ -1163,6 +1184,7 @@ export class ReviewStore {
 
           const branch = await this.providers.headBranch(pins, headRef);
 
+          localHead = branch;
           snapshot.origin = { ...snapshot.origin, branch };
         }
       }
@@ -1186,22 +1208,13 @@ export class ReviewStore {
           snapshot.title = op.title;
           break;
         case "set_target":
-          if (snapshot.pins?.repositoryId !== resolvedTarget!.pins.repositoryId)
-            setPullRequest(snapshot, null);
+          setPullRequest(snapshot, pullRequestAfter(op, previous) ?? null);
           snapshot.staleSources = [];
           snapshot.target = resolvedTarget!.target;
           snapshot.pins = resolvedTarget!.pins;
           break;
         case "repin":
-          setPullRequest(
-            snapshot,
-            op.pullRequestUrl ??
-              (op.pullRequestUrl === null ||
-              snapshot.pins?.repositoryId !== op.pins.repositoryId
-                ? null
-                : undefined),
-          );
-
+          setPullRequest(snapshot, pullRequestAfter(op, previous) ?? null);
           snapshot.staleSources = [];
           snapshot.pins = op.pins;
           snapshot.target = { kind: "commits", ...op.pins };
@@ -1270,11 +1283,38 @@ export class ReviewStore {
       )
         await this.providers.validatePins(snapshot.pins);
 
+      let namesWarning: string | undefined;
+
+      // The names describe the comparison: a PR's names when it has one,
+      // else the local head branch found above (the base has no local name).
+      if (pullRequest || op.type === "set_target" || op.type === "repin") {
+        const url = snapshot.origin?.pullRequestUrl;
+        let names: Partial<PullRequestBranches> = { head: localHead };
+
+        if (url && pullRequest?.url === url)
+          try {
+            const fromPr = await pullRequest.branches;
+
+            names = { base: fromPr.base, head: fromPr.head ?? names.head };
+          } catch (error) {
+            // A failed lookup never fails the write; the same PR keeps its names.
+            const old = previous?.origin;
+            const kept = old?.pullRequestUrl === url;
+
+            if (kept) names = { base: old.baseRef, head: old.branch };
+            namesWarning = `${kept ? "Kept the previous" : "Saved without the"} PR branch names: ${errorMessage(error)}`;
+          }
+
+        setBranchNames(snapshot, names);
+      }
+
       const warnings = await this.validateExternal(
         snapshot,
         previous,
         op.type === "repin" || op.type === "set_target",
       );
+
+      if (namesWarning) warnings.push(namesWarning);
 
       snapshot.version = previous ? previous.version + 1 : 0;
       snapshot.createdAt = new Date().toISOString();
@@ -1324,39 +1364,68 @@ export class ReviewStore {
 
     return run;
   }
-  /** Resolve a target-less PR create before it queues, when it will need it. */
+  private hasReceipt(commandId: string) {
+    return !!this.db
+      .prepare("SELECT 1 FROM receipts WHERE command_id=?")
+      .get(commandId);
+  }
+  /** Read the PR a create, set_target or repin names or keeps, once and
+   * before the command queues. A target-less create needs the PR's whole
+   * comparison fetched into a checkout; anything else needs only its names. */
   private startPullRequest(
     command: z.infer<typeof commandSchema>,
-  ): Promise<ResolvedPullRequest> | undefined {
+  ): PendingPullRequest | undefined {
     const op = command.operation;
 
     if (
-      op.type !== "create" ||
-      op.kind ||
-      op.pins ||
-      op.target ||
-      !op.pullRequestUrl ||
-      this.db
-        .prepare("SELECT 1 FROM receipts WHERE command_id=?")
-        .get(command.commandId)
+      (op.type !== "create" &&
+        op.type !== "set_target" &&
+        op.type !== "repin") ||
+      (op.type === "create" && op.kind) ||
+      this.hasReceipt(command.commandId)
     )
       return undefined;
 
-    if (!this.providers.resolvePullRequest)
-      return Promise.reject(
-        new ReviewInputError("Pull request targets are unavailable."),
-      );
+    if (op.type === "create" && !op.pins && !op.target) {
+      const url = op.pullRequestUrl;
 
-    // Keep an existing review's checkout so headMoved compares like with like.
-    const [existing] =
-      op.reuseExisting === false
-        ? []
-        : this.reviewsForPullRequest(op.pullRequestUrl);
+      if (!url) return undefined;
 
-    return this.providers.resolvePullRequest(op.pullRequestUrl, {
-      id: op.repositoryId,
-      preferred: existing && this.read(existing).pins?.repositoryId,
-    });
+      // Keep an existing review's checkout so headMoved compares like with like.
+      const [existing] =
+        op.reuseExisting === false ? [] : this.reviewsForPullRequest(url);
+
+      const comparison = this.providers.resolvePullRequest
+        ? this.providers.resolvePullRequest(url, {
+            id: op.repositoryId,
+            preferred: existing && this.read(existing).pins?.repositoryId,
+          })
+        : Promise.reject(
+            new ReviewInputError("Pull request targets are unavailable."),
+          );
+
+      const branches = comparison.then((resolved) => resolved.branches);
+
+      // Awaited inside the queue; a failure there fails the command.
+      comparison.catch(() => {});
+      branches.catch(() => {});
+
+      return { url, comparison, branches };
+    }
+
+    const url =
+      op.type === "create"
+        ? op.pullRequestUrl
+        : this.has(op.reviewId)
+          ? pullRequestAfter(op, this.read(op.reviewId))
+          : undefined;
+
+    if (!url || !this.providers.pullRequestBranches) return undefined;
+    const branches = this.providers.pullRequestBranches(url);
+
+    branches.catch(() => {});
+
+    return { url, branches };
   }
   /** Reviews whose PR is this one, newest version first. Summaries only. */
   private reviewsForPullRequest(url: string): string[] {
@@ -1792,6 +1861,25 @@ function createdSnapshot(
     document: [],
     createdAt: "",
   };
+}
+
+/** The PR a retarget leaves on the review: the one named, else the current
+ * one while the review stays in the same repository. */
+function pullRequestAfter(
+  op: Extract<
+    z.infer<typeof commandSchema>["operation"],
+    { type: "set_target" | "repin" }
+  >,
+  previous: Snapshot | undefined,
+): string | undefined {
+  const pins = op.type === "repin" ? op.pins : op.target;
+
+  if (op.type === "repin" && op.pullRequestUrl !== undefined)
+    return op.pullRequestUrl ?? undefined;
+
+  return previous?.pins?.repositoryId === pins.repositoryId
+    ? previous.origin?.pullRequestUrl
+    : undefined;
 }
 
 export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {

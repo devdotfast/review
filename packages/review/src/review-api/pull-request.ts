@@ -27,6 +27,8 @@ export interface PullRequestRecord {
   baseRefName: string;
   /** GitHub's base commit, frozen at the PR's last update. */
   baseRefOid?: string;
+  /** The head branch's name, in the fork for a fork PR. */
+  headRefName?: string;
 }
 
 const GH_TIMEOUT_MS = 20_000;
@@ -82,6 +84,7 @@ const metadataSchema = z.object({
   title: z.string(),
   baseRefName: z.string().min(1),
   baseRefOid: z.string().optional(),
+  headRefName: z.string().min(1).optional(),
 });
 
 /** gh first (it carries the user's auth), then GitHub's public REST API. */
@@ -102,7 +105,7 @@ export async function readPullRequest(
         "--repo",
         slug,
         "--json",
-        "number,title,baseRefName,baseRefOid",
+        "number,title,baseRefName,baseRefOid,headRefName",
       ],
       { timeoutMs: GH_TIMEOUT_MS },
     );
@@ -161,6 +164,7 @@ export async function readPullRequest(
       number: z.number(),
       title: z.string(),
       base: z.object({ ref: z.string().min(1), sha: z.string() }),
+      head: z.object({ ref: z.string().min(1) }).optional(),
     })
     .safeParse(await response.json().catch(() => undefined));
 
@@ -173,6 +177,7 @@ export async function readPullRequest(
     title: parsed.data.title,
     baseRefName: parsed.data.base.ref,
     baseRefOid: parsed.data.base.sha,
+    headRefName: parsed.data.head?.ref,
   };
 }
 

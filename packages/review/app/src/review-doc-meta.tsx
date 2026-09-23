@@ -184,6 +184,8 @@ export function ReviewDocumentMetaLine({
           <ReviewBranchRange
             baseRef={review.pins.base}
             headRef={review.pins.head}
+            baseBranch={review.baseBranch}
+            headBranch={review.headBranch}
           />
         </div>
       )}

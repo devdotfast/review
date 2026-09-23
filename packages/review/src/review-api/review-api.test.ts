@@ -140,8 +140,12 @@ describe("snapshot authoring", () => {
     expect(store.read(reviewId).document).toEqual(authored.document);
   });
 
-  it("preserves imported provenance when attaching a PR and supports explicit repin identity", async () => {
+  it("keeps imported provenance through a repin, with branch names following the PR", async () => {
     const { reviewId } = await create();
+    providers.pullRequestBranches = async () => ({
+      base: "trunk",
+      head: "pr-branch",
+    });
     await store.importVersion({
       reviewId,
       title: "Imported",
@@ -163,8 +167,8 @@ describe("snapshot authoring", () => {
       }),
     );
     expect(store.read(reviewId).origin).toEqual({
-      branch: "feature",
-      baseRef: "main",
+      branch: "pr-branch",
+      baseRef: "trunk",
       revision: "legacy-revision",
       pullRequestNumber: 319,
       pullRequestUrl: "https://github.com/devdotfast/review/pull/319",
@@ -173,8 +177,6 @@ describe("snapshot authoring", () => {
       request({ type: "repin", reviewId, pins, pullRequestUrl: null }),
     );
     expect(store.read(reviewId).origin).toEqual({
-      branch: "feature",
-      baseRef: "main",
       revision: "legacy-revision",
     });
   });
@@ -1671,6 +1673,7 @@ describe("create for a pull request", () => {
       target: { kind: "commits", ...pins },
       pins,
       title: "From GitHub",
+      branches: { base: "main", head: "feature" },
     }));
 
     providers.resolvePullRequest = resolvePullRequest;
@@ -1692,7 +1695,7 @@ describe("create for a pull request", () => {
     expect(store.read(untitled.reviewId)).toMatchObject({
       title: "From GitHub",
       pins,
-      origin: { pullRequestUrl: url },
+      origin: { pullRequestUrl: url, baseRef: "main", branch: "feature" },
     });
     expect(store.read(titled.reviewId).title).toBe("Mine");
     expect(resolvePullRequest.mock.calls).toEqual([

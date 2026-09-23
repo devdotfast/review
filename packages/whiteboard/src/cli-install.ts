@@ -137,7 +137,9 @@ export async function resolveCliInstallStatus(input: {
       }),
       plugins: connectPlugins(hasShim),
     },
-    legacySkills: legacySkills.map((skillPath) => ({ path: skillPath })),
+    legacySkills: legacySkills.map((skillPath) => ({
+      path: homeRelative(homeDir, skillPath),
+    })),
   };
 
   const error = installErrors.get(homeDir);
@@ -853,4 +855,13 @@ async function isExecutableFile(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** `~/…` for paths under the home directory; the card shows these, removal rescans. */
+function homeRelative(homeDir: string, target: string): string {
+  const relative = path.relative(homeDir, target);
+
+  return relative.startsWith("..") || path.isAbsolute(relative)
+    ? target
+    : `~/${relative.split(path.sep).join("/")}`;
 }

@@ -934,7 +934,7 @@ describe("MCP self-install", () => {
       });
 
       expect(status.legacySkills).toEqual([
-        { path: path.join(homeDir, ".claude", "skills", "dev-review") },
+        { path: "~/.claude/skills/dev-review" },
       ]);
     });
   });

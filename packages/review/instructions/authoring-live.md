@@ -2,6 +2,8 @@
 
 Use Review’s components to explain the code the user asked about.
 
+Unless the user explicitly asks for the scratchpad, requests to create or write a Review, or to use Review to explain something and open it, mean a regular Review document. Follow this workflow even when the scratchpad is enabled. A Review can explain architecture without reviewing a diff; use the requested repository revision as its source.
+
 ## Before authoring
 
 Read user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md` when present. Repository guidance takes precedence.

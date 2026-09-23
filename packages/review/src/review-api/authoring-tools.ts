@@ -75,7 +75,7 @@ export function authoringTools(
       "get_instructions",
       "Read Review's guidance before creating or editing a Review. The default topic gives this server's authoring workflow. Other topics cover headless use and prepared worktrees. Call review_get_instructions({topic:\"trace-archaeology\"}) for why code exists, what an agent was thinking, or whether an agent solved this before." +
         (scratchpadAvailable
-          ? ' When the user asks you to show, walk through or diagram how code works, draw it on the Review scratchpad rather than answering only in chat: call review_get_instructions({topic:"scratchpad"}) first.'
+          ? ' Unless the user explicitly asks for the scratchpad, requests to create or write a Review, or to use Review to explain something and open it, require a regular Review document, even when the scratchpad is enabled. Regular Reviews can explain architecture without a diff. For an explicit scratchpad request or an informal "show me how" explanation without a Review request, draw it on the Review scratchpad rather than answering only in chat: call review_get_instructions({topic:"scratchpad"}) first.'
           : ""),
       instructionsQuerySchema.partial(),
       "GET",

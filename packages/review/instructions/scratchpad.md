@@ -6,7 +6,9 @@ Its id is fixed: `scratchpad`. While it is turned on in Review Desktop Settings 
 
 ## When to draw here
 
-- The user asks to be shown how something works, wants a picture of a flow, a call path, a data shape or a layout, or is thinking out loud with you before there is a concrete plan.
+An explicit scratchpad request selects this surface. Otherwise, requests to create or write a Review, or to use Review to explain something and open it, select a regular Review document, even when the scratchpad is enabled. Start those with `review_get_instructions({topic:"authoring"})`. A regular Review can explain architecture without reviewing a diff.
+
+- Without requesting a Review document, the user asks to be shown how something works, wants a picture of a flow, a call path, a data shape or a layout, or is thinking out loud with you before there is a concrete plan.
 - The explanation spans more than one file or more than one repository, or would be an ASCII diagram in chat.
 
 Answer in chat when one sentence or one code line does it. Do not use the scratchpad to review a change; author a review instead (`review_get_instructions({})`).

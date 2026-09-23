@@ -14,6 +14,7 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -172,11 +173,102 @@ test("reports launch failures", async () => {
   await expect(collect(request(root))).rejects.toThrow("Cannot find diffr");
 });
 
+test("streams a large comparison without treating accumulated file bytes as one record", async () => {
+  const root = await executable(`
+    const { once } = require('node:events');
+    async function write(event) {
+      if (!process.stdout.write(JSON.stringify(event) + '\\n'))
+        await once(process.stdout, 'drain');
+    }
+    (async () => {
+      const files = Array.from({ length: 65 }, (_, i) => ({
+        file: { rhs: { path: i + '.txt', oid: String(i), mode: '100644' } },
+        status: 'added',
+      }));
+      await write({ ...${JSON.stringify(START)}, files });
+      for (const { file } of files) await write({
+        type: 'file', file,
+        diff: {
+          type: 'text', rhs: { text: 'x'.repeat(1024 * 1024), regions: [] },
+          structural_changes: { base: [], head: [[0, 1]] },
+          stats: { textual: { added: 1, removed: 0 }, visible: { added: 1, removed: 0 } },
+        },
+      });
+      await write({ type: 'complete', succeeded: files.length, failed: 0 });
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `);
+
+  let files = 0;
+  let textBytes = 0;
+  let complete = false;
+
+  for await (const event of structuralDiff(request(root))) {
+    if (event.type === "file") {
+      files++;
+
+      if (event.diff?.type === "text")
+        textBytes += event.diff.rhs?.text.length ?? 0;
+    }
+
+    if (event.type === "complete") complete = event.succeeded === files;
+  }
+
+  expect(files).toBe(65);
+  expect(textBytes).toBe(65 * 1024 * 1024);
+  expect(complete).toBe(true);
+});
+
+test("rejects an oversized individual record", async () => {
+  const root = await executable(`
+    ${emit(START)}
+    process.stdout.write(JSON.stringify({
+      ...${JSON.stringify(BINARY)}, oversized: 'x'.repeat(65 * 1024 * 1024),
+    }) + '\\n');
+  `);
+
+  await expect(collect(request(root))).rejects.toThrow(
+    "Structural diff record exceeded 64 MiB",
+  );
+});
+
 test("cancellation terminates the subprocess", async () => {
   const root = await executable(`setInterval(() => {}, 1000);`);
   await expect(
     collect(request(root, { signal: AbortSignal.timeout(50) })),
   ).rejects.toThrow(/abort|exited/i);
+});
+
+test("renews the idle deadline when the subprocess delivers another record", async () => {
+  const root = await executable(`
+    ${emit(START)}
+    const timer = setInterval(() => {
+      if (require('node:fs').existsSync('continue')) {
+        clearInterval(timer);
+        ${emit(BINARY)}
+        setInterval(() => {}, 1000);
+      }
+    }, 10);
+  `);
+
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const iterator = structuralDiff(request(root));
+
+  try {
+    expect((await iterator.next()).value?.type).toBe("start");
+    vi.advanceTimersByTime(119_000);
+    await writeFile(path.join(root, "continue"), "");
+    expect((await iterator.next()).value).toEqual(BINARY);
+    const pending = iterator.next();
+    void pending.catch(() => {});
+
+    vi.advanceTimersByTime(2_000);
+    // The original deadline has passed, but the renewed one is still pending.
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(118_000);
+    await expect(pending).rejects.toThrow(/abort|exited/i);
+  } finally {
+    await iterator.return(undefined);
+  }
 });
 
 test("breaking iteration terminates a producer that has not finished", async () => {

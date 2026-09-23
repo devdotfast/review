@@ -61,12 +61,14 @@ export async function* structuralDiff(
   args.push(...(kind === "trees" ? [base, head] : [`${base}...${head}`]));
   args.push("--", ...(input.paths ?? []));
 
-  const signal = AbortSignal.any([AbortSignal.timeout(120_000), input.signal]);
+  const idleAbort = new AbortController();
+  const idle = setTimeout(() => idleAbort.abort(), 120_000);
+  const signal = AbortSignal.any([idleAbort.signal, input.signal]);
 
   // The host inherits its own environment and runs from the repository, so
   // diffr reads the user's config and keys exactly as it would from a shell.
   console.info(
-    `[Review] structural diff: ${diffrExecutable()} ${args.join(" ")}`,
+    `[Whiteboard] structural diff: ${diffrExecutable()} ${args.join(" ")}`,
   );
 
   const child = spawn(diffrExecutable(), args, {
@@ -93,7 +95,6 @@ export async function* structuralDiff(
 
   // Observe process errors immediately, including before stdout closes.
   void exited.catch(() => {});
-  let bytes = 0;
   let started = false;
   let completed = false;
   let aborted: StructuralProblem | undefined;
@@ -103,10 +104,13 @@ export async function* structuralDiff(
 
   try {
     for await (const line of lines) {
-      bytes += Buffer.byteLength(line);
+      // Large comparisons may take minutes while continuing to make progress.
+      idle.refresh();
 
-      if (bytes > 64 * 1024 * 1024)
-        throw new Error("Structural diff exceeded 64 MiB.");
+      // Bound individual records, not the entire streamed comparison: a
+      // directory move can legitimately contain thousands of small files.
+      if (Buffer.byteLength(line) > 64 * 1024 * 1024)
+        throw new Error("Structural diff record exceeded 64 MiB.");
 
       if (!line.trim()) continue;
       const event = decodeStructuralDiffEvent(line);
@@ -152,6 +156,7 @@ export async function* structuralDiff(
     )
       throw exitError(code);
   } finally {
+    clearTimeout(idle);
     lines.close();
 
     if (child.exitCode === null) child.kill();

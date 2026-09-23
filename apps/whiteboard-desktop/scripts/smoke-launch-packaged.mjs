@@ -1,13 +1,13 @@
 /**
  * Gate between a packaged build and the R2 upload: prove the app opens a window
- * and its embedded Review server becomes ready. Run from the release workflow
+ * and its embedded Whiteboard server becomes ready. Run from the release workflow
  * after validate-release-artifacts.mjs.
  *
  *   node scripts/smoke-launch-packaged.mjs [--app <path to .app>] [--timeout-ms 45000]
  *
  * Two shipped releases would have been caught here and nowhere else:
  *
- *   0.0.3 — the Review server died on a missing `tsx` (a devDependency pruned by
+ *   0.0.3 — the Whiteboard server died on a missing `tsx` (a devDependency pruned by
  *           `pnpm --prod deploy`), so the window never arrived.
  *   0.0.4 — `main.ts` reached the configuration registry before bootstrapESM(),
  *           throwing `!!! NLS MISSING: 2488 !!!` into an Electron modal that
@@ -15,7 +15,7 @@
  *
  * Both failed *silently*: helper processes spawn, the dock icon appears, and
  * nothing else ever happens. So silence must never read as success here — the
- * check requires both a renderer process and the Review server's main-log ready
+ * check requires both a renderer process and the Whiteboard server's main-log ready
  * event, not merely the absence of a crash. An NSAlert-blocked main process
  * cannot create a renderer. A broken runtime can create a renderer but cannot
  * announce a ready server.
@@ -43,17 +43,17 @@ const DEFAULT_APP = path.join(
 
 const POLL_INTERVAL_MS = 500;
 
-const SERVER_READY_PATTERN = /\[Review Desktop\] server ready at https?:\/\//;
+const SERVER_READY_PATTERN = /\[Whiteboard\] server ready at https?:\/\//;
 
 /** Output that means the boot already failed — no point waiting for the timeout. */
 const FATAL_PATTERNS = [
   /!!! NLS MISSING/,
   /Uncaught Exception/,
   /(?:ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)|Module not found)/i,
-  /\[Review Desktop\] server host terminated:/,
-  /\[Review Desktop\] server host exited before announcing an endpoint\./,
-  /The Review server did not become ready within \d+ms\./,
-  /The Review server exhausted its restart budget without becoming ready\./,
+  /\[Whiteboard\] server host terminated:/,
+  /\[Whiteboard\] server host exited before announcing an endpoint\./,
+  /The Whiteboard server did not become ready within \d+ms\./,
+  /The Whiteboard server exhausted its restart budget without becoming ready\./,
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -173,13 +173,13 @@ export async function smokeLaunch({
       if (exited) {
         fail(
           `packaged app exited early (code=${exited.code} signal=${exited.signal}) ` +
-            `before the renderer and Review server became ready`,
+            `before the renderer and Whiteboard server became ready`,
         );
       }
 
       if (hasRenderer(userDataDir) && SERVER_READY_PATTERN.test(mainLog)) {
         console.log(
-          `Packaged app opened a renderer and started the Review server in ${((timeoutMs - (deadline - Date.now())) / 1000).toFixed(1)}s: ${app}`,
+          `Packaged app opened a renderer and started the Whiteboard server in ${((timeoutMs - (deadline - Date.now())) / 1000).toFixed(1)}s: ${app}`,
         );
 
         return;
@@ -192,7 +192,7 @@ export async function smokeLaunch({
 
     const missing = [
       !hasRenderer(userDataDir) && "a renderer",
-      !SERVER_READY_PATTERN.test(mainLog) && "the Review server ready event",
+      !SERVER_READY_PATTERN.test(mainLog) && "the Whiteboard server ready event",
     ].filter(Boolean);
 
     fail(

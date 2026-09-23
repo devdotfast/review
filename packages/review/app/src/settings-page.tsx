@@ -108,6 +108,37 @@ export function SettingsPage({
             </Section>
           ) : null}
 
+          {install?.status.cli ? (
+            <Section label="Command line">
+              <Row
+                label="review command"
+                description={
+                  install.status.shim.installed
+                    ? `Installed at ${install.status.shim.path}. Trace capture and Pi use it; MCP agents do not need it.`
+                    : "Adds review to your shell PATH for trace capture and Pi. MCP agents do not need it."
+                }
+              >
+                <button
+                  type="button"
+                  className="review-settings-button"
+                  disabled={busy !== null}
+                  onClick={() =>
+                    void run(
+                      "command",
+                      () =>
+                        install.status.shim.installed
+                          ? install.remove({ targets: [], shim: true })
+                          : install.apply({ targets: [], shim: true }),
+                      setInstallStatus,
+                    )
+                  }
+                >
+                  {install.status.shim.installed ? "Remove" : "Install"}
+                </button>
+              </Row>
+            </Section>
+          ) : null}
+
           <Section label="Privacy">
             <Row
               label="Share anonymous usage data"
@@ -232,7 +263,7 @@ export function SettingsPage({
             </Row>
             <Row
               label="Scratchpad"
-              description="Show the experimental scratchpad on Home and install its skill for agents that are set up."
+              description="Show the experimental scratchpad on Home. Agents draw on it through Review's MCP tools."
             >
               <label className="review-settings-toggle">
                 <input

@@ -906,6 +906,8 @@ export const ReviewCliInstallStampSchema = z.strictObject({
   fingerprint: requiredString.optional(),
   targets: z.array(ReviewCliInstallTargetSchema).optional(),
   shimPath: requiredString.optional(),
+  /** The user removed the review command; agent setup must not reinstall it. */
+  commandDisabled: z.literal(true).optional(),
   fffRegistrations: z.array(ReviewFffManagedRegistrationSchema).optional(),
   mcpRegistrations: z.array(ReviewMcpRegistrationSchema).optional(),
   traceManaged: z.boolean().optional(),

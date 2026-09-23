@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -386,6 +387,34 @@ describe("skill and review command installation", () => {
       targets: [],
       shimPath,
     });
+  });
+
+  it("keeps a removed command removed until it is installed explicitly", async () => {
+    const homeDir = await temporaryHome("review-disabled-shim-");
+    const env = profileEnvironment(homeDir, "/bin/zsh");
+    const cliPath = path.join(homeDir, "cli.js");
+    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    await writeFile(cliPath, "// test CLI\n");
+
+    await applyCliInstall({ packageRoot, targets: ["pi"], cliPath, homeDir, env });
+    await removeCliInstall({ targets: [], shim: true, homeDir, env });
+    expect(existsSync(shimPath)).toBe(false);
+
+    await applyCliInstall({ packageRoot, targets: ["codex"], cliPath, homeDir, env });
+    expect(existsSync(shimPath)).toBe(false);
+
+    await applyCliInstall({
+      packageRoot,
+      targets: [],
+      shim: true,
+      cliPath,
+      homeDir,
+      env,
+    });
+    expect(existsSync(shimPath)).toBe(true);
+
+    await applyCliInstall({ packageRoot, targets: ["claude"], cliPath, homeDir, env });
+    expect(existsSync(shimPath)).toBe(true);
   });
 
   it("installs the command and profile by default for a skill target", async () => {

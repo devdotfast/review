@@ -445,7 +445,10 @@ async function applyCliInstallUnlocked(
         (await resolveAgentState(homeDir, env)).managedTargets)
       : [];
 
-  const wantShim = input.shim ?? input.targets.length > 0;
+  const commandDisabled =
+    previous?.consent === "granted" && previous.commandDisabled === true;
+
+  const wantShim = input.shim ?? (!commandDisabled && input.targets.length > 0);
   const chunks: string[] = [];
   const sink = collectingWritable(chunks);
   const fffTargets = input.fff ? input.targets.filter(isFffTarget) : [];
@@ -560,6 +563,8 @@ async function applyCliInstallUnlocked(
   };
 
   if (stampShimPath) stamp.shimPath = stampShimPath;
+
+  if (commandDisabled && input.shim !== true) stamp.commandDisabled = true;
 
   if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
 
@@ -817,6 +822,8 @@ async function removeCliInstallUnlocked(
     if (previous.fingerprint) stamp.fingerprint = previous.fingerprint;
 
     if (shimPath) stamp.shimPath = shimPath;
+
+    if (input.shim || previous.commandDisabled) stamp.commandDisabled = true;
 
     if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
     stamp.mcpRegistrations = previous.mcpRegistrations?.filter(

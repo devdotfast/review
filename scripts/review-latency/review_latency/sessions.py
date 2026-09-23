@@ -21,14 +21,14 @@ HOME = Path.home()
 TRACE_ENV_PATH = HOME / ".config" / "dev-trace" / "env"
 # A *request* for a review, not a mention of the dev-review product (these
 # repos develop it, so bare mentions are everywhere).
-REVIEW_REQUEST = re.compile(
+WHITEBOARD_REQUEST = re.compile(
     r"(?:^|\n)\s*(?:/|\$)dev-review\b"  # slash/skill invocation
     r"|(?:^|\n)\s*dev.?review\s*\d*\s*(?:$|\n)"  # bare "dev review 2"
     r"|(?:write|create|make|author|publish|do|give me|can you .{0,30})[^.\n]{0,40}\b(?:dev.?review|review)\b[^.\n]{0,30}(?:of th|for th|this|it\b|change|commit|branch|pr\b)"
     r"|\buse the dev-review skill\b",
     re.IGNORECASE,
 )
-REVIEW_CLI = re.compile(
+WHITEBOARD_CLI = re.compile(
     r"(?:^|[\s;&|(\"'])review\s+(?:scaffold|info|publish|wait|rebind|app\s+(?:launch|pick)|map\s+(?:open|check|publish))(?:\s|$|[\"'|;&])"
 )
 HARNESS_NOISE = ("<task-notification>", "<system-reminder>", "<local-command", "<command-name>")
@@ -150,7 +150,7 @@ def claude_record_review_activity(record: dict) -> str | None:
     kind = record.get("type")
     content = (record.get("message") or {}).get("content")
     prompt = claude_user_prompt_text(record)
-    if prompt is not None and REVIEW_REQUEST.search(prompt):
+    if prompt is not None and WHITEBOARD_REQUEST.search(prompt):
         return "user asked for a review"
     # Skill expansion: the harness injects SKILL.md as a user message when the
     # skill is invoked — unambiguous review activity.
@@ -166,7 +166,7 @@ def claude_record_review_activity(record: dict) -> str | None:
             payload = block.get("input") or {}
             if name == "Skill" and "dev-review" in str(payload.get("skill", "")):
                 return "agent invoked the dev-review skill"
-            if name == "Bash" and REVIEW_CLI.search(str(payload.get("command", ""))):
+            if name == "Bash" and WHITEBOARD_CLI.search(str(payload.get("command", ""))):
                 return "agent ran the review CLI"
             # Reading SKILL.md is not review activity: sessions in these
             # repos read it while developing the product itself.
@@ -177,11 +177,11 @@ def codex_record_review_activity(record: dict) -> str | None:
     payload = record.get("payload") or {}
     kind = record.get("type")
     if kind == "event_msg" and payload.get("type") == "user_message":
-        if REVIEW_REQUEST.search(str(payload.get("message", ""))):
+        if WHITEBOARD_REQUEST.search(str(payload.get("message", ""))):
             return "user asked for a review"
     if kind == "response_item" and payload.get("type") in ("function_call", "custom_tool_call"):
         args = str(payload.get("arguments", "")) + str(payload.get("input", ""))
-        if REVIEW_CLI.search(args):
+        if WHITEBOARD_CLI.search(args):
             return "agent ran the review CLI"
     return None
 

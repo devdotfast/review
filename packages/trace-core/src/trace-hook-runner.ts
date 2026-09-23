@@ -175,7 +175,7 @@ export async function runTraceHook(input: RunTraceHookInput): Promise<number> {
     await enableTraceRepository({
       cwd: input.cwd,
       scope: input.scope,
-      reviewCommand: input.traceCommand,
+      whiteboardCommand: input.traceCommand,
     }).catch(() => undefined);
   }
 

@@ -43,7 +43,7 @@ export interface TraceRepositoryStatus {
 export async function enableTraceRepository(input: {
   cwd: string;
   scope: TraceScope;
-  reviewCommand?: string | TraceCommand;
+  whiteboardCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
 
@@ -93,9 +93,9 @@ export async function enableTraceRepository(input: {
 
   const homeDir = input.scope.homeDir;
 
-  let reviewCommand = renderTraceCommand(
+  let whiteboardCommand = renderTraceCommand(
     resolveTraceCommand({
-      explicit: input.reviewCommand,
+      explicit: input.whiteboardCommand,
       env: input.scope.env,
       homeDir,
     }),
@@ -106,10 +106,10 @@ export async function enableTraceRepository(input: {
     oldState?.command &&
     keepTraceExecutable(
       traceCommandExecutable(oldState.command),
-      traceCommandExecutable(reviewCommand) ?? "",
+      traceCommandExecutable(whiteboardCommand) ?? "",
     )
   )
-    reviewCommand = oldState.command;
+    whiteboardCommand = oldState.command;
 
   const state: RepositoryHookState = {
     version: 1,
@@ -118,17 +118,17 @@ export async function enableTraceRepository(input: {
     previousHooksPath,
     previousHookDirectory,
     previousWasConfigured,
-    command: reviewCommand,
+    command: whiteboardCommand,
   };
 
   await mkdir(hooksPath, { recursive: true });
   await writeHook(
     path.join(hooksPath, "prepare-commit-msg"),
-    prepareCommitMessageHook(previousHookDirectory, reviewCommand),
+    prepareCommitMessageHook(previousHookDirectory, whiteboardCommand),
   );
   await writeHook(
     path.join(hooksPath, "pre-push"),
-    prePushHook(previousHookDirectory, reviewCommand),
+    prePushHook(previousHookDirectory, whiteboardCommand),
   );
   await writePrivateJson(statePath, state);
   await gitAt(resolved.root, [
@@ -145,15 +145,15 @@ export async function enableTraceRepository(input: {
     root: resolved.root,
     managedHooksPath: hooksPath,
     previousHooksPath,
-    command: reviewCommand,
-    message: "Review trace hooks are enabled for this repository.",
+    command: whiteboardCommand,
+    message: "Whiteboard trace hooks are enabled for this repository.",
   };
 }
 
 export async function repairTraceRepository(input: {
   cwd: string;
   scope: TraceScope;
-  reviewCommand?: string | TraceCommand;
+  whiteboardCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   return enableTraceRepository(input);
 }
@@ -180,7 +180,7 @@ export async function disableTraceRepository(input: {
       repository: true,
       enabled: false,
       root: resolved.root,
-      message: "Review trace hooks are not enabled for this repository.",
+      message: "Whiteboard trace hooks are not enabled for this repository.",
     };
   }
 
@@ -213,7 +213,7 @@ export async function disableTraceRepository(input: {
     repository: true,
     enabled: false,
     root: resolved.root,
-    message: "Review trace hooks are disabled for this repository.",
+    message: "Whiteboard trace hooks are disabled for this repository.",
   };
 }
 
@@ -246,8 +246,8 @@ export async function traceRepositoryStatus(
     enabled,
     root: resolved.root,
     message: enabled
-      ? "Review trace hooks are enabled for this repository."
-      : "Review trace hooks are not enabled for this repository.",
+      ? "Whiteboard trace hooks are enabled for this repository."
+      : "Whiteboard trace hooks are not enabled for this repository.",
   };
 
   if (state) {
@@ -347,17 +347,17 @@ function previousHookSetup(pathValue: string, name: string): string {
 
 function prepareCommitMessageHook(
   previousPath: string,
-  reviewCommand: string,
+  whiteboardCommand: string,
 ): string {
   const previous = previousHookSetup(previousPath, "prepare-commit-msg");
-  const review = reviewCommand;
+  const review = whiteboardCommand;
 
   return `#!/bin/sh\n${previous}\nif [ -x "$previous" ]; then\n  "$previous" "$@" || exit $?\nfi\n${review} trace git-hook prepare-commit-msg "$@" || true\nexit 0\n`;
 }
 
-function prePushHook(previousPath: string, reviewCommand: string): string {
+function prePushHook(previousPath: string, whiteboardCommand: string): string {
   const previous = previousHookSetup(previousPath, "pre-push");
-  const review = reviewCommand;
+  const review = whiteboardCommand;
 
   return `#!/bin/sh\n${previous}\ntmp="$(mktemp "\${TMPDIR:-/tmp}/review-pre-push.XXXXXX")" || exit 0\ntrap 'rm -f "$tmp"' EXIT HUP INT TERM\ncat > "$tmp"\nif [ -x "$previous" ]; then\n  "$previous" "$@" < "$tmp" || exit $?\nfi\n${review} trace git-hook pre-push "$@" < "$tmp" || true\nexit 0\n`;
 }

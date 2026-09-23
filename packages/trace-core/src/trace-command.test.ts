@@ -42,20 +42,20 @@ describe("resolveTraceCommand", () => {
 
     expect(
       resolveTraceCommand({
-        explicit: { file: "/x/review", args: ["--a"] },
+        explicit: { file: "/x/whiteboard", args: ["--a"] },
         env,
         homeDir,
       }),
-    ).toEqual({ file: "/x/review", args: ["--a"] });
+    ).toEqual({ file: "/x/whiteboard", args: ["--a"] });
     expect(
-      resolveTraceCommand({ explicit: "/opt/review", env, homeDir }),
-    ).toEqual({ file: "/opt/review" });
+      resolveTraceCommand({ explicit: "/opt/whiteboard", env, homeDir }),
+    ).toEqual({ file: "/opt/whiteboard" });
     expect(
       resolveTraceCommand({
-        env: { WHITEBOARD_TRACE_COMMAND: "/env/review" },
+        env: { WHITEBOARD_TRACE_COMMAND: "/env/whiteboard" },
         homeDir,
       }),
-    ).toEqual({ file: "/env/review" });
+    ).toEqual({ file: "/env/whiteboard" });
     expect(resolveTraceCommand({ env, homeDir })).toEqual({
       file: "whiteboard",
     });

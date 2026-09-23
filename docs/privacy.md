@@ -5,87 +5,87 @@ Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
 -> Explicit bug reports -> Opt-out -> Developer inspection.
 -->
 
-Review reads source code and agent-authored documents from your machine. This
+Whiteboard reads source code and agent-authored documents from your machine. This
 page separates the local product data, anonymous telemetry, connected coding
 agents, and explicit bug reports.
 
 Read the [dev.fast privacy policy](https://dev.fast/privacy) for the public
-policy governing Review.
+policy governing Whiteboard.
 
 For the exact event schemas and implementation references, see the full
 [telemetry reference](telemetry.md).
 
 ## What stays local
 
-Review stores authored Reviews under
+Whiteboard stores authored sessions under
 `~/.dev/reviews/<uuid>/` and keeps desktop discovery and
 state under `~/.dev/review-desktop/` by default.
 
 Passive product telemetry never includes:
 
 - source code or changed-file diffs;
-- paths, repository names, Review titles, refs, revision hashes, symbols, or
+- paths, repository names, Session titles, refs, revision hashes, symbols, or
   declarations;
 - review document text;
 - prompts or model output; or
-- email, username, hostname, machine identifier, raw Review UUID, or coding-agent
+- email, username, hostname, machine identifier, raw session UUID, or coding-agent
   session identifier.
 
-The canvas talks to Review's local server. It does not connect directly to
+The canvas talks to Whiteboard's local server. It does not connect directly to
 PostHog.
 
 ## Anonymous product telemetry
 
-Anonymous telemetry is enabled by default. Review creates a random installation
+Anonymous telemetry is enabled by default. Whiteboard creates a random installation
 UUID and does not associate it with a person profile.
 
-Telemetry can include closed enums, booleans, counts, durations, the Review and
+Telemetry can include closed enums, booleans, counts, durations, the Whiteboard and
 app versions, operating-system and architecture categories, feature usage,
 opaque lifecycle-correlation identifiers, and sanitized product errors.
-Review derives Review and presentation correlation IDs locally with a
-namespaced HMAC keyed by the random installation ID. Raw Review UUIDs and
-Desktop Review-session IDs never reach PostHog. PostHog may derive coarse
+Whiteboard derives session and presentation correlation IDs locally with a
+namespaced HMAC keyed by the random installation ID. Raw session UUIDs and
+Desktop presentation IDs never reach PostHog. PostHog may derive coarse
 location at ingestion, but the project discards the source IP.
 
 Pending events are stored in a bounded local queue under
-`~/.dev/telemetry/events` by default. Review retries temporary
+`~/.dev/telemetry/events` by default. Whiteboard retries temporary
 delivery failures and removes pending events after seven days.
 
 ## Error reports
 
-Review can automatically report failures in its own app, canvas, server, or
+Whiteboard can automatically report failures in its own app, canvas, server, or
 background process. These reports may contain an error class, a cleaned message,
-a one-way fingerprint, and up to ten stack frames from Review's own program.
+a one-way fingerprint, and up to ten stack frames from Whiteboard's own program.
 
 Update telemetry records when an update is staged, when that exact target next
 launches, or when checking, downloading, or installing fails. For a macOS
-install failure, Review reads only log bytes appended after that update was
+install failure, Whiteboard reads only log bytes appended after that update was
 staged, extracts one concise ShipIt error summary, and passes it through the
 same local cleaner. The raw ShipIt log is never stored in telemetry or sent.
 
-Before sending, Review cleans paths, home and temporary directories, web
+Before sending, Whiteboard cleans paths, home and temporary directories, web
 addresses, email addresses, and known secret formats. It drops repository,
 dependency, and extension stack frames. It also drops any message that quotes a
-Review document or does not pass a second local path-and-secret check.
+session document or does not pass a second local path-and-secret check.
 
 ## User-initiated bug reports
 
 The **Report bug** dialog sends a report only after you select **Send**.
 
 Under **Include diagnostic attachments**, three independent checkboxes control
-whether Review attaches:
+whether Whiteboard attaches:
 
-- **Review**: the current Review source and head software-map source
+- **Session**: the current session source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
 - **Agent session trace**: the complete local trace records for the session that
-  authored the Review and available ancestor-session history through each fork
+  authored the session and available ancestor-session history through each fork
   point
 
-The Review and changed-file diff attachments are selected by default. **The
+The session and changed-file diff attachments are selected by default. **The
 agent session trace is off by default and is included only when you explicitly
 select it for that report.**
 
-Review captures a screenshot before the dialog opens, so the dialog itself is
+Whiteboard captures a screenshot before the dialog opens, so the dialog itself is
 not in the image. The screenshot is attached by default with a visible preview.
 You can remove it with the × button, or paste or drag an image to replace it.
 Pasted and dropped PNG, JPEG, and WebP images are normalized to JPEG and limited
@@ -99,7 +99,7 @@ up to ten of the most recently modified subagent trace tails. This data can
 contain prompts, model output, source code, file paths, URLs, and email
 addresses.
 
-Review replaces recognizable Google API keys, JWTs, Slack tokens, GitHub
+Whiteboard replaces recognizable Google API keys, JWTs, Slack tokens, GitHub
 tokens, and Microsoft Entra tokens before attaching the trace. Other
 credentials or secrets may remain. Passive telemetry and trace-sync settings do
 not enable this attachment.
@@ -110,17 +110,17 @@ versions, operating-system category, a random app-session ID, and up to 20
 sanitized JavaScript error class names seen during that canvas session. It does
 not include error messages in that list.
 
-If a selected Review, map, or diff attachment is unavailable, Review omits it
+If a selected Whiteboard, map, or diff attachment is unavailable, Whiteboard omits it
 and sends the other available data. The source session's own trace is sent
-complete or the report fails. Ancestor history is sent as far as Review can
+complete or the report fails. Ancestor history is sent as far as Whiteboard can
 read it, and the report names any ancestor it omits. If the compressed report
-would exceed the upload limit, Review drops the trace and sends the rest.
+would exceed the upload limit, Whiteboard drops the trace and sends the rest.
 
-The report never attaches Review metadata. Review stores completed reports in a private /dev/fast Cloudflare R2
+The report never attaches Whiteboard metadata. Whiteboard stores completed reports in a private /dev/fast Cloudflare R2
 bucket and deletes them after 90 days.
 
 An explicit bug report is separate from passive telemetry and is sent even when
-anonymous telemetry is disabled. Review shows the attachment choices before
+anonymous telemetry is disabled. Whiteboard shows the attachment choices before
 submission.
 
 ## Hosted trace store
@@ -132,12 +132,12 @@ hosted consent.
 
 Trace capture is off by default. Hosted uploads start when this machine's
 selected store is the hosted store and the repository is allowed. Selection
-happens explicitly with `review trace storage use hosted`, or implicitly when
+happens explicitly with `whiteboard trace storage use hosted`, or implicitly when
 a machine that has no bucket configured allows a repository with
-`review trace allow`. After that, complete agent session transcripts for the
+`whiteboard trace allow`. After that, complete agent session transcripts for the
 allowed repositories are uploaded to the /dev/fast hosted store at the origin
 you logged in to. One conversation can contain work from several
-repositories; Review publishes a session automatically only when its captured
+repositories; Whiteboard publishes a session automatically only when its captured
 provenance places it in the allowed repository, and a commit trailer alone
 never authorizes an upload. Transcripts can contain prompts, model output,
 source code, file paths, URLs, and email addresses. Each publication also
@@ -149,10 +149,10 @@ Read-only collaborators, former contributors, and the public cannot. Making a
 repository public does not widen access. Deleting a store is admin-only and is
 a logical deletion followed by operator cleanup; issued download links and
 retained object versions expire on a bounded schedule rather than instantly.
-`review trace deny` removes this machine's consent for the repository and keeps
-prior uploads. `review trace store delete` asks the store to delete the
+`whiteboard trace deny` removes this machine's consent for the repository and keeps
+prior uploads. `whiteboard trace store delete` asks the store to delete the
 repository's hosted copies (admins only) and leaves the consent as it is.
-`review logout` forgets the local login only.
+`whiteboard logout` forgets the local login only.
 
 Objects are encrypted with server-controlled keys, so /dev/fast can decrypt
 stored traces. The GitHub OAuth app requests the `repo` scope to check access.
@@ -160,26 +160,26 @@ S3/R2 bucket storage sends nothing to /dev/fast.
 
 ## Turn telemetry off
 
-In Review Desktop, open **Preferences → Settings** and disable **Share anonymous
+In Whiteboard, open **Preferences → Settings** and disable **Share anonymous
 usage data**. That setting controls both the app and CLI on the same
 installation.
 
 For a process or headless environment, set a supported opt-out variable:
 
 ```sh
-DO_NOT_TRACK=1 review info
+DO_NOT_TRACK=1 whiteboard info
 ```
 
-`DNT=1` and the Review-specific variables listed in the
+`DNT=1` and the Whiteboard-specific variables listed in the
 [telemetry reference](telemetry.md#identity-and-control) are also supported.
 
 ## Inspect events during development
 
-Set the debug sink before launching Review Desktop:
+Set the debug sink before launching Whiteboard:
 
 ```sh
-DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG=1 review app launch
+DEV_FAST_WHITEBOARD_TELEMETRY_DEBUG=1 whiteboard app launch
 ```
 
-Review prints each event to stderr instead of sending it to PostHog. See
+Whiteboard prints each event to stderr instead of sending it to PostHog. See
 [Developer sink](telemetry.md#developer-sink) for its exact behavior.

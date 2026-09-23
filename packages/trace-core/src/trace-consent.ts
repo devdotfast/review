@@ -6,7 +6,7 @@
 // origins it may publish to. Consent never selects a store by itself.
 
 import { normalizeStoreOrigin } from "./store-origin";
-import { devReviewHome } from "./trace-home";
+import { devWhiteboardHome } from "./trace-home";
 import type {
   TraceConfigFile,
   TraceRepositoryEntry,
@@ -34,7 +34,7 @@ export interface TraceUserConfig {
   repositories: TraceRepositoryConsent[];
 }
 
-export function traceUserConfigPath(devHome = devReviewHome()): string {
+export function traceUserConfigPath(devHome = devWhiteboardHome()): string {
   return traceConfigPath({ devHome });
 }
 
@@ -48,7 +48,7 @@ export async function readTraceUserConfig(
 async function readTraceUserConfigFile(
   devHome?: string,
 ): Promise<{ file: TraceConfigFile; consent: TraceUserConfig }> {
-  const file = readTraceConfigFile({ devHome: devHome ?? devReviewHome() });
+  const file = readTraceConfigFile({ devHome: devHome ?? devWhiteboardHome() });
 
   if (file.error) throw new TraceConfigurationError(file.error);
 
@@ -101,7 +101,7 @@ function toConfigEntry(entry: TraceRepositoryConsent): TraceRepositoryEntry {
  */
 export async function allowTraceRepository(
   entry: { repositoryId: number; name: string; origin: string },
-  devHome = devReviewHome(),
+  devHome = devWhiteboardHome(),
 ): Promise<TraceUserConfig> {
   const origin = normalizeStoreOrigin(entry.origin);
 
@@ -143,7 +143,7 @@ export async function allowTraceRepository(
  */
 export async function denyTraceRepository(
   repository: { name: string; repositoryId?: number | null },
-  devHome = devReviewHome(),
+  devHome = devWhiteboardHome(),
 ): Promise<boolean> {
   const { file, consent: config } = await readTraceUserConfigFile(devHome);
 

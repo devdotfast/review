@@ -4,8 +4,8 @@ import path from "node:path";
 
 import { gitAt } from "@dev.fast/local-vcs";
 import {
-  type ReviewAgentTraceSession,
   type SessionMeta,
+  type WhiteboardAgentTraceSession,
   sessionIdSchema,
 } from "@dev.fast/trace-protocol";
 
@@ -57,7 +57,7 @@ const REMOTE_HEAD_TTL_MS = 15_000;
 // Reserved sample ID: the tutorial works offline without trace capture setup.
 export const TUTORIAL_TRACE_SESSION_ID = "review-tutorial-checkout";
 
-export type ReviewTraceSessionDescriptor = ReviewAgentTraceSession;
+export type ReviewTraceSessionDescriptor = WhiteboardAgentTraceSession;
 
 /**
  * How fresh a loaded trace is: `current` when the store confirmed it,
@@ -143,7 +143,7 @@ function freshnessKey(
 }
 
 /** Describes sessions for a change range using trailers, then bounded store-index and pull-request fallbacks when none are found. */
-export async function listReviewTraceSessions(input: {
+export async function listWhiteboardTraceSessions(input: {
   rootPath: string;
   baseCommit: string;
   headCommit: string;
@@ -216,7 +216,7 @@ export async function describeTraceSession(
 }
 
 /** Loads the offline tutorial or a store-compatible normalized trace, preserving freshness and offline fallback status; store refusals propagate. */
-export async function loadReviewAgentTrace(input: {
+export async function loadWhiteboardAgentTrace(input: {
   sessionId: string;
   trace?: string;
   commits?: ReviewTraceCommitRef[];
@@ -515,7 +515,7 @@ export async function pullReviewTraceCorpus(input: {
   const paths: string[] = [];
 
   for (const sessionRef of input.sessions) {
-    const main = await loadReviewAgentTrace({
+    const main = await loadWhiteboardAgentTrace({
       sessionId: sessionRef.id,
       repo: input.repo,
       refresh: true,
@@ -533,7 +533,7 @@ export async function pullReviewTraceCorpus(input: {
 
     if (!input.mainOnly) {
       for (const traceName of sessionRef.traces ?? main.subagents) {
-        const subagent = await loadReviewAgentTrace({
+        const subagent = await loadWhiteboardAgentTrace({
           sessionId: sessionRef.id,
           trace: traceName,
           repo: input.repo,

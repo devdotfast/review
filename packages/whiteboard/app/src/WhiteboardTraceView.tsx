@@ -1,0 +1,468 @@
+import { type WhiteboardAgentTraceSession } from "@dev.fast/whiteboard-protocol";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { useWhiteboardSession } from "./host/whiteboard-session";
+import { ChevronIcon, TraceDocument, formatDuration } from "./trace-document";
+import { TraceRuler } from "./trace-ruler";
+import {
+  type AgentTraceStorage,
+  type LoadedAgentTrace,
+  makeAgentTraceKey,
+  useAgentTrace,
+} from "./use-agent-trace";
+import { type TraceListState, useTraceList } from "./use-trace-list";
+
+export interface TraceSelection {
+  sessionId: string;
+  trace?: string;
+  eventIndex?: number;
+}
+
+export function WhiteboardTraceView({
+  initialSelection,
+  storedList: providedList,
+}: {
+  initialSelection?: TraceSelection;
+  storedList?: TraceListState;
+}) {
+  const session = useWhiteboardSession();
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(() =>
+    initialSelection
+      ? makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace)
+      : null,
+  );
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  // Read override only; capture and consent are unchanged.
+  const [storageOverride, setStorageOverride] =
+    useState<AgentTraceStorage | null>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target;
+
+      if (
+        pickerRef.current &&
+        target instanceof Node &&
+        !pickerRef.current.contains(target)
+      ) {
+        setPickerOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [pickerOpen]);
+
+  useEffect(() => {
+    if (initialSelection) {
+      setSelectedKey(
+        makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace),
+      );
+    }
+  }, [initialSelection]);
+
+  const storedList = useTraceList(storageOverride, providedList);
+
+  const list: TraceListState = useMemo(() => {
+    const retained = [
+      ...new Map(
+        [...(session.review?.traces.values() ?? [])].map((trace) => [
+          trace.session.sessionId,
+          trace.session,
+        ]),
+      ).values(),
+    ];
+
+    if (storedList.status === "loaded") {
+      const ids = new Set(retained.map((trace) => trace.sessionId));
+
+      return {
+        ...storedList,
+        sessions: [
+          ...retained,
+          ...storedList.sessions.filter((trace) => !ids.has(trace.sessionId)),
+        ],
+      };
+    }
+
+    return retained.length > 0
+      ? {
+          status: "loaded",
+          configured: true,
+          storage: null,
+          sources: [],
+          storageError: storedList.status === "error" ? storedList.error : null,
+          sessions: retained,
+        }
+      : storedList;
+  }, [session.review, storedList]);
+
+  const sessions = list.status === "loaded" ? list.sessions : [];
+
+  // Build flat trace targets (main trace + each subagent)
+  const targets = useMemo(() => {
+    const result: Array<{
+      key: string;
+      sessionId: string;
+      trace?: string;
+      title: string;
+      harness: WhiteboardAgentTraceSession["harness"];
+      isSubagent?: boolean;
+      available: boolean;
+      notSynced?: boolean;
+      commits: WhiteboardAgentTraceSession["commits"];
+    }> = [];
+
+    for (const s of sessions) {
+      const title = s.title || s.commits[0]?.subject || "Agent session";
+      result.push({
+        key: s.sessionId,
+        sessionId: s.sessionId,
+        title,
+        harness: s.harness,
+        available: s.available,
+        notSynced: s.notSynced,
+        commits: s.commits,
+      });
+
+      for (const sub of s.subagents ?? []) {
+        const key = `${s.sessionId}:${sub}`;
+        result.push({
+          key,
+          sessionId: s.sessionId,
+          trace: sub,
+          title: sub,
+          harness: s.harness,
+          isSubagent: true,
+          available: s.available,
+          commits: s.commits,
+        });
+      }
+    }
+
+    return result;
+  }, [sessions]);
+
+  const activeTarget = useMemo(
+    () =>
+      targets.find((t) => t.key === selectedKey) ??
+      targets.find((t) => t.available) ??
+      targets[0] ??
+      null,
+    [targets, selectedKey],
+  );
+
+  const activeKey = activeTarget?.key ?? null;
+
+  const detail = useAgentTrace(
+    activeTarget?.sessionId,
+    activeTarget?.trace,
+    storageOverride,
+  );
+
+  // Keep source controls visible during refetch.
+  const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
+  useEffect(() => {
+    if (list.status === "loaded" && list.sources.length > 0) {
+      setSourceChoices(list.sources);
+    }
+  }, [list]);
+
+  const activeSource =
+    storageOverride ?? (list.status === "loaded" ? list.storage : null);
+
+  const activeTrace = detail.status === "loaded" ? detail.trace : undefined;
+
+  const activeHarness =
+    activeTrace?.session.harness ?? activeTarget?.harness ?? "unknown";
+
+  const activeTitle = activeTrace?.title ?? activeTarget?.title ?? "";
+
+  return (
+    <div className="whiteboard-trace-view">
+      {detail.status === "loaded" && (
+        <TraceRuler events={detail.trace.events} />
+      )}
+      <div className="whiteboard-trace-column">
+        {list.status === "loading" && (
+          <p className="whiteboard-trace-note">Resolving agent sessions…</p>
+        )}
+        {list.status === "error" && (
+          <p className="whiteboard-trace-note whiteboard-trace-note--error">
+            {list.error}
+          </p>
+        )}
+        {sourceChoices.length > 1 && (
+          <label className="whiteboard-trace-source">
+            <span className="whiteboard-trace-kicker">Trace source</span>
+            <select
+              aria-label="Trace source"
+              value={activeSource ?? ""}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setStorageOverride(
+                  value === "s3" || value === "hosted" ? value : null,
+                );
+              }}
+            >
+              {sourceChoices.map((source) => (
+                <option key={source} value={source}>
+                  {source === "s3" ? "S3/R2 bucket" : "Hosted store"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {list.status === "loaded" &&
+          (list.storageError !== null || !list.configured) && (
+            <div className="whiteboard-trace-unconfigured">
+              <span className="whiteboard-trace-kicker">Agent trace</span>
+              {list.storageError !== null ? (
+                <p>{list.storageError}</p>
+              ) : (
+                <>
+                  <p>Agent traces are not configured.</p>
+                  <p className="whiteboard-trace-note">
+                    Open Agent Setup in Whiteboard to enable trace capture.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        {list.status === "loaded" &&
+          list.configured &&
+          list.storageError === null &&
+          sessions.length === 0 && (
+            <div className="whiteboard-trace-empty">
+              <span className="whiteboard-trace-kicker">Agent trace</span>
+              <p>No agent sessions are recorded for this change range.</p>
+              <p className="whiteboard-trace-note">
+                Sessions attach automatically through{" "}
+                <code>Agent-Session:</code> commit trailers when an agent
+                commits with repository hooks installed.
+              </p>
+            </div>
+          )}
+        {targets.length > 1 && activeTarget && (
+          <div className="whiteboard-trace-picker" ref={pickerRef}>
+            <button
+              type="button"
+              className="whiteboard-trace-picker-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((open) => !open)}
+            >
+              <span className="whiteboard-trace-picker-harness">
+                {harnessTag(activeHarness, activeTarget.isSubagent)}
+              </span>
+              <span className="whiteboard-trace-picker-title">
+                {activeTitle}
+              </span>
+              <span className="whiteboard-trace-picker-chevron">
+                <ChevronIcon />
+              </span>
+            </button>
+            {pickerOpen && (
+              <div className="whiteboard-trace-picker-menu" role="listbox">
+                {targets.map((target) => {
+                  const isActive = target.key === activeKey;
+                  const targetHarness = target.harness;
+                  const itemTitle = target.title;
+
+                  return (
+                    <button
+                      key={target.key}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      className={
+                        isActive
+                          ? "whiteboard-trace-picker-item whiteboard-trace-picker-item--active"
+                          : target.isSubagent
+                            ? "whiteboard-trace-picker-item whiteboard-trace-picker-item--subagent"
+                            : "whiteboard-trace-picker-item"
+                      }
+                      disabled={!target.available}
+                      onClick={() => {
+                        setSelectedKey(target.key);
+                        setPickerOpen(false);
+                      }}
+                    >
+                      <div className="whiteboard-trace-picker-item-left">
+                        <span className="whiteboard-trace-picker-item-harness">
+                          {harnessTag(targetHarness, target.isSubagent)}
+                        </span>
+                        <span className="whiteboard-trace-picker-item-title">
+                          {itemTitle}
+                        </span>
+                      </div>
+                      {target.notSynced ? (
+                        <span className="whiteboard-trace-picker-item-badge">
+                          not synced
+                        </span>
+                      ) : isActive ? (
+                        <span className="whiteboard-trace-picker-item-check">
+                          ✓
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+        {detail.status === "loading" && (
+          <p className="whiteboard-trace-note">Loading trace…</p>
+        )}
+        {detail.status === "error" && (
+          <p className="whiteboard-trace-note whiteboard-trace-note--error">
+            {detail.error}
+          </p>
+        )}
+        {detail.status === "loaded" &&
+          detail.trace.cacheStatus &&
+          detail.trace.cacheStatus !== "current" && (
+            <p className="whiteboard-trace-note">
+              {detail.trace.cacheStatus === "offline"
+                ? "Showing a saved copy; the trace store did not answer."
+                : "Showing the last saved copy; the latest download failed."}
+            </p>
+          )}
+        {detail.status === "loaded" && (
+          <WhiteboardTraceDocument
+            trace={detail.trace}
+            session={
+              sessions.find(
+                (s) => s.sessionId === detail.trace.session.sessionId,
+              ) ?? detail.trace.session
+            }
+            targetEventIndex={
+              initialSelection &&
+              makeAgentTraceKey(
+                initialSelection.sessionId,
+                initialSelection.trace,
+              ) === activeKey
+                ? initialSelection.eventIndex
+                : undefined
+            }
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function harnessLabel(harness: WhiteboardAgentTraceSession["harness"]): string {
+  if (harness === "claude-code") return "claude";
+
+  if (harness === "codex") return "codex";
+
+  if (harness === "opencode") return "opencode";
+
+  if (harness === "pi") return "pi";
+
+  return "agent";
+}
+
+function harnessTag(
+  harness: WhiteboardAgentTraceSession["harness"],
+  isSubagent?: boolean,
+): string {
+  if (isSubagent) {
+    if (harness === "pi") return "PI SUB";
+
+    if (harness === "claude-code") return "CLAUDE SUB";
+
+    if (harness === "codex") return "CODEX SUB";
+
+    if (harness === "opencode") return "OPENCODE SUB";
+
+    return "SUBAGENT";
+  }
+
+  if (harness === "pi") return "PI";
+
+  if (harness === "claude-code") return "CLAUDE";
+
+  if (harness === "codex") return "CODEX";
+
+  if (harness === "opencode") return "OPENCODE";
+
+  return "AGENT";
+}
+
+export function WhiteboardTraceDocument({
+  trace,
+  session,
+  targetEventIndex,
+  highlightQuote,
+}: {
+  trace: LoadedAgentTrace;
+  session: WhiteboardAgentTraceSession;
+  targetEventIndex?: number;
+  highlightQuote?: string;
+}) {
+  const duration =
+    trace.activeMs !== null
+      ? formatDuration(trace.activeMs)
+      : trace.startedAt && trace.endedAt
+        ? formatDuration(
+            Date.parse(trace.endedAt) - Date.parse(trace.startedAt),
+          )
+        : null;
+
+  return (
+    <>
+      <header className="whiteboard-trace-header">
+        <span className="whiteboard-trace-kicker">Agent trace</span>
+        <h2 className="whiteboard-trace-title">
+          {trace.title ??
+            firstCommitSubject(session) ??
+            (trace.trace ? `Subagent: ${trace.trace}` : "Agent session")}
+        </h2>
+        <div className="whiteboard-trace-meta">
+          <span>{harnessLabel(trace.session.harness)}</span>
+          <span className="whiteboard-trace-meta-sep">·</span>
+          <span>{trace.session.sessionId.slice(0, 8)}</span>
+          {trace.trace && (
+            <>
+              <span className="whiteboard-trace-meta-sep">·</span>
+              <span>{trace.trace}</span>
+            </>
+          )}
+          <span className="whiteboard-trace-meta-sep">·</span>
+          <span>
+            {trace.userTurns} {trace.userTurns === 1 ? "turn" : "turns"}
+          </span>
+          <span className="whiteboard-trace-meta-sep">·</span>
+          <span>{trace.toolCalls} tool calls</span>
+          {duration && (
+            <>
+              <span className="whiteboard-trace-meta-sep">·</span>
+              <span>worked {duration}</span>
+            </>
+          )}
+        </div>
+      </header>
+      <TraceDocument
+        events={trace.events}
+        targetEventIndex={targetEventIndex}
+        highlightQuote={highlightQuote}
+      />
+    </>
+  );
+}
+
+function firstCommitSubject(
+  session: WhiteboardAgentTraceSession,
+): string | null {
+  return session.commits[0]?.subject ?? null;
+}

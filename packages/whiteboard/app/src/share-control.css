@@ -1,0 +1,79 @@
+.whiteboard-share-button[aria-expanded="true"] {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-share-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px var(--shadow-color-strong);
+  color: var(--chrome-fg);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+}
+
+.whiteboard-share-popover p {
+  margin: 0;
+}
+
+.whiteboard-share-status {
+  color: var(--chrome-fg-muted);
+}
+
+.whiteboard-share-status a {
+  color: var(--accent);
+}
+
+.whiteboard-share-error {
+  color: var(--vscode-errorForeground, #f48771);
+}
+
+.whiteboard-share-link {
+  width: 100%;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--chrome-control-radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.whiteboard-share-link:focus-visible {
+  border-color: var(--chrome-active-border);
+  outline: none;
+}
+
+.whiteboard-share-action {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.whiteboard-share-action:hover:not(:disabled),
+.whiteboard-share-action:focus-visible:not(:disabled) {
+  filter: brightness(1.1);
+  outline: none;
+}
+
+.whiteboard-share-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

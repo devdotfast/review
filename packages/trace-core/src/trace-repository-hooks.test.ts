@@ -31,7 +31,7 @@ describe("trace repository hooks", () => {
     const enabled = await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir }),
-      reviewCommand: {
+      whiteboardCommand: {
         file: "/opt/dev traces/review",
         args: ["--home", "/x"],
       },
@@ -55,7 +55,7 @@ describe("trace repository hooks", () => {
     const repaired = await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir }),
-      reviewCommand: "review",
+      whiteboardCommand: "review",
     });
 
     expect(repaired.command).toBe("'review'");
@@ -71,13 +71,13 @@ describe("trace repository hooks", () => {
     const first = await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir }),
-      reviewCommand: "/opt/review/bin/review",
+      whiteboardCommand: "/opt/review/bin/review",
     });
 
     const second = await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir }),
-      reviewCommand: "/opt/review/bin/review",
+      whiteboardCommand: "/opt/review/bin/review",
     });
 
     expect(first.enabled).toBe(true);
@@ -102,7 +102,7 @@ describe("trace repository hooks", () => {
     await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir }),
-      reviewCommand: "review",
+      whiteboardCommand: "review",
     });
     await runGit(repo, [
       "config",
@@ -134,7 +134,7 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-it("keeps a working repository hook executable when a second Review install refreshes it", async () => {
+it("keeps a working repository hook executable when a second Whiteboard install refreshes it", async () => {
   const { homeDir, repo } = await makeRepository();
   const desktop = path.join(homeDir, "desktop/review");
   const npm = path.join(homeDir, "npm/review");
@@ -155,7 +155,7 @@ it("keeps a working repository hook executable when a second Review install refr
     const initial = await enableTraceRepository({
       cwd: repo,
       scope,
-      reviewCommand: first,
+      whiteboardCommand: first,
     });
 
     const hook = path.join(initial.managedHooksPath!, "pre-push");
@@ -164,7 +164,7 @@ it("keeps a working repository hook executable when a second Review install refr
     const refreshed = await enableTraceRepository({
       cwd: repo,
       scope,
-      reviewCommand: second,
+      whiteboardCommand: second,
     });
 
     expect(refreshed.command).toBe(initial.command);
@@ -176,7 +176,7 @@ it("keeps a working repository hook executable when a second Review install refr
   const repaired = await enableTraceRepository({
     cwd: repo,
     scope,
-    reviewCommand: desktop,
+    whiteboardCommand: desktop,
   });
 
   expect(repaired.command).toBe(`'${desktop}'`);

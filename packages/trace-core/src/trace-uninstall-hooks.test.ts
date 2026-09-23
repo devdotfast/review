@@ -52,7 +52,7 @@ it("releases Review hooks across registered repositories while preserving login 
     const repo = path.join(home, String(repositories.length));
     await mkdir(repo);
     execFileSync("git", ["init", "-q", repo]);
-    await enableTraceRepository({ cwd: repo, scope, reviewCommand: owner });
+    await enableTraceRepository({ cwd: repo, scope, whiteboardCommand: owner });
     repositories.push(repo);
   }
 

@@ -2,7 +2,7 @@
 
 The post-comments UI cleanup leaves these candidates in place:
 
-- Document rendering uses `createElement` because tag and component identity come from document data. The remaining cosmetic call sites in `agent-markdown.tsx` and `review-view-state.ts` can change when those files next need editing.
+- Document rendering uses `createElement` because tag and component identity come from document data. The remaining cosmetic call sites in `agent-markdown.tsx` and `whiteboard-view-state.ts` can change when those files next need editing.
 - The Diff tab opens an editor; the Files and commit-scoped Files views already share one implementation.
 - Per-editor bridge handles own height, error, find, and disposal behavior. A canvas-wide mount API would need to preserve these lifetimes.
 - Separate review state and action contexts isolate open peeks from unrelated updates.
@@ -17,14 +17,14 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 ## E: canonical source ranges
 
 - `AnchorRef.peek` is the canonical `Source` (`{ side, file, fromLine, toLine }`)
-  from `packages/review/src/source.ts`. The authoring *input* (`peek: { file,
+  from `packages/whiteboard/src/source.ts`. The authoring *input* (`peek: { file,
   fromLine, toLine, graph?, theme? }`) is unchanged; `graph` maps to `side`
   (default `head`) and `theme` is accepted but no longer carried.
 - Sealed bundles written before this change store
   `{ __kind: "code-peek-ref", props, resolution: null }`. The server upgrades
-  them when it reads the bundle (`readReviewDocumentBundle`); files on disk
+  them when it reads the bundle (`readWhiteboardDocumentBundle`); files on disk
   are not rewritten.
-- `ReviewDefinitionEnvironment.resolveCodePeek` became `validateCodePeek`,
+- `WhiteboardDefinitionEnvironment.resolveCodePeek` became `validateCodePeek`,
   returning `void`; `CodePeekResolutionContext` is `CodePeekValidationContext`.
 - Path, bounds and blank-range checks are shared by legacy publish and JSON
   accept (`source.ts`). Legacy still reads the pinned worktree; JSON reads the
@@ -35,12 +35,12 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   and `CodePeekGroup` take `Source` values. JSON `code_peek` blocks render
   directly, with no source-text fetch during document load.
 - No command runs an off-screen render: every block kind's schema and check
-  in `review-api/blocks/` run in the store before a write.
+  in `session-api/blocks/` run in the store before a write.
 
 ## F: canonical call-stack frames
 
 - `CallStackDiff` documents store frames (`{ id, key?, source, label?, via? }`
-  from `review-api/document.ts`) on both sides. Legacy anchor lists and
+  from `session-api/document.ts`) on both sides. Legacy anchor lists and
   `calls()` hops convert once on the server: at publish in materialize, and
   for sealed bundles in the read-time upgrade walker. The anchor id becomes
   both `id` and matching `key`, so shared frames still align by anchor.
@@ -81,9 +81,9 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   `DbWrite` child nodes lower into that block once on the server
   (`database-lens-block.ts`): at publish in materialize and for sealed bundles
   in the read-time upgrade walker. The marker nodes do not survive into the
-  document; `reviewComponentDataSchemas` and the app registry no longer list
-  them (`ReviewDocumentComponentName` is the document's component set, while
-  `ReviewAuthoringComponentName` still types authored MDX).
+  document; `whiteboardComponentDataSchemas` and the app registry no longer list
+  them (`WhiteboardDocumentComponentName` is the document's component set, while
+  `WhiteboardAuthoringComponentName` still types authored MDX).
 - Ids are kept: the lens id is `db:<slug(title)>`, use cases keep their authored
   id, and an operation's id is its anchor id, so tour state and deep links
   still resolve.
@@ -100,9 +100,9 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 
 ## I: one document input
 
-- The app registry satisfies `ReviewDocumentComponentRegistry`, typed by the
+- The app registry satisfies `WhiteboardDocumentComponentRegistry`, typed by the
   document props each sealed node carries; the authoring registry type still
-  describes authored MDX only. Prose (`AnchorLink`, `ReviewSection`), trace
+  describes authored MDX only. Prose (`AnchorLink`, `WhiteboardSection`), trace
   quotes and tutorial components take document props and no longer parse
   authoring schemas per render.
 - The side panel and guided tours key on their own `PeekAnchor` contract
@@ -116,12 +116,12 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 - Trace-quote containment is shared by legacy publish and JSON accept
   (`evidence.ts`): both compare whitespace-normalized text. Software-map pin
   checks stay per path because only JSON reviews carry pins in the document.
-- `git grep 'src/authoring"' packages/review/app/src` (non-test) now lists only
+- `git grep 'src/authoring"' packages/whiteboard/app/src` (non-test) now lists only
   the test utility that builds a legacy definition session.
 
 ## Heading ownership
 
-- `ReviewSection` renders its own `<h2>` from `title`; hydration drops the
+- `WhiteboardSection` renders its own `<h2>` from `title`; hydration drops the
   heading child that published bundles carry.
 - Heading ids are assigned once, in the projection pass, to `h2`/`h3`
   elements and to sections; the Contents rail reads the same ids. They are

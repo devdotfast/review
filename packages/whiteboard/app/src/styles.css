@@ -1,0 +1,7978 @@
+@import "./fonts/fonts.css";
+.whiteboard-canvas-root {
+  --ghost: #343a46;
+  --well: #1a1f29;
+  --raised: #1a1f29;
+  --tray: #12161e;
+  --chevron-down: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 4.25 6 8l3.5-3.75' fill='none' stroke='%239AA0AB' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --check-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M2 5.2 4.2 7.4 8 3.2' fill='none' stroke='%230C0F15' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --marker-tint: rgba(91, 124, 255, 0.14);
+  --marker-glow: rgba(91, 124, 255, 0.3);
+  --board-grid: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='1' cy='1' r='0.8' fill='%231A1F2A'/></svg>");
+  --whiteboard-header-height: 35px;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-display: var(--font-mono);
+  --transparent: transparent;
+  /* Ground bridge. Same principle as the --chrome-* tokens on .whiteboard-app: the
+     canvas mounts straight into the Code OSS DOM, so --vscode-* is in scope and
+     the neutral surfaces can resolve to the active color theme, with the canvas
+     palette as the standalone fallback. Unlike --chrome-*, these can live on
+     .whiteboard-canvas-root because every fallback is a literal rather than another
+     canvas token, so nothing is frozen by declaring them this far up.
+     Only neutrals bridge; the accent, diff and syntax colors stay the canvas's
+     own. The rules bridge editorWidget.border rather than widget.border: the
+     latter is null on both stock themes, so its variable is never emitted and
+     the dark fallback would leak into light. */
+  --bg: var(--vscode-editor-background, #0c0f15);
+  --surface: var(--vscode-editor-background, #0c0f15);
+  --surface-raised: var(--vscode-editorWidget-background, #1a1f29);
+  --control-bg: var(--vscode-input-background, #1a1f29);
+  --ink: var(--vscode-editor-foreground, #eef0f4);
+  --ink-muted: var(--vscode-descriptionForeground, #9199a8);
+  --ink-faint: var(--vscode-disabledForeground, #5f6776);
+  --rule: var(--vscode-panel-border, #262c37);
+  --rule-soft: var(--vscode-editorWidget-border, #39404d);
+  /* Affordances that used to be hover-only (disclosure chevrons) rest at
+     reduced strength instead of hiding, so the surface still
+     advertises them. Hover/focus escalates them to full opacity. */
+  --affordance-rest-opacity: 0.45;
+  /* The canvas shares the workbench DOM, but selection already reads through
+     its background and row highlights, so suppress the inherited
+     focus/list/input chrome. The map is the exception: its selection ring is
+     the only cue a node is selected, so it draws in the accent. */
+  --selection: var(--accent);
+  --selection-shadow: color-mix(in srgb, var(--accent) 40%, transparent);
+  --map-storage-detail: rgba(138, 183, 198, 0.56);
+  --map-storage-fill-detail: rgba(138, 183, 198, 0.16);
+  --map-storage-border: #a4cedb;
+  --vscode-focusBorder: transparent;
+  --vscode-list-focusOutline: transparent;
+  --vscode-list-focusAndSelectionOutline: transparent;
+  --vscode-list-inactiveFocusOutline: transparent;
+  --vscode-inputOption-activeBorder: transparent;
+  --accent: #5b7cff;
+  --accent-soft: #1a2240;
+  --on-accent: #ffffff;
+  --on-accent-wash: rgba(255, 255, 255, 0.22);
+  --on-warning: #1a1405;
+  --rpc: #8fa6ff;
+  --text-selection-bg: rgba(91, 124, 255, 0.35);
+  --text-selection-color: #ffffff;
+  --canvas-grid: #1a1f2a;
+  --minimap-mask: rgba(12, 15, 21, 0.78);
+  --minimap-node: #8796ad;
+  --minimap-node-selected: transparent;
+  --edge-muted: #6f7786;
+  --edge-implied: #8c8880;
+  --diagram-active: #5b7cff;
+  --change-added: #4ed990;
+  --change-removed: #f26a55;
+  --change-modified: #f2c14e;
+  --diff-added: #4ed990;
+  --diff-added-bg: #132019;
+  --diff-modified: #f2c14e;
+  --diff-modified-bg: #1d1b12;
+  --diff-removed: #f26a55;
+  --diff-removed-bg: #211517;
+  --shadow-color: rgb(0 0 0 / 45%);
+  --shadow-color-strong: rgba(0, 0, 0, 0.55);
+  --shadow-color-heavy: rgba(0, 0, 0, 0.65);
+  --backdrop: rgba(0, 0, 0, 0.56);
+  --topbar-bg: rgba(12, 15, 21, 0.94);
+  --tabbar-bg: rgba(18, 22, 30, 0.94);
+  --floating-bar-bg: rgba(12, 15, 21, 0.96);
+  --accent-glow: rgba(91, 124, 255, 0.5);
+  --accent-shadow: rgba(91, 124, 255, 0.2);
+  --accent-stripe: rgba(91, 124, 255, 0.18);
+  --accent-wash: rgba(91, 124, 255, 0.14);
+  --accent-outline: rgb(91 124 255 / 32%);
+  --link-open-wash: rgba(91, 124, 255, 0.15);
+  --rpc-wash: rgba(143, 166, 255, 0.12);
+  --warning-wash: rgba(242, 193, 78, 0.12);
+  --warning-focus: rgba(242, 193, 78, 0.52);
+  --warning-shadow: rgba(242, 193, 78, 0.16);
+  --muted-shadow: rgba(86, 92, 102, 0.18);
+  --boundary-bg: rgba(18, 22, 30, 0.62);
+  --label-bg: rgba(12, 15, 21, 0.94);
+  --transparent-accent: rgb(91 124 255 / 0%);
+  --inner-shadow: rgb(0 0 0 / 16%);
+  --toc-inner-shadow: rgb(0 0 0 / 16%);
+  --rail-1: #f26a55;
+  --rail-2: #5b7cff;
+  --rail-3: #4ed990;
+  --rail-4: #c8a4f5;
+  --kw: #f97cc0;
+  --fn: #7cc5f5;
+  --str: #7cf5b0;
+  --num: #f3cf6b;
+  --com: #565c66;
+  --op: #9ba1ac;
+  --whiteboard-home-bg: var(--bg);
+  --whiteboard-home-card-active: #12161e;
+  --whiteboard-home-rule: #262c37;
+  --whiteboard-home-rule-soft: #39404d;
+  --whiteboard-home-meta: #9199a8;
+  --whiteboard-home-comment: #5b7cff;
+  --whiteboard-home-submitted: #c8a4f5;
+  --whiteboard-home-view-toggle-bg: #1a1f29;
+  --whiteboard-home-view-toggle-active-border: #39404d;
+  --whiteboard-home-view-toggle-active-bg: #0c0f15;
+  --whiteboard-home-view-toggle-shadow: rgb(0 0 0 / 45%);
+  --whiteboard-home-view-toggle-highlight: rgb(255 255 255 / 4%);
+  /* Code (Whiteboard Dark): ink at three strengths, the marker for keywords,
+     sky and periwinkle for types and functions, straw strings, orchid
+     numbers. Every value clears WCAG AA on the editor background. */
+  --syntax-comment: #778090;
+  --syntax-type: #6fc3e6;
+  --syntax-function: #b7c4ff;
+  --syntax-string: #d9a85c;
+  --syntax-number: #d48fd6;
+  --syntax-operator: #9199a8;
+  --syntax-inserted: #4ed990;
+  --syntax-deleted: #f26a55;
+  --whiteboard-debug-layer: 2147483000;
+  --whiteboard-find-match-background: color-mix(
+    in srgb,
+    var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 82%,
+    transparent
+  );
+  --whiteboard-find-match-active-background: color-mix(
+    in srgb,
+    #ff7a1a 60%,
+    transparent
+  );
+  /* Scrollbar slider, bridged from the workbench for the same reason as the
+     neutrals above. The fallbacks are the stock dark-theme slider values, which
+     read as a neutral translucent grey on either palette. */
+  --whiteboard-scrollbar-size: 10px;
+  --whiteboard-scrollbar-thumb: var(
+    --vscode-scrollbarSlider-background,
+    rgba(121, 121, 121, 0.4)
+  );
+  --whiteboard-scrollbar-thumb-hover: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    rgba(100, 100, 100, 0.7)
+  );
+  --whiteboard-scrollbar-thumb-active: var(
+    --vscode-scrollbarSlider-activeBackground,
+    rgba(191, 191, 191, 0.4)
+  );
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-display);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+/* Commit range view */
+.whiteboard-commits-view {
+  min-height: 100%;
+  padding: 32px 24px;
+}
+
+.whiteboard-commits-column {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.whiteboard-commits-message {
+  padding: 40px 24px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.whiteboard-commits-range {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 20px;
+}
+
+.whiteboard-commits-range > div,
+.whiteboard-commits-range-shas {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.whiteboard-commits-range strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.whiteboard-commits-range span {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.whiteboard-commits-range-shas span {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.whiteboard-commits-range code,
+.whiteboard-commit-stats code,
+.whiteboard-diff-scope-summary code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--control-bg);
+  color: var(--ink-muted);
+  font: 10px var(--font-mono);
+}
+
+.whiteboard-commit-date {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.whiteboard-commit-group + .whiteboard-commit-group .whiteboard-commit-date {
+  padding-top: 10px;
+}
+
+.whiteboard-commit-date svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.5;
+}
+
+.whiteboard-commit-date h2 {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.whiteboard-commit-timeline {
+  position: relative;
+  margin-left: 6px;
+  padding-left: 22px;
+}
+
+.whiteboard-commit-timeline::before {
+  position: absolute;
+  top: -8px;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--rule-soft);
+  content: "";
+}
+
+.whiteboard-commit-card {
+  margin-bottom: 6px;
+  overflow: hidden;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.whiteboard-commit-card:hover,
+.whiteboard-commit-card--expanded {
+  background: var(--surface-raised);
+}
+
+.whiteboard-commit-card-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 10px 8px;
+  gap: 8px;
+}
+
+.whiteboard-commit-card--expanded .whiteboard-commit-card-header {
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.whiteboard-commit-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.whiteboard-commit-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.whiteboard-commit-copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-commit-copy > span,
+.whiteboard-commit-stats > span {
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+
+.whiteboard-commit-stats {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  margin-left: 16px;
+}
+
+.whiteboard-commit-stats > span:first-child {
+  color: var(--ink-faint);
+}
+
+.whiteboard-commit-files {
+  padding: 6px 0;
+}
+
+.whiteboard-commit-files > p {
+  margin: 6px 12px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.whiteboard-commit-file {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+}
+
+.whiteboard-commit-file:hover {
+  background: var(--control-bg);
+}
+
+.whiteboard-commit-file-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-commit-files-footer {
+  padding: 4px 12px;
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.whiteboard-diff-scope-bar {
+  display: flex;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--surface);
+}
+
+.whiteboard-diff-scope-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.whiteboard-diff-scope-label {
+  color: var(--ink-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.whiteboard-diff-scope-bar > button {
+  height: 20px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.commit-file-diff-body {
+  height: 100%;
+  overflow: auto;
+  background: var(--surface);
+}
+
+.commit-file-diff-body pre {
+  min-width: max-content;
+  margin: 0;
+  padding: 16px;
+  color: var(--ink-muted);
+  font: 11px/1.55 var(--font-mono);
+  tab-size: 2;
+}
+
+@media (max-width: 760px) {
+  .whiteboard-commits-view {
+    padding: 24px 16px;
+  }
+
+  .whiteboard-commits-range,
+  .whiteboard-commit-card-header {
+    align-items: flex-start;
+  }
+
+  .whiteboard-commit-stats span:first-child,
+  .whiteboard-commit-open {
+    display: none;
+  }
+}
+
+::highlight(whiteboard-find-match) {
+  background: var(--whiteboard-find-match-background);
+}
+
+::highlight(whiteboard-find-match-active) {
+  background: var(--whiteboard-find-match-active-background);
+}
+
+.whiteboard-find-widget {
+  position: absolute;
+  z-index: 120;
+  top: 48px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  min-width: 490px;
+  max-width: calc(100vw - 32px);
+  height: 34px;
+  gap: 3px;
+  padding: 3px 4px 3px 6px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 5px 14px rgb(0 0 0 / 32%);
+}
+
+.whiteboard-find-input-shell {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 160px;
+  height: 26px;
+  gap: 1px;
+  padding: 0 2px 0 6px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--control-bg);
+}
+
+.whiteboard-find-input-shell:focus-within {
+  border-color: var(--accent);
+}
+
+.whiteboard-find-input-shell:has(input[aria-invalid="true"]) {
+  border-color: var(--change-removed);
+}
+
+.whiteboard-find-input-shell input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--chrome-font);
+  font-size: 12px;
+  outline: none;
+}
+
+.whiteboard-find-options {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 1px;
+}
+
+.whiteboard-find-count {
+  flex: 0 0 auto;
+  min-width: 64px;
+  margin-left: 4px;
+  padding: 0 3px;
+  color: var(--ink-muted);
+  font-family: var(--chrome-font);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.whiteboard-find-options button,
+.whiteboard-find-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.whiteboard-find-options button {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  font-family: var(--chrome-font);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.whiteboard-find-toggle--whole-word {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.whiteboard-find-toggle--regex {
+  font-family: var(--font-mono) !important;
+}
+
+.whiteboard-find-action {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.whiteboard-find-action svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+.whiteboard-find-options button:hover:not(:disabled),
+.whiteboard-find-action:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--vscode-toolbar-hoverBackground, var(--tray));
+}
+
+.whiteboard-find-options button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--vscode-inputOption-activeBackground, var(--tray));
+  color: var(--vscode-inputOption-activeForeground, var(--ink));
+}
+
+.whiteboard-find-options button:focus-visible,
+.whiteboard-find-action:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.whiteboard-find-action:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+@media (max-width: 620px) {
+  .whiteboard-find-widget {
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .whiteboard-find-count {
+    flex-basis: 56px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars use the platform treatment unless a surface opts into a scoped
+   treatment. The Whiteboard document below uses a transparent track so its thumb
+   communicates position without drawing a persistent gutter. Monaco still
+   renders its own slider elements. */
+
+.whiteboard-canvas-root {
+  margin: 0;
+  height: 100%;
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
+  contain: layout;
+  container: whiteboard-canvas / inline-size;
+  background: var(--bg);
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.whiteboard-app {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--bg);
+  color-scheme: dark;
+  --tutorial-ring: color-mix(in srgb, var(--accent) 82%, white);
+  --tutorial-ring-glow: color-mix(in srgb, var(--accent) 44%, transparent);
+  --tutorial-guide-bg: color-mix(
+    in srgb,
+    var(--surface-raised) 96%,
+    transparent
+  );
+  --tutorial-guide-border: color-mix(
+    in srgb,
+    var(--tutorial-ring) 48%,
+    var(--rule-soft)
+  );
+  /* Workbench chrome bridge. The canvas mounts straight into the Code OSS DOM
+     (no iframe), so the workbench's --vscode-* theme variables are in scope and
+     the topbar can dress itself as native chrome. Each token falls back to the
+     canvas palette so the standalone browser build is unaffected. These live on
+     .whiteboard-app rather than .whiteboard-canvas-root because the light palette is a
+     class on this same element -- a custom property is substituted where it is
+     declared, so declaring them further up would freeze the dark values. */
+  /* The workbench has no font custom property to bridge to -- it hardcodes a
+     stack per platform and per language -- so the desktop overrides this one
+     from whiteboard.css and the browser build keeps the canvas's own mono face. */
+  --chrome-font: var(--font-mono);
+  /* Type ramp. The workbench does publish a font-size and font-weight ramp, so
+     these bridge like the color tokens below. Two sizes only: the label size for
+     anything you read, the small size for badges and tallies. */
+  --chrome-font-size: var(--vscode-fontSize-label2, 11px);
+  --chrome-font-size-small: var(--vscode-fontSize-label3, 10px);
+  --chrome-font-weight: var(--vscode-fontWeight-regular, 400);
+  --chrome-font-weight-strong: var(--vscode-fontWeight-semiBold, 600);
+  /* One tracking value, used only by the uppercase micro-labels. The
+     sentence-case buttons stay untracked, as the workbench's own buttons are. */
+  --chrome-tracking: 0.04em;
+  /* One size for every control in the topbar, the view switcher included. */
+  --chrome-control-height: 22px;
+  --chrome-control-radius: 5px;
+  --chrome-icon-size: 14px;
+  --chrome-border: var(--vscode-editorGroupHeader-tabsBorder, var(--rule));
+  --chrome-fg: var(--vscode-foreground, var(--ink));
+  /* --ink-muted already bridges descriptionForeground, so this is just an alias. */
+  --chrome-fg-muted: var(--ink-muted);
+  --chrome-icon-fg: var(--vscode-icon-foreground, var(--ink-muted));
+  --chrome-hover-bg: var(--vscode-toolbar-hoverBackground, var(--control-bg));
+  --chrome-active-border: var(--vscode-panelTitle-activeBorder, var(--accent));
+  --id: var(--ink);
+  --trees-bg-override: var(--bg);
+  --trees-fg-override: var(--ink-muted);
+  --trees-fg-muted-override: var(--ink-faint);
+  --trees-border-color-override: var(--transparent);
+  --trees-selected-bg-override: var(--transparent);
+  --trees-selected-fg-override: var(--accent);
+  --trees-selected-focused-border-color-override: var(--transparent);
+  --trees-bg-muted-override: var(--bg);
+  --trees-input-bg-override: var(--transparent);
+  --trees-search-bg-override: var(--transparent);
+  --trees-search-fg-override: var(--ink);
+  --trees-status-added-override: var(--ink-muted);
+  --trees-status-deleted-override: var(--ink-muted);
+  --trees-status-modified-override: var(--ink-muted);
+  --trees-status-renamed-override: var(--ink-muted);
+  --trees-git-added-color-override: var(--ink-muted);
+  --trees-git-deleted-color-override: var(--ink-muted);
+  --trees-git-modified-color-override: var(--ink-muted);
+  --trees-git-renamed-color-override: var(--ink-muted);
+  --diffs-bg-context-gutter-override: var(--surface);
+  --diffs-bg-separator-override: var(--tray);
+  --diffs-bg-hover-override: var(--tray);
+  --diagram-border: var(--rule);
+  --diagram-surface: var(--surface);
+  --diagram-header-bg: var(--tray);
+  --diagram-canvas-bg: var(--bg);
+  --diagram-control-bg: var(--surface);
+}
+
+/* The Source tab's VS Code-like watermark: quiet text centered in the empty
+   editor area, next to the native file tree. */
+.whiteboard-source-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--ink-faint);
+  font: 13px/1.55 var(--font-display);
+  user-select: none;
+}
+
+.whiteboard-source-empty p {
+  margin: 0;
+}
+
+.whiteboard-source-empty-hint {
+  font-size: 11px;
+}
+
+.whiteboard-canvas-shell {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 32px;
+  color: var(--ink);
+  font: 13px/1.55 var(--font-display);
+}
+
+.whiteboard-canvas-shell h1 {
+  margin: 10px 0 6px;
+  font-size: 26px;
+}
+
+.whiteboard-canvas-shell h2 {
+  margin: 28px 0 8px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.whiteboard-canvas-shell p,
+.whiteboard-canvas-shell code {
+  color: var(--ink-muted);
+}
+
+.whiteboard-shell-brand {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.whiteboard-shell-primary {
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+/* Layout-neutral wrapper that carries the theme class inside the compiled
+   scope boundary; the scope root element is only matched by :scope. */
+.whiteboard-theme-host {
+  display: contents;
+}
+
+/* Status rows stack above the document; the document takes the remaining height. */
+.whiteboard-api-canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.whiteboard-home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--whiteboard-home-bg);
+  font: 12px/16px var(--font-mono);
+}
+
+.whiteboard-home-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 36px clamp(36px, calc(12.5cqw - 60px), 120px) 56px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.whiteboard-home-content {
+  display: flex;
+  flex-direction: column;
+  width: min(1200px, 100%);
+  margin: 0 auto;
+}
+
+.whiteboard-home-unavailable-entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 16px;
+}
+
+.whiteboard-home-unavailable-entries:empty {
+  display: none;
+}
+
+.whiteboard-unavailable {
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.whiteboard-unavailable pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.whiteboard-session-content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.whiteboard-session-content > .whiteboard-app {
+  min-height: 0;
+}
+
+.whiteboard-home-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.whiteboard-home-page-header h1 {
+  margin: 0;
+  color: var(--ink);
+  font: 500 34px/40px var(--font-serif);
+}
+
+.whiteboard-home-page-header-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Fixed width, so the clear button appearing does not resize the field. */
+.whiteboard-home-search {
+  display: flex;
+  width: 200px;
+  min-width: 0;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--transparent);
+  border-radius: 10px;
+  color: var(--whiteboard-home-meta);
+  background: var(--whiteboard-home-view-toggle-bg);
+}
+
+.whiteboard-home-search:focus-within {
+  border-color: var(--accent);
+  color: var(--ink-muted);
+}
+
+.whiteboard-home-search svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.whiteboard-home-search circle,
+.whiteboard-home-search path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.5;
+}
+
+.whiteboard-home-search input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: var(--transparent);
+  font: inherit;
+  outline: none;
+}
+
+.whiteboard-home-search input::placeholder {
+  color: var(--whiteboard-home-meta);
+}
+
+/* The user agent draws its own clear button in a colour the page cannot
+   reach, so the page draws its own. */
+.whiteboard-home-search input::-webkit-search-cancel-button,
+.whiteboard-home-search input::-webkit-search-decoration {
+  appearance: none;
+}
+
+.whiteboard-home-search-clear {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  color: var(--whiteboard-home-meta);
+  background: var(--transparent);
+}
+
+.whiteboard-home-search-clear:hover {
+  color: var(--ink);
+}
+
+.whiteboard-home-search-clear:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.whiteboard-home-search-clear svg {
+  width: 11px;
+  height: 11px;
+}
+
+.whiteboard-home-search-empty {
+  margin: 20px 0 0;
+  color: var(--whiteboard-home-meta);
+}
+
+/* The user agent paints <mark> black on yellow, which is unreadable on the
+   canvas. Carry the mark on the background and inherit the text colour: on a
+   dark theme, recolouring the glyphs to the accent makes the matched word
+   dimmer than the words around it, which is the opposite of a highlight.
+   Inherit the weight too, so marking a run does not reflow its line. */
+.whiteboard-home mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 30%, var(--transparent));
+  color: inherit;
+  font-weight: inherit;
+}
+
+.whiteboard-home-workspace {
+  padding-top: 24px;
+}
+
+.whiteboard-home-workspace:has(.whiteboard-home-cards)
+  + .whiteboard-home-workspace {
+  padding-top: 30px;
+}
+
+.whiteboard-home-workspace-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  height: 18px;
+}
+
+.whiteboard-home-workspace-header strong {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.whiteboard-home-workspace-header > span {
+  flex: 0 0 auto;
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.whiteboard-home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  grid-auto-rows: 1fr;
+  gap: 18px;
+  justify-content: start;
+  margin-top: 24px;
+}
+
+.whiteboard-home-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 128px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 8px;
+  color: inherit;
+  text-align: left;
+  background: var(--bg);
+}
+
+.whiteboard-home-card:hover:not(:disabled),
+.whiteboard-home-card:focus-visible {
+  border-color: var(--accent);
+}
+
+.whiteboard-home-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.whiteboard-home-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.whiteboard-home-card-shell {
+  position: relative;
+  min-width: 0;
+}
+
+/* The scratchpad's group sits last, with the workspace groups' spacing. */
+.whiteboard-home-scratchpad {
+  padding-top: 14px;
+  margin-bottom: 16px;
+}
+
+.whiteboard-home-scratchpad
+  .whiteboard-home-scratchpad-card
+  .whiteboard-home-whiteboard-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.whiteboard-home-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  background: var(--transparent);
+}
+
+.whiteboard-home-delete:hover:not(:disabled),
+.whiteboard-home-delete:focus-visible,
+.whiteboard-home-delete.is-armed {
+  color: var(--change-removed);
+}
+
+.whiteboard-home-delete:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.whiteboard-home-delete svg {
+  width: 13px;
+  height: 13px;
+}
+
+.whiteboard-home-delete path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+}
+
+.whiteboard-home-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--ink-faint);
+  background: var(--transparent);
+}
+
+.whiteboard-home-dismiss:hover:not(:disabled),
+.whiteboard-home-dismiss:focus-visible {
+  color: var(--ink);
+}
+
+.whiteboard-home-dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.whiteboard-home-dismiss svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+}
+
+.whiteboard-home-card-shell .whiteboard-home-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  opacity: 0;
+  background: var(--bg);
+}
+
+.whiteboard-home-card-shell:hover .whiteboard-home-dismiss,
+.whiteboard-home-card-shell:focus-within .whiteboard-home-dismiss {
+  opacity: 1;
+}
+
+.whiteboard-home-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.whiteboard-home-whiteboard-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 500 17px/22px var(--font-serif);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-home-card .whiteboard-home-whiteboard-title {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.whiteboard-home-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 3px;
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.whiteboard-home-pr {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.whiteboard-home-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.whiteboard-home-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  min-height: 20px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.whiteboard-home-status svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  color: var(--whiteboard-home-status-accent);
+}
+
+.whiteboard-home-status circle {
+  fill: currentColor;
+  fill-opacity: 0.14;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.whiteboard-home-status path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.3;
+}
+
+.whiteboard-home-status--in-whiteboard {
+  --whiteboard-home-status-accent: var(--change-modified);
+}
+
+.whiteboard-home-status--ready {
+  --whiteboard-home-status-accent: var(--change-added);
+}
+
+.whiteboard-home-status--submitted {
+  --whiteboard-home-status-accent: var(--whiteboard-home-submitted);
+}
+
+.whiteboard-home-status--dismissed {
+  --whiteboard-home-status-accent: var(--ink-faint);
+}
+
+.whiteboard-home-workspace-header--group {
+  height: 30px;
+  padding: 0 20px 0 0;
+}
+
+.whiteboard-home-workspace-header--group > span {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-home-empty {
+  margin: 48px 0 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.whiteboard-home-zero-hint {
+  margin: 0;
+  max-width: 560px;
+  color: var(--ink-muted);
+  font: 13px/20px var(--font-mono);
+}
+
+/* The prompt card sits inside an accordion step, which already draws the
+   surface, so it adds no frame of its own. */
+.whiteboard-home-prompt-card {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  margin-top: 0;
+}
+
+/* The same segmented control as the view switcher in the top bar: same
+   tokens for the group, the resting and hover text, and the raised active
+   segment. Inline-flex so the tutorial ring hugs the group. */
+.tutorial-keymap-picker {
+  display: inline-flex;
+  gap: 2px;
+  margin: 6px 0 12px;
+  padding: 2px;
+  border-radius: calc(var(--chrome-control-radius) + 2px);
+  background: var(--chrome-hover-bg);
+}
+
+/* Prose sits larger than chrome, so the buttons grow a step: 28px tall,
+   13px type, wider padding. */
+.tutorial-keymap-picker button {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  color: var(--chrome-fg-muted);
+  background: var(--transparent);
+  cursor: pointer;
+  font: var(--chrome-font-weight) 13px var(--chrome-font);
+  white-space: nowrap;
+}
+
+.tutorial-keymap-picker button:hover:not(:disabled):not([aria-pressed="true"]) {
+  color: var(--chrome-fg);
+  background: var(--surface);
+}
+
+.tutorial-keymap-picker button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.tutorial-authoring-conversation {
+  margin: 18px 0 24px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
+}
+
+.tutorial-authoring-conversation summary {
+  display: flex;
+  cursor: pointer;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.tutorial-authoring-conversation summary span:last-child {
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tutorial-authoring-conversation ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+
+.tutorial-authoring-conversation li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.tutorial-authoring-conversation li > span {
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tutorial-authoring-conversation li[data-role="assistant"] > span {
+  color: var(--accent);
+}
+
+.tutorial-authoring-conversation p {
+  margin: 0;
+}
+
+.tutorial-keymap-picker button[aria-pressed="true"] {
+  color: var(--chrome-fg);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--rule-soft);
+}
+
+/* One look for every tutorial action: the view buttons in the prose, the
+   keybinding picker, and the card's primary action. Prose rules would
+   otherwise restyle the MDX paragraph the button label arrives in. */
+/* A row action is marker text with an ink-faint arrow, never a box; boxes
+   are for controls that act on the page. */
+.tutorial-view-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 12px;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: var(--transparent);
+  cursor: pointer;
+  font: 12px var(--font-mono);
+}
+
+.tutorial-view-button > span[aria-hidden] {
+  color: var(--ink-faint);
+}
+
+.whiteboard-document .tutorial-view-button p {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.tutorial-view-button:hover {
+  text-decoration: underline;
+}
+
+/* The tutorial lives in the bottom right corner of the shell, one layer
+   above the sticky toolbar, in every view. It never measures its target: the
+   target carries data-tutorial-target and draws its own outline. */
+.tutorial-experience {
+  position: absolute;
+  z-index: calc(var(--whiteboard-debug-layer) + 1);
+  inset: 0;
+  pointer-events: none;
+}
+
+/* The workbench keeps a 10px strip under the canvas, so 8px here reads as
+   the same 18px gap from the window edge as the right side. */
+.tutorial-guide {
+  position: absolute;
+  right: 18px;
+  bottom: 8px;
+  display: flex;
+  width: min(292px, calc(100% - 36px));
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--tutorial-guide-border);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--tutorial-guide-bg);
+  box-shadow: 0 10px 32px var(--shadow-color-strong);
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+/* The hidden tutorial: a small floating button in the same corner. */
+.tutorial-guide-pill {
+  position: absolute;
+  right: 28px;
+  bottom: 18px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--tutorial-guide-border);
+  border-radius: 50%;
+  color: var(--tutorial-ring);
+  background: var(--tutorial-guide-bg);
+  box-shadow: 0 6px 20px var(--shadow-color-strong);
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+.tutorial-guide-pill:hover {
+  color: var(--ink);
+}
+
+.tutorial-guide-pill:focus-visible {
+  outline: 2px solid var(--tutorial-ring);
+  outline-offset: 2px;
+}
+
+.tutorial-guide-pill .ui-icon {
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  stroke-width: 1.6px;
+}
+
+/* Target rings are their own elements, drawn in a layer nothing clips:
+   inside the scroll region for document content (so they travel with it),
+   in the shell overlay for toolbar controls. Each ring follows its target's
+   corner radius and breathes a little. */
+.tutorial-target-layer {
+  position: absolute;
+  z-index: calc(var(--whiteboard-debug-layer) + 1);
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tutorial-target-ring {
+  position: absolute;
+  border: 2px solid var(--tutorial-ring);
+  box-shadow: 0 0 0 4px var(--tutorial-ring-glow);
+  pointer-events: none;
+  animation: tutorial-target-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tutorial-target-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px var(--tutorial-ring-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 8px
+      color-mix(in srgb, var(--tutorial-ring-glow) 45%, transparent);
+  }
+}
+
+/* An inline link reads as marked text: one wash box per line. */
+.tutorial-target-ring--inline {
+  border: 0;
+  border-radius: 5px;
+  background: var(--tutorial-ring-glow);
+  box-shadow: none;
+  animation: tutorial-link-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tutorial-link-pulse {
+  0%,
+  100% {
+    background: var(--tutorial-ring-glow);
+  }
+  50% {
+    background: color-mix(in srgb, var(--tutorial-ring) 22%, transparent);
+  }
+}
+
+.tutorial-guide header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+}
+
+.tutorial-guide header span {
+  color: var(--ink-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font: 11px var(--font-mono);
+}
+
+.tutorial-guide header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink-muted);
+  background: var(--transparent);
+  place-items: center;
+  font-size: 17px;
+}
+
+.tutorial-guide header button:hover {
+  color: var(--ink);
+  background: var(--control-bg);
+}
+
+.tutorial-guide-progress {
+  height: 2px;
+  margin-inline: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--rule-soft);
+}
+
+.tutorial-guide-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tutorial-ring);
+  transition: width 220ms ease;
+}
+
+.tutorial-guide-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 14px 15px;
+}
+
+/* Doubled selectors outrank the document prose rules (.whiteboard-document h2,
+   .whiteboard-document p) that would otherwise size, justify, and center the
+   card copy. */
+.tutorial-guide .tutorial-guide-copy > p:first-child {
+  width: auto;
+  margin: 0;
+  text-align: left;
+  color: var(--tutorial-ring);
+  font: 11px/16px var(--font-mono);
+}
+
+.tutorial-guide .tutorial-guide-copy h2 {
+  width: auto;
+  margin: 0;
+  text-align: left;
+  color: var(--ink);
+  font: 500 17px/22px var(--font-serif);
+}
+
+.tutorial-guide .tutorial-guide-copy > p:last-of-type {
+  width: auto;
+  margin: 0;
+  text-align: left;
+  color: var(--ink-muted);
+  font: 12px/18px var(--font-mono);
+}
+
+.tutorial-guide footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.tutorial-guide footer button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink-muted);
+  background: var(--transparent);
+  font: 11px var(--font-mono);
+}
+
+.tutorial-guide footer button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--control-bg);
+}
+
+.tutorial-guide footer button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+[data-tutorial-chapter-state="active"] > .whiteboard-section-header h2 {
+  color: var(--ink);
+}
+
+[data-tutorial-chapter-state="complete"] > .whiteboard-section-header::after {
+  margin-left: auto;
+  color: var(--tutorial-ring);
+  content: "Complete ✓";
+  font: 10px/16px var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-guide-progress span {
+    transition: none;
+  }
+
+  .tutorial-target-ring {
+    animation: none;
+  }
+}
+
+.whiteboard-home-prompt-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 0 10px;
+}
+
+.whiteboard-home-prompt-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--transparent);
+  border-radius: 8px;
+  color: var(--whiteboard-home-meta);
+  background: var(--transparent);
+  font-size: 12px;
+}
+
+.whiteboard-home-prompt-tabs button:hover {
+  color: var(--ink-muted);
+}
+
+.whiteboard-home-prompt-tabs button.is-active {
+  border-color: var(--whiteboard-home-view-toggle-active-border);
+  color: var(--ink);
+  background: var(--whiteboard-home-view-toggle-active-bg);
+  box-shadow:
+    0 1px 2px var(--whiteboard-home-view-toggle-shadow),
+    inset 0 1px var(--whiteboard-home-view-toggle-highlight);
+}
+
+.whiteboard-home-prompt-tabs button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The prompt is the artifact, not chrome: a quote rule separates it from the
+   step's own copy without putting the card frame back. */
+.whiteboard-home-prompt-body {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--whiteboard-home-rule-soft);
+  color: var(--ink);
+  font: 13px/22px var(--font-mono);
+  /* Prose, not code: keep a last word off its own line if the copy grows. It
+     changes nothing at today's lengths. */
+  text-wrap: pretty;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.whiteboard-home-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 18px 0 4px;
+}
+
+.whiteboard-home-prompt-copy {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  color: var(--on-accent);
+  background: var(--accent);
+  font: 500 12px/16px var(--font-mono);
+}
+
+.whiteboard-home-prompt-copy:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.whiteboard-home-prompt-copy svg {
+  width: 12px;
+  height: 12px;
+}
+
+.whiteboard-home-prompt-copy rect,
+.whiteboard-home-prompt-copy path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+}
+
+@container whiteboard-canvas (max-width: 980px) {
+  .whiteboard-home-scroll {
+    padding-right: 36px;
+    padding-left: 36px;
+  }
+}
+
+@container whiteboard-canvas (max-width: 660px) {
+  .whiteboard-home-scroll {
+    padding: 32px 24px 56px;
+  }
+
+  .whiteboard-home-page-header {
+    align-items: center;
+  }
+
+  .whiteboard-home-workspace-header > span {
+    display: none;
+  }
+}
+
+.whiteboard-app--theme-light {
+  --ghost: #cdd1d8;
+  --well: #e9ebef;
+  --raised: #ffffff;
+  --tray: #f3f4f6;
+  --chevron-down: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 4.25 6 8l3.5-3.75' fill='none' stroke='%239AA0AB' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --check-mark: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M2 5.2 4.2 7.4 8 3.2' fill='none' stroke='%23FFFFFF' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --marker-tint: rgba(43, 85, 230, 0.08);
+  --marker-glow: rgba(43, 85, 230, 0.22);
+  --board-grid: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='1' cy='1' r='0.8' fill='%23E6E8EC'/></svg>");
+  color-scheme: light;
+  --transparent: transparent;
+  /* The ten neutrals bridged on .whiteboard-canvas-root are re-declared here with
+     light fallbacks. They cannot simply be inherited: this class sits on a
+     descendant of the root, so a bare `--bg: #ffffff` would beat the bridged
+     value and the session view would disagree with the workbench on any light
+     theme whose editor background is not pure white (Solarized Light, etc.). */
+  --bg: var(--vscode-editor-background, #ffffff);
+  --surface: var(--vscode-editor-background, #ffffff);
+  --surface-raised: var(--vscode-editorWidget-background, #ffffff);
+  --control-bg: var(--vscode-input-background, #e9ebef);
+  --ink: var(--vscode-editor-foreground, #15181e);
+  --ink-muted: var(--vscode-descriptionForeground, #5d6472);
+  --ink-faint: var(--vscode-disabledForeground, #9aa0ab);
+  --rule: var(--vscode-panel-border, #d8dbe1);
+  --rule-soft: var(--vscode-editorWidget-border, #b9bec7);
+  --selection: var(--accent);
+  --selection-shadow: color-mix(in srgb, var(--accent) 40%, transparent);
+  --tutorial-ring: color-mix(in srgb, var(--accent) 86%, #14213d);
+  --tutorial-ring-glow: color-mix(in srgb, var(--accent) 34%, transparent);
+  --tutorial-guide-bg: color-mix(in srgb, var(--surface-raised) 98%, white);
+  --tutorial-guide-border: color-mix(
+    in srgb,
+    var(--tutorial-ring) 42%,
+    var(--rule-soft)
+  );
+  --map-storage-detail: rgba(72, 118, 133, 0.56);
+  --map-storage-fill-detail: rgba(72, 118, 133, 0.16);
+  --map-storage-border: #4a7685;
+  --vscode-focusBorder: transparent;
+  --vscode-list-focusOutline: transparent;
+  --vscode-list-focusAndSelectionOutline: transparent;
+  --vscode-list-inactiveFocusOutline: transparent;
+  --vscode-inputOption-activeBorder: transparent;
+  --accent: #2b55e6;
+  --accent-soft: #eef2ff;
+  --on-accent: #ffffff;
+  --on-accent-wash: rgba(255, 255, 255, 0.34);
+  --on-warning: #4a3514;
+  --rpc: #2b55e6;
+  --text-selection-bg: rgba(43, 85, 230, 0.16);
+  --text-selection-color: var(--ink);
+  --canvas-grid: #e6e8ec;
+  --minimap-mask: rgba(255, 255, 255, 0.72);
+  --minimap-node: #b9bec7;
+  --minimap-node-selected: transparent;
+  --edge-muted: #9aa0ab;
+  --edge-implied: #b9bec7;
+  --diagram-active: #2b55e6;
+  --change-added: #1b9a57;
+  --change-removed: #d8402c;
+  --change-modified: #c98a0b;
+  --diff-added: #1b9a57;
+  --diff-added-bg: #eef7f2;
+  --diff-modified: #c98a0b;
+  --diff-modified-bg: #fbf5e8;
+  --diff-removed: #d8402c;
+  --diff-removed-bg: #fcefed;
+  --shadow-color: rgba(21, 24, 30, 0.08);
+  --shadow-color-strong: rgba(21, 24, 30, 0.1);
+  --shadow-color-heavy: rgba(21, 24, 30, 0.14);
+  --backdrop: rgba(21, 24, 30, 0.26);
+  --topbar-bg: #ffffff;
+  --tabbar-bg: #f3f4f6;
+  --floating-bar-bg: rgba(255, 255, 255, 0.96);
+  --accent-glow: rgba(43, 85, 230, 0.22);
+  --accent-shadow: rgba(43, 85, 230, 0.08);
+  --accent-stripe: rgba(43, 85, 230, 0.12);
+  --accent-wash: rgba(43, 85, 230, 0.08);
+  --accent-outline: rgba(43, 85, 230, 0.32);
+  --link-open-wash: rgba(43, 85, 230, 0.12);
+  --rpc-wash: rgba(43, 85, 230, 0.08);
+  --warning-wash: rgba(201, 138, 11, 0.1);
+  --warning-focus: rgba(201, 138, 11, 0.24);
+  --warning-shadow: rgba(201, 138, 11, 0.08);
+  --muted-shadow: rgba(21, 24, 30, 0.06);
+  --boundary-bg: rgba(255, 255, 255, 0.44);
+  --label-bg: rgba(255, 255, 255, 0.94);
+  --transparent-accent: rgba(43, 85, 230, 0);
+  --inner-shadow: rgba(21, 24, 30, 0.04);
+  --toc-inner-shadow: rgba(21, 24, 30, 0.02);
+  --rail-1: #d8402c;
+  --rail-2: #2b55e6;
+  --rail-3: #1b9a57;
+  --rail-4: #6d43b3;
+  --kw: #9c3f80;
+  --fn: #2370a4;
+  --str: #2e9e66;
+  --num: #b0791f;
+  --com: #767672;
+  --op: #555555;
+  --whiteboard-home-bg: var(--bg);
+  --whiteboard-home-card-active: #f3f4f6;
+  --whiteboard-home-rule: var(--rule);
+  --whiteboard-home-rule-soft: var(--rule-soft);
+  --whiteboard-home-meta: #5d6472;
+  --whiteboard-home-comment: var(--accent);
+  --whiteboard-home-submitted: #6d43b3;
+  --whiteboard-home-view-toggle-bg: #e9ebef;
+  --whiteboard-home-view-toggle-active-border: #d8dbe1;
+  --whiteboard-home-view-toggle-active-bg: #ffffff;
+  --whiteboard-home-view-toggle-shadow: rgba(21, 24, 30, 0.06);
+  --whiteboard-home-view-toggle-highlight: rgba(255, 255, 255, 0.8);
+  /* Code (Whiteboard Light): petrol and navy for types and functions, sepia
+     strings, plum numbers; inserted and deleted sit one step deeper than the
+     change colors so they hold AA as text on white. */
+  --syntax-comment: #6b7382;
+  --syntax-type: #0c6e8e;
+  --syntax-function: #1f3f99;
+  --syntax-string: #8a5a1c;
+  --syntax-number: #8b3f8a;
+  --syntax-operator: #5d6472;
+  --syntax-inserted: #167a47;
+  --syntax-deleted: #c93a27;
+}
+
+.whiteboard-app::selection,
+.whiteboard-app *::selection {
+  background-color: var(--text-selection-bg);
+  color: var(--text-selection-color);
+}
+
+.whiteboard-app::-moz-selection,
+.whiteboard-app *::-moz-selection {
+  background-color: var(--text-selection-bg);
+  color: var(--text-selection-color);
+}
+
+.whiteboard-app--peek-open {
+  grid-template-columns: minmax(0, 1fr) 10px var(--side-peek-width, 560px);
+}
+
+@media (max-width: 720px) {
+  .whiteboard-app,
+  .whiteboard-app--peek-open {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+
+  .whiteboard-app--peek-open .side-panel-resizer {
+    display: none;
+  }
+}
+
+.whiteboard-app--resizing {
+  cursor: col-resize;
+  user-select: none;
+  transition: none;
+}
+
+.whiteboard-app--restored-panel {
+  transition: none;
+}
+
+.whiteboard-document-shell {
+  position: relative;
+  display: grid;
+  /* The explicit minmax(0, 1fr) column lets rows shrink below their
+     min-content width (e.g. wide diagrams) when the panel narrows the
+     shell, instead of overflowing under the side panel. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  container: whiteboard-content / inline-size;
+}
+
+.whiteboard-document-shell--historical {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.side-panel-resizer {
+  position: relative;
+  /* Keep the divider in normal stacking order. The side-peek host follows
+     this grid item, so its hover widgets can paint above the divider. */
+  width: 10px;
+  min-width: 10px;
+  cursor: col-resize;
+  background: var(--transparent);
+  border: 0;
+  touch-action: none;
+}
+
+.side-panel-resizer::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--rule);
+  transform: translateX(-50%);
+  content: "";
+}
+
+.side-panel-resizer:hover::before,
+.side-panel-resizer:focus-visible::before,
+.whiteboard-app--resizing .side-panel-resizer::before {
+  background: var(--ink-faint);
+}
+
+.side-panel-resizer:focus-visible {
+  outline: 1px solid var(--rule-soft);
+  outline-offset: -1px;
+}
+
+.side-peek-resizer {
+  height: 100%;
+}
+
+/* Horizontal twin of .side-panel-resizer for the narrow-layout bottom
+   sheet: a plain divider line that drags the sheet height. Hidden on wide
+   layouts, where the vertical divider owns resizing. */
+.side-panel-sheet-resizer {
+  position: relative;
+  display: none;
+  flex: 0 0 auto;
+  height: 10px;
+  min-height: 10px;
+  cursor: row-resize;
+  background: var(--transparent);
+  border: 0;
+  touch-action: none;
+}
+
+.side-panel-sheet-resizer::before {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--rule);
+  transform: translateY(-50%);
+  content: "";
+}
+
+.side-panel-sheet-resizer:hover::before,
+.side-panel-sheet-resizer:focus-visible::before {
+  background: var(--ink-faint);
+}
+
+.side-panel-sheet-resizer:focus-visible {
+  outline: 1px solid var(--rule-soft);
+  outline-offset: -1px;
+}
+
+.whiteboard-topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--whiteboard-debug-layer);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--whiteboard-header-height);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--chrome-border);
+  background: var(--surface);
+}
+
+.whiteboard-topbar-left {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.whiteboard-branch-range {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  color: inherit;
+  font-size: inherit;
+  white-space: nowrap;
+}
+
+.whiteboard-branch-ref {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.whiteboard-branch-label {
+  color: var(--ink-faint);
+}
+
+.whiteboard-branch-name {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.whiteboard-branch-copy {
+  position: relative;
+  display: inline-flex;
+  min-width: 20px;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  font: inherit;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.whiteboard-branch-copy:hover,
+.whiteboard-branch-copy:focus-visible {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.whiteboard-branch-copy[data-copied] .whiteboard-branch-name {
+  visibility: hidden;
+}
+
+.whiteboard-branch-feedback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.whiteboard-branch-arrow {
+  margin: 0 4px;
+  color: var(--ink-faint);
+}
+
+.whiteboard-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.whiteboard-topbar-actions > * {
+  flex: 0 0 auto;
+}
+
+.whiteboard-topbar-context {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+}
+
+.whiteboard-topbar-context::before {
+  content: "";
+  flex: 0 0 1px;
+  height: 20px;
+  margin: 0 14px 0 16px;
+  background: var(--chrome-border);
+}
+
+/* The scratchpad has no source tree or pins to set apart, so no rule. */
+.whiteboard-topbar-context:empty::before {
+  display: none;
+}
+
+.whiteboard-topbar-actions [popover] {
+  position: fixed;
+  inset: auto;
+  top: calc(anchor(bottom) + 4px);
+  right: anchor(right);
+  margin: 0;
+  max-width: calc(100vw - 16px);
+  position-try-fallbacks: flip-inline, flip-block;
+  position-visibility: anchors-visible;
+}
+
+/* The topbar compacts against its own column (the shell container), not the
+   viewport: an open side panel narrows the column without resizing the
+   window. */
+@container whiteboard-content (max-width: 720px) {
+  .whiteboard-topbar {
+    padding: 0 4px;
+  }
+}
+
+/* One control holds every way to look at the change. Whiteboard and Map are
+   views. Diff opens the multi-diff editor tab and never shows as selected. */
+.whiteboard-segmented {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: calc(var(--chrome-control-radius) + 2px);
+  background: var(--chrome-hover-bg);
+}
+
+.whiteboard-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chrome-control-height);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-fg-muted);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+  font-weight: var(--chrome-font-weight);
+  white-space: nowrap;
+}
+
+.whiteboard-segment:hover:not(.whiteboard-segment--active) {
+  background: var(--surface);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-segmented .whiteboard-segment:focus-visible {
+  outline: 2px solid var(--chrome-fg);
+  outline-offset: -1px;
+}
+
+.whiteboard-segment:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard-segment--active {
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 1px var(--rule-soft);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-segment-count {
+  flex: 0 0 auto;
+  color: var(--chrome-fg-muted);
+  font-size: var(--chrome-font-size-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.whiteboard-open-source-tree {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: var(--chrome-control-height);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-fg-muted);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+  font-weight: var(--chrome-font-weight);
+  white-space: nowrap;
+}
+
+.whiteboard-open-source-tree:hover {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-open-source-tree:focus-visible {
+  outline: 2px solid var(--chrome-fg);
+  outline-offset: -1px;
+}
+
+.whiteboard-view-region {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.whiteboard-view-region--commits {
+  overflow: auto;
+}
+
+.whiteboard-document-view {
+  display: contents;
+}
+
+.whiteboard-document-view[hidden] {
+  display: none;
+}
+
+.whiteboard-document-diagnostic {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(760px, calc(100% - 72px));
+  margin: 72px auto;
+  padding: 24px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--tray);
+  font-family: var(--font-mono);
+}
+
+.whiteboard-document-diagnostic h1,
+.whiteboard-document-diagnostic p {
+  margin: 0;
+}
+
+.whiteboard-document-diagnostic h1 {
+  font-size: 18px;
+}
+
+.whiteboard-document-diagnostic p {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.whiteboard-view-region--whiteboard {
+  overflow: auto;
+}
+
+.whiteboard-map-view {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.whiteboard-diff-view {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Keep the full diff alive while another view is selected. It initializes in
+ * the whiteboard page's loading window, then the first Diff click and every return
+ * reuse the same file tree, editor models, selection, and scroll state. */
+.whiteboard-diff-view--preloaded {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.whiteboard-diff-view--scoped {
+  grid-template-rows: 30px minmax(0, 1fr);
+}
+
+.whiteboard-diff-view--scoped .whiteboard-diff-view-host {
+  grid-row: 2;
+}
+
+/* The workbench mounts its diff widgets here and sizes them from this box. */
+.whiteboard-diff-view-host {
+  position: relative;
+  grid-row: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.whiteboard-diff-view-error {
+  display: flex;
+  align-items: center;
+  grid-row: 1;
+  align-self: start;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 11px/1 var(--font-mono);
+}
+
+.whiteboard-map-canvas-shell {
+  /* Anchors the floating map settings control. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  grid-row: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.whiteboard-map-view .software-map {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+}
+
+.software-map-topology-unavailable {
+  flex: none;
+  margin: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.whiteboard-map-view .software-map-frame {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--bg);
+}
+
+.whiteboard-view-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.whiteboard-topbar-icon-button {
+  display: grid;
+  place-items: center;
+  width: var(--chrome-control-height);
+  height: var(--chrome-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-icon-fg);
+  cursor: pointer;
+}
+
+.whiteboard-topbar-icon-button .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.whiteboard-topbar-icon-button:hover {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-topbar-icon-button:focus-visible {
+  outline: 1px solid var(--chrome-fg);
+  outline-offset: -1px;
+}
+
+.ui-icon.ui-icon--discord {
+  fill: currentColor;
+  stroke: none;
+}
+
+.whiteboard-history-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--ink);
+  font-family: var(--chrome-font);
+  font-size: 12px;
+}
+
+.whiteboard-history-banner button {
+  padding: 2px 8px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--chrome-control-radius);
+  background: var(--surface-raised);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.whiteboard-history-banner button:hover,
+.whiteboard-history-banner button:focus-visible {
+  border-color: var(--chrome-active-border);
+  outline: none;
+}
+
+.whiteboard-diff-settings {
+  position: relative;
+}
+
+.whiteboard-diff-settings-button {
+  display: grid;
+  align-items: center;
+  justify-content: center;
+  width: var(--chrome-control-height);
+  height: var(--chrome-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-icon-fg);
+  cursor: pointer;
+}
+
+.whiteboard-diff-settings-button .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.whiteboard-diff-settings-button:hover,
+.whiteboard-diff-settings-button:focus-visible,
+.whiteboard-diff-settings-button[aria-expanded="true"] {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.whiteboard-diff-settings-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px var(--shadow-color-strong);
+  color: var(--chrome-fg);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+}
+
+.whiteboard-diff-settings-title {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--chrome-fg-muted);
+  font-size: var(--chrome-font-size-small);
+  font-weight: var(--chrome-font-weight-strong);
+  letter-spacing: var(--chrome-tracking);
+  text-transform: uppercase;
+}
+
+.whiteboard-diff-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.whiteboard-diff-settings-label {
+  color: var(--chrome-fg);
+}
+
+.whiteboard-diff-settings-segmented {
+  align-self: stretch;
+}
+
+.whiteboard-diff-settings-segmented .whiteboard-segment {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.whiteboard-diff-settings-segmented .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.bug-report-backdrop {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--backdrop);
+}
+
+.bug-report-dialog {
+  width: min(540px, 100%);
+  border: 1px solid var(--chrome-border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 18px 60px var(--shadow-color-strong);
+  color: var(--ink);
+}
+
+.bug-report-dialog--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -7px;
+}
+
+.bug-report-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.bug-report-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.bug-report-description {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bug-report-description textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--chrome-border);
+  border-radius: 5px;
+  padding: 9px;
+  background: var(--tray);
+  color: var(--ink);
+  font: 12px/1.5 var(--font-mono);
+}
+
+.bug-report-byte-count {
+  margin-top: -10px;
+  color: var(--ink-faint);
+  font: 10px/1.3 var(--font-mono);
+  text-align: right;
+}
+
+.bug-report-byte-count--error {
+  color: var(--diff-modified);
+}
+
+.bug-report-dialog fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  padding: 10px 12px 12px;
+}
+
+.bug-report-dialog legend,
+.bug-report-dialog fieldset label,
+.bug-report-privacy {
+  font: 11px/1.45 var(--font-mono);
+}
+
+.bug-report-dialog fieldset label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.bug-report-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bug-report-trace-info {
+  position: relative;
+  display: inline-flex;
+}
+
+.bug-report-trace-info > button {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font: 600 9px/1 var(--font-mono);
+  cursor: help;
+}
+
+.bug-report-trace-info > button:hover,
+.bug-report-trace-info > button:focus-visible {
+  color: var(--ink);
+  outline: none;
+}
+
+.bug-report-trace-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: -8px;
+  z-index: 13;
+  width: min(320px, calc(100vw - 64px));
+  padding: 7px 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px var(--shadow-color-strong);
+  color: var(--ink-muted);
+  font: 10px/1.45 var(--font-mono);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+
+.bug-report-trace-info:hover .bug-report-trace-tooltip,
+.bug-report-trace-info:focus-within .bug-report-trace-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.bug-report-screenshot {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 5px;
+  padding: 8px;
+}
+
+.bug-report-screenshot img {
+  display: block;
+  max-width: calc(100% - 34px);
+  max-height: 72px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+}
+
+.bug-report-screenshot-remove {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  padding: 0;
+  background: var(--tray);
+  color: var(--ink-faint);
+  font: 18px/1 var(--chrome-font);
+  cursor: pointer;
+}
+
+.bug-report-screenshot-remove:hover,
+.bug-report-screenshot-remove:focus-visible {
+  border-color: var(--chrome-active-border);
+  color: var(--ink);
+  outline: none;
+}
+
+.bug-report-screenshot-hint {
+  color: var(--ink-faint);
+  font: 11px/1.45 var(--font-mono);
+}
+
+.bug-report-privacy {
+  margin: 0;
+  color: var(--ink-faint);
+}
+
+.bug-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bug-report-actions button {
+  min-width: 76px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  padding: 7px 12px;
+  background: var(--tray);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.bug-report-actions button[type="submit"] {
+  border-color: var(--rpc);
+}
+
+.bug-report-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.whiteboard-toast {
+  position: fixed;
+  z-index: 10001;
+  right: 18px;
+  bottom: 18px;
+  max-width: 380px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 5px;
+  padding: 10px 12px;
+  background: var(--vscode-notifications-background, var(--tray));
+  box-shadow: 0 8px 28px var(--shadow-color);
+  color: var(--vscode-notifications-foreground, var(--ink));
+  font: 11px/1.4 var(--font-mono);
+}
+
+.whiteboard-toast--success {
+  border-color: var(--diff-added);
+}
+
+.whiteboard-toast--error {
+  border-color: var(--diff-modified);
+}
+
+/* Whiteboard actions — one deliberate decision control */
+
+.whiteboard-baton-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size-small);
+  font-weight: var(--chrome-font-weight-strong);
+  line-height: 1;
+  letter-spacing: var(--chrome-tracking);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.whiteboard-baton-chip--changes-requested {
+  color: var(--diff-modified);
+}
+
+.whiteboard-baton-chip--approved {
+  color: var(--diff-added);
+}
+
+.whiteboard-baton-chip--dismissed {
+  color: var(--diff-removed);
+}
+
+.whiteboard-baton-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.whiteboard-baton-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.whiteboard-baton-chip--dismissed .whiteboard-baton-glyph {
+  stroke-width: 1.4;
+}
+
+.topbar-actions-divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  background: var(--chrome-border);
+}
+
+/* The single end-of-whiteboard control. It occupies the same box the old Finish
+   whiteboard button did, so the 35px topbar needs no change. */
+.whiteboard-corner-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.whiteboard-corner-dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-control-height);
+  padding: 0 10px;
+  border-radius: var(--chrome-control-radius);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+  font-weight: var(--chrome-font-weight-strong);
+  white-space: nowrap;
+}
+
+/* Dismissal is terminal but reversible, so it reads as a quiet outline rather
+   than a destructive fill. It never uses a bare X: that reads as "close". */
+.whiteboard-corner-dismiss {
+  border: 1px solid var(--chrome-border);
+  background: var(--transparent);
+  color: var(--chrome-fg);
+}
+
+.whiteboard-corner-dismiss:not(:disabled):hover {
+  background: var(--chrome-hover-bg);
+}
+
+.whiteboard-corner-dismiss svg {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+}
+
+.whiteboard-corner-error {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  font: 400 11.5px var(--font-mono);
+  color: var(--change-removed);
+  white-space: nowrap;
+}
+
+.whiteboard-debug-trigger {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--chrome-icon-fg);
+}
+
+.whiteboard-debug-trigger:hover,
+.whiteboard-debug-trigger:focus-visible {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.whiteboard-debug-trigger-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5px;
+}
+
+.whiteboard-debug-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 50px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.whiteboard-debug-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.whiteboard-debug-switch i {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--control-bg);
+}
+
+.whiteboard-debug-switch i::before {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--ink-faint);
+  transition:
+    transform 140ms ease,
+    background 140ms ease;
+  content: "";
+}
+
+.whiteboard-debug-switch input:checked + i {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.whiteboard-debug-switch input:checked + i::before {
+  background: var(--accent);
+  transform: translateX(16px);
+}
+
+.whiteboard-debug-theme {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px;
+}
+
+.whiteboard-debug-theme--triple {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.whiteboard-debug-group-label {
+  grid-column: 1 / -1;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.whiteboard-debug-theme-option {
+  min-height: 32px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--tray);
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.whiteboard-debug-theme-option--active,
+.whiteboard-debug-theme-option:hover,
+.whiteboard-debug-theme-option:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.topbar-report-bug-button {
+  display: grid;
+  align-items: center;
+  justify-content: center;
+  width: var(--chrome-control-height);
+  height: var(--chrome-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-icon-fg);
+  cursor: pointer;
+}
+
+.topbar-report-bug-button .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.topbar-report-bug-button:hover:not(:disabled),
+.topbar-report-bug-button:focus-visible:not(:disabled) {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.topbar-report-bug-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.whiteboard-document {
+  position: relative;
+  width: min(860px, calc(100% - 72px));
+  margin: 34px auto 120px;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.whiteboard-document h1,
+.whiteboard-document h2,
+.whiteboard-document h3 {
+  line-height: 1.18;
+}
+
+.whiteboard-document h1 {
+  margin: 0 0 22px;
+  font-size: 42px;
+}
+
+/* A heading jumped to from the contents lands this far below the scroll
+   edge: clear of the edge for scroll-synced highlighting, and the same slack
+   the contents rail leaves under the last heading. */
+.whiteboard-document h2,
+.whiteboard-document h3 {
+  scroll-margin-top: 24px;
+}
+
+.whiteboard-document h2 {
+  margin: 34px 0 12px;
+  font-size: 25px;
+}
+
+.whiteboard-document h3 {
+  margin: 28px 0 10px;
+  font-size: 18px;
+}
+
+.whiteboard-document p {
+  margin: 14px 0;
+}
+
+/* Links are just text in the link color — prose and code chips alike, no
+   visited distinction. Hover restores the browser's plain underline, and
+   the link whose peek is open carries a quiet wash of the same color. */
+.whiteboard-document a,
+.whiteboard-document a:visited {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.whiteboard-document a code {
+  color: var(--accent);
+}
+
+.whiteboard-document a:hover {
+  text-decoration: underline;
+}
+
+.whiteboard-document a[data-whiteboard-anchor-open],
+.whiteboard-document a[data-whiteboard-anchor-open] code {
+  background: var(--link-open-wash);
+}
+
+.whiteboard-document code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--tray);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  animation: side-panel-slide-in 200ms ease-out;
+}
+
+.side-panel--restored {
+  animation: none;
+}
+
+.whiteboard-detail-host {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.whiteboard-detail-host > .side-panel {
+  grid-area: 1 / 1;
+}
+
+.whiteboard-panel-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes side-panel-slide-in {
+  from {
+    opacity: 0.3;
+    transform: translateX(28px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-panel {
+    animation: none;
+  }
+}
+
+.side-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--whiteboard-header-height);
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.side-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.side-panel-kicker {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.side-panel-title h2 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.side-panel-back {
+  flex: 0 0 auto;
+}
+
+.side-panel-close {
+  flex: 0 0 auto;
+}
+
+.side-peek {
+  min-width: 0;
+}
+
+.side-peek-body {
+  min-width: 0;
+  padding: 12px;
+}
+
+.peek-status,
+.peek-error {
+  margin: 14px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.peek-error {
+  border-color: var(--diff-removed);
+  background: var(--diff-removed-bg);
+  color: var(--diff-removed);
+}
+
+.peek-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.peek-actions button,
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-height: 30px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.peek-actions button {
+  padding: 5px 10px;
+}
+
+.icon-button {
+  height: 30px;
+  width: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+
+.peek-actions .icon-button {
+  padding: 0;
+  border: 0;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+
+.icon-button:hover {
+  background: var(--transparent);
+  color: var(--ink-muted);
+}
+
+.icon-button:focus-visible {
+  background: var(--transparent);
+  color: var(--ink-muted);
+  outline: 1px solid var(--rule-soft);
+  outline-offset: 2px;
+}
+
+.icon-button .ui-icon {
+  pointer-events: none;
+}
+
+.icon-button:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.icon-button:disabled:hover {
+  color: var(--ink-faint);
+  outline: none;
+}
+
+.ui-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7px;
+}
+
+.peek-content {
+  min-width: 0;
+}
+
+.code-peek {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.whiteboard-inline-editor {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.whiteboard-inline-editor-error {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-color: var(--rule-soft);
+  background: var(--surface);
+  color: var(--ink-faint);
+  font: 11px/1 var(--font-mono);
+}
+
+.panel-code-block {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  background: var(--bg);
+}
+
+.panel-authored-code-surface {
+  position: relative;
+  min-width: 0;
+  background: var(--tray);
+}
+
+.panel-authored-code-block {
+  display: block;
+  min-width: 0;
+}
+
+.panel-static-code-surface {
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.panel-static-code-line {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 42px 14px minmax(0, 1fr);
+  min-height: 19px;
+  white-space: pre;
+}
+
+.panel-static-code-gutter {
+  padding: 0 5px 0 16px;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+.panel-static-code-marker {
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.agent-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown :is(p, ul, ol, blockquote, pre, table, h1, h2, h3, h4, hr) {
+  margin: 0;
+}
+
+.agent-markdown :is(h1, h2, h3, h4) {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 820;
+  line-height: 1.35;
+}
+
+.agent-markdown :is(ul, ol) {
+  display: grid;
+  gap: 4px;
+  padding-left: 1.35em;
+}
+
+.agent-markdown li > p {
+  display: inline;
+}
+
+.agent-markdown li > input[type="checkbox"] {
+  margin: 0 6px 0 -1.35em;
+  vertical-align: -2px;
+}
+
+.agent-markdown a,
+.agent-markdown a:visited {
+  color: var(--accent);
+  text-decoration-color: var(--accent-outline);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.agent-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--tray);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.agent-markdown blockquote {
+  padding-left: 10px;
+  border-left: 3px solid var(--rule-soft);
+  color: var(--ink-faint);
+}
+
+.agent-markdown table {
+  max-width: 100%;
+  overflow: hidden;
+  border-collapse: collapse;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 5px 7px;
+  border: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.agent-markdown th {
+  color: var(--ink);
+  font-weight: 780;
+  text-align: left;
+}
+
+.agent-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.sequence-participant-label-anchor,
+.sequence-message-label-anchor {
+  position: relative;
+  z-index: 40;
+  pointer-events: all;
+}
+
+.sequence-message-label-anchor {
+  position: absolute;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  pointer-events: all;
+}
+
+.sequence-participant-label {
+  pointer-events: all;
+}
+
+/* The participant lane node spans the full diagram height. Left interactive, the
+   lane sits over the message arrows and steals their hover — and hovering a lane
+   elevates the node above the edges (the :has z-index rule above), so the left
+   half of every arrow becomes unclickable depending on which way the cursor
+   approaches it. Make the lane itself inert; the label box keeps its own
+   pointer-events (above) so the participant stays hoverable.
+   Scoped to participant lanes (not every sequence node) so a future interactive
+   sequence node type isn't silently left without pointer events. */
+.sequence-diagram .react-flow__node:has(.sequence-participant-node) {
+  pointer-events: none;
+}
+
+.sequence-diagram {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  margin: 24px 0;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.sequence-diagram > .diagram-header {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.sequence-diagram > .diagram-header .diagram-header-main {
+  min-width: 0;
+}
+
+.diagram-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Fullscreen guided execution trace. Kin of .software-map-overlay — portals
+   inside .whiteboard-canvas-root (the desktop build scopes all canvas CSS to it),
+   with a literal z-index fallback because the variable lives on .whiteboard-app,
+   which the portal is not inside. Geometry and type scale mirror the Paper
+   artboard "Sequence tour — fullscreen". */
+/* Fullscreen diagram tour: the inline figure as the stage on the left, the
+   guided tour panel on the right, the side-panel resizer between. Theme
+   tokens only, so both color themes come for free. */
+.diagram-tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--whiteboard-debug-layer, 2147483000);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 10px var(
+      --diagram-tour-pane-width,
+      424px
+    );
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.diagram-tour-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.diagram-tour-panel {
+  /* Positioned so the tour panel's floating pager pill centers on this
+     column rather than the whole overlay. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The narrow-layout rules dock a bare .side-panel to the bottom of the app;
+   inside the overlay the panel always keeps its column. */
+.diagram-tour-panel .side-panel {
+  position: static;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+
+/* The stage is the inline figure filling the overlay: shed the document
+   card chrome and let the figure body own the scroll. */
+.diagram-tour-stage :is(.sequence-diagram, .database-lens) {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.diagram-tour-stage .sequence-diagram {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.diagram-tour-stage .sequence-diagram-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A terminal split can leave the Whiteboard canvas too narrow for both tour
+   columns. Collapse the diagram before the tour panel becomes unreadable. */
+@container whiteboard-canvas (max-width: 1080px) {
+  .diagram-tour-overlay {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .diagram-tour-stage,
+  .diagram-tour-resizer {
+    display: none;
+  }
+}
+
+/* On the stage the message dots grow into numbered stop badges. */
+.diagram-tour-stage .sequence-message-dot {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.diagram-tour-stage .sequence-message-dot.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.sequence-diagram .react-flow,
+.database-diagram-canvas .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+/* React Flow disables selection on node and edge-label containers by default.
+   These canvases render whiteboard content, so their text should behave like the
+   prose around them even though the surrounding nodes remain interactive. */
+:is(.sequence-diagram, .software-map-c4-canvas)
+  :is(.react-flow__node, .react-flow__edgelabel-renderer) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.sequence-message {
+  stroke-width: 1.6;
+}
+
+.sequence-message-hit-area {
+  fill: none;
+  stroke: var(--transparent);
+  stroke-width: 18;
+  cursor: pointer;
+  pointer-events: stroke;
+}
+
+.sequence-message.clickable,
+.sequence-message-label.clickable {
+  cursor: pointer;
+}
+
+.sequence-message.active {
+  stroke-width: 2.4;
+}
+
+.sequence-message-dot {
+  position: absolute;
+  z-index: 3;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 1.5px solid var(--rule-soft);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.sequence-message-dot.active {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.sequence-message-label {
+  position: relative;
+  z-index: 4;
+  max-width: calc(var(--sequence-lane-width, 176px) - 12px);
+  padding: 0 3px;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 14px;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
+}
+
+.sequence-message-label.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.sequence-participant-label:hover,
+.sequence-message-label:hover {
+  box-shadow:
+    0 0 0 2px var(--accent-shadow),
+    0 6px 14px var(--shadow-color-strong);
+}
+
+.sequence-diagram {
+  width: 100%;
+  max-width: 100%;
+  min-height: min(var(--sequence-height), 260px);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sequence-diagram-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  /* No overscroll-behavior here: Chrome latches wheel gestures to the nearest
+     scroll container even when it has nothing to scroll, and `contain` would
+     then stop the gesture from chaining up to the document scroller — the
+     page becomes unscrollable wherever the cursor sits over the diagram. */
+}
+
+.sequence-diagram > .diagram-header em {
+  background: var(--tray);
+  color: var(--ink-muted);
+}
+
+.sequence-diagram .react-flow {
+  width: max(100%, var(--sequence-width));
+  height: var(--sequence-height);
+  /* ReactFlow sets inline width/height: 100%, which stylesheet width/height
+     can't beat; the min-* pair keeps the canvas at its natural size so the
+     body can scroll to the clipped remainder in both axes. */
+  min-height: var(--sequence-height);
+  min-width: var(--sequence-width);
+}
+
+.sequence-participant-node {
+  position: relative;
+  width: 100%;
+}
+
+/* React Flow stamps the node's initial width as an inline style and does not
+   re-stamp it when the node definition's width changes, so a lane measured
+   before the container settles would stay narrow. The live variable wins. */
+.sequence-diagram .react-flow__node:has(.sequence-participant-node) {
+  width: var(--sequence-lane-width, 176px) !important;
+}
+
+/* Size the chip to the name, capped at the lane: a long label uses the whole
+   lane before it ellipsizes (its title attribute and the fullscreen overlay
+   carry the untruncated name). */
+.sequence-participant-label-anchor {
+  width: fit-content;
+  min-width: min(148px, 100%);
+  max-width: calc(100% - 16px);
+  margin: 24px auto 0;
+}
+
+.sequence-participant-label {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  overflow: hidden;
+  border: 1px solid var(--rule-soft);
+  border-radius: 7px;
+  background: var(--tray);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sequence-participant-node .sequence-lifeline {
+  position: absolute;
+  top: 62px;
+  bottom: 18px;
+  left: 50%;
+  margin-left: -0.5px;
+  border-left: 1px dashed var(--rule-soft);
+}
+
+.whiteboard-document:has(.database-lens) {
+  width: min(1360px, calc(100% - 32px));
+}
+
+.database-lens {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  margin: 24px 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.database-lens-index {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  min-width: 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+}
+
+.database-lens-index header {
+  min-width: 0;
+  padding: 14px;
+  border-right: 1px solid var(--rule);
+}
+
+.database-lens-index header span {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.database-lens-index h3 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.database-use-case {
+  position: relative;
+  width: min(280px, 42vw);
+  min-width: 210px;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: var(--transparent);
+  color: var(--ink-muted);
+}
+
+.database-use-case:hover,
+.database-use-case.active {
+  background: var(--rpc-wash);
+}
+
+.database-use-case small,
+.database-use-case em {
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.database-use-case em {
+  color: var(--rpc);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.database-lens-diagram {
+  position: relative;
+  min-width: 0;
+  overflow: auto;
+  background: var(--surface);
+}
+
+.database-diagram-canvas {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.sequence-message-handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Anchor edge endpoints exactly on the lane: left: 50% positions the
+   handle's left edge, so without this the start dot and arrow tips all sit
+   half a handle right of the lifeline. */
+.sequence-message-handle {
+  transform: translate(-50%, -50%);
+}
+
+.whiteboard-app--peek-open .whiteboard-document {
+  width: calc(100% - 24px);
+}
+
+.whiteboard-app--peek-open .whiteboard-document:has(.database-lens) {
+  width: calc(100% - 24px);
+}
+
+.whiteboard-app--peek-open .database-lens {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.database-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.sequence-tour {
+  cursor: pointer;
+}
+
+.side-peek--tour {
+  position: relative;
+  background: var(--bg);
+}
+
+.tour-feed-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.side-peek-body.tour-feed {
+  padding: 0 0 72px;
+  scroll-padding-top: 18px;
+  scroll-padding-bottom: 72px;
+}
+
+.tour-floating-footer {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
+.tour-floating-footer .tour-pill {
+  pointer-events: auto;
+}
+
+/* Sized inline by GuidedTourPanel: exactly the scroll room the last stop
+   needs to reach the active line. A CSS percentage cannot reference the
+   scroller's height from inside the auto-height feed content. */
+.tour-scroll-tail {
+  flex-shrink: 0;
+}
+
+.tour-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 2px 10px var(--shadow-color-strong);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tour-pill--intro {
+  gap: 7px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.tour-pill-chevron {
+  color: var(--on-accent);
+}
+
+.tour-pill > button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--on-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tour-pill > button:hover:not(:disabled),
+.tour-pill > button:focus-visible {
+  background: color-mix(in srgb, var(--on-accent) 16%, var(--transparent));
+}
+
+.tour-pill > button:disabled {
+  color: var(--on-accent-wash);
+  cursor: default;
+}
+
+.tour-end-cap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 16px 16px 52px;
+  padding: 12px 16px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 8px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tour-end-cap button {
+  padding: 0;
+  border: 0;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tour-stop {
+  --tour-rail-breakout: 50px;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  padding-right: 16px;
+}
+
+.tour-stop-rail {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.tour-stop-rail::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 29px;
+  width: 2px;
+  background: var(--rule-soft);
+  content: "";
+}
+
+.tour-stop-rail div {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 18px;
+  border: 2px solid var(--rule-soft);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 0 0 4px var(--bg);
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tour-stop.active .tour-stop-rail div {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.tour-stop-main {
+  min-width: 0;
+  padding: 16px 0 22px 4px;
+}
+
+.tour-stop-main > .peek-content {
+  position: relative;
+  z-index: 2;
+  width: calc(100% + var(--tour-rail-breakout));
+  margin-left: calc(-1 * var(--tour-rail-breakout));
+  background: var(--bg);
+}
+
+.tour-stop-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.tour-stop-count {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tour-stop-header h3 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 24px;
+}
+
+.tour-stop-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-stop-header p {
+  margin: 6px 0 0;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.tour-stop-header button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.tour-stop-header .icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+
+.tour-stop-header .icon-button:hover,
+.tour-stop-header .icon-button:focus-visible {
+  background: var(--transparent);
+  color: var(--ink-muted);
+}
+
+.tour-stop.active .tour-stop-main {
+  border-radius: 9px;
+}
+
+.tour-stop.active .tour-stop-header h3 {
+  color: var(--accent);
+}
+
+/* Making Software light restyle. */
+.whiteboard-app {
+  font-family: var(--font-mono);
+  --whiteboard-page-top: 20px;
+}
+
+.whiteboard-view-region--whiteboard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--whiteboard-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+  /* --whiteboard-toc-tail is the room the contents rail adds so the last heading
+     can scroll up to the top edge, measured by the rail itself. */
+  padding: var(--whiteboard-page-top) 52px
+    calc(120px + var(--whiteboard-toc-tail, 0px));
+}
+
+.whiteboard-view-region--whiteboard::-webkit-scrollbar {
+  width: var(--whiteboard-scrollbar-size);
+  background: transparent;
+}
+
+.whiteboard-view-region--whiteboard::-webkit-scrollbar-track,
+.whiteboard-view-region--whiteboard::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--whiteboard-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:hover {
+  background: var(--whiteboard-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.whiteboard-view-region--whiteboard::-webkit-scrollbar-thumb:active {
+  background: var(--whiteboard-scrollbar-thumb-active);
+  background-clip: padding-box;
+}
+
+.whiteboard-view-region--whiteboard.whiteboard-view-region--document-warning {
+  padding-top: calc(var(--whiteboard-page-top) + 72px);
+}
+
+/* On a narrow shell the nav is the pill and the card in one: a 32px square
+   at the pill's anchor that grows in place, top-left corner pinned, into the
+   248px contents card. Width and height animate; the list only fades, late
+   in and early out, so no frame shows stretching text. The radius holds at
+   8px so the eye tracks one shape. On a wide shell the same nav is the rail
+   (see .whiteboard-toc--rail): always open, no button, no card chrome. */
+.whiteboard-toc {
+  position: absolute;
+  /* Sits 16px above the content top so it clears the page title. */
+  top: calc(32px + var(--whiteboard-page-top));
+  left: 24px;
+  z-index: 32;
+  display: block;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px var(--shadow-color);
+  color: var(--ink-muted);
+  font-family: var(--font-serif);
+  interpolate-size: allow-keywords;
+  transition:
+    width 180ms cubic-bezier(0.2, 0.7, 0.2, 1) 80ms,
+    height 180ms cubic-bezier(0.2, 0.7, 0.2, 1) 80ms,
+    box-shadow 180ms ease 80ms;
+}
+
+.whiteboard-toc--open {
+  width: 248px;
+  height: auto;
+  box-shadow:
+    0 1px 0 var(--toc-inner-shadow),
+    0 18px 44px var(--shadow-color);
+  transition:
+    width 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    height 220ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 220ms ease;
+}
+
+.whiteboard-toc-toggle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: var(--transparent);
+  color: inherit;
+}
+
+.whiteboard-toc-toggle[hidden] {
+  display: none;
+}
+
+.whiteboard-toc-toggle .ui-icon {
+  flex: 0 0 auto;
+}
+
+.whiteboard-toc-toggle:hover,
+.whiteboard-toc-toggle:focus-visible,
+.whiteboard-toc--open .whiteboard-toc-toggle {
+  color: var(--ink);
+}
+
+.whiteboard-toc-toggle:focus-visible {
+  outline: 1px solid var(--rule-soft);
+  outline-offset: -3px;
+}
+
+.whiteboard-toc-body {
+  max-height: min(488px, calc(100dvh - 196px));
+  overflow: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 80ms ease;
+}
+
+.whiteboard-toc--open .whiteboard-toc-body {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 140ms ease 100ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whiteboard-toc,
+  .whiteboard-toc--open {
+    transition: none;
+  }
+
+  .whiteboard-toc-body,
+  .whiteboard-toc--open .whiteboard-toc-body {
+    transition: opacity 140ms ease;
+  }
+}
+
+/* A wide shell renders the contents as a plain rail beside the prose, without
+   the floating-card chrome, for the whole document. It keeps the card's
+   inner layout but never grows or shrinks. */
+.whiteboard-toc--rail {
+  top: calc(48px + var(--whiteboard-page-top) + 40px);
+  z-index: 31;
+  overflow: visible;
+  padding: 20px 18px 22px 20px;
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+  transition: none;
+}
+
+.whiteboard-toc--rail .whiteboard-toc-body {
+  max-height: min(520px, calc(100dvh - 164px));
+  transition: none;
+}
+
+/* The card's first row is the pill's row: 32px tall, the label set in from
+   the glyph. The rail has no glyph, so its head sits flush. */
+.whiteboard-toc-head {
+  height: 32px;
+  padding-left: 32px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.whiteboard-toc--rail .whiteboard-toc-head {
+  height: auto;
+  margin-bottom: 14px;
+  padding-left: 0;
+  line-height: normal;
+}
+
+.whiteboard-toc-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 4px 18px 20px 20px;
+  list-style: none;
+}
+
+.whiteboard-toc--rail .whiteboard-toc-list {
+  padding: 0;
+}
+
+.whiteboard-toc-item {
+  margin: 0;
+  padding: 0;
+}
+
+.whiteboard-toc-item--h2 {
+  padding-left: 0;
+}
+
+.whiteboard-toc-item--h3 {
+  padding-left: 14px;
+}
+
+.whiteboard-toc-link {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--transparent);
+  color: var(--ink-muted);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 20px;
+  text-align: left;
+}
+
+.whiteboard-toc-number {
+  flex: 0 0 auto;
+  min-width: 20px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.whiteboard-toc-text {
+  min-width: 0;
+}
+
+.whiteboard-toc-item--h2 .whiteboard-toc-link {
+  font-weight: 500;
+}
+
+.whiteboard-toc-item--active .whiteboard-toc-link {
+  background: var(--accent-wash);
+}
+
+.whiteboard-toc-link:hover,
+.whiteboard-toc-link:focus-visible,
+.whiteboard-toc-item--active .whiteboard-toc-link {
+  color: var(--accent);
+  outline: none;
+}
+
+.whiteboard-document {
+  --whiteboard-inline-diagram-max-width: 1120px;
+  --whiteboard-document-padding-inline: clamp(
+    20px,
+    calc((100cqi - 720px) * 0.122 + 20px),
+    64px
+  );
+  --whiteboard-document-padding-block-start: 28px;
+  --whiteboard-document-padding-block-end: 72px;
+  --whiteboard-prose-max-width: 720px;
+  flex: 1 1 860px;
+  width: 100%;
+  max-width: 860px;
+  min-width: 0;
+  margin: 0 auto 96px;
+  padding: var(--whiteboard-document-padding-block-start)
+    var(--whiteboard-document-padding-inline)
+    var(--whiteboard-document-padding-block-end);
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.whiteboard-app--peek-open .whiteboard-document {
+  --whiteboard-inline-diagram-max-width: 1000px;
+  width: 100%;
+  max-width: 860px;
+}
+
+.whiteboard-document h1,
+.whiteboard-document h2,
+.whiteboard-document h3,
+.whiteboard-document p,
+.whiteboard-document li,
+.whiteboard-document blockquote {
+  font-family: var(--font-serif);
+}
+
+.whiteboard-document h1 {
+  width: min(100%, var(--whiteboard-prose-max-width));
+  /* Keep title headroom consistent as the contents switches between pill and rail. */
+  margin: 28px auto 18px;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 40px;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.whiteboard-doc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  min-height: 26px;
+  width: min(100%, var(--whiteboard-prose-max-width));
+  margin: -6px auto 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.whiteboard-doc-meta-branch {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.whiteboard-doc-meta-pr {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.whiteboard-doc-meta-pr:hover {
+  text-decoration: underline;
+}
+
+.whiteboard-stack-selector {
+  position: relative;
+  color: var(--ink-faint);
+}
+
+.whiteboard-stack-selector > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink);
+  list-style: none;
+}
+
+.whiteboard-stack-selector > summary::-webkit-details-marker {
+  display: none;
+}
+
+.whiteboard-stack-selector > summary:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--rule-soft));
+  background: var(--control-bg);
+}
+
+.whiteboard-stack-position-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.whiteboard-stack-position {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.whiteboard-stack-label {
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.whiteboard-stack-selector > summary svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ink-faint);
+  transition: transform 120ms ease-out;
+}
+
+.whiteboard-stack-selector > summary path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
+
+.whiteboard-stack-selector[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.whiteboard-stack-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  min-width: 340px;
+  padding: 7px;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 32px var(--shadow-color);
+}
+
+.whiteboard-stack-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 9px;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.whiteboard-stack-row.is-current {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+}
+
+button.whiteboard-stack-row:not(:disabled) {
+  cursor: pointer;
+}
+
+button.whiteboard-stack-row:not(:disabled):hover {
+  background: var(--tray);
+}
+
+button.whiteboard-stack-row:disabled {
+  cursor: default;
+}
+
+button.whiteboard-stack-row:disabled .whiteboard-stack-layer-title,
+button.whiteboard-stack-row:disabled .whiteboard-stack-branch,
+button.whiteboard-stack-row:disabled .whiteboard-stack-position-marker,
+button.whiteboard-stack-row:disabled .whiteboard-stack-relation {
+  color: var(--ink-faint);
+}
+
+.whiteboard-stack-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  flex: 0 0 24px;
+}
+
+.whiteboard-stack-row.is-current .whiteboard-stack-position-marker {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--rule-soft));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.whiteboard-stack-layer-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.whiteboard-stack-layer-title,
+.whiteboard-stack-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-stack-layer-title {
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.whiteboard-stack-row.is-current .whiteboard-stack-layer-title {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.whiteboard-stack-branch {
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.whiteboard-stack-row.is-current .whiteboard-stack-branch {
+  color: var(--ink-muted);
+}
+
+.whiteboard-stack-row.is-current .whiteboard-stack-relation {
+  color: var(--accent);
+}
+
+.whiteboard-stack-relation {
+  width: 54px;
+  flex: 0 0 54px;
+  color: var(--ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.02em;
+  line-height: 13px;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.whiteboard-document h2 {
+  margin: 40px auto 12px;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.whiteboard-document h3 {
+  margin: 30px auto 10px;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 23px;
+}
+
+.whiteboard-document p,
+.whiteboard-document li {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.72;
+  text-align: left;
+}
+
+.whiteboard-document li + li {
+  margin-top: 8px;
+}
+
+.whiteboard-document > p,
+.whiteboard-document > h2,
+.whiteboard-document > h3,
+.whiteboard-document > ul,
+.whiteboard-document > ol,
+.whiteboard-document > blockquote,
+.whiteboard-document > pre,
+.whiteboard-document > .code-peek,
+.whiteboard-document > .whiteboard-trace-quote-container,
+.whiteboard-section-header,
+.whiteboard-section-body > p,
+.whiteboard-section-body > h3,
+.whiteboard-section-body > ul,
+.whiteboard-section-body > ol,
+.whiteboard-section-body > blockquote,
+.whiteboard-section-body > pre,
+.whiteboard-section-body > .code-peek,
+.whiteboard-section-body > .whiteboard-trace-quote-container {
+  width: min(100%, var(--whiteboard-prose-max-width));
+  max-width: calc(
+    100cqi - var(--whiteboard-document-padding-inline) -
+      var(--whiteboard-document-padding-inline)
+  );
+  margin-inline: auto;
+}
+
+/* Standalone quotes share the prose column; quotes inside prose stay inline. */
+.whiteboard-document > .whiteboard-trace-quote-container,
+.whiteboard-section-body > .whiteboard-trace-quote-container {
+  display: block;
+}
+
+/* Code peeks are sections, so unlike prose they have no browser block margin. */
+.whiteboard-document > .code-peek + .code-peek,
+.whiteboard-section-body > .code-peek + .code-peek {
+  margin-block-start: 14px;
+}
+
+.whiteboard-section {
+  position: relative;
+  width: 100%;
+}
+
+.whiteboard-section-header {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-block: 40px 12px;
+}
+
+.whiteboard-section-header h2 {
+  margin: 0;
+}
+
+.whiteboard-section-heading {
+  min-width: 0;
+}
+
+.whiteboard-section-toggle {
+  position: absolute;
+  top: 5px;
+  left: -24px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--transparent);
+  color: var(--ink-faint);
+  /* Expanded sections keep a faint chevron so "this collapses" is legible
+     without hovering the header first. */
+  opacity: var(--affordance-rest-opacity);
+  transition: opacity 120ms ease;
+}
+
+.whiteboard-section-header:hover .whiteboard-section-toggle,
+.whiteboard-section-toggle:focus-visible,
+.whiteboard-section--collapsed .whiteboard-section-toggle {
+  opacity: 1;
+}
+
+.whiteboard-section-toggle:hover,
+.whiteboard-section-toggle:focus-visible {
+  color: var(--ink-muted);
+  outline: none;
+}
+
+.whiteboard-section--collapsed .whiteboard-section-heading h2 {
+  color: var(--ink-muted);
+}
+
+.whiteboard-section-meta {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.whiteboard-document code,
+.whiteboard-document pre,
+.whiteboard-document kbd,
+.whiteboard-document samp {
+  font-family: var(--font-mono);
+}
+
+.whiteboard-document code {
+  border-radius: 3px;
+  background: var(--tray);
+  color: var(--ink);
+}
+
+.whiteboard-document table {
+  width: min(100%, 600px);
+  margin: 24px auto;
+  border-collapse: collapse;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  table-layout: fixed;
+}
+
+.whiteboard-document th,
+.whiteboard-document td {
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+  text-align: left;
+  vertical-align: top;
+}
+
+.whiteboard-document th {
+  background: var(--tray);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sequence-diagram,
+.database-lens {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  width: 100%;
+  max-width: 100%;
+  box-shadow: 0 1px 3px var(--shadow-color-strong);
+}
+
+.whiteboard-document :is(.sequence-diagram, .database-lens, .software-map) {
+  width: fit-content;
+  max-width: min(
+    var(--whiteboard-inline-diagram-max-width),
+    calc(
+      100cqi - var(--whiteboard-document-padding-inline) -
+        var(--whiteboard-document-padding-inline)
+    )
+  );
+  margin-inline: auto;
+}
+
+/* An inline diagram never renders narrower than the prose measure (clamped
+   to the container width so narrow viewports still fit). Sequence diagrams
+   get the same floor from their width: 100% rule below. */
+.whiteboard-document :is(.software-map, .database-lens) {
+  min-width: min(
+    var(--whiteboard-prose-max-width),
+    calc(
+      100cqi - var(--whiteboard-document-padding-inline) -
+        var(--whiteboard-document-padding-inline)
+    )
+  );
+}
+
+/* Sequence diagrams read as part of the prose: same measure as the text
+   column, with lanes spreading to fill it (see laneWidth in diagrams.tsx).
+   The fullscreen overlay is the escape hatch for more room. */
+.whiteboard-document .sequence-diagram {
+  width: 100%;
+  max-width: min(
+    var(--whiteboard-prose-max-width),
+    calc(
+      100cqi - var(--whiteboard-document-padding-inline) -
+        var(--whiteboard-document-padding-inline)
+    )
+  );
+}
+
+.sequence-diagram figcaption {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  min-width: 100%;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.sequence-diagram {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.sequence-diagram .react-flow,
+.database-diagram-canvas .react-flow {
+  background: var(--bg);
+}
+
+.sequence-diagram {
+  padding-top: 0;
+}
+
+.sequence-diagram figcaption em {
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--ink-muted);
+}
+
+@container whiteboard-content (max-width: 1080px) {
+  .whiteboard-view-region--whiteboard {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+    padding: 0;
+  }
+
+  .whiteboard-document {
+    flex: 0 1 auto;
+    width: 100%;
+    max-width: 860px;
+    min-width: 0;
+    margin: 0 auto;
+    padding: 28px var(--whiteboard-document-padding-inline);
+    border: none;
+    border-radius: 0;
+    background: var(--transparent);
+    box-shadow: none;
+  }
+}
+
+@container whiteboard-content (max-width: 1180px) {
+  .whiteboard-view-region--whiteboard {
+    gap: 0;
+    padding: var(--whiteboard-page-top) 42px 120px;
+  }
+}
+
+@container whiteboard-content (max-width: 1080px) {
+  .whiteboard-view-region--whiteboard {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    padding: var(--whiteboard-page-top) 24px 120px;
+  }
+}
+
+@container whiteboard-content (max-width: 560px) {
+  .database-lens {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .database-lens-index {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .database-lens-index header {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .database-lens-diagram {
+    min-height: 520px;
+  }
+}
+
+.sequence-participant-label {
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: none;
+  font-family: var(--font-mono);
+}
+
+.software-map-c4-edge-label {
+  padding: 3px 7px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.database-lens {
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface);
+}
+
+.database-lens-index {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.database-lens-index header {
+  padding: 12px 14px;
+}
+
+.database-lens-index header span {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+.database-lens-index h3 {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.database-use-case:hover,
+.database-use-case.active {
+  background: var(--accent-wash);
+}
+
+.database-lens-diagram,
+.database-diagram-canvas,
+.database-diagram-canvas--c4 .software-map-canvas,
+.database-diagram-canvas--c4 .software-map-c4-canvas {
+  background: var(--bg);
+}
+
+.database-diagram-canvas--c4 .software-map-frame {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-data-store-schema-section {
+  border-color: var(--rule);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.database-empty,
+.peek-status,
+.peek-error,
+.software-map-status,
+.software-map-code-status {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-muted);
+}
+
+.sequence-message-label {
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.react-flow__background {
+  opacity: 0.45;
+}
+
+.whiteboard-map-view {
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.whiteboard-map-canvas-shell {
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.whiteboard-map-view .software-map-frame {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.software-map,
+.software-map-frame,
+.software-map-header,
+.software-map-canvas,
+.software-map-c4-canvas,
+.software-map-c4-canvas .react-flow {
+  font-family: var(--font-mono);
+}
+
+.software-map-canvas,
+.software-map-c4-canvas,
+.whiteboard-map-view .react-flow,
+.whiteboard-map-view .react-flow__renderer,
+.whiteboard-map-view .react-flow__pane,
+.software-map-c4-canvas .react-flow {
+  background: var(--bg);
+}
+
+.software-map-header,
+.software-map-code-inspector,
+.software-map-status,
+.software-map-code-status {
+  border: 0;
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-code-inspector {
+  border-left: 0;
+  background: var(--bg);
+}
+
+.software-map-c4-group-shell,
+.software-map-c4-node-shell > .software-map-node,
+.software-map-node {
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: none;
+  font-family: var(--font-mono);
+}
+
+.software-map-c4-group-shell {
+  padding: 14px 16px;
+  border-color: var(--rule);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.software-map-c4-group-shell--softwareSystem {
+  padding: 18px 22px;
+  border-color: var(--rule);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.software-map-c4-group-shell.selected,
+.software-map-node.selected {
+  border: 2px solid var(--accent);
+  background: var(--marker-tint);
+  box-shadow: none;
+}
+
+.software-map-node.selected:not(.software-map-node--added):not(
+    .software-map-node--removed
+  ):not(.software-map-node--modified) {
+  border-color: var(--accent);
+  background: var(--marker-tint);
+}
+
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--added,
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--removed,
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--modified,
+.software-map-node.selected.software-map-node--added,
+.software-map-node.selected.software-map-node--removed,
+.software-map-node.selected.software-map-node--modified {
+  border: 2px solid var(--accent);
+  background: var(--marker-tint);
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell--added,
+.software-map-node.software-map-node--added {
+  border: 1.5px solid var(--change-added);
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell--removed,
+.software-map-node.software-map-node--removed {
+  border: 1.5px dashed var(--change-removed);
+  opacity: 0.75;
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell--modified,
+.software-map-node.software-map-node--modified {
+  border: 1.5px solid var(--change-modified);
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--added,
+.software-map-node.selected.software-map-node--added {
+  border: 2px solid var(--accent);
+  background: var(--marker-tint);
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--removed,
+.software-map-node.selected.software-map-node--removed {
+  border: 2px solid var(--accent);
+  background: var(--marker-tint);
+  box-shadow: none;
+}
+
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--modified,
+.software-map-node.selected.software-map-node--modified {
+  border: 2px solid var(--accent);
+  background: var(--marker-tint);
+  box-shadow: none;
+}
+
+.software-map-c4-node-shell > .software-map-node--codeElement {
+  border-width: 0;
+}
+
+.software-map-c4-node-shell > .software-map-node--codeElement,
+.software-map-c4-node-shell > .software-map-node--codeElement.selected,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.software-map-node--added,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.software-map-node--removed,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.software-map-node--modified,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.selected.software-map-node--added,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.selected.software-map-node--removed,
+.software-map-c4-node-shell
+  > .software-map-node--codeElement.selected.software-map-node--modified {
+  border-color: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-node--dataStore,
+.software-map-c4-node-shell > .software-map-node--dataStore,
+.software-map-node--dataStore.software-map-node--added,
+.software-map-c4-node-shell
+  > .software-map-node--dataStore.software-map-node--added,
+.software-map-node--dataStore.software-map-node--removed,
+.software-map-c4-node-shell
+  > .software-map-node--dataStore.software-map-node--removed,
+.software-map-node--dataStore.software-map-node--modified,
+.software-map-c4-node-shell
+  > .software-map-node--dataStore.software-map-node--modified {
+  --software-map-storage-border: var(--rule-soft);
+  --software-map-storage-detail: var(--rule);
+  --software-map-storage-fill-detail: var(--transparent);
+  border-width: 0;
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-node--dataStore.selected,
+.software-map-node--dataStore.selected.software-map-node--added,
+.software-map-node--dataStore.selected.software-map-node--removed,
+.software-map-node--dataStore.selected.software-map-node--modified {
+  --software-map-storage-border: var(--selection);
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-node--dataStore.selected.software-map-node--added {
+  --software-map-storage-border: var(--change-added);
+}
+
+.software-map-node--dataStore.selected.software-map-node--removed {
+  --software-map-storage-border: var(--change-removed);
+}
+
+.software-map-node--dataStore.selected.software-map-node--modified {
+  --software-map-storage-border: var(--change-modified);
+}
+
+.software-map-node--dataStore.selected:not(.software-map-node--added):not(
+    .software-map-node--removed
+  ):not(.software-map-node--modified) {
+  border-width: 0;
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.software-map-change-badge .software-map-change-count--added {
+  color: var(--diff-added);
+}
+
+.software-map-change-badge .software-map-change-count--removed {
+  color: var(--diff-removed);
+}
+
+.software-map-node-meta span,
+.software-map-node-meta code,
+.software-map-more {
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  color: var(--ink-muted);
+}
+
+.software-map-data-store-schema {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin: 12px -2px 0;
+}
+
+.software-map-data-store-schema-section {
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.software-map-data-store-schema-section-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+  text-align: left;
+}
+
+.software-map-data-store-schema-section-header span {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-transform: uppercase;
+}
+
+.software-map-data-store-schema-section-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-map-data-store-schema-key {
+  overflow: hidden;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-map-data-store-schema-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(68px, auto);
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px 0 calc(12px + var(--software-map-schema-row-depth, 0) * 18px);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  text-align: left;
+}
+
+.software-map-data-store-schema-row:last-child {
+  border-bottom: 0;
+}
+
+.software-map-data-store-schema-row--active {
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+  background-color: var(--rpc-wash);
+}
+
+.software-map-data-store-schema-row--primary {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--accent-stripe) 0,
+    var(--accent-stripe) 7px,
+    var(--transparent) 7px,
+    var(--transparent) 14px
+  );
+}
+
+.software-map-data-store-schema-row-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-map-data-store-schema-row-name strong {
+  margin-right: 6px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--diff-modified-bg);
+  color: var(--diff-modified);
+  font-size: 10px;
+}
+
+.software-map-data-store-schema-row-name strong.foreign-key {
+  background: var(--rpc-wash);
+  color: var(--rpc);
+}
+
+.software-map-data-store-schema-row-type {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.software-map-c4-edge-label {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  background-color: var(--surface);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+}
+
+.software-map-c4-edge-label--button {
+  padding: 2px 5px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.software-map-c4-edge-label--active {
+  border-color: var(--selection);
+  background: linear-gradient(var(--rpc-wash), var(--rpc-wash)), var(--surface);
+  background-color: var(--surface);
+  color: var(--selection);
+}
+
+.software-map-c4-edge-highlight {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.software-map-c4-edge-highlight--active {
+  stroke: var(--selection-shadow);
+  stroke-width: 10px;
+}
+
+.software-map-c4-edge--operation-active .react-flow__edge-path {
+  stroke: var(--selection);
+}
+
+.software-map-c4-canvas .react-flow__edge-path {
+  stroke: var(--edge-muted);
+  stroke-width: 1.25px;
+}
+
+.sequence-message {
+  stroke-width: 1.25px;
+}
+
+.side-peek-resizer {
+  background: var(--transparent);
+  border-color: var(--transparent);
+}
+
+.sequence-diagram,
+.database-lens {
+  overflow: hidden;
+  border: 1px solid var(--diagram-border);
+  border-radius: 6px;
+  background: var(--diagram-surface);
+  box-shadow: none;
+}
+
+.diagram-header,
+.sequence-diagram figcaption.diagram-header {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--diagram-border);
+  background: var(--diagram-header-bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+.diagram-header-main {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.diagram-kind-badge {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.diagram-header-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagram-header-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: var(--transparent);
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.diagram-header-actions {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sequence-diagram {
+  background: var(--diagram-surface);
+}
+
+.sequence-diagram .react-flow,
+.database-diagram-canvas .react-flow {
+  background: var(--diagram-canvas-bg);
+}
+
+.sequence-diagram {
+  /* Natural height (header + canvas, no hardcoded header allowance), capped
+     to the viewport; past the cap the body scrolls vertically. */
+  height: auto;
+  max-height: calc(100dvh - 160px);
+}
+
+.sequence-diagram.sequence-tour--active {
+  border-color: var(--selection);
+  box-shadow: 0 0 0 2px var(--selection-shadow);
+}
+
+.diagram-tour-stage .sequence-diagram.sequence-tour--active {
+  box-shadow: none;
+}
+
+.database-lens {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.database-lens-header {
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.database-lens-header .diagram-header-actions {
+  flex: 0 1 min(58%, 460px);
+}
+
+.database-use-case-select-target {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 320px;
+  align-items: center;
+  min-width: 180px;
+  max-width: 360px;
+}
+
+.database-lens-diagram,
+.database-diagram-canvas,
+.database-diagram-canvas--c4 .software-map-canvas,
+.database-diagram-canvas--c4 .software-map-c4-canvas {
+  min-width: 0;
+  min-height: 0;
+  background: var(--diagram-canvas-bg);
+}
+
+.database-diagram-canvas--c4 .software-map-frame {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+@container whiteboard-content (max-width: 760px) {
+  .database-lens-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    height: auto;
+    min-height: 0;
+    padding-block: 9px;
+  }
+
+  .database-lens-header .diagram-header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .database-use-case-select-target {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+/* Narrow layouts: the panel docks to the bottom half of the canvas as a
+   sheet behind a draggable divider — the horizontal twin of the side peek.
+   No backdrop: the document above stays readable and interactive. */
+@container whiteboard-canvas (max-width: 929px) {
+  .whiteboard-app,
+  .whiteboard-app--peek-open {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+
+  .whiteboard-app--peek-open .side-panel-resizer {
+    display: none;
+  }
+
+  /* The host's own box lives in the collapsed third grid column; dissolving
+     it lets the sheet position against .whiteboard-app instead of a 0-width,
+     overflow-hidden ancestor. */
+  .whiteboard-detail-host {
+    display: contents;
+  }
+
+  .side-panel {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 50;
+    width: auto;
+    height: calc(var(--side-panel-bottom-fraction, 0.5) * 100%);
+    max-height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .side-panel-sheet-resizer {
+    display: block;
+  }
+}
+
+@media (max-width: 720px) {
+  .whiteboard-app--peek-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whiteboard-app--peek-open .side-panel-resizer {
+    display: none;
+  }
+
+  .whiteboard-topbar {
+    padding: 0 4px;
+  }
+
+  .whiteboard-view-region--whiteboard {
+    padding: 22px 8px calc(96px + var(--whiteboard-toc-tail, 0px));
+  }
+
+  .whiteboard-toc {
+    left: 8px;
+  }
+
+  .whiteboard-toc--open {
+    width: min(248px, calc(100cqi - 16px));
+  }
+
+  .whiteboard-document,
+  .whiteboard-app--peek-open .whiteboard-document,
+  .whiteboard-document:has(.database-lens),
+  .whiteboard-app--peek-open .whiteboard-document:has(.database-lens) {
+    --whiteboard-document-padding-inline: clamp(12px, 4vw, 20px);
+    --whiteboard-document-padding-block-start: 28px;
+    --whiteboard-document-padding-block-end: 48px;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .whiteboard-document :is(.sequence-diagram, .database-lens, .software-map),
+  .whiteboard-app--peek-open
+    .whiteboard-document
+    :is(.sequence-diagram, .database-lens, .software-map) {
+    --whiteboard-inline-diagram-max-width: none;
+    width: calc(100cqi - 16px);
+  }
+
+  /* The host's own box lives in the collapsed third grid column; dissolving
+     it lets the sheet position against .whiteboard-app instead of a 0-width,
+     overflow-hidden ancestor. */
+  .whiteboard-detail-host {
+    display: contents;
+  }
+
+  .side-panel {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 50;
+    width: auto;
+    height: calc(var(--side-panel-bottom-fraction, 0.5) * 100%);
+    max-height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  .side-panel-sheet-resizer {
+    display: block;
+  }
+
+  .side-peek-body {
+    padding: 8px;
+  }
+
+  .tour-floating-footer {
+    bottom: 8px;
+    padding: 0 8px;
+  }
+
+  .tour-end-cap {
+    margin: 8px 8px 16px 38px;
+  }
+
+  .tour-stop {
+    --tour-rail-breakout: 30px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding-right: 8px;
+  }
+
+  .tour-stop-rail::before {
+    left: 19px;
+  }
+
+  .tour-stop-main {
+    padding-left: 0;
+  }
+
+  .tour-stop-main > .peek-content {
+    width: calc(100% + var(--tour-rail-breakout));
+    margin-left: calc(-1 * var(--tour-rail-breakout));
+  }
+}
+
+@media (max-height: 560px) {
+  .side-panel {
+    inset: 0;
+    height: 100%;
+    max-height: none;
+  }
+}
+
+/* CodePeek loading while the resolve request is in flight. */
+
+/* Home: agent setup card */
+
+.whiteboard-agent-setup {
+  margin-top: 32px;
+  padding: 14px 16px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.whiteboard-agent-setup-cli {
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-agent-setup-agents {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whiteboard-agent-setup-agents li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--whiteboard-home-rule);
+}
+
+.whiteboard-agent-setup-name {
+  min-width: 110px;
+}
+
+.whiteboard-agent-setup-state {
+  flex: 1;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+/* Installed is the one state worth colouring: it is what the step is asking
+   the reader to achieve. */
+.whiteboard-agent-setup-state[data-installed="true"] {
+  color: var(--change-added);
+}
+
+.whiteboard-agent-setup button {
+  padding: 3px 10px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+}
+
+.whiteboard-agent-setup button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard-agent-setup-error {
+  margin: 10px 0 0;
+  color: var(--change-removed);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.whiteboard-agent-setup-disclosure {
+  margin: 10px 0 0;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-agent-setup-disclosure code {
+  padding: 1px 4px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--whiteboard-home-card-active);
+  font-family: inherit;
+}
+
+.whiteboard-agent-setup-terminal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--whiteboard-home-rule-soft);
+}
+
+.whiteboard-agent-setup-terminal-info {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.whiteboard-agent-setup-terminal code {
+  font-family: inherit;
+}
+
+.whiteboard-agent-setup-trace {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.whiteboard-agent-setup-trace .whiteboard-agent-setup-terminal-info {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+}
+
+.whiteboard-agent-setup-trace-fields {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.whiteboard-agent-setup-trace-fields input {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--control-bg);
+}
+
+.whiteboard-agent-setup-trace-search {
+  flex-basis: 100%;
+  width: 100%;
+}
+
+.whiteboard-agent-setup-trace-search .whiteboard-agent-setup-terminal-info {
+  flex-basis: auto;
+}
+
+.whiteboard-agent-setup button.whiteboard-agent-setup-subtle {
+  border-color: var(--transparent);
+  color: var(--whiteboard-home-meta);
+}
+
+.whiteboard-agent-setup-page .whiteboard-agent-setup,
+.whiteboard-welcome-page .whiteboard-agent-setup {
+  margin-top: 0;
+}
+
+/* The Settings page is flat rows, not cards, so the agent list drops the
+   card chrome and lines up with every other section. */
+.whiteboard-settings-page .whiteboard-agent-setup {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--transparent);
+}
+
+.whiteboard-settings-page .whiteboard-agent-setup-agents li:first-child {
+  border-top: none;
+}
+
+.whiteboard-agent-setup-lede {
+  margin: 0 0 20px;
+  color: var(--whiteboard-home-meta);
+  font-size: 13px;
+}
+
+/* The Welcome pane: an intro column beside the three-step rail that owns the
+   whole first-run flow. Colors come from the themed --whiteboard-home-* / --ink
+   vars, so light mode follows without a second block. */
+.whiteboard-onboarding-columns {
+  display: flex;
+  gap: 72px;
+  align-items: flex-start;
+  padding-top: 48px;
+}
+
+.whiteboard-onboarding-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 380px;
+  flex-shrink: 0;
+}
+
+.whiteboard-onboarding-kicker {
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.whiteboard-onboarding-headline {
+  margin: 0;
+  color: var(--ink);
+  font: 500 38px/46px var(--font-serif);
+}
+
+.whiteboard-onboarding-sub {
+  margin: 0;
+  color: var(--whiteboard-home-meta);
+  font-size: 13px;
+  line-height: 21px;
+}
+
+.whiteboard-onboarding-steps {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.whiteboard-welcome-dismiss {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: var(--whiteboard-home-meta);
+  background: var(--transparent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+/* One accordion item per step. The header is always visible; only the open
+   step renders a body, so a single step asks for attention at a time. */
+.whiteboard-onboarding-step {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--whiteboard-home-rule);
+  border-radius: 10px;
+}
+
+.whiteboard-onboarding-step[data-open="true"] {
+  border-color: var(--whiteboard-home-rule-soft);
+  background: var(--tray);
+}
+
+.whiteboard-onboarding-step-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 20px;
+  border: none;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.whiteboard-onboarding-step-header:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+/* The chevron closes the row: it sits in the trailing lane, after the note. */
+.whiteboard-onboarding-step-header svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  margin-left: auto;
+  fill: none;
+  stroke: var(--whiteboard-home-meta);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.whiteboard-onboarding-step-header .whiteboard-onboarding-step-badge svg {
+  margin-left: 0;
+}
+
+.whiteboard-onboarding-step-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 18px;
+}
+
+.whiteboard-onboarding-step-body > button {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  color: var(--ink-muted);
+  border: none;
+}
+
+.whiteboard-onboarding-step-body > .whiteboard-onboarding-refresh:hover {
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.whiteboard-onboarding-step-body > button + button {
+  margin-left: 8px;
+}
+
+.whiteboard-onboarding-step-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.whiteboard-onboarding-step[data-open="true"]
+  .whiteboard-onboarding-step-badge {
+  border-color: var(--transparent);
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.whiteboard-onboarding-step-title {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* The onboarding step supplies the frame for the setup card. */
+.whiteboard-onboarding-step-body .whiteboard-agent-setup {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--transparent);
+}
+
+.whiteboard-onboarding-step-body .whiteboard-agent-setup-agents li:first-child {
+  border-top: none;
+}
+
+.whiteboard-onboarding-step-note {
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-onboarding-step[data-state="done"]:not([data-open="true"])
+  .whiteboard-onboarding-step-title {
+  color: var(--whiteboard-home-meta);
+}
+
+.whiteboard-onboarding-step-badge[data-done="true"] {
+  border-color: var(--transparent);
+  background: color-mix(in srgb, var(--change-added) 18%, var(--transparent));
+}
+
+.whiteboard-onboarding-step-badge svg {
+  width: 10px;
+  height: 10px;
+  stroke: var(--change-added);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.whiteboard-onboarding-step-body .whiteboard-home-zero-hint {
+  margin: 0 0 14px;
+}
+
+.whiteboard-onboarding-step-body .whiteboard-home-prompt-card {
+  margin: 0;
+}
+
+/* Agent brand marks. Sized in a fixed slot so the name column stays in one
+   lane across rows (the dimmed state marks an undetected agent). */
+.whiteboard-agent-setup-logo-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.whiteboard-agent-setup-logo-slot[data-present="false"] {
+  opacity: 0.4;
+}
+
+.whiteboard-agent-logo {
+  width: 16px;
+  height: 16px;
+}
+
+/* Settings page: flat rows, no cards. One narrow column, a small-caps label per
+   section, and a fixed right lane so every control lines up. */
+.whiteboard-settings-page {
+  width: min(820px, 100%);
+}
+
+.whiteboard-settings-lede {
+  margin: 0 0 28px;
+  color: var(--whiteboard-home-meta);
+  font-size: 13px;
+}
+
+.whiteboard-settings-section {
+  margin-bottom: 28px;
+}
+
+.whiteboard-settings-section-label {
+  margin: 0 0 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--whiteboard-home-rule);
+  color: var(--whiteboard-home-meta);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.whiteboard-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--whiteboard-home-rule-soft);
+}
+
+.whiteboard-settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.whiteboard-settings-row-label {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.whiteboard-settings-row-description {
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-settings-row-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.whiteboard-settings-button {
+  padding: 4px 10px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.whiteboard-settings-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.whiteboard-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.whiteboard-settings-toggle input {
+  cursor: pointer;
+}
+
+.whiteboard-settings-input {
+  min-width: 200px;
+  padding: 4px 8px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  font: inherit;
+}
+
+.whiteboard-settings-input:disabled {
+  opacity: 0.5;
+}
+
+.whiteboard-settings-diffr {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--whiteboard-home-rule-soft);
+}
+
+.whiteboard-settings-diffr-lede {
+  margin: 0 0 8px;
+}
+
+.whiteboard-settings-unavailable {
+  color: var(--whiteboard-home-meta);
+  font-size: 12px;
+}
+
+.whiteboard-settings-error {
+  margin: 4px 0 0;
+  color: var(--change-removed);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.whiteboard-home-setup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--whiteboard-home-rule-soft);
+  border-radius: 6px;
+  color: var(--whiteboard-home-meta);
+  background: var(--whiteboard-home-card-active);
+  font-size: 12px;
+}
+
+.whiteboard-home-setup-banner button {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--whiteboard-home-comment);
+  border-radius: 5px;
+  color: var(--whiteboard-home-comment);
+  background: var(--transparent);
+  cursor: pointer;
+}
+
+/* Map settings float over the map canvas instead of sitting behind a topbar
+   gear, so map-only controls stay with the map. */
+.map-settings-control {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.map-settings-trigger {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  box-shadow: 0 6px 18px var(--shadow-color-strong);
+}
+
+.map-settings-trigger:hover,
+.map-settings-trigger--active {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.map-settings-popover {
+  display: flex;
+  width: 268px;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 32px var(--shadow-color-strong);
+}
+
+/* Dismissed sessions sit below the active list, collapsed. Each row states its
+   own deadline so a reap never surprises. */
+.whiteboard-home-dismissed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.whiteboard-home-dismissed-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: var(--transparent);
+  color: var(--ink-muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.whiteboard-home-dismissed-count {
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.whiteboard-home-dismissed-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.whiteboard-home-dismissed-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+}
+
+.whiteboard-home-dismissed-open {
+  overflow: hidden;
+  flex: 1 1 auto;
+  border: 0;
+  background: var(--transparent);
+  color: var(--ink-muted);
+  font-size: 14px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-home-dismissed-clock {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font: 400 11.5px var(--font-mono);
+  opacity: 0.75;
+}
+
+.whiteboard-home-restore {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--transparent);
+  color: var(--accent);
+  font: 600 11.5px var(--font-mono);
+}
+
+/* Call trees share their rows/connectors with the diff sidebar. */
+.whiteboard-document-call-tree {
+  margin: 14px 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.whiteboard-document-call-tree .whiteboard-call-tree {
+  padding-top: 6px;
+}
+
+/* Agent trace view */
+
+.whiteboard-view-region--trace {
+  overflow: auto;
+  /* The trace view anchors scroll itself across elision changes; the
+     browser's own heuristic would otherwise adjust a second time. */
+  overflow-anchor: none;
+}
+
+.whiteboard-trace-view {
+  min-height: 100%;
+  /* The left inset clears the event ruler: 14px edge inset + 6px resting
+     tick + 28px gap, so the 30px hover comb stops just short of the text. */
+  padding: 36px 24px 96px 48px;
+}
+
+.whiteboard-trace-column {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.whiteboard-trace-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.whiteboard-trace-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.whiteboard-trace-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-meta-sep {
+  color: var(--rule-soft);
+}
+
+.whiteboard-trace-picker {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 20px;
+}
+
+.whiteboard-trace-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(680px, 100%);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px var(--shadow-color);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.whiteboard-trace-picker-trigger:hover {
+  border-color: var(--rule-soft);
+  background: var(--tray);
+}
+
+.whiteboard-trace-picker-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash);
+}
+
+.whiteboard-trace-picker-harness {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-picker-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.whiteboard-trace-picker-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  transition: transform 0.15s ease;
+}
+
+.whiteboard-trace-picker-trigger[aria-expanded="true"]
+  .whiteboard-trace-picker-chevron {
+  transform: rotate(180deg);
+}
+
+.whiteboard-trace-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 320px;
+  max-width: min(640px, 90vw);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px var(--shadow-color-strong);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.whiteboard-trace-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.whiteboard-trace-picker-item:hover {
+  background: var(--tray);
+}
+
+.whiteboard-trace-picker-item--active {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.whiteboard-trace-picker-item--active:hover {
+  background: var(--accent-wash);
+}
+
+.whiteboard-trace-picker-item--subagent {
+  padding-left: 20px;
+}
+
+.whiteboard-trace-picker-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+.whiteboard-trace-picker-item-harness {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.whiteboard-trace-picker-item--active .whiteboard-trace-picker-item-harness {
+  color: var(--accent);
+}
+
+.whiteboard-trace-picker-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.whiteboard-trace-picker-item--active .whiteboard-trace-picker-item-title {
+  font-weight: 600;
+}
+
+.whiteboard-trace-picker-item-check {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.whiteboard-trace-picker-item-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--tray);
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-events {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.whiteboard-trace-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.agent-chat-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-top: 14px;
+  margin-left: auto;
+  max-width: min(480px, 90%);
+  min-width: 0;
+}
+
+.agent-chat-user-bubble {
+  padding: 12px 14px;
+  background: var(--tray);
+  border-radius: 12px 12px 4px 12px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-chat-caption {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-prose .agent-markdown {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.whiteboard-trace-tool {
+  min-width: 0;
+}
+
+.whiteboard-trace-tool summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.whiteboard-trace-tool summary::-webkit-details-marker {
+  display: none;
+}
+
+.whiteboard-trace-tool-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+  column-gap: 6px;
+  align-items: center;
+  min-height: 24px;
+}
+
+.whiteboard-trace-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.whiteboard-trace-tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.whiteboard-trace-tool-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.whiteboard-trace-tool-verb {
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-tool-title {
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.whiteboard-trace-tool-title--file {
+  color: var(--accent);
+  /* Ellipsize the FRONT of paths so the filename stays visible. */
+  direction: rtl;
+  text-align: left;
+}
+
+.whiteboard-trace-tool-title--file bdi {
+  unicode-bidi: plaintext;
+}
+
+.whiteboard-trace-added {
+  color: var(--change-added);
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-removed {
+  color: var(--change-removed);
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-error-flag {
+  color: var(--change-removed);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-tool-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.whiteboard-trace-tool-chevron .whiteboard-trace-icon {
+  width: 12px;
+  height: 12px;
+  stroke: var(--rule-soft);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.whiteboard-trace-tool--expandable[open]
+  .whiteboard-trace-tool-chevron
+  .whiteboard-trace-icon {
+  transform: rotate(0deg);
+}
+
+.whiteboard-trace-figure {
+  margin: 10px 0 0 26px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.whiteboard-trace-figure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--tray);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-figure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.whiteboard-trace-figure-body--thinking {
+  white-space: normal;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--ink-muted);
+}
+
+.whiteboard-trace-figure-body--thinking .agent-markdown {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.whiteboard-trace-figure-command {
+  color: var(--ink);
+}
+
+.whiteboard-trace-figure-output {
+  color: var(--ink-muted);
+}
+
+.whiteboard-trace-worked > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-worked > summary::-webkit-details-marker {
+  display: none;
+}
+
+.whiteboard-trace-worked > summary:hover {
+  color: var(--ink-muted);
+}
+
+.whiteboard-trace-worked-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.whiteboard-trace-worked-chevron .whiteboard-trace-icon {
+  width: 11px;
+  height: 11px;
+  stroke: var(--ink-faint);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.whiteboard-trace-worked[open]
+  .whiteboard-trace-worked-chevron
+  .whiteboard-trace-icon {
+  transform: rotate(0deg);
+}
+
+.whiteboard-trace-worked-line {
+  flex-grow: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.whiteboard-trace-worked-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+/* The embedded workbench Chromium does not hide closed details content. */
+.whiteboard-trace-worked:not([open]) > .whiteboard-trace-worked-body {
+  display: none;
+}
+
+.whiteboard-trace-tool--expandable:not([open]) > .whiteboard-trace-figure {
+  display: none;
+}
+
+.whiteboard-trace-toolgroup:not([open]) > .whiteboard-trace-toolgroup-body {
+  display: none;
+}
+
+/* Coalesced tool runs: one summary row per consecutive tool-call run */
+
+.whiteboard-trace-toolgroup {
+  min-width: 0;
+}
+
+.whiteboard-trace-toolgroup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.whiteboard-trace-toolgroup > summary::-webkit-details-marker {
+  display: none;
+}
+
+.whiteboard-trace-toolgroup-label {
+  color: var(--ink-muted);
+}
+
+.whiteboard-trace-toolgroup-count {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.whiteboard-trace-toolgroup-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.whiteboard-trace-toolgroup-chevron .whiteboard-trace-icon {
+  width: 12px;
+  height: 12px;
+  stroke: var(--rule-soft);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.whiteboard-trace-toolgroup[open]
+  > summary
+  .whiteboard-trace-toolgroup-chevron
+  .whiteboard-trace-icon {
+  transform: rotate(0deg);
+}
+
+.whiteboard-trace-toolgroup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 2px 0 4px 26px;
+}
+
+.whiteboard-trace-note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-note--error {
+  color: var(--change-removed);
+}
+
+.whiteboard-trace-empty,
+.whiteboard-trace-unconfigured {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 48px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+.whiteboard-trace-empty p,
+.whiteboard-trace-unconfigured p {
+  margin: 0;
+}
+
+/* Lens / peek scoped trace elements */
+
+.whiteboard-trace-events--scoped {
+  margin-top: 22px;
+}
+
+.whiteboard-trace-lens-gap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+.whiteboard-trace-lens-gap-line {
+  flex-grow: 1;
+  height: 1px;
+  border-top: 1px dashed var(--rule-soft);
+}
+
+.whiteboard-trace-lens-gap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.whiteboard-trace-lens-gap:hover .whiteboard-trace-lens-gap-chip {
+  color: var(--ink-muted);
+  border-color: var(--ink-faint);
+}
+
+/* Collapse rows bracket an expanded elision. Same geometry as the gap row,
+   but solid: dashed marks hidden content, solid marks the boundary of a
+   revealed span. */
+.whiteboard-trace-lens-collapse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+.whiteboard-trace-lens-collapse-line {
+  flex-grow: 1;
+  height: 1px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.whiteboard-trace-lens-collapse-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.whiteboard-trace-lens-collapse-chevron {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.whiteboard-trace-lens-collapse:hover .whiteboard-trace-lens-collapse-chip {
+  color: var(--ink-muted);
+  border-color: var(--ink-faint);
+}
+
+.whiteboard-trace-lens-collapse:hover .whiteboard-trace-lens-collapse-line {
+  border-color: var(--ink-faint);
+}
+
+.whiteboard-trace-user-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+.whiteboard-trace-lens-elided {
+  display: inline;
+}
+
+.whiteboard-trace-lens-kept {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+.agent-chat-user-bubble--elided .whiteboard-trace-lens-kept {
+  line-height: 24px;
+}
+
+/* Event-ruler scrollbar: a left-edge column of uniform dashes mapping the
+   whole session at even pitch. Brightness marks the events currently in the
+   viewport; hovering bulges nearby ticks toward the content and shows a
+   preview card. Strictly grayscale via the ink tokens. */
+
+.whiteboard-trace-ruler {
+  height: 0;
+  overflow: visible;
+}
+
+.whiteboard-trace-ruler-rail {
+  position: fixed;
+  width: 40px;
+  z-index: 3;
+}
+
+.whiteboard-trace-ruler-tick {
+  position: absolute;
+  /* Inset from the panel edge; the comb grows rightward from here. */
+  left: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink-faint);
+  opacity: 0.55;
+  transition:
+    width 90ms ease,
+    opacity 90ms ease;
+  pointer-events: none;
+}
+
+.whiteboard-trace-ruler-tick--visible {
+  background: var(--ink);
+  opacity: 0.9;
+}
+
+.whiteboard-trace-ruler-tick--hovered {
+  background: var(--ink);
+  opacity: 1;
+}
+
+.whiteboard-trace-ruler-card {
+  position: absolute;
+  left: 52px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--tray);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+
+.whiteboard-trace-ruler-card-title {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 19px;
+  font-weight: 600;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.whiteboard-trace-ruler-card-snippet {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.whiteboard-trace-lens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin: 0 6px;
+  padding: 0 7px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.whiteboard-trace-lens-chip:hover {
+  color: var(--ink-muted);
+  border-color: var(--ink-faint);
+}
+
+.whiteboard-trace-prose--elided {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+/* Quote links and marks */
+
+.whiteboard-trace-quote,
+.whiteboard-trace-quote:visited {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.whiteboard-trace-quote:hover {
+  text-decoration: underline;
+}
+
+.whiteboard-trace-quote[data-whiteboard-anchor-open] {
+  background: var(--link-open-wash);
+}
+
+/* Faint curly quotes hug each trace quote so the reader can tell someone's
+   words from a code peek or file link without the link color changing.
+   inline-block keeps the hover underline off the marks themselves. */
+.whiteboard-trace-quote::before,
+.whiteboard-trace-quote::after {
+  display: inline-block;
+  color: var(--ink-faint);
+}
+
+.whiteboard-trace-quote::before {
+  content: "\201C";
+}
+
+.whiteboard-trace-quote::after {
+  content: "\201D";
+}
+
+.whiteboard-trace-quote--inert {
+  color: var(--ink-faint);
+  text-decoration: none;
+  cursor: default;
+}
+
+.whiteboard-trace-quote--inert:hover {
+  text-decoration: none;
+}
+
+.whiteboard-trace-quote-mark,
+.whiteboard-trace-rfc-mark {
+  background: rgba(255, 230, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 1px 2px;
+}
+
+.whiteboard-trace-peek-open-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.whiteboard-trace-peek-open-full:hover {
+  background: var(--accent-wash);
+}
+
+.whiteboard-trace-source {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.whiteboard-trace-source select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--whiteboard-border, currentColor);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+}
+
+/* Rendered in the workbench document so native Monaco and prose use one affordance. */
+.copy-for-agent-popover {
+  position: fixed;
+  z-index: 10002;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  border: 1px solid var(--vscode-editorWidget-border, #3b3b3b);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, #202020);
+  color: var(--vscode-editor-foreground, #eee);
+  box-shadow: 0 3px 12px #0004;
+  font:
+    13px/20px -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy-for-agent-popover:hover {
+  background: color-mix(
+    in srgb,
+    var(--vscode-editorWidget-background, #202020) 90%,
+    var(--vscode-editor-foreground, #eee) 10%
+  );
+}
+.copy-for-agent-popover:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, #87baff);
+}
+.copy-for-agent-popover kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #8882;
+  color: var(--vscode-descriptionForeground, #aaa);
+  font:
+    500 13px/20px -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  letter-spacing: 0;
+}
+.copy-for-agent-popover kbd span {
+  display: inline-block;
+}
+
+.diff-workspace {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  color: var(--ink);
+  font: 11px/1.5 var(--font-mono);
+}
+.diff-workspace button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+}
+.diff-workspace button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+.diff-workspace-sidebar {
+  width: 320px;
+  min-width: 250px;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.diff-global-progress {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.diff-global-progress > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.diff-progress-ring {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-progress-ring circle {
+  fill: none;
+  stroke: var(--rule-soft);
+  stroke-width: 2;
+}
+.diff-progress-ring circle + circle {
+  stroke: var(--change-added);
+  transform: rotate(-90deg);
+  transform-origin: 10px 10px;
+}
+.diff-sidebar-lenses {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.diff-sidebar-heading {
+  padding: 9px 12px 5px;
+  color: var(--ink-faint);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+.diff-files-heading {
+  padding-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-native-tree {
+  flex: 1;
+  min-height: 100px;
+  position: relative;
+}
+.diff-native-tree > .whiteboard-files-editor-tree {
+  width: 100%;
+  height: 100%;
+}
+.diff-lens-section {
+  border-bottom: 1px solid var(--rule);
+}
+.diff-lens-section.is-expanded {
+  background: var(--tray);
+}
+.diff-lens-row {
+  display: flex;
+  align-items: center;
+  padding-right: 10px;
+  gap: 7px;
+}
+.diff-lens-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border: 0;
+  text-align: left;
+}
+.diff-lens-toggle:hover {
+  background: var(--surface-raised);
+}
+.diff-lens-name {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.5;
+}
+.diff-lens-name small {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+.diff-counts {
+  display: inline-flex;
+  gap: 6px;
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.diff-count-added {
+  color: var(--change-added);
+}
+.diff-count-removed {
+  color: var(--change-removed);
+}
+.viewed-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--ink-faint);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 12px/1 var(--font-mono);
+  cursor: pointer;
+}
+.viewed-check:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.viewed-check--viewed,
+.diff-workspace .is-viewed {
+  opacity: 0.42;
+}
+.diff-workspace-editor {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.diff-workspace-editor > .whiteboard-diff-view-host {
+  flex: 1;
+  height: auto;
+}
+.diff-workspace-error {
+  padding: 8px 12px;
+  color: var(--change-removed);
+}
+.lens-diagram-note {
+  padding: 8px 12px;
+  color: var(--ink-faint);
+}
+.lens-flow text {
+  fill: var(--ink);
+}
+.lens-flow-node[role="button"] {
+  cursor: pointer;
+}
+.lens-flow {
+  width: 100%;
+  display: block;
+  font: 12px var(--font-mono);
+}
+.lens-flow .lens-flow-edge-label {
+  font-size: 9px;
+  fill: var(--ink-muted);
+  paint-order: stroke;
+  stroke: var(--tray);
+  stroke-width: 4px;
+}
+.diff-lens-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-lens-icon {
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+.diff-lens-toggle {
+  padding-block: 10px;
+}
+
+/* Call-tree presentation from whiteboard-experimental. */
+.whiteboard-call-row {
+  position: relative;
+}
+.whiteboard-lens-sidebar [aria-current="true"] {
+  background: var(--marker-tint);
+}
+.whiteboard-lens-sidebar [aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+.whiteboard-lens-sidebar
+  button:hover:not(:disabled):not([aria-current="true"]) {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.whiteboard-call-tree {
+  min-width: 100%;
+  width: 100%;
+  padding: 0 0 12px;
+}
+.whiteboard-call-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 26px;
+  border: 0;
+  padding: 0 12px 0 14px;
+  background: transparent;
+  font: 12px/26px var(--font-mono);
+  text-align: left;
+  white-space: nowrap;
+}
+.whiteboard-call-name {
+  flex: 0 1 auto;
+  min-width: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.whiteboard-call-row--added .whiteboard-call-name {
+  color: var(--change-added);
+}
+.whiteboard-call-row--removed .whiteboard-call-name {
+  color: var(--change-removed);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--change-removed) 50%,
+    transparent
+  );
+}
+.whiteboard-call-row--modified .whiteboard-call-name {
+  color: var(--change-modified);
+}
+.whiteboard-call-connectors {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.whiteboard-call-connectors path {
+  stroke: var(--rule-soft);
+  fill: none;
+  stroke-width: 1;
+}
+.whiteboard-call-row > .whiteboard-lens-stats {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 10px;
+}
+
+.whiteboard-call-entry {
+  position: relative;
+}
+.whiteboard-call-entry:has(.whiteboard-call-edge:hover),
+.whiteboard-call-entry:has(.whiteboard-call-edge:focus-visible) {
+  z-index: 1;
+}
+.whiteboard-call-entry > .whiteboard-call-connectors {
+  position: absolute;
+  left: 14px;
+  top: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+.whiteboard-call-edge {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.whiteboard-call-edge .whiteboard-call-edge-hit {
+  stroke: transparent;
+  stroke-width: 10px;
+}
+.whiteboard-call-edge .whiteboard-call-edge-highlight {
+  visibility: hidden;
+  pointer-events: none;
+}
+.whiteboard-call-edge:hover > .whiteboard-call-edge-highlight,
+.whiteboard-call-edge:focus-visible > .whiteboard-call-edge-highlight {
+  visibility: visible;
+  stroke: var(--ink);
+  stroke-width: 2px;
+}
+
+.whiteboard-lens-stats {
+  display: inline-flex;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.lens-flow .diff-count-added {
+  fill: var(--change-added);
+}
+.lens-flow .diff-count-removed {
+  fill: var(--change-removed);
+}
+
+.diff-lens-toggle.is-active {
+  color: var(--accent);
+  background: var(--marker-tint);
+}
+.diff-lens-toggle.is-active .diff-lens-icon {
+  color: inherit;
+}
+
+/* The hit areas overlap adjacent panes; the visible dividers stay one pixel. */
+.diff-sidebar-cabinets,
+.diff-sidebar-files {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.diff-sidebar-files {
+  overflow: hidden;
+}
+.diff-sidebar-files .diff-native-tree {
+  min-height: 0;
+}
+.diff-global-progress {
+  flex-shrink: 0;
+}
+.diff-sidebar-resizer {
+  flex: 0 0 10px;
+  margin: 0 -5px;
+  z-index: 2;
+}
+/* Align the one-pixel rule to the pane edge rather than straddling two pixels. */
+.diff-sidebar-resizer::before {
+  transform: none;
+}
+.diff-cabinets-resizer {
+  display: block;
+  margin: -5px 0;
+  z-index: 2;
+}
+.diff-sidebar-resizer.is-resizing::before,
+.diff-cabinets-resizer.is-resizing::before {
+  background: var(--ink-faint);
+}
+
+.whiteboard-settings-diffr summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+
+.whiteboard-settings-summary-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.whiteboard-settings-summary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.whiteboard-settings-summary-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.whiteboard-home-origin {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.whiteboard-home-origin {
+  color: var(--whiteboard-home-meta);
+  font: 11px/15px var(--font-mono);
+}
+
+.whiteboard-home-origin-repo {
+  color: var(--ink-muted);
+}
+
+.whiteboard-home-origin-worktree {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

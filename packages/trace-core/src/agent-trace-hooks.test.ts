@@ -218,9 +218,9 @@ describe("hook ownership", () => {
   it("recognizes only single executable commands, including shell-quoted paths", () => {
     for (const command of [
       "review",
-      "/opt/review",
-      "'/space here/review'",
-      "'/it'\"'\"'s here/review'",
+      "/opt/whiteboard",
+      "'/space here/whiteboard'",
+      "'/it'\"'\"'s here/whiteboard'",
     ]) {
       expect(traceHookCommandOwner(`${command} trace hook SessionStart`)).toBe(
         "review",
@@ -232,10 +232,10 @@ describe("hook ownership", () => {
     );
 
     for (const command of [
-      "echo x; /opt/review",
-      "env /opt/review",
+      "echo x; /opt/whiteboard",
+      "env /opt/whiteboard",
       "$(echo /opt/review)",
-      "'x'; '/opt/review'",
+      "'x'; '/opt/whiteboard'",
       "other",
       "review trace sync",
     ]) {
@@ -261,7 +261,7 @@ describe("hook ownership", () => {
       installOpenCodeTraceExtension,
     ]) {
       await install(home);
-      const shim = "/it's a path/review";
+      const shim = "/it's a path/whiteboard";
       const result = await install(home, shim);
       expect(result.modified).toBe(true);
       expect((await install(home, shim)).modified).toBe(false);
@@ -356,7 +356,7 @@ command = "review trace hook SessionStart"
     await writeFile(file, foreign);
     await installCodexTraceHook(home);
     expect((await describeTraceHookOwners(home)).codex).toBe("review");
-    await installCodexTraceHook(home, "/it's a path/review");
+    await installCodexTraceHook(home, "/it's a path/whiteboard");
     expect(await readFile(file, "utf8")).toContain(foreign.trimEnd());
     expect(await removeAgentTraceHook("codex", home)).toBe(true);
     expect((await readFile(file, "utf8")).trimEnd()).toBe(foreign.trimEnd());
@@ -408,8 +408,8 @@ describe("Desktop and npm Review coexistence", () => {
     "keeps the first working %s install across harness refreshes",
     async (first) => {
       const home = await makeTempHome();
-      const desktop = path.join(home, ".local/bin/review");
-      const npm = path.join(home, "npm/bin/review");
+      const desktop = path.join(home, ".local/bin/whiteboard");
+      const npm = path.join(home, "npm/bin/whiteboard");
 
       for (const command of [desktop, npm]) {
         await mkdir(path.dirname(command), { recursive: true });

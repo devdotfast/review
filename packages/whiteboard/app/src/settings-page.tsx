@@ -1,0 +1,338 @@
+import type {
+  WhiteboardCanvasSettingsContent,
+  WhiteboardCliInstallStatus,
+  WhiteboardKeymapChoice,
+  WhiteboardThemeChoice,
+} from "@dev.fast/whiteboard-protocol";
+import { type ReactNode, useEffect, useState } from "react";
+
+import { AgentSetupCard } from "./agent-setup-card";
+import { DiffrConfigSection } from "./diffr-config-section";
+import { TraceCaptureSection } from "./trace-capture-section";
+
+const THEME_LABELS: Record<WhiteboardThemeChoice, string> = {
+  light: "Light",
+  dark: "Dark",
+  system: "System",
+};
+
+const KEYMAP_LABELS: Record<WhiteboardKeymapChoice, string> = {
+  none: "Default",
+  vim: "Vim",
+  emacs: "Emacs",
+};
+
+/**
+ * The Settings page. It opens from the application menu (Preferences →
+ * Settings...), the command palette, or ⌘,. Reuses the Home page shell so the
+ * surfaces read as one app.
+ *
+ * The workbench owns every value here. Each setter resolves with the value that
+ * landed, so a row shows the real state rather than an optimistic one.
+ */
+export function SettingsPage({
+  settings,
+}: {
+  settings: WhiteboardCanvasSettingsContent;
+}) {
+  const [telemetryEnabled, setTelemetryEnabled] = useState(
+    settings.telemetryEnabled,
+  );
+
+  const [theme, setTheme] = useState(settings.theme);
+  const [keymap, setKeymap] = useState(settings.keymap);
+
+  const [softwareMapEnabled, setSoftwareMapEnabled] = useState(
+    settings.softwareMapEnabled,
+  );
+
+  const [structuralDiffEnabled, setStructuralDiffEnabled] = useState(
+    settings.structuralDiffEnabled,
+  );
+
+  const [scratchpadEnabled, setScratchpadEnabled] = useState(
+    settings.scratchpadEnabled,
+  );
+
+  const [installStatus, setInstallStatus] = useState<
+    WhiteboardCliInstallStatus | undefined
+  >(settings.install?.status);
+
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(
+    () => setInstallStatus(settings.install?.status),
+    [settings.install?.status],
+  );
+
+  const install =
+    settings.install && installStatus
+      ? { ...settings.install, status: installStatus }
+      : settings.install;
+
+  const run = async <T,>(
+    key: string,
+    action: () => Promise<T>,
+    adopt: (value: T) => void,
+  ) => {
+    setBusy(key);
+    setError(null);
+
+    try {
+      adopt(await action());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <main className="whiteboard-home">
+      <div className="whiteboard-home-scroll">
+        <div className="whiteboard-home-content whiteboard-settings-page">
+          <div className="whiteboard-home-page-header">
+            <h1>Settings</h1>
+          </div>
+          <p className="whiteboard-settings-lede">
+            Settings apply to Whiteboard on this machine.
+          </p>
+
+          {install ? (
+            <Section label="Agents">
+              <AgentSetupCard
+                install={install}
+                onStatusChange={setInstallStatus}
+              />
+            </Section>
+          ) : null}
+
+          <Section label="Privacy">
+            <Row
+              label="Share anonymous usage data"
+              description="Counts and timings only. Never code, file paths, or repository names."
+            >
+              <label
+                className="whiteboard-settings-toggle"
+                aria-label="Share anonymous usage data"
+              >
+                <input
+                  type="checkbox"
+                  checked={telemetryEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "telemetry",
+                      () => settings.setTelemetryEnabled(enabled),
+                      setTelemetryEnabled,
+                    );
+                  }}
+                />
+              </label>
+            </Row>
+          </Section>
+
+          <Section label="Editor">
+            <Row label="Theme" description="How Whiteboard looks.">
+              <Choice
+                label="Theme"
+                value={theme}
+                labels={THEME_LABELS}
+                disabled={busy !== null}
+                onChange={(choice) =>
+                  void run("theme", () => settings.setTheme(choice), setTheme)
+                }
+              />
+            </Row>
+            <Row
+              label="Keymap"
+              description="Vim and Emacs keys come from a bundled extension. A change needs a reload."
+            >
+              <Choice
+                label="Keymap"
+                value={keymap}
+                labels={KEYMAP_LABELS}
+                disabled={busy !== null}
+                onChange={(choice) => {
+                  void run(
+                    "keymap",
+                    () => settings.setKeymap(choice),
+                    setKeymap,
+                  );
+                }}
+              />
+            </Row>
+          </Section>
+
+          <Section label="Tools">
+            <Row
+              label="Extensions"
+              description="Install or turn on language extensions."
+            >
+              <button
+                type="button"
+                className="whiteboard-settings-button"
+                onClick={settings.manageExtensions}
+              >
+                Manage…
+              </button>
+            </Row>
+          </Section>
+
+          <Section label="Experimental Features">
+            <Row
+              label="Structural Diffs"
+              description="Replace the standard diff view with syntax-aware diffs and linked folds."
+            >
+              <label className="whiteboard-settings-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Structural Diffs"
+                  checked={structuralDiffEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "structural-diff",
+                      () => settings.setStructuralDiffEnabled(enabled),
+                      setStructuralDiffEnabled,
+                    );
+                  }}
+                />
+              </label>
+            </Row>
+            {structuralDiffEnabled ? (
+              <DiffrConfigSection
+                actions={settings.diffrConfig}
+                reloadWindow={settings.reloadWindow}
+              />
+            ) : null}
+            <Row
+              label="Software Map"
+              description="Show the experimental Software Map view in sessions."
+            >
+              <label className="whiteboard-settings-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Software Map"
+                  checked={softwareMapEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "software-map",
+                      () => settings.setSoftwareMapEnabled(enabled),
+                      setSoftwareMapEnabled,
+                    );
+                  }}
+                />
+              </label>
+            </Row>
+            <Row
+              label="Scratchpad"
+              description="Show the experimental scratchpad on Home and install its skill for agents that are set up."
+            >
+              <label className="whiteboard-settings-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Scratchpad"
+                  checked={scratchpadEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "scratchpad",
+                      () => settings.setScratchpadEnabled(enabled),
+                      setScratchpadEnabled,
+                    );
+                  }}
+                />
+              </label>
+            </Row>
+            {install ? (
+              <TraceCaptureSection
+                install={install}
+                onStatusChange={setInstallStatus}
+              />
+            ) : null}
+          </Section>
+
+          {error ? <p className="whiteboard-settings-error">{error}</p> : null}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function Section({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="whiteboard-settings-section" aria-label={label}>
+      <h2 className="whiteboard-settings-section-label">{label}</h2>
+      {children}
+    </section>
+  );
+}
+
+function Row({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="whiteboard-settings-row">
+      <div className="whiteboard-settings-row-text">
+        <span className="whiteboard-settings-row-label">{label}</span>
+        <span className="whiteboard-settings-row-description">
+          {description}
+        </span>
+      </div>
+      <div className="whiteboard-settings-row-control">{children}</div>
+    </div>
+  );
+}
+
+function Choice<T extends string>({
+  label,
+  value,
+  labels,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  labels: Record<T, string>;
+  disabled: boolean;
+  onChange: (choice: T) => void;
+}) {
+  // SAFETY: `labels` is declared as Record<T, string>, so its own keys are
+  // exactly the T choices this control offers.
+  const choices = Object.keys(labels) as T[];
+
+  return (
+    <div className="whiteboard-segmented" role="radiogroup" aria-label={label}>
+      {choices.map((choice) => (
+        <button
+          key={choice}
+          type="button"
+          role="radio"
+          aria-checked={choice === value}
+          disabled={disabled}
+          className={
+            choice === value
+              ? "whiteboard-segment whiteboard-segment--active"
+              : "whiteboard-segment"
+          }
+          onClick={() => onChange(choice)}
+        >
+          {labels[choice]}
+        </button>
+      ))}
+    </div>
+  );
+}

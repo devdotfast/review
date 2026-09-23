@@ -12,8 +12,8 @@ import {
   describeTraceSession,
   inferRepoFromGit,
   listRepositoryTraceSessionIds,
-  listReviewTraceSessions,
-  loadReviewAgentTrace,
+  listWhiteboardTraceSessions,
+  loadWhiteboardAgentTrace,
   lookupReviewTraceBlame,
   lookupReviewTraceCommit,
   lookupReviewTraceSession,
@@ -26,18 +26,20 @@ import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 
 /**
  * The repository-scoped read commands. A caller that knows a Review passes
- * its change range as a value; this file never opens the Review store.
+ * its change range as a value; this file never opens the Session store.
  */
 
-/** A Review's change range, resolved by the caller from the Review store. */
-export interface TraceReviewScope {
+/** A Review's change range, resolved by the caller from the Session store. */
+export interface TraceWhiteboardScope {
   uuid: string;
   repoRoot: string;
   baseCommit: string;
   headCommit: string;
 }
 
-export type TraceListScope = { commit: string } | { review: TraceReviewScope };
+export type TraceListScope =
+  | { commit: string }
+  | { review: TraceWhiteboardScope };
 
 export type TracePullScope =
   | TraceListScope
@@ -59,10 +61,10 @@ export async function resolveTraceReadStorage(
 }
 
 async function listSessionsForReviewScope(
-  review: TraceReviewScope,
+  review: TraceWhiteboardScope,
   storage?: TraceStorage | null,
 ) {
-  return listReviewTraceSessions({
+  return listWhiteboardTraceSessions({
     rootPath: review.repoRoot,
     baseCommit: review.baseCommit,
     headCommit: review.headCommit,
@@ -171,7 +173,7 @@ export async function runTraceShow(input: {
 }): Promise<number> {
   const traceName = input.trace === "main" ? undefined : input.trace;
 
-  const loaded = await loadReviewAgentTrace({
+  const loaded = await loadWhiteboardAgentTrace({
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,

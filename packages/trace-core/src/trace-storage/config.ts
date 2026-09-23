@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "../atomic-write";
 import { normalizeStoreOrigin } from "../store-origin";
-import { devReviewHome } from "../trace-home";
+import { devWhiteboardHome } from "../trace-home";
 import { withFileLock } from "../with-file-lock";
 
 /**
@@ -181,7 +181,7 @@ export interface TraceConfigScope {
 export function traceConfigPath(scope: TraceConfigScope = {}): string {
   const devHome =
     scope.devHome ??
-    devReviewHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
+    devWhiteboardHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
 
   return path.join(devHome, "trace", "config.json");
 }

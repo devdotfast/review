@@ -13,6 +13,11 @@ on:
         required: false
         type: boolean
         default: false
+      linux_only:
+        description: "Build and publish only Linux. Do not create a preview tag."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,19 +27,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  approve:
+    name: Approve release
+    environment: review-release-approval
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: echo "Release approved"
+
+  # Previews publish a signed dev-fast-review-preview package, so the Linux
+  # build signs with the production repository key rather than a CI key.
   linux:
     needs: version
     uses: ./.github/workflows/review-linux-build.yml
     with:
       commit: ${{ needs.version.outputs.commit }}
       version: ${{ needs.version.outputs.version }}
+      release_signing: ${{ !inputs.dry_run }}
+    secrets: inherit
 
   version:
+    needs: approve
     name: Compute preview version
-    # Approval gates every downstream job before any preview code reaches the
-    # release-only build infrastructure or signing credentials.
+    # Approval is handled by approve; this environment supplies credentials.
     environment: review-release
-    runs-on: ubuntu-latest
+    runs-on: review_big_boy
     outputs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
@@ -93,6 +110,7 @@ jobs:
   compile:
     name: Compile Darwin payload on Linux
     needs: version
+    if: ${{ !inputs.linux_only }}
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
@@ -434,15 +452,48 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
           rm -f "$RUNNER_TEMP/notary-key.p8"
 
+  publish-linux:
+    name: Publish Linux preview repository
+    environment: review-release
+    needs: [version, build, linux]
+    if: ${{ !cancelled() && !inputs.dry_run && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.linux_only || needs.build.result == 'success') }}
+    runs-on: review_big_boy
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-packages
+          path: linux-packages
+      - name: Publish verified snapshot
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          mkdir linux-repository
+          tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET" --channel preview
+      - name: Check the preview channel is served
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          curl -fsS https://install.dev.fast/linux/preview | grep -F "Version ${RELEASE_VERSION/-preview./~preview.}"
+          curl -fsS https://install.dev.fast/repos/dev-fast-review-preview.repo | grep -F 'baseurl=https://install.dev.fast/repos/preview/rpm/x86_64/'
+
   # The one job here that can write to the repository, and it holds no signing
-  # or R2 credentials. `needs: version` carries the review-release environment
-  # gate transitively, and `needs: build` means a tag only ever names a preview
-  # that uploaded, answered its update feed, and served its installer.
+  # or R2 credentials. `needs: version` carries the initial approval
+  # gate transitively, and `needs: build` plus `needs: publish-linux` mean a tag
+  # only ever names a preview that published on both platforms, answered its
+  # update feeds, and served its installers.
   tag-preview:
     name: Tag published preview
-    needs: [version, build]
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
+    needs: [version, build, publish-linux]
+    if: ${{ !inputs.dry_run && !inputs.linux_only }}
+    runs-on: review_big_boy
     permissions:
       contents: write
     steps:

@@ -19,6 +19,7 @@ import { IHoverService } from "../../../../platform/hover/browser/hover.js";
 import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { FocusMode } from "../../../../platform/native/common/native.js";
+import { INotificationService } from "../../../../platform/notification/common/notification.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
 import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
 import { IStorageService, StorageScope, StorageTarget } from "../../../../platform/storage/common/storage.js";
@@ -54,6 +55,7 @@ import type {
 	ReviewCanvasModule,
 	ReviewCanvasOnboarding,
 	ReviewCanvasSettingsContent,
+	ReviewCanvasSetupActions,
 	ReviewCanvasTutorialBridge,
 	ReviewCliInstallStatus,
 	ReviewKeymapChoice,
@@ -178,6 +180,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		private readonly reviewTelemetryService: IReviewTelemetryService,
 		@ILogService private readonly logService: ILogService,
 		@IHoverService private readonly hoverService: IHoverService,
+		@INotificationService private readonly notificationService: INotificationService,
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
@@ -474,6 +477,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						setup,
 						// Home shows the Welcome rail while the list is empty.
 						install,
+						setupActions: this.setupActions(),
 						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
 					},
@@ -507,6 +511,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{
 						kind: "welcome",
 						install,
+						setupActions: this.setupActions(),
 						close: () => void this.group.closeEditor(input),
 						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
@@ -628,40 +633,47 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// The canvas uses normal CSS flow and fills the editor pane.
 	}
 
-	/**
-	 * Install status for the Agent Setup page. The page must render even when
-	 * the status endpoint fails (an older server, a race during startup), so a
-	 * failure yields no install content rather than an error state.
-	 */
+	private setupActions(): ReviewCanvasSetupActions {
+		return {
+			load: () => this.loadInstallContent(),
+			installCli: async () => { await this.commandService.executeCommand("review.installCliInPath"); },
+		};
+	}
+
 	private async resolveInstallContent(): Promise<ReviewCanvasInstallContent | undefined> {
 		try {
-			const status = await this.desktopConnection.getCliInstallStatus();
-			return {
-				status,
-				apply: async (request) => {
-					await this.desktopConnection.applyCliInstall(request);
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				remove: async (request) => {
-					await this.desktopConnection.removeCliInstall(request);
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				decline: async () => {
-					await this.desktopConnection.declineCliInstall();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				skip: async () => {
-					await this.desktopConnection.skipCliInstallPrompts();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-				enablePrompts: async () => {
-					await this.desktopConnection.resetCliInstallPrompts();
-					return this.desktopConnection.getCliInstallStatus();
-				},
-			};
-		} catch {
+			return await this.loadInstallContent();
+		} catch (error) {
+			this.logService.warn("Review agent setup status failed", error);
 			return undefined;
 		}
+	}
+
+	private async loadInstallContent(): Promise<ReviewCanvasInstallContent> {
+		const status = await this.desktopConnection.getCliInstallStatus();
+		return {
+			status,
+			apply: async (request) => {
+				await this.desktopConnection.applyCliInstall(request);
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			remove: async (request) => {
+				await this.desktopConnection.removeCliInstall(request);
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			decline: async () => {
+				await this.desktopConnection.declineCliInstall();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			skip: async () => {
+				await this.desktopConnection.skipCliInstallPrompts();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+			enablePrompts: async () => {
+				await this.desktopConnection.resetCliInstallPrompts();
+				return this.desktopConnection.getCliInstallStatus();
+			},
+		};
 	}
 
 	private openTutorial(): void {
@@ -677,6 +689,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * server owns. Extensions reuse the existing quick pick.
 	 */
 	private async resolveSettingsContent(): Promise<ReviewCanvasSettingsContent> {
+		// Settings must render even when the server preference cannot be read;
+		// the row then shows the default, off.
+		const scratchpadEnabled = await this.desktopConnection.readScratchpadEnabled().catch(() => false);
 		return {
 			telemetryEnabled: this.currentTelemetryEnabled(),
 			setTelemetryEnabled: async (enabled) => {
@@ -712,6 +727,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				});
 				await this.configurationService.updateValue(REVIEW_SOFTWARE_MAP_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentSoftwareMapEnabled();
+			},
+			scratchpadEnabled,
+			setScratchpadEnabled: async (enabled) => {
+				this.reviewTelemetryService.capture("setting_changed", {
+					setting: "scratchpad_enabled",
+					enabled,
+				});
+				return this.desktopConnection.setScratchpadEnabled(enabled);
 			},
 			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 			setStructuralDiffEnabled: async (enabled) => {
@@ -968,6 +991,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		| "setDiffLayout"
 		| "onDidChangeDiffLayout"
 		| "setupTooltip"
+		| "notify"
 		| "ready"
 		| "reportDiagnostic"
 	> {
@@ -979,6 +1003,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			currentDiffLayout: () => this.diffViews.diffLayout.get(),
 			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
 			onDidChangeDiffLayout: (listener) => this.diffViews.diffLayout.onDidChange(listener),
+			notify: ({ kind, text }) => {
+				if (kind === "error") this.notificationService.error(text);
+				else this.notificationService.info(text);
+			},
 			setupTooltip: (target, content) => {
 				const store = new DisposableStore();
 				const hover = store.add(new MutableDisposable<IHoverWidget>());

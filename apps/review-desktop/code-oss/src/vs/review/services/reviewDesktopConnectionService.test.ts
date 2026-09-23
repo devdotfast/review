@@ -47,6 +47,37 @@ function mockFetch(t: { after(callback: () => void): void }, handler: typeof fet
 	});
 }
 
+test("install status shares concurrent scans and detects agents on subsequent checks", async (t) => {
+	const service = serviceWith();
+	t.after(() => service.dispose());
+	let requests = 0;
+	mockFetch(t, async () => {
+		requests += 1;
+		if (requests === 3) return Response.json({ error: "scan failed" }, { status: 500 });
+		return Response.json({
+			agents: [{ target: "codex", present: requests > 1, installed: false }],
+			fingerprint: "test", stamp: null, stale: false,
+			shim: { path: "/tmp/review", installed: false, profileConfigured: false, onPath: false },
+			fff: { serverName: "fff", corpusRoot: "/tmp/traces", binary: { path: "/tmp/fff", installed: false }, registrations: [] },
+			trace: { enabled: false, configured: false, autoActivateRepositories: false, envPath: "/tmp/env", settingsPath: "/tmp/settings" },
+			cli: null,
+		});
+	});
+
+	const [first, second] = await Promise.all([
+		service.getCliInstallStatus(),
+		service.getCliInstallStatus(),
+	]);
+	assert.equal(first.agents[0].present, false);
+	assert.equal(second.agents[0].present, false);
+	assert.equal(requests, 1);
+	assert.equal((await service.getCliInstallStatus()).agents[0].present, true);
+	assert.equal(requests, 2);
+	await assert.rejects(service.getCliInstallStatus(), /scan failed/);
+	assert.equal((await service.getCliInstallStatus()).agents[0].present, true);
+	assert.equal(requests, 4);
+});
+
 test("tutorial auto-prepare runs at most once per app process", async (t) => {
 	const service = serviceWith();
 	let requests = 0;

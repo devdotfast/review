@@ -313,9 +313,15 @@ export interface ReviewCanvasBridge {
   onDidChangeDiffLayout(
     listener: (layout: ReviewDiffLayout) => void,
   ): ReviewDisposable;
+  notify?(message: { kind: "success" | "error"; text: string }): void;
   setupTooltip?(target: HTMLElement, text: string): ReviewDisposable;
   ready(): void;
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;
+}
+
+export interface ReviewCanvasSetupActions {
+  load(): Promise<ReviewCanvasInstallContent>;
+  installCli(): Promise<void>;
 }
 
 /**
@@ -490,13 +496,16 @@ export interface ReviewCanvasSettingsContent {
   // A keymap only takes effect after the extension host restarts, so the
   // workbench offers the window reload. The page never forces one.
   setKeymap(choice: ReviewKeymapChoice): Promise<ReviewKeymapChoice>;
-  // The one value here that is not a workbench setting. The reaper runs inside
-  // the review server, which never reads workbench configuration, so this lives
-  // in the server preferences file. `null` turns reaping off.
   softwareMapEnabled: boolean;
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   structuralDiffEnabled: boolean;
   setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
+  // Not a workbench setting: the review server and `review install` both
+  // read it, so it lives in the server preferences file. Off by default.
+  // Turning it on makes the pad and installs its skill for set-up agents;
+  // turning it off hides the pad and removes the skill.
+  scratchpadEnabled: boolean;
+  setScratchpadEnabled(enabled: boolean): Promise<boolean>;
   // Shared CLI configuration, read when its disclosure opens.
   diffrConfig: ReviewDiffrConfigActions;
   reloadWindow(): Promise<void>;
@@ -653,6 +662,7 @@ export type ReviewCanvasContent =
       // state of its own, so it needs what Welcome needs. Both absent when
       // the install status endpoint is unavailable.
       install?: ReviewCanvasInstallContent;
+      setupActions?: ReviewCanvasSetupActions;
       onboarding?: ReviewCanvasOnboarding;
       // Opens the tutorial tab. Never gated on install status: the tutorial
       // needs no agent.
@@ -662,6 +672,7 @@ export type ReviewCanvasContent =
       kind: "welcome";
       // Absent when the install status endpoint is unavailable.
       install?: ReviewCanvasInstallContent;
+      setupActions?: ReviewCanvasSetupActions;
       // Closes the Welcome tab ("Skip for now" on first run).
       close?(): void;
       // Drives the step rail. Absent when the install status is unavailable.
@@ -879,7 +890,7 @@ export type ReviewFffManagedRegistration = z.infer<
 >;
 
 export const ReviewMcpRegistrationSchema = z.strictObject({
-  target: z.enum(["codex", "claude"]),
+  target: z.enum(["codex", "claude", "cursor", "opencode"]),
   configPath: requiredString,
   command: requiredString,
   args: z.array(z.string()),
@@ -930,7 +941,7 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   mcp: z
     .array(
       z.strictObject({
-        target: z.enum(["codex", "claude"]),
+        target: ReviewMcpRegistrationSchema.shape.target,
         state: z.enum(["ready", "missing", "custom", "error"]),
         error: requiredString.optional(),
       }),

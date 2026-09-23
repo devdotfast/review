@@ -1422,6 +1422,10 @@ button:focus-visible > .review-chevron {
   white-space: pre;
 }
 
+.review-doc-meta > [data-row-start]::before {
+  visibility: hidden;
+}
+
 /* A box is the state of a thing (viewed, enabled); it is the same 14px
    hairline box everywhere, filled with the marker when checked. */
 .review-settings-toggle input[type="checkbox"] {

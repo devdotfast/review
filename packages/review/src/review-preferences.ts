@@ -16,15 +16,22 @@ import { devReviewHome } from "./review-home-paths";
 /**
  * Machine-wide Review preferences the server itself needs. Workbench settings
  * do not work here: the reaper runs in the review server, which never reads
- * the workbench configuration.
+ * the workbench configuration, and `review install` runs with no workbench
+ * at all.
  */
-interface ReviewPreferences {
+export interface ReviewPreferences {
   /** `null` means never reap. */
   dismissedRetentionDays: DismissedRetentionDays;
+  /**
+   * Whether the scratchpad exists on this machine. Off, the server neither
+   * makes nor lists it and the scratchpad skill is not installed for agents.
+   */
+  scratchpadEnabled: boolean;
 }
 
 const DEFAULT_REVIEW_PREFERENCES: ReviewPreferences = {
   dismissedRetentionDays: DEFAULT_DISMISSED_RETENTION_DAYS,
+  scratchpadEnabled: false,
 };
 
 function reviewPreferencesPath(devHome = devReviewHome()): string {
@@ -40,7 +47,10 @@ export async function readReviewPreferences(
       await readFile(reviewPreferencesPath(devHome), "utf8"),
     );
 
-    return { dismissedRetentionDays: parseRetentionDays(raw) };
+    return {
+      dismissedRetentionDays: parseRetentionDays(raw),
+      scratchpadEnabled: parseScratchpadEnabled(raw),
+    };
   } catch {
     return { ...DEFAULT_REVIEW_PREFERENCES };
   }
@@ -54,11 +64,38 @@ export async function writeReviewPreferences(
     dismissedRetentionDays: normalizeRetentionDays(
       preferences.dismissedRetentionDays,
     ),
+    scratchpadEnabled: preferences.scratchpadEnabled === true,
   };
 
   await writePrivateJsonAtomic(reviewPreferencesPath(devHome), next);
 
   return next;
+}
+
+/** Reads the scratchpad preference; a missing file means off. */
+export async function readScratchpadEnabled(
+  devHome?: string,
+): Promise<boolean> {
+  return (await readReviewPreferences(devHome)).scratchpadEnabled;
+}
+
+/** Sets the scratchpad preference, keeping the other preferences as they are. */
+export async function writeScratchpadEnabled(
+  enabled: boolean,
+  devHome?: string,
+): Promise<boolean> {
+  const current = await readReviewPreferences(devHome);
+
+  return (
+    await writeReviewPreferences(
+      { ...current, scratchpadEnabled: enabled },
+      devHome,
+    )
+  ).scratchpadEnabled;
+}
+
+function parseScratchpadEnabled(raw: JsonValue): boolean {
+  return isJsonObject(raw) && raw.scratchpadEnabled === true;
 }
 
 function parseRetentionDays(raw: JsonValue): DismissedRetentionDays {

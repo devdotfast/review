@@ -65,6 +65,7 @@ import {
 } from "./install";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
+import { readScratchpadEnabled } from "./review-preferences";
 
 const installErrors = new Map<string, string>();
 
@@ -136,11 +137,13 @@ export async function resolveCliInstallStatus(input: {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
 
-  const [agentStatus, fingerprint, trace] = await Promise.all([
-    resolveInstalledReviewAgentStatus({ homeDir, env }),
-    installFingerprint(input.packageRoot),
-    traceMachineStatus({ homeDir, env }),
-  ]);
+  const [agentStatus, fingerprint, trace, scratchpadEnabled] =
+    await Promise.all([
+      resolveInstalledReviewAgentStatus({ homeDir, env }),
+      installFingerprint(input.packageRoot),
+      traceMachineStatus({ homeDir, env }),
+      readScratchpadEnabled(devReviewHome(env)),
+    ]);
 
   const { agents, stamp } = agentStatus;
 
@@ -155,12 +158,13 @@ export async function resolveCliInstallStatus(input: {
     homeDir,
     targets: managedTargets,
     traceEnabled: trace.enabled,
+    scratchpadEnabled,
   });
 
   const mcp = await Promise.all(
     REVIEW_MCP_TARGETS.map(async (target) => {
       const result = await reviewMcpStatus(
-        reviewMcpRegistration(target, homeDir, env),
+        await reviewMcpRegistration(target, homeDir, env),
         stamp?.mcpRegistrations?.find((item) => item.target === target),
       );
 
@@ -469,7 +473,7 @@ async function applyCliInstallUnlocked(
     for (const target of REVIEW_MCP_TARGETS.filter((target) =>
       input.targets.includes(target),
     )) {
-      const registration = reviewMcpRegistration(target, homeDir, env);
+      const registration = await reviewMcpRegistration(target, homeDir, env);
 
       const managed = stamp.mcpRegistrations.find(
         (item) => item.target === target,

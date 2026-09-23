@@ -27,7 +27,7 @@ The overview is a starting point. Follow it with enough detail to explain how th
 - Use concrete examples. For a retry mechanism, show what happens to a particular failed request, including what causes it to stop retrying.
 - Explain design decisions and tradeoffs when there is evidence for them. Distinguish documented reasons from your interpretation.
 - Explain boundaries, failure paths and constraints that materially affect the behavior.
-- Link to the code that supports the explanation. Include relevant existing test evidence and distinguish it from checks actually run.
+- Link to the code that supports the explanation using `[label](review-source:head/src/file.ts#L10-L24)` (or `base` for the previous revision). Use repository-relative paths and line numbers verified with the source tools; a single line uses `#L10`. Encode spaces in paths as `%20`. Relative Markdown file links, absolute filesystem paths, and file/editor URLs are rejected during validation and commit. External links use `https://`, `http://`, or `mailto:`; document anchors use `#heading`. Include relevant existing test evidence and distinguish it from checks actually run.
 
 Choose depth according to the subject's complexity. A small function can encode an important invariant that needs a full explanation. Cover each major question in the outline in the initial completed Review; expand sections that only list symbols, files or one-line descriptions.
 
@@ -54,6 +54,8 @@ Choose the component that makes the relationship visible. Use native diagram com
 | A supplied statement of intent or reasoning | `trace_quote` | Quote an actual retained trace excerpt. Keep the surrounding explanation understandable on its own. |
 
 A single subject can need several views. A sequence can show when a transaction occurs, while a database view shows the data it reads and writes. Give each view a distinct job.
+
+When a diagram supports attaching evidence, always attach evidence. In order of preference: concrete code evidence > pseudocode / explanation >> no attachments.
 
 ### Database views
 
@@ -97,3 +99,5 @@ Read the entire document through Review’s tools, including every section and d
 Check that the Review covers the requested subject, that the sections form a coherent explanation, and that there are no gaps, repeated explanations or contradictions between sections. Check consistency of terminology and diagram participants across the document. Remove unfinished outline text.
 
 Make targeted corrections, then reread the affected sections and related diagrams. If work remains unfinished, report it as such. Report any remaining evidence or verification limitations with the result.
+
+No explanation at all on a diagram node (e.g. sequence diagram or flow diagram) is almost certainly a wrong choice. Only acceptable for self-evident nodes (where the title == content).

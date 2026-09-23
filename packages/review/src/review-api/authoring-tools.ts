@@ -202,7 +202,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     begin:
       "Begin an exclusive server-owned scratch draft. Supply reviewId to update a saved review, or title and resolved pins for a new review. Updating a live worktree review requires explicit resolved pins and commits it as a fixed commit target. No committed placeholder is created. No activity or heartbeat is needed. A live server retains ownership until commit, abort or shutdown.",
     write:
-      "Replace the complete scratch document and optionally its metadata. Omit component IDs; the server allocates fresh IDs and returns the draft. Writes do not create committed versions. Prefer this bulk operation to many edits.",
+      "Replace the complete scratch document and optionally its metadata. Omit component IDs; the server allocates fresh IDs and returns the draft. Writes do not create committed versions. Prefer this bulk operation to many edits. Repository links use [label](review-source:head/path#L10-L24) or base, with verified lines; relative file links fail validation and commit.",
     edit: "Apply a targeted edit to the scratch document using IDs returned by draft_get or draft_write. No committed version is created.",
     validate:
       "Check draft shape, references, pins, source ranges and resources before commit. Errors leave the draft editable.",

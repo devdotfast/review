@@ -77,7 +77,7 @@ export async function runShareCli(input: {
       input.stdout.write(
         JSON.stringify({ error: { code: "share_failed", message } }) + "\n",
       );
-    else input.stderr.write(message + "\n");
+    input.stderr.write(message + "\n");
 
     return 1;
   }

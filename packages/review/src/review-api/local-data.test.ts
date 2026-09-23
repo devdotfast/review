@@ -2949,3 +2949,29 @@ it("marks a worktree review unavailable while its checkout is gone", async () =>
 
   expect(local.store.read(review.reviewId).sourceUnavailable).toBe(true);
 });
+
+it("validates grouped source ranges with one read per pinned file", async () => {
+  const read = vi.spyOn(local.data, "file");
+
+  try {
+    await local.data.validateSources(pins, [
+      source,
+      { ...source, fromLine: 2 },
+    ]);
+    expect(read).toHaveBeenCalledTimes(1);
+    await expect(
+      local.data.validateSources(pins, [source, { ...source, toLine: 100000 }]),
+    ).rejects.toThrow("exceeds the pinned file");
+    await expect(
+      local.data.validateSources(pins, [{ ...source, file: "missing.ts" }]),
+    ).rejects.toThrow("unavailable");
+    read.mockClear();
+    await local.data.validateSources(pins, [
+      source,
+      { ...source, side: "base", toLine: 1 },
+    ]);
+    expect(read).toHaveBeenCalledTimes(pins.base === pins.head ? 1 : 2);
+  } finally {
+    read.mockRestore();
+  }
+});

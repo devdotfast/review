@@ -151,10 +151,8 @@ it("shares review identity, resources, sessions and live changes with Desktop in
   let reviewStream: ReturnType<ReviewApiClient["watch"]> | undefined;
 
   try {
-    // Desktop's first listing makes the scratchpad; there are no reviews yet.
-    expect((await catalog.next()).value).toMatchObject([
-      { reviewId: "scratchpad", kind: "scratchpad" },
-    ]);
+    // The scratchpad is off by default, so there is nothing to list yet.
+    expect((await catalog.next()).value).toEqual([]);
 
     const registered = await server.client.post<{ id: string }>(
       "/repositories",

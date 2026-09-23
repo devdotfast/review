@@ -56,6 +56,9 @@ export interface IReviewDesktopConnectionService {
 	saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig>;
 	testDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<string>;
 	setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
+	/** The scratchpad preference: a server preference, since `review install` reads it too. */
+	readScratchpadEnabled(): Promise<boolean>;
+	setScratchpadEnabled(enabled: boolean): Promise<boolean>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
@@ -93,7 +96,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 	private initializePromise: Promise<void> | null = null;
 	private tutorialPreparePromise: Promise<void> | undefined;
 	private tutorialPrepareAttempted = false;
-	private cliInstallStatus: ReviewCliInstallStatus | undefined;
 	private cliInstallStatusPromise: Promise<ReviewCliInstallStatus> | undefined;
 	private readonly controller = new AbortController();
 	private controlAttached = false;
@@ -180,6 +182,29 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		});
 		await this.requireOk(response, "diffr configuration");
 		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async readScratchpadEnabled(): Promise<boolean> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/preferences/scratchpad`, {
+			headers: this.authHeaders(),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "scratchpad preference");
+		return parseScratchpadPreference(await response.json());
+	}
+
+	async setScratchpadEnabled(enabled: boolean): Promise<boolean> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/preferences/scratchpad`, {
+			method: "PUT",
+			headers: { ...this.authHeaders(), "content-type": "application/json" },
+			body: JSON.stringify({ enabled }),
+			// Also installs or removes the scratchpad skill for every agent.
+			signal: AbortSignal.timeout(120_000),
+		});
+		await this.requireOk(response, "scratchpad preference");
+		return parseScratchpadPreference(await response.json());
 	}
 
 	async saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig> {
@@ -299,18 +324,13 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 
 	async getCliInstallStatus(): Promise<ReviewCliInstallStatus> {
 		await this.initialize();
-		if (this.cliInstallStatus) return this.cliInstallStatus;
 		this.cliInstallStatusPromise ??= (async () => {
 			const response = await fetch(`${this.serverUrl}/install/status`, {
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			});
-			if (!response.ok) {
-				throw new Error(`Review install status returned ${response.status}.`);
-			}
-			const status = parseReviewCliInstallStatus(await response.json());
-			this.cliInstallStatus = status;
-			return status;
+			await this.requireOk(response, "Review install status");
+			return parseReviewCliInstallStatus(await response.json());
 		})().finally(() => {
 			this.cliInstallStatusPromise = undefined;
 		});
@@ -341,7 +361,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 			signal: AbortSignal.timeout(120_000),
 		});
 		const payload: JsonValue = await response.json().catch(() => ({}));
-		this.cliInstallStatus = undefined;
 		if (!response.ok) {
 			const detail = payload as { output?: unknown; error?: unknown };
 			throw new Error(
@@ -379,7 +398,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		if (!response.ok) {
 			throw new Error(`Review install remove returned ${response.status}.`);
 		}
-		this.cliInstallStatus = undefined;
 	}
 
 	async declineCliInstall(): Promise<void> {
@@ -404,7 +422,6 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		if (!response.ok) {
 			throw new Error(`Review install ${verb} returned ${response.status}.`);
 		}
-		this.cliInstallStatus = undefined;
 	}
 
 	attachControl(dispatch: (value: JsonValue) => Promise<ReviewVerbResponse>): void {
@@ -533,4 +550,11 @@ export async function reviewResponseError(response: Response, fallback: string):
 		error?: unknown;
 	} | null;
 	return new Error(typeof payload?.error === "string" && payload.error ? payload.error : fallback);
+}
+
+function parseScratchpadPreference(value: unknown): boolean {
+	if (typeof value !== "object" || value === null || !("enabled" in value) || typeof value.enabled !== "boolean") {
+		throw new Error("scratchpad preference response is malformed.");
+	}
+	return value.enabled;
 }

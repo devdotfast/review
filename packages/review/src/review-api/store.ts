@@ -330,6 +330,15 @@ export class ReviewStore {
       this.catalogListeners.delete(listener);
     };
   }
+  /** For a host whose listing changed without the store: a preference flip. */
+  invalidateCatalog(): void {
+    for (const listener of this.catalogListeners)
+      try {
+        listener();
+      } catch {
+        // A disconnected viewer must not block other catalog subscribers.
+      }
+  }
   subscribe(listener: (result: Result) => void) {
     this.listeners.add(listener);
 

@@ -1,0 +1,64 @@
+name: Author a shared Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: shared-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Only trusted, same-repository PRs receive model and publishing credentials.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check required configuration
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          REVIEW_SHARE_TOKEN: ${{ secrets.REVIEW_SHARE_TOKEN }}
+          REVIEW_VERSION: ${{ vars.REVIEW_VERSION }}
+        run: |
+          test -n "$REVIEW_VERSION" || { echo 'Publish the headless CLI and set the REVIEW_VERSION repository variable; npm 0.2.10 is too old.' >&2; exit 1; }
+          test -n "$CLAUDE_CODE_OAUTH_TOKEN" || { echo 'CLAUDE_CODE_OAUTH_TOKEN repository secret is missing.' >&2; exit 1; }
+          test -n "$REVIEW_SHARE_TOKEN" || { echo 'REVIEW_SHARE_TOKEN repository secret is missing.' >&2; exit 1; }
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Install Claude Code
+        run: npm install --global @anthropic-ai/claude-code@2.1.278
+      - name: Author, upload and link Review
+        uses: devdotfast/review/actions/author-and-share@main
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'sonnet' }}
+        with:
+          review-version: ${{ vars.REVIEW_VERSION }}
+          preview: "true"
+          share-token: ${{ secrets.REVIEW_SHARE_TOKEN }}
+          author-command: |
+            review install claude --no-shim
+            claude --print --model "$REVIEW_MODEL" \
+              --permission-mode dontAsk \
+              --allowedTools 'Bash,Read,Write,Edit,Glob,Grep,Skill' \
+              < "$REVIEW_PROMPT_FILE"
+          prompt: |
+            Explain this pull request for a human reviewing the change.
+            Focus on user-visible behavior, significant design choices, and
+            concrete risks, with evidence from the pinned source revisions.
+            Keep the Review concise and use review api for all authoring.
+            Do not modify repository files or run repository setup scripts.

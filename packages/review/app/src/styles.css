@@ -645,7 +645,6 @@ button {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  transition: grid-template-columns 200ms ease-out;
   color: var(--ink);
   background: var(--bg);
   color-scheme: dark;
@@ -2772,9 +2771,9 @@ button {
   border: 1px solid var(--chrome-border);
   border-radius: 5px;
   padding: 10px 12px;
-  background: var(--tray);
+  background: var(--vscode-notifications-background, var(--tray));
   box-shadow: 0 8px 28px var(--shadow-color);
-  color: var(--ink);
+  color: var(--vscode-notifications-foreground, var(--ink));
   font: 11px/1.4 var(--font-mono);
 }
 
@@ -6093,29 +6092,6 @@ button.review-stack-row:disabled .review-stack-relation {
   line-height: 21px;
 }
 
-.review-onboarding-terminal {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.review-onboarding-terminal-label {
-  color: var(--review-home-meta);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.review-onboarding-terminal code {
-  padding: 9px 12px;
-  border: 1px solid var(--review-home-rule);
-  border-radius: 8px;
-  color: var(--review-home-meta);
-  background: var(--tray);
-  font-size: 12px;
-}
-
 .review-onboarding-steps {
   display: flex;
   flex: 1;
@@ -6205,6 +6181,27 @@ button.review-stack-row:disabled .review-stack-relation {
   background: var(--transparent);
   cursor: pointer;
   font-size: 12px;
+}
+
+.review-onboarding-step-body > .review-onboarding-refresh {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  color: var(--ink-muted);
+  border: none;
+}
+
+.review-onboarding-step-body > .review-onboarding-refresh:hover {
+  color: var(--ink);
+  background: var(--surface-raised);
+}
+
+.review-onboarding-step-body > button + button {
+  margin-left: 8px;
 }
 
 .review-onboarding-step-badge {

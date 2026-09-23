@@ -113,6 +113,9 @@ importers:
       hono:
         specifier: 4.13.5
         version: 4.13.5
+      jsonc-parser:
+        specifier: 3.3.1
+        version: 3.3.1
       mdast-util-from-markdown:
         specifier: 2.0.3
         version: 2.0.3
@@ -2136,6 +2139,9 @@ packages:
 
   json-schema-typed@8.0.2:
     resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
+
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
 
   libavoid-js@0.5.0-beta.5:
     resolution: {integrity: sha512-jHkn6A10815TgFhZ1paUD/NDnQkg4C66qJc2Juj1NpmO/+QXnJ4UjIdKQarkXLmI/QgXhEO3RWDxMi3i+uHPwA==}
@@ -4444,6 +4450,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   json-schema-typed@8.0.2: {}
+
+  jsonc-parser@3.3.1: {}
 
   libavoid-js@0.5.0-beta.5: {}
 

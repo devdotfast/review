@@ -17,20 +17,29 @@ class PublicationTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.current = dict(schemaVersion=1, format="rpm", generation="1.2.3-1-" + "a" * 40,
-                            version="1.2.3", commit="a" * 40, keyFingerprint="B" * 40)
-        (self.root / "repos").mkdir()
-        (self.root / "repos/current.json").write_text(json.dumps(self.current))
-        (self.root / "repos/package").write_bytes(b"sealed package")
-        self.digests = {name: publisher.checksum(self.root / name) for name in ["repos/current.json", "repos/package"]}
-        (self.root / "sha256.json").write_text(json.dumps(self.digests))
         self.calls = []
+        self.requests = []
         self.previous = None
         self.failure = None
         self.pointer_failure = False
+        self.channel = None
+        self.seal("1.2.3", "a" * 40)
+
+    def seal(self, version, commit, prefix="repos"):
+        self.prefix = prefix
+        self.pointer_key = f"{prefix}/current.json"
+        self.package_key = f"{prefix}/package"
+        self.current = dict(schemaVersion=1, format="rpm", generation=f"{version}-1-{commit}",
+                            version=version, commit=commit, keyFingerprint="B" * 40)
+        (self.root / prefix).mkdir(parents=True, exist_ok=True)
+        (self.root / self.pointer_key).write_text(json.dumps(self.current))
+        (self.root / self.package_key).write_bytes(b"sealed package")
+        self.digests = {name: publisher.checksum(self.root / name) for name in [self.pointer_key, self.package_key]}
+        (self.root / "sha256.json").write_text(json.dumps(self.digests))
 
     def request(self, url, **kwargs):
         url = url.full_url
+        self.requests.append(url)
         body = {"schemaVersion": 1, "format": "rpm"} if url.endswith("/health") else {"version": self.current["commit"], "productVersion": self.current["version"]}
         return io.BytesIO(json.dumps(body).encode())
 
@@ -41,17 +50,17 @@ class PublicationTests(unittest.TestCase):
                 raise RuntimeError("NoSuchKey")
             Path(args[-1]).write_text(json.dumps(self.previous))
             return {"ETag": '"previous-etag"'}
-        if args[0] == "put-object" and args[args.index("--key") + 1] == "repos/package" and self.failure:
+        if args[0] == "put-object" and args[args.index("--key") + 1] == self.package_key and self.failure:
             raise RuntimeError(self.failure)
-        if args[0] == "put-object" and args[args.index("--key") + 1] == "repos/current.json" and self.pointer_failure:
+        if args[0] == "put-object" and args[args.index("--key") + 1] == self.pointer_key and self.pointer_failure:
             raise RuntimeError("PreconditionFailed: concurrent promotion")
         if args[0] == "head-object":
-            return {"Metadata": {"sha256": self.digests["repos/package"]}}
+            return {"Metadata": {"sha256": self.digests[self.package_key]}}
         return {}
 
     def publish(self):
         with patch.object(publisher, "aws", self.aws), patch.object(publisher.urllib.request, "urlopen", self.request):
-            publisher.publish(self.root, "test-bucket", "https://example.test")
+            publisher.publish(self.root, "test-bucket", "https://example.test", self.channel)
 
     def writes(self):
         return [call for call in self.calls if call[0] == "put-object"]
@@ -60,6 +69,34 @@ class PublicationTests(unittest.TestCase):
         self.publish()
         self.assertEqual([call[call.index("--key") + 1] for call in self.writes()], ["repos/package", "repos/current.json"])
         self.assertIn("--if-none-match", self.writes()[-1])
+
+    def test_preview_channel_publishes_its_own_pointer_and_feed(self):
+        self.seal("1.2.4~preview.20260922.7", "d" * 40, prefix="repos/preview")
+        self.channel = "preview"
+        self.publish()
+        self.assertEqual([call[call.index("--key") + 1] for call in self.writes()], ["repos/preview/package", "repos/preview/current.json"])
+        self.assertEqual(self.requests[-1], "https://example.test/api/update/linux-x64/preview/" + "0" * 40)
+
+    def test_previews_order_by_build_date_and_run(self):
+        self.seal("1.2.4~preview.20260922.7", "d" * 40, prefix="repos/preview")
+        self.previous = {**self.current, "version": "1.2.4~preview.20260921.9", "generation": "1.2.4~preview.20260921.9-1-" + "e" * 40, "commit": "e" * 40}
+        self.publish()
+        self.assertEqual(self.writes()[-1][-2:], ("--if-match", '"previous-etag"'))
+        self.previous = {**self.current, "version": "1.2.4~preview.20260923.1", "generation": "1.2.4~preview.20260923.1-1-" + "f" * 40, "commit": "f" * 40}
+        with self.assertRaisesRegex(ValueError, "newer package"):
+            self.publish()
+
+    def test_publication_must_match_the_requested_channel(self):
+        self.channel = "preview"
+        with self.assertRaisesRegex(ValueError, "not a single preview pointer"):
+            self.publish()
+        self.assertEqual(self.calls, [])
+
+    def test_pointer_version_must_match_its_channel(self):
+        self.seal("1.2.4~preview.20260922.7", "d" * 40)
+        with self.assertRaisesRegex(ValueError, "Invalid repository pointer"):
+            self.publish()
+        self.assertEqual(self.calls, [])
 
     def test_failed_immutable_upload_never_promotes(self):
         self.failure = "network failed"

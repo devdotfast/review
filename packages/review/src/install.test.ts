@@ -16,13 +16,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installFile, runInstall } from "./install";
 
-const REQUIRED_SKILLS = [
-  "dev-review",
-  "dev-review-batch",
+const REQUIRED_SKILLS = ["dev-review", "dev-review-batch"] as const;
+
+const ALL_SKILLS = [
+  ...REQUIRED_SKILLS,
+  "trace-archaeology",
   "scratchpad",
 ] as const;
-
-const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
 
 const tempRoots: string[] = [];
 
@@ -142,6 +142,11 @@ describe("runInstall", () => {
     expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(false);
     expect(
       existsSync(path.join(homeDir, ".claude", "skills", "trace-archaeology")),
+    ).toBe(false);
+
+    // The scratchpad is off by default: no scratchpad skill either.
+    expect(
+      existsSync(path.join(homeDir, ".claude", "skills", "scratchpad")),
     ).toBe(false);
 
     // Legacy prompt/command locations should stay empty.
@@ -456,6 +461,44 @@ describe("runInstall", () => {
         path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
       ),
     ).toBe(true);
+  });
+
+  it("installs the scratchpad skill only while the preference is on", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const devHome = await makeTempDir();
+    const skill = path.join(homeDir, ".claude", "skills", "scratchpad");
+    const env = { DEV_REVIEW_HOME: devHome };
+
+    const install = async () => {
+      const streams = silentStreams();
+
+      return runInstall({
+        targets: ["claude"],
+        homeDir,
+        packageRoot,
+        env,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      });
+    };
+
+    await writeFile(
+      path.join(devHome, "preferences.json"),
+      JSON.stringify({ scratchpadEnabled: true }),
+    );
+    expect(await install()).toBe(0);
+    expect(await readFile(path.join(skill, "SKILL.md"), "utf8")).toContain(
+      "# scratchpad",
+    );
+
+    // Turning the preference off retires the skill on the next install.
+    await writeFile(
+      path.join(devHome, "preferences.json"),
+      JSON.stringify({ scratchpadEnabled: false }),
+    );
+    expect(await install()).toBe(0);
+    expect(existsSync(skill)).toBe(false);
   });
 
   it("fails clearly when the bundled skill is missing", async () => {

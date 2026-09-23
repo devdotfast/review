@@ -40,7 +40,12 @@ export interface AuthoringCapabilities {
   authoringMode: AuthoringMode;
   desktopAvailable: boolean;
   softwareMapEnabled: boolean;
+  /** Off, the host neither makes nor lists the scratchpad, and refuses its id. */
+  scratchpadEnabled: boolean;
 }
+
+const SCRATCHPAD_DISABLED =
+  "The scratchpad is off. Turn it on in Review Desktop Settings.";
 
 /** Both hosts mount this behind their token authentication. */
 export function createReviewApi(
@@ -52,12 +57,17 @@ export function createReviewApi(
   }) => Promise<{ softwareMapEnabled: boolean }>,
   shared?: SharedReviewStore,
   capabilities: () =>
-    | Omit<AuthoringCapabilities, "authoringMode">
-    | Promise<Omit<AuthoringCapabilities, "authoringMode">> = () => ({
+    | Omit<AuthoringCapabilities, "authoringMode" | "scratchpadEnabled">
+    | Promise<
+        Omit<AuthoringCapabilities, "authoringMode" | "scratchpadEnabled">
+      > = () => ({
     desktopAvailable: Boolean(open),
     softwareMapEnabled: false,
   }),
   authoringMode: AuthoringMode = "interactive",
+  // Synchronous because the catalog is read inside watch callbacks. The host
+  // keeps it current from its preferences file.
+  scratchpadEnabled: () => boolean = () => false,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -92,18 +102,26 @@ export function createReviewApi(
     operation: z.object({ reviewId: z.string().optional() }),
   });
 
-  // The host that can show the scratchpad keeps it: Desktop, interactively.
-  // Batch authoring and headless servers never make one.
+  // The host that can show the scratchpad keeps it: Desktop, interactively,
+  // while the preference is on. Batch authoring and headless servers never
+  // make one, and a pad made earlier stays in the store while it is off.
   const ensureScratchpad = async (id?: string) => {
     if (
       authoringMode === "interactive" &&
       open &&
+      scratchpadEnabled() &&
       (!id || id === SCRATCHPAD_ID)
     )
       await store.ensureScratchpad();
   };
 
+  const refuseDisabledScratchpad = (id?: string) => {
+    if (id === SCRATCHPAD_ID && !scratchpadEnabled())
+      throw new ReviewInputError(SCRATCHPAD_DISABLED, 409);
+  };
+
   const sharedGuard: MiddlewareHandler = async (context, next) => {
+    refuseDisabledScratchpad(context.req.param("id"));
     await ensureScratchpad(context.req.param("id"));
 
     const id = context.req.param("id");
@@ -145,7 +163,14 @@ export function createReviewApi(
   };
 
   const catalog = (mode: "structural" | "textual" = "structural") => {
-    return [...store.list(mode), ...(shared?.list(mode) ?? [])];
+    const local = store.list(mode);
+
+    return [
+      ...(scratchpadEnabled()
+        ? local
+        : local.filter((summary) => summary.kind !== "scratchpad")),
+      ...(shared?.list(mode) ?? []),
+    ];
   };
 
   app.get("/", async (context) => {
@@ -260,7 +285,11 @@ export function createReviewApi(
     );
   });
   app.get("/capabilities", async (context) =>
-    context.json({ ...(await capabilities()), authoringMode }),
+    context.json({
+      ...(await capabilities()),
+      authoringMode,
+      scratchpadEnabled: scratchpadEnabled(),
+    }),
   );
 
   if (authoringMode === "batch") {
@@ -1032,8 +1061,16 @@ export function createReviewApi(
       );
     const command = sharedCommandSchema.safeParse(input);
 
-    if (command.success)
+    if (command.success) {
+      refuseDisabledScratchpad(command.data.operation.reviewId);
       await ensureScratchpad(command.data.operation.reviewId);
+    }
+
+    if (
+      input.operation.type === "create" &&
+      input.operation.kind === "scratchpad"
+    )
+      refuseDisabledScratchpad(SCRATCHPAD_ID);
 
     if (
       command.success &&

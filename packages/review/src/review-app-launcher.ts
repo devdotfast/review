@@ -227,7 +227,9 @@ export function launchDesktopApplication(
     args = ["-g", ...args, "--env", `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`];
 
   if (directLaunch) {
-    command = "/usr/bin/review-desktop";
+    // The Fedora CLI wrappers name their own channel's launcher.
+    command =
+      env.DEV_FAST_REVIEW_DESKTOP_COMMAND?.trim() || "/usr/bin/review-desktop";
     method = `the installed Linux launcher at "${command}"`;
 
     if (electron) {

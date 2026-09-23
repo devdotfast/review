@@ -133,10 +133,8 @@ export function RefreshIcon(): ReactElement {
       focusable="false"
       viewBox="0 0 24 24"
     >
-      <path d="M19 7v5h-5" />
-      <path d="M5 17v-5h5" />
-      <path d="M18.25 12a6.25 6.25 0 0 0-10.6-4.5L5 10" />
-      <path d="M5.75 12a6.25 6.25 0 0 0 10.6 4.5L19 14" />
+      <path d="M20 7v5h-5" />
+      <path d="M20 12a8 8 0 1 0-2.34 5.66" />
     </svg>
   );
 }

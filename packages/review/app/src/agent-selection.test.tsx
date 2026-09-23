@@ -11,6 +11,8 @@ import { testReviewSession } from "./review-session-test-utils";
 it("copies only on click or Shift+Cmd+C, reports failures, and clears on revision changes", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const session = testReviewSession();
+  const notify = vi.fn<NonNullable<typeof session.bridge.notify>>();
+  session.bridge.notify = notify;
 
   const fetch = vi
     .spyOn(session, "fetch")
@@ -118,9 +120,11 @@ it("copies only on click or Shift+Cmd+C, reports failures, and clears on revisio
     expect(
       JSON.parse(fetch.mock.calls[0]![1]!.body as string),
     ).not.toHaveProperty("anchorElement");
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "copied to clipboard",
-    );
+    expect(notify).toHaveBeenLastCalledWith({
+      kind: "success",
+      text: expect.stringContaining("copied to clipboard"),
+    });
+    expect(container.querySelector('[role="status"]')).toBeNull();
     await act(async () => {
       shortcut();
     });
@@ -130,9 +134,11 @@ it("copies only on click or Shift+Cmd+C, reports failures, and clears on revisio
     await act(async () => {
       shortcut();
     });
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "Could not copy",
-    );
+    expect(notify).toHaveBeenLastCalledWith({
+      kind: "error",
+      text: expect.stringContaining("Could not copy"),
+    });
+    expect(container.querySelector('[role="status"]')).toBeNull();
     await act(async () => render("two"));
     expect(container.querySelector('[aria-label="Copy for Agent"]')).toBeNull();
     await act(async () => {

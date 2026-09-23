@@ -1,6 +1,6 @@
 ---
 name: dev-review
-description: Create and update Reviews.
+description: Review is a software architecture visualization tool. Use it when explaining a system's software architecture in a kind of whiteboard session to connect architecture + requirements to code.
 metadata:
   review-managed-by: "Review Desktop"
   review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
@@ -9,7 +9,7 @@ metadata:
 
 # dev.fast Review
 
-Use Review’s components to explain the subject the user asked about.
+Use Review’s components to explain the code the user asked about.
 
 ## Before authoring
 

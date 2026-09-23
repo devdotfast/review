@@ -3,6 +3,7 @@ import type {
   ReviewCanvasHomeSetup,
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
+  ReviewCanvasSetupActions,
   ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import {
@@ -34,6 +35,7 @@ interface ReviewHomeProps {
   setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
+  setupActions?: ReviewCanvasSetupActions;
   onboarding?: ReviewCanvasOnboarding;
   onOpenTutorial?(): void;
 }
@@ -94,6 +96,7 @@ export function ReviewHome({
   onRestore,
   setup,
   install,
+  setupActions,
   onboarding,
   onOpenTutorial,
 }: ReviewHomeProps) {
@@ -148,6 +151,7 @@ export function ReviewHome({
     return (
       <WelcomePage
         install={install}
+        setupActions={setupActions}
         onboarding={onboarding}
         onOpenTutorial={onOpenTutorial}
       />

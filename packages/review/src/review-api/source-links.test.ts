@@ -177,3 +177,38 @@ it("resolves a block's links at the block's own pins, and only where those pins 
     ]),
   ).toThrow(/base-side source needs base pins/);
 });
+
+for (const href of [
+  "packages/review/src/sharing/cli.ts#L76-L80",
+  ".github/workflows/review-author.yml",
+  "./src/save.ts#L2",
+  "../src/save.ts#L2",
+  "/src/save.ts#L2",
+  "file:///Users/author/repo/src/save.ts#L2",
+  "vscode://file/src/save.ts:2",
+  "//example.com/src/save.ts",
+  "javascript:alert(1)",
+]) {
+  it(`rejects unsupported Markdown destination ${href} with authoring guidance`, () => {
+    expect(() => sources(`[file](<${href}>)`)).toThrow(
+      "Use [label](review-source:head/path#L10-L24)",
+    );
+    expect(() => sources(`[file][ref]\n\n[ref]: <${href}>`)).toThrow(
+      "Use [label](review-source:head/path#L10-L24)",
+    );
+    expect(
+      sourceReferences(
+        [{ type: "markdown", id: "old", markdown: `[file](<${href}>)` }],
+        { tolerant: true },
+      ),
+    ).toEqual([]);
+  });
+}
+
+it("preserves external links, anchors, and literal link examples", () => {
+  expect(
+    sources(
+      "[site](https://example.com/a) [local web](http://localhost/a) [mail](mailto:a@example.com) [section](#details) `[file](src/a.ts)`\n\n```md\n[file](src/a.ts)\n```",
+    ),
+  ).toEqual([]);
+});

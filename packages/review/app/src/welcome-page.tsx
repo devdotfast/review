@@ -1,12 +1,13 @@
 import type {
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
+  ReviewCanvasSetupActions,
   ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
 import { type ReactNode, useState } from "react";
 
 import { AgentSetupCard, TARGET_LABELS } from "./agent-setup-card";
-import { DisclosureChevron } from "./icons";
+import { DisclosureChevron, RefreshIcon } from "./icons";
 import { PromptCard, promptAgent } from "./prompt-card";
 
 /**
@@ -23,16 +24,38 @@ import { PromptCard, promptAgent } from "./prompt-card";
  * signal rather than a manual checkbox.
  */
 export function WelcomePage({
-  install,
+  install: initialInstall,
+  setupActions,
   onClose,
   onboarding,
   onOpenTutorial,
 }: {
   install?: ReviewCanvasInstallContent;
+  setupActions?: ReviewCanvasSetupActions;
   onClose?: () => void;
   onboarding?: ReviewCanvasOnboarding;
   onOpenTutorial?: () => void;
 }) {
+  const [loadedInstall, setLoadedInstall] =
+    useState<ReviewCanvasInstallContent>();
+
+  const [setupError, setSetupError] = useState<string>();
+  const [setupBusy, setSetupBusy] = useState(false);
+  const install = loadedInstall ?? initialInstall;
+
+  const runSetup = async (action: () => Promise<void>) => {
+    setSetupBusy(true);
+    setSetupError(undefined);
+
+    try {
+      await action();
+    } catch (cause) {
+      setSetupError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSetupBusy(false);
+    }
+  };
+
   /* The host renders this pane once per open, so an install or uninstall
      that happens while it is on screen has to advance the rail itself. The
      card hands back the refreshed status after every action; until the
@@ -42,6 +65,17 @@ export function WelcomePage({
   >(undefined);
 
   const status = cardStatus ?? install?.status;
+
+  const hasAgents =
+    status?.agents.some((agent) => agent.present || agent.installed) ?? false;
+
+  const compactRefresh = hasAgents && !setupError;
+
+  const refreshInstall = async () => {
+    if (!setupActions) return;
+    setLoadedInstall(await setupActions.load());
+    setCardStatus(undefined);
+  };
 
   const installed = status
     ? onboardingSetupComplete(status)
@@ -55,16 +89,70 @@ export function WelcomePage({
       title: "Connect your agents",
       done: installed,
       note: installedLabels(status) ?? "not installed yet",
-      body: install ? (
-        <AgentSetupCard
-          install={{ ...install, status: status ?? install.status }}
-          onStatusChange={setCardStatus}
-        />
-      ) : (
-        <p className="review-home-empty">
-          The install status is unavailable. Restart Review Desktop and open
-          this pane again.
-        </p>
+      body: (
+        <>
+          {install && hasAgents ? (
+            <AgentSetupCard
+              install={{ ...install, status: status ?? install.status }}
+              onStatusChange={setCardStatus}
+            />
+          ) : (
+            <>
+              <p className="review-home-empty">
+                {install
+                  ? "No coding agents detected."
+                  : "Agent setup is unavailable."}{" "}
+                Install <code>review</code> to get started.
+              </p>
+              {status?.shim.installed ? (
+                <p>
+                  <code>review</code> command installed.
+                </p>
+              ) : null}
+              {setupActions ? (
+                <button
+                  type="button"
+                  disabled={setupBusy}
+                  onClick={() =>
+                    void runSetup(async () => {
+                      await setupActions.installCli();
+                      await refreshInstall();
+                    })
+                  }
+                >
+                  {status?.shim.installed
+                    ? "Reinstall review in PATH"
+                    : "Install review in PATH"}
+                </button>
+              ) : null}
+            </>
+          )}
+          {setupActions ? (
+            <button
+              type="button"
+              disabled={setupBusy}
+              className={
+                compactRefresh ? "review-onboarding-refresh" : undefined
+              }
+              aria-label={setupBusy ? "Refreshing agents" : "Refresh agents"}
+              title="Refresh agents"
+              onClick={() => void runSetup(refreshInstall)}
+            >
+              {compactRefresh ? (
+                <RefreshIcon />
+              ) : setupBusy ? (
+                "Refreshing…"
+              ) : (
+                "Refresh agents"
+              )}
+            </button>
+          ) : null}
+          {setupError ? (
+            <p role="alert" className="review-agent-setup-error">
+              {setupError}
+            </p>
+          ) : null}
+        </>
       ),
     },
     {
@@ -76,8 +164,7 @@ export function WelcomePage({
       body: (
         <>
           <p className="review-home-zero-hint">
-            A real review of a small sample repo, with live code, system views,
-            and interactive examples. About three minutes.
+            Explore a sample review in three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -114,16 +201,8 @@ export function WelcomePage({
                 Your codebase, explained by your agent.
               </h1>
               <p className="review-onboarding-sub">
-                Connect a coding agent once, then take a three-minute tour on a
-                bundled sample review. Your agent writes the next one from your
-                own repo.
+                Connect your agent. Explore a review. Create your own.
               </p>
-              <div className="review-onboarding-terminal">
-                <span className="review-onboarding-terminal-label">
-                  Prefer the terminal?
-                </span>
-                <code>$ review install</code>
-              </div>
               {onClose ? (
                 <button
                   type="button"

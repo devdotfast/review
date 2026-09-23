@@ -6,7 +6,7 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { WelcomePage } from "./welcome-page";
+import { WHITEBOARD_CONNECT_COPIED_STORAGE_KEY, WelcomePage } from "./welcome-page";
 
 const fresh: WhiteboardCliInstallStatus = {
   fingerprint: "test",
@@ -80,6 +80,7 @@ describe("WelcomePage", () => {
   });
 
   afterEach(async () => {
+    localStorage.removeItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY);
     await act(async () => root.unmount());
     container.remove();
   });
@@ -89,12 +90,14 @@ describe("WelcomePage", () => {
       (button) => button.textContent === label,
     );
 
-  const stepState = () =>
-    container
-      .querySelector(".whiteboard-onboarding-step")
-      ?.getAttribute("data-state");
+  const step = (index: number) =>
+    container.querySelectorAll(".whiteboard-onboarding-step")[index];
 
-  it("offers a prompt per agent and finishes step one once the command is installed", async () => {
+  const stepState = (index: number) => step(index)?.getAttribute("data-state");
+
+  const stepOpen = (index: number) => step(index)?.getAttribute("data-open");
+
+  it("opens on the install step until the whiteboard command is installed", async () => {
     const setupActions = {
       load: vi.fn<() => Promise<WhiteboardCanvasInstallContent>>(async () =>
         content({ ...fresh, shim: { ...fresh.shim, installed: true } }),
@@ -107,16 +110,63 @@ describe("WelcomePage", () => {
         <WelcomePage install={content(fresh)} setupActions={setupActions} />,
       ),
     );
-    expect(buttons("Copy prompt")).toHaveLength(1);
-    expect(
-      container.querySelectorAll('[aria-label="Agent"] button'),
-    ).toHaveLength(5);
-    expect(container.textContent).toContain("paste a prompt into each agent");
-    expect(stepState()).toBe("todo");
+    expect(stepOpen(0)).toBe("true");
+    expect(stepState(0)).toBe("todo");
+    expect(stepState(1)).toBe("todo");
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(1);
 
     await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
     expect(setupActions.installCli).toHaveBeenCalledOnce();
-    expect(stepState()).toBe("done");
+    expect(stepState(0)).toBe("done");
+    expect(container.textContent).toContain("Installed at /tmp/whiteboard.");
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(0);
+  });
+
+  it("opens on the connect step once the command is installed", async () => {
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, installed: true },
+          })}
+        />,
+      ),
+    );
+    expect(stepState(0)).toBe("done");
+    expect(stepOpen(1)).toBe("true");
+    expect(
+      container.querySelectorAll('[aria-label="Agent"] button'),
+    ).toHaveLength(5);
+  });
+
+  it("counts a source run as installed", async () => {
+    await act(async () =>
+      root.render(<WelcomePage install={content({ ...fresh, cli: null })} />),
+    );
+    expect(stepState(0)).toBe("done");
+  });
+
+  it("finishes the connect step once a prompt is copied", async () => {
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, installed: true },
+          })}
+        />,
+      ),
+    );
+    expect(stepState(1)).toBe("todo");
+    await act(async () => buttons("Copy prompt")[0]?.click());
+    expect(stepState(1)).toBe("done");
+    expect(localStorage.getItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY)).toBe("1");
+    writeText.mockRestore();
   });
 
   it("shows the update screen and finishes the update on Done", async () => {

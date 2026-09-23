@@ -176,6 +176,22 @@ describe("ConnectCard", () => {
     writeText.mockRestore();
   });
 
+  it("reports a successful copy", async () => {
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+
+    const onCopied = vi.fn<() => void>();
+
+    const container = await mount(
+      <ConnectCard install={content()} onCopied={onCopied} />,
+    );
+
+    await act(async () => copyButton(container)?.click());
+    expect(onCopied).toHaveBeenCalledOnce();
+    writeText.mockRestore();
+  });
+
   it("links to Cursor's installer, or asks for the whiteboard command without one", async () => {
     localStorage.setItem(WHITEBOARD_CONNECT_TARGET_STORAGE_KEY, "cursor");
 

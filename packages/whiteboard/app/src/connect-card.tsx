@@ -36,8 +36,10 @@ const MODES: ReadonlyArray<{ mode: Mode; label: string }> = [
  */
 export function ConnectCard({
   install,
+  onCopied,
 }: {
   install: WhiteboardCanvasInstallContent;
+  onCopied?: () => void;
 }) {
   const { status } = install;
 
@@ -90,6 +92,7 @@ export function ConnectCard({
       setCopied(true);
       clearTimeout(resetTimer.current);
       resetTimer.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+      onCopied?.();
     });
   };
 

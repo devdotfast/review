@@ -10,18 +10,22 @@ import { ConnectCard, LegacySkillsRow } from "./connect-card";
 import { DisclosureChevron } from "./icons";
 import { PromptCard } from "./prompt-card";
 
+export const WHITEBOARD_CONNECT_COPIED_STORAGE_KEY =
+  "dev.fast.whiteboard.connectCopied";
+
 /**
  * The Welcome pane: the whole first-run experience in one place. It opens
  * automatically on first run (no consent stamp yet) and later from the
  * application menu or the command palette.
  *
- * The three steps are the product's own order — connect an agent, read the
- * bundled tutorial, publish a whiteboard of your own repo. Step one embeds the
- * connect prompts, so this pane is also where agents are connected later;
- * there is no separate setup surface. `onClose` closes the tab.
+ * The four steps are the product's own order — install the whiteboard command,
+ * connect an agent, read the bundled tutorial, publish a review of your own
+ * repo. Step two embeds the connect prompts, so this pane is also where
+ * agents are connected later; there is no separate setup surface. `onClose`
+ * closes the tab.
  *
  * An install from before Whiteboard connected over MCP opens this pane in update
- * mode: step one also lists the skills that version installed, and Done
+ * mode: step two also lists the skills that version installed, and Done
  * records that the update is finished.
  *
  * Only one step is open at a time, and each one checks off from a real
@@ -81,29 +85,41 @@ export function WelcomePage({
 
   const updating = status?.updateNeeded ?? false;
 
+  // Whiteboard cannot see agent configs, so a copied prompt or command is the
+  // closest signal that an agent got connected.
+  const [connectCopied, setConnectCopied] = useState(readConnectCopied);
+  const [updateFinished, setUpdateFinished] = useState(false);
+
+  const markConnectCopied = () => {
+    setConnectCopied(true);
+
+    try {
+      globalThis.localStorage?.setItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY, "1");
+    } catch {
+      // The desktop can disable DOM storage; the in-memory flag still works.
+    }
+  };
+
   const tourChecked = onboarding?.tutorialChecked ?? 0;
   const tourTotal = onboarding?.tutorialTotal ?? 0;
 
   const steps: WelcomeStep[] = [
     {
-      title: "Connect your agents",
+      title: "Install the whiteboard command",
       done: installed,
-      note: "paste a prompt into each agent",
+      note: "writes ~/.local/bin/review",
       body: (
         <>
-          {install && status ? (
-            <>
-              <LegacySkillsRow
-                install={{ ...install, status }}
-                onStatusChange={setCardStatus}
-              />
-              <ConnectCard install={{ ...install, status }} />
-            </>
-          ) : (
-            <p className="whiteboard-home-empty">Agent setup is unavailable.</p>
-          )}
-          {setupActions &&
-          (!status || (status.cli && !status.shim.installed)) ? (
+          <p className="whiteboard-home-zero-hint">
+            Agents start Whiteboard through this command, so install it before
+            connecting them.
+          </p>
+          {installed && status?.shim.installed ? (
+            <p className="whiteboard-home-zero-hint">
+              Installed at {status.shim.path}.
+            </p>
+          ) : null}
+          {setupActions && !installed ? (
             <button
               type="button"
               disabled={setupBusy}
@@ -135,6 +151,28 @@ export function WelcomePage({
       ),
     },
     {
+      title: "Connect your agents",
+      done: connectCopied || updateFinished,
+      note: "paste a prompt into each agent",
+      body:
+        install && status ? (
+          <>
+            {updating ? (
+              <LegacySkillsRow
+                install={{ ...install, status }}
+                onStatusChange={setCardStatus}
+              />
+            ) : null}
+            <ConnectCard
+              install={{ ...install, status }}
+              onCopied={markConnectCopied}
+            />
+          </>
+        ) : (
+          <p className="whiteboard-home-empty">Agent setup is unavailable.</p>
+        ),
+    },
+    {
       title: "Take the tour",
       done: tourTotal > 0 && tourChecked >= tourTotal,
       note: onboarding
@@ -163,9 +201,9 @@ export function WelcomePage({
 
   // Pick the initial step from progress, then let the reader navigate, so an
   // action never collapses the step it happened in. An update opens on step
-  // one, where the old skills and the prompts are.
+  // two, where the old skills and the prompts are.
   const [activeStep, setOpenStep] = useState(() =>
-    updating ? 0 : steps.findIndex((step) => !step.done),
+    updating ? 1 : steps.findIndex((step) => !step.done),
   );
 
   return (
@@ -194,7 +232,8 @@ export function WelcomePage({
                     Your codebase, explained by your agent.
                   </h1>
                   <p className="whiteboard-onboarding-sub">
-                    Connect your agent. Explore a whiteboard. Create your own.
+                    Install the command. Connect your agent. Explore a whiteboard.
+                    Create your own.
                   </p>
                 </>
               )}
@@ -206,6 +245,7 @@ export function WelcomePage({
                   onClick={() =>
                     void runSetup(async () => {
                       setCardStatus(await install.finishUpdate());
+                      setUpdateFinished(true);
                       onClose?.();
                     })
                   }
@@ -267,6 +307,17 @@ export function WelcomePage({
 
 function onboardingSetupComplete(status: WhiteboardCliInstallStatus): boolean {
   return !status.cli || status.shim.installed;
+}
+
+function readConnectCopied(): boolean {
+  try {
+    return (
+      globalThis.localStorage?.getItem(WHITEBOARD_CONNECT_COPIED_STORAGE_KEY) ===
+      "1"
+    );
+  } catch {
+    return false;
+  }
 }
 
 interface WelcomeStep {

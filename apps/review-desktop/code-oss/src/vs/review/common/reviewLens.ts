@@ -48,11 +48,7 @@ export function lensContextGaps(diff: IDocumentDiff, originalCount: number, modi
 			owner: left === originalStart ? 'head' : right === modifiedStart ? 'base' : 'both', change: gapChange(diff, originalStart, left, modifiedStart, right)
 		});
 	}
-	// Keep structural folds only when fully within the visible slice; no overlapping bands.
-	const overlap = (a: IDocumentContextGap, b: IDocumentContextGap) =>
-		(a.originalCount > 0 && b.originalCount > 0 && a.originalStart < b.originalStart + b.originalCount && b.originalStart < a.originalStart + a.originalCount) ||
-		(a.modifiedCount > 0 && b.modifiedCount > 0 && a.modifiedStart < b.modifiedStart + b.modifiedCount && b.modifiedStart < a.modifiedStart + a.modifiedCount);
-	return [...gaps, ...(diff.contextGaps ?? []).filter(gap => !gaps.some(hidden => overlap(gap, hidden)))].sort((a, b) => a.originalStart - b.originalStart || a.modifiedStart - b.modifiedStart);
+	return composeContextGaps(diff, rows, gaps);
 }
 
 export function alignmentRows(diff: IDocumentDiff, originalCount: number, modifiedCount: number): (readonly [number | null, number | null])[] {
@@ -85,10 +81,7 @@ export function viewedContextGaps(diff: IDocumentDiff, originalCount: number, mo
 		while (index < rows.length && hidden[index]) { if (rows[index][0] !== null) left++; if (rows[index][1] !== null) right++; index++; }
 		gaps.push({ originalStart, modifiedStart, originalCount: left - originalStart, modifiedCount: right - modifiedStart, label: 'Viewed', breadcrumbs: false, owner: left === originalStart ? 'head' : right === modifiedStart ? 'base' : 'both', change: gapChange(diff, originalStart, left, modifiedStart, right) });
 	}
-	const overlaps = (a: IDocumentContextGap, b: IDocumentContextGap) =>
-		(a.originalCount > 0 && b.originalCount > 0 && a.originalStart < b.originalStart + b.originalCount && b.originalStart < a.originalStart + a.originalCount) ||
-		(a.modifiedCount > 0 && b.modifiedCount > 0 && a.modifiedStart < b.modifiedStart + b.modifiedCount && b.modifiedStart < a.modifiedStart + a.modifiedCount);
-	return [...gaps, ...(diff.contextGaps ?? []).filter(gap => !gaps.some(viewed => overlaps(gap, viewed)))].sort((a, b) => a.originalStart - b.originalStart || a.modifiedStart - b.modifiedStart);
+	return composeContextGaps(diff, rows, gaps);
 }
 
 /** Lens and viewed folds describe coverage, not a new diff; retain the provider's change status. */
@@ -96,4 +89,37 @@ function gapChange(diff: IDocumentDiff, originalStart: number, originalEnd: numb
 	const removed = diff.sourceLineAlignment?.some(([l, r]) => r === null && l !== null && l + 1 >= originalStart && l + 1 < originalEnd) || diff.changes.some(c => originalStart < originalEnd && !c.original.isEmpty && c.original.startLineNumber < originalEnd && c.original.endLineNumberExclusive > originalStart);
 	const added = diff.sourceLineAlignment?.some(([l, r]) => l === null && r !== null && r + 1 >= modifiedStart && r + 1 < modifiedEnd) || diff.changes.some(c => modifiedStart < modifiedEnd && !c.modified.isEmpty && c.modified.startLineNumber < modifiedEnd && c.modified.endLineNumberExclusive > modifiedStart);
 	return removed && added ? 'modified' : removed ? 'removed' : added ? 'inserted' : 'unchanged';
+}
+
+/** Subset filters may hide more code, but cannot replace a provider fold or its toggle identity. */
+function composeContextGaps(diff: IDocumentDiff, rows: readonly (readonly [number | null, number | null])[], overlays: readonly IDocumentContextGap[]): IDocumentContextGap[] {
+	const supplied = diff.contextGaps ?? [];
+	const contains = (gap: IDocumentContextGap, row: readonly [number | null, number | null]) => row.some((line, side) => {
+		const start = side === 0 ? gap.originalStart : gap.modifiedStart;
+		const count = side === 0 ? gap.originalCount : gap.modifiedCount;
+		return line !== null && line + 1 >= start && line + 1 < start + count;
+	});
+	const covered = rows.map(row => supplied.some(gap => gap.collapsed !== false && contains(gap, row)));
+	const result = [...supplied];
+	for (const overlay of overlays) {
+		let left = 1, right = 1;
+		for (let index = 0; index < rows.length;) {
+			if (covered[index] || !contains(overlay, rows[index])) {
+				if (rows[index][0] !== null) left++;
+				if (rows[index][1] !== null) right++;
+				index++;
+				continue;
+			}
+			const originalStart = left, modifiedStart = right;
+			while (index < rows.length && !covered[index] && contains(overlay, rows[index])) {
+				if (rows[index][0] !== null) left++;
+				if (rows[index][1] !== null) right++;
+				index++;
+			}
+			result.push({ ...overlay, originalStart, modifiedStart, originalCount: left - originalStart, modifiedCount: right - modifiedStart,
+				owner: left === originalStart ? 'head' : right === modifiedStart ? 'base' : 'both',
+				change: gapChange(diff, originalStart, left, modifiedStart, right) });
+		}
+	}
+	return result.sort((a, b) => a.originalStart - b.originalStart || a.modifiedStart - b.modifiedStart || b.originalCount - a.originalCount || b.modifiedCount - a.modifiedCount);
 }

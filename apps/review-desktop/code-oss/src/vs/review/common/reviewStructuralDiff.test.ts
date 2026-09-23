@@ -358,3 +358,20 @@ test("base-owned unchanged fold projects both ranges and retains its toggle iden
 	diff.structural_changes = { base: [[0, 1]], head: [[0, 1]] };
 	assert.equal(structuralContextGaps(diff, id => id === 26)[0].change, "modified");
 });
+
+
+test("default-open parent and nested folds remain controllable through a shared state on both sides", () => {
+	const inner = fold(3, [leaf(4, 3, 7)]);
+	const outer = fold(1, [leaf(2, 0, 3), inner, leaf(5, 7, 10)]);
+	const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`);
+	const diff: StructuralTextDiff = { type: "text", structural_changes: { base: [], head: [] }, stats, lhs: text(lines, [outer]), rhs: text(lines, [outer]) };
+	const states = new Map([[1, false], [3, false]]);
+	const gaps = () => structuralContextGaps(diff, id => states.get(id) === true, id => states.get(id));
+	assert.deepEqual(gaps().map(g => [g.foldStateId, g.collapsed, g.owner]), [[1, false, "both"], [3, false, "both"]]);
+	states.set(3, true);
+	assert.deepEqual(gaps().map(g => [g.foldStateId, g.collapsed]), [[1, false], [3, true]]);
+	states.set(1, true);
+	assert.deepEqual(gaps().map(g => [g.foldStateId, g.collapsed]), [[1, true]]);
+	states.set(1, false);
+	assert.deepEqual(gaps().map(g => [g.foldStateId, g.collapsed]), [[1, false], [3, true]]);
+});

@@ -93,7 +93,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 
 		const unchangedRegions = this._diffModel.map((m, reader) => {
 			const regions = m?.unchangedRegions.read(reader) ?? [];
-			if (regions.length === 1 && regions[0].modifiedLineNumber === 1 && regions[0].lineCount === this._editors.modifiedModel.read(reader)?.getLineCount()) {
+			if (regions.length === 1 && regions[0].foldStateId === undefined && regions[0].modifiedLineNumber === 1 && regions[0].lineCount === this._editors.modifiedModel.read(reader)?.getLineCount()) {
 				return [];
 			}
 			return regions;
@@ -256,7 +256,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 				const lineNumber = event.target.position.lineNumber;
 				const model = this._diffModel.get();
 				if (!model) { return; }
-				const region = model.unchangedRegions.get().find(r => r.modifiedUnchangedRange.contains(lineNumber));
+				const region = model.unchangedRegions.get().find(r => r.foldStateId !== undefined ? r.modifiedLineNumber === lineNumber : r.modifiedUnchangedRange.contains(lineNumber));
 				if (!region) { return; }
 				region.collapseAll(undefined);
 				event.event.stopPropagation();
@@ -269,7 +269,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 				const lineNumber = event.target.position.lineNumber;
 				const model = this._diffModel.get();
 				if (!model) { return; }
-				const region = model.unchangedRegions.get().find(r => r.originalUnchangedRange.contains(lineNumber));
+				const region = model.unchangedRegions.get().find(r => r.foldStateId !== undefined ? r.originalLineNumber === lineNumber : r.originalUnchangedRange.contains(lineNumber));
 				if (!region) { return; }
 				region.collapseAll(undefined);
 				event.event.stopPropagation();

@@ -195,8 +195,8 @@ export function knownRegions(
 			if (hides) result.push({ region, collapsed: true });
 			return;
 		}
-		// Open, but a band by the wire's default: a reader revealed it, and the editor can fold it again.
-		if (known === false && hides && region.visibility?.collapsed === true) result.push({ region, collapsed: false });
+		// Default-open folds are still foldable. Visibility chooses the initial state, not whether a control exists.
+		if (known === false && hides && (region.kind === "fold" || region.visibility?.collapsed === true)) result.push({ region, collapsed: false });
 		if (region.kind === "fold") for (const child of region.children) walk(child);
 	};
 	for (const region of regions ?? []) walk(region);

@@ -420,6 +420,7 @@ it("uses OpenCode's existing JSONC config under XDG_CONFIG_HOME", async () => {
     parseJsonc(await readFile(file, "utf8")).mcp.whiteboard,
   ).toBeUndefined();
 });
+
 for (const target of targets) {
   it(`migrates an unchanged legacy ${target} registration without touching other servers`, async () => {
     await install();

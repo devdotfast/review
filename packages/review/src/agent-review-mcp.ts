@@ -264,6 +264,7 @@ export async function writeReviewMcpRegistration(
       (desired.target === "opencode"
         ? '{\n  "$schema": "https://opencode.ai/config.json"\n}\n'
         : "{}\n");
+
     if (managed && !sameName)
       next = applyEdits(
         next,

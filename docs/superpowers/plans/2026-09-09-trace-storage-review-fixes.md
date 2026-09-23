@@ -20,7 +20,7 @@
 - **Shell.** `ls` is aliased to `exa`; use `command ls`. `grep` is `ugrep`; quote globs. BSD `sed` has no `\b`; use `perl -pi -e` for word-boundary edits.
 - **Dev tests.** `pnpm --filter @dev-fast/review-web test` (unit), `pnpm --filter @dev-fast/review-web test:worker` (D1 worker tests, applies `drizzle/migrations`), `pnpm --filter @dev-fast/review-web typecheck`. The Dev worktree has an uncommitted, deliberate override in `pnpm-workspace.yaml` and `pnpm-lock.yaml` pointing `@dev.fast/trace-shared` at a local tarball. Never commit those two files. Never remove the override.
 - **Vocabulary.** User-facing word is `s3`, never `direct`.
-- **Protocol mirror.** After any change to `packages/review-protocol/src/contracts.ts`, run `pnpm --filter @dev.fast/review-desktop protocol:sync` and commit the regenerated `apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts`.
+- **Protocol mirror.** After any change to `packages/whiteboard-protocol/src/contracts.ts`, run `pnpm --filter @dev.fast/whiteboard-desktop protocol:sync` and commit the regenerated `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/common/whiteboardProtocol.ts`.
 
 ---
 
@@ -232,11 +232,11 @@ Findings: a `forbidden`/`store_deleted` answer at target resolution became `null
 - Modify: `packages/progressive-review/src/trace-storage/hosted.ts` (the `catch` at the end of `resolve`, read branch)
 - Modify: `packages/progressive-review/src/review-agent-traces.ts` (`reachable`, `findNormalizedTraceFile`)
 - Modify: `packages/progressive-review/src/server/review-api.ts` (`traceStorageOverride`, `resolveTraceStorageFor`, `agentTraces`, `agentTraceDetail`)
-- Modify: `packages/review-protocol/src/contracts.ts` (`ReviewAgentTraceListResponseSchema`)
-- Modify: `packages/progressive-review/app/src/ReviewTraceView.tsx` (list state, unconfigured block)
+- Modify: `packages/whiteboard-protocol/src/contracts.ts` (`WhiteboardAgentTraceListResponseSchema`)
+- Modify: `packages/progressive-review/app/src/WhiteboardTraceView.tsx` (list state, unconfigured block)
 - Modify: `packages/progressive-review/src/trace-storage/hosted.test.ts`
 - Create: `packages/progressive-review/src/server/review-api-traces.test.ts`
-- Regenerate: `apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts`
+- Regenerate: `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/common/whiteboardProtocol.ts`
 
 **Interfaces:**
 
@@ -262,7 +262,7 @@ it("reports a refusal at target resolution instead of serving another copy", asy
     traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
   });
   expect(
-    await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: first }),
+    await loadWhiteboardAgentTrace({ sessionId, cwd: repoDir, storage: first }),
   ).not.toBeNull();
 
   // Access is revoked: findStore answers forbidden.
@@ -296,7 +296,7 @@ it("reports a refusal at target resolution instead of serving another copy", asy
   ).rejects.toBeInstanceOf(TraceStorageDeniedError);
   // The saved copy is not served through a null storage either.
   await expect(
-    loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+    loadWhiteboardAgentTrace({ sessionId, cwd: repoDir }),
   ).rejects.toBeInstanceOf(TraceStorageDeniedError);
 });
 ```
@@ -360,7 +360,7 @@ Expected: PASS for all tests, including the new one.
 
 - [ ] **Step 6: Add `storageError` to the protocol and regenerate the mirror**
 
-In `packages/review-protocol/src/contracts.ts`, in `ReviewAgentTraceListResponseSchema`'s `ok: true` object, after `sources: ...optional(),` add:
+In `packages/whiteboard-protocol/src/contracts.ts`, in `WhiteboardAgentTraceListResponseSchema`'s `ok: true` object, after `sources: ...optional(),` add:
 
 ```ts
     // Why the selected store answered nothing: a refusal, a missing login
@@ -368,7 +368,7 @@ In `packages/review-protocol/src/contracts.ts`, in `ReviewAgentTraceListResponse
     storageError: requiredString.optional(),
 ```
 
-Run: `pnpm --filter @dev.fast/review-protocol build && pnpm --filter @dev.fast/review-desktop protocol:sync`
+Run: `pnpm --filter @dev.fast/whiteboard-protocol build && pnpm --filter @dev.fast/whiteboard-desktop protocol:sync`
 
 - [ ] **Step 7: Write the failing API route test**
 
@@ -384,7 +384,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "../review-agent-traces";
-import { createReviewDir } from "../review-home";
+import { createWhiteboardDir } from "../whiteboard-home";
 import { traceConfigPath } from "../trace-storage/config";
 import { createReviewApi } from "./review-api";
 
@@ -405,7 +405,7 @@ describe("agent trace routes", () => {
     home = await mkdtemp(path.join(os.tmpdir(), "review-api-traces-home-"));
     root = await mkdtemp(path.join(os.tmpdir(), "review-api-traces-repo-"));
     vi.stubEnv("DEV_WHITEBOARD_HOME", home);
-    vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", path.join(home, "trace-search"));
+    vi.stubEnv("WHITEBOARD_TEST_TRACE_SEARCH_DIR", path.join(home, "trace-search"));
     await git(root, ["init", "-b", "main"]);
     await git(root, ["config", "user.email", "review@example.test"]);
     await git(root, ["config", "user.name", "Review Test"]);
@@ -433,19 +433,19 @@ describe("agent trace routes", () => {
 
   async function api() {
     const commit = await git(root, ["rev-parse", "HEAD"]);
-    const created = await createReviewDir({
+    const created = await createWhiteboardDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: commit,
       sourceCommit: commit,
     });
-    const reviewPath = path.join(created.dir, "review.mdx");
-    await writeFile(reviewPath, "# Review\n", "utf8");
+    const whiteboardPath = path.join(created.dir, "review.mdx");
+    await writeFile(whiteboardPath, "# Review\n", "utf8");
     return createReviewApi({
-      reviewPath,
-      stateReviewPath: reviewPath,
-      reviewRootPath: created.dir,
-      reviewDocumentsDir: created.dir,
+      whiteboardPath,
+      stateReviewPath: whiteboardPath,
+      whiteboardRootPath: created.dir,
+      whiteboardDocumentsDir: created.dir,
       rootPath: root,
       toolingRoot: root,
       reviewToken: "test",
@@ -453,7 +453,7 @@ describe("agent trace routes", () => {
         rootPath: root,
         baseRef: "main",
         appUrl: "http://localhost:4000",
-        reviewPath,
+        whiteboardPath,
         startedAt: 1,
         agent: { harness: "claude-code", sessionId: "author" },
       },
@@ -546,7 +546,7 @@ describe("agent trace routes", () => {
 });
 ```
 
-If `createReviewApi` needs a `reviewToken` or `toolingRoot` of a different type, copy the exact option set from `packages/progressive-review/src/server/review-agent-flow.test.ts` lines 122-141 and keep `reviewRootPath: created.dir`.
+If `createReviewApi` needs a `reviewToken` or `toolingRoot` of a different type, copy the exact option set from `packages/progressive-review/src/server/review-agent-flow.test.ts` lines 122-141 and keep `whiteboardRootPath: created.dir`.
 
 - [ ] **Step 8: Run it to verify it fails**
 
@@ -569,7 +569,7 @@ type TraceStorageOverride =
 
 /** The `?storage=` read override; invalid names never fall back silently. */
 function traceStorageOverride(
-  context: Context<ReviewHonoEnv>,
+  context: Context<WhiteboardHonoEnv>,
 ): TraceStorageOverride {
   const value = new URL(context.req.url).searchParams.get("storage");
   if (value === null) return { kind: "none" };
@@ -590,7 +590,7 @@ type TraceStorageResolution =
  * config is returned as a message instead of thrown.
  */
 async function resolveTraceStorageFor(
-  context: Context<ReviewHonoEnv>,
+  context: Context<WhiteboardHonoEnv>,
   cwd: string,
 ): Promise<TraceStorageResolution> {
   const override = traceStorageOverride(context);
@@ -635,8 +635,8 @@ if (override.kind === "invalid") {
     error: "storage must be s3 or hosted.",
   });
 }
-const review = readReviewStoreRecord(reviewRootPath);
-const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
+const review = readWhiteboardStoreRecord(whiteboardRootPath);
+const repoRootPath = resolveWhiteboardRepoRootFromStore(whiteboardRootPath, review);
 const headCommit = review.sourceCommit ?? review.baseCommit;
 const selection = selectTraceStorage();
 const sources: TraceStorageKind[] = [];
@@ -657,9 +657,9 @@ if (resolved.error !== null) {
     sessions: [],
   });
 }
-let sessions: Awaited<ReturnType<typeof listReviewTraceSessions>>;
+let sessions: Awaited<ReturnType<typeof listWhiteboardTraceSessions>>;
 try {
-  sessions = await listReviewTraceSessions({
+  sessions = await listWhiteboardTraceSessions({
     rootPath: repoRootPath,
     baseCommit: review.baseCommit,
     headCommit,
@@ -695,14 +695,14 @@ if (override.kind === "invalid") {
     error: "storage must be s3 or hosted.",
   });
 }
-const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath);
+const repoRootPath = resolveWhiteboardRepoRootFromStore(whiteboardRootPath);
 const resolved = await resolveTraceStorageFor(context, repoRootPath);
 if (resolved.error !== null) {
   return reviewApiJsonResponse(404, { ok: false, error: resolved.error });
 }
-let loaded: Awaited<ReturnType<typeof loadReviewAgentTrace>>;
+let loaded: Awaited<ReturnType<typeof loadWhiteboardAgentTrace>>;
 try {
-  loaded = await loadReviewAgentTrace({
+  loaded = await loadWhiteboardAgentTrace({
     sessionId,
     trace,
     cwd: repoRootPath,
@@ -727,7 +727,7 @@ Expected: PASS.
 
 - [ ] **Step 11: Show `storageError` in the Desktop trace view**
 
-In `packages/progressive-review/app/src/ReviewTraceView.tsx`:
+In `packages/progressive-review/app/src/WhiteboardTraceView.tsx`:
 
 In `TraceListState`'s `loaded` branch add `storageError: string | null;`. In the fetch effect's `setList({ status: "loaded", ... })` add `storageError: result.storageError ?? null,`.
 
@@ -735,14 +735,14 @@ Replace the unconfigured block:
 
 ```tsx
         {list.status === "loaded" && (list.storageError || !list.configured) && (
-          <div className="review-trace-unconfigured">
-            <span className="review-trace-kicker">Agent trace</span>
+          <div className="whiteboard-trace-unconfigured">
+            <span className="whiteboard-trace-kicker">Agent trace</span>
             {list.storageError ? (
               <p>{list.storageError}</p>
             ) : (
               <>
                 <p>Agent traces are not configured.</p>
-                <p className="review-trace-note">
+                <p className="whiteboard-trace-note">
                   Open Agent Setup in Review Desktop to enable trace capture.
                 </p>
               </>
@@ -766,12 +766,12 @@ useEffect(() => {
 }, [list]);
 ```
 
-Add a test to `packages/progressive-review/app/src/ReviewTraceView.test.tsx` after the source-control test:
+Add a test to `packages/progressive-review/app/src/WhiteboardTraceView.test.tsx` after the source-control test:
 
 ```tsx
 it("shows the storage error instead of the unconfigured hint", async () => {
   const requestMock = vi
-    .fn<ReviewCanvasBridge["request"]>()
+    .fn<WhiteboardCanvasBridge["request"]>()
     .mockImplementation((url) => {
       if (url.includes("/agent-traces")) {
         return Promise.resolve(
@@ -788,12 +788,12 @@ it("shows the storage error instead of the unconfigured hint", async () => {
       }
       return Promise.reject(new Error(`Unexpected URL: ${url}`));
     });
-  const session = testReviewSession({}, { request: requestMock });
+  const session = testWhiteboardSession({}, { request: requestMock });
   await act(async () => {
     root?.render(
-      <ReviewSessionProvider session={session}>
-        <ReviewTraceView />
-      </ReviewSessionProvider>,
+      <WhiteboardSessionProvider session={session}>
+        <WhiteboardTraceView />
+      </WhiteboardSessionProvider>,
     );
   });
   await act(async () => {
@@ -806,7 +806,7 @@ it("shows the storage error instead of the unconfigured hint", async () => {
 });
 ```
 
-Run: `pnpm --filter @dev.fast/review exec vitest run app/src/ReviewTraceView.test.tsx`
+Run: `pnpm --filter @dev.fast/review exec vitest run app/src/WhiteboardTraceView.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 12: Full checks and commit**
@@ -814,7 +814,7 @@ Expected: PASS.
 ```bash
 pnpm --filter @dev.fast/review typecheck && pnpm -w lint && pnpm -w format:check
 GITHUB_REPOSITORY=devdotfast/review pnpm --filter @dev.fast/review test
-git add -A packages/progressive-review packages/review-protocol apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts
+git add -A packages/progressive-review packages/whiteboard-protocol apps/whiteboard-desktop/code-oss/src/vs/whiteboard/common/whiteboardProtocol.ts
 git commit -m "Report hosted refusals and read-override failures instead of serving a saved copy"
 ```
 
@@ -1254,7 +1254,7 @@ git commit -m "Match hosted consent by repository id only and honor homeDir in t
 
 - [ ] **Step 1: Move the dependency**
 
-In `packages/progressive-review/package.json` delete the line `"@dev.fast/trace-shared": "workspace:*",` from `dependencies` and add it to `devDependencies` next to `"@dev.fast/review-protocol": "workspace:*",`. Run `pnpm install` (updates `pnpm-lock.yaml`).
+In `packages/progressive-review/package.json` delete the line `"@dev.fast/trace-shared": "workspace:*",` from `dependencies` and add it to `devDependencies` next to `"@dev.fast/whiteboard-protocol": "workspace:*",`. Run `pnpm install` (updates `pnpm-lock.yaml`).
 
 Verify the bundle still inlines it: `pnpm --filter @dev.fast/review build && grep -c "TRACE_STORE_API_PREFIX\|/api/trace/v1" packages/progressive-review/dist/cli.js` must print a number greater than 0.
 
@@ -1315,7 +1315,7 @@ Append inside `describe("TraceCaptureSection")`:
 
 ```tsx
 it("hides the bucket fields and the S3 copy on a hosted machine", async () => {
-  const hostedStatus: ReviewCliInstallStatus = {
+  const hostedStatus: WhiteboardCliInstallStatus = {
     ...traceStatus,
     trace: {
       ...traceStatus.trace,
@@ -1324,13 +1324,13 @@ it("hides the bucket fields and the S3 copy on a hosted machine", async () => {
       storageMode: "hosted",
     },
   };
-  const install: ReviewCanvasInstallContent = {
+  const install: WhiteboardCanvasInstallContent = {
     status: hostedStatus,
-    apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
-    remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
-    decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-    skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
-    enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    apply: vi.fn<WhiteboardCanvasInstallContent["apply"]>(),
+    remove: vi.fn<WhiteboardCanvasInstallContent["remove"]>(),
+    decline: vi.fn<WhiteboardCanvasInstallContent["decline"]>(),
+    skip: vi.fn<WhiteboardCanvasInstallContent["skip"]>(),
+    enablePrompts: vi.fn<WhiteboardCanvasInstallContent["enablePrompts"]>(),
   };
   await act(async () => root.render(<TraceCaptureSection install={install} />));
   expect(
@@ -1361,7 +1361,7 @@ Add before the component:
 
 ```tsx
 /** What capture records and where, for the selected store. */
-function traceDestinationCopy(trace: ReviewCliInstallStatus["trace"]): string {
+function traceDestinationCopy(trace: WhiteboardCliInstallStatus["trace"]): string {
   if (trace.storageMode === "hosted") {
     return "Records agent sessions from allowed repositories to the hosted /dev/fast trace store so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
   }
@@ -1374,12 +1374,12 @@ Inside the component, after `useEffect(() => setStatus(install.status), ...)` ad
 Replace the copy span:
 
 ```tsx
-<span className="review-agent-setup-cli">
+<span className="whiteboard-agent-setup-cli">
   {traceDestinationCopy(status.trace)}
 </span>
 ```
 
-Wrap the `<div className="review-agent-setup-trace-fields">...</div>` in `{hosted ? null : ( ... )}`.
+Wrap the `<div className="whiteboard-agent-setup-trace-fields">...</div>` in `{hosted ? null : ( ... )}`.
 
 Wrap the Enable/Repair `<button ...>` in `{hosted ? null : ( ... )}`. The Disable button stays for both stores.
 
@@ -1543,7 +1543,7 @@ Add `pullReviewTraceCorpus` to the `../review-agent-traces` import. The provenan
 Also update two existing tests so their second phase uses a fresh instance (a new command resolves a new storage; the memo lives on one instance):
 
 - In "shows nothing when the store refuses, instead of an old copy": after swapping `transport.listSessions`, build `const revoked = HostedTraceStorage.fromParts({ target: target(transport.storeId), transport, devHome });` and pass `storage: revoked` to both calls inside the `try`.
-- In "refreshes a saved copy when the content changes at the same size": after re-seeding, build a second instance the same way and pass it to the second `loadReviewAgentTrace`.
+- In "refreshes a saved copy when the content changes at the same size": after re-seeding, build a second instance the same way and pass it to the second `loadWhiteboardAgentTrace`.
 
 - [ ] **Step 2: Run to verify they fail**
 

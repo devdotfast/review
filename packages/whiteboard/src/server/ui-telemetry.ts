@@ -1,0 +1,108 @@
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/whiteboard-protocol";
+
+import { mergeErrorTelemetryProperties } from "../error-telemetry";
+import type { WhiteboardTabTelemetryEvent } from "../telemetry";
+import {
+  WHITEBOARD_APP_SESSION_ID_HEADER,
+  sanitizeUiTelemetryEvent,
+} from "../ui-telemetry-events";
+
+const MAX_CLIENT_ERROR_SESSIONS = 100;
+
+const MAX_CLIENT_ERRORS_PER_SESSION = 20;
+
+const clientErrorsBySession = new Map<string, string[]>();
+
+export function recordClientError(
+  event: ReturnType<typeof sanitizeUiTelemetryEvent>,
+): void {
+  if (event?.event !== "review_client_error") return;
+  const sessionId = jsonString(event.properties.app_session_id);
+  const errorName = jsonString(event.properties.error_name);
+
+  if (sessionId === undefined || errorName === undefined) return;
+  const names = clientErrorsBySession.get(sessionId) ?? [];
+  names.push(errorName);
+
+  if (names.length > MAX_CLIENT_ERRORS_PER_SESSION) names.shift();
+  clientErrorsBySession.delete(sessionId);
+  clientErrorsBySession.set(sessionId, names);
+
+  while (clientErrorsBySession.size > MAX_CLIENT_ERROR_SESSIONS) {
+    const oldest = clientErrorsBySession.keys().next().value;
+
+    if (oldest === undefined) break;
+    clientErrorsBySession.delete(oldest);
+  }
+}
+
+export function clientErrorsForSession(sessionId: string): string[] {
+  const names = clientErrorsBySession.get(sessionId) ?? [];
+
+  if (names.length > 0) {
+    clientErrorsBySession.delete(sessionId);
+    clientErrorsBySession.set(sessionId, names);
+  }
+
+  return [...names];
+}
+
+export interface WhiteboardTelemetryCapture {
+  captureTabViewed(event: WhiteboardTabTelemetryEvent): Promise<void>;
+  captureUiEvent?(
+    event: string,
+    properties: Record<string, string | number | boolean>,
+  ): Promise<void>;
+}
+
+export async function captureSanitizedUiTelemetry(
+  telemetry: WhiteboardTelemetryCapture,
+  request: Request,
+  name: JsonValue,
+  properties: JsonValue,
+  onSanitized?: (
+    event: NonNullable<ReturnType<typeof sanitizeUiTelemetryEvent>>,
+  ) => void,
+  /**
+   * The raw error envelope, which arrives beside `properties` and never inside
+   * it. This function is where the raw form dies: what continues is the class
+   * name, the message with paths and secrets replaced by markers, a digest of
+   * the original message, and bundle-relative frames. The allowlist re-checks
+   * all of it. Never merge this into `properties`.
+   */
+  rawError?: JsonValue,
+): Promise<void> {
+  const appSessionId =
+    request.headers.get(WHITEBOARD_APP_SESSION_ID_HEADER) ?? undefined;
+
+  const rawProperties: JsonObject = isJsonObject(properties) ? properties : {};
+
+  // The error fields come from the raw envelope and nowhere else; this
+  // helper drops any a client tried to assert. It matters because the
+  // allowlist cannot tell a cleaned message from a raw one.
+  const mergedProperties = mergeErrorTelemetryProperties(
+    rawProperties,
+    rawError,
+  );
+
+  if (appSessionId) mergedProperties.app_session_id = appSessionId;
+
+  const sanitized = sanitizeUiTelemetryEvent({
+    name,
+    properties: mergedProperties,
+  });
+
+  if (!sanitized) return;
+  onSanitized?.(sanitized);
+
+  try {
+    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties);
+  } catch (error) {
+    console.error(error);
+  }
+}

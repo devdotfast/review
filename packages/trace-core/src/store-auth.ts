@@ -21,7 +21,7 @@ import { errorMessage } from "./error-message";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
-import { devReviewHome } from "./trace-home";
+import { devWhiteboardHome } from "./trace-home";
 import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
 export const DEFAULT_STORE_ORIGIN = DEFAULT_HOSTED_ORIGIN;
@@ -39,7 +39,7 @@ export type StoreAuth = z.infer<typeof storeAuthSchema>;
 const SLOW_DOWN_MS = 5_000;
 
 export function storeAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(devReviewHome(env), "auth.json");
+  return path.join(devWhiteboardHome(env), "auth.json");
 }
 
 export async function readStoreAuth(

@@ -75,7 +75,7 @@ The published `@dev.fast/whiteboard` package is the Node runtime shared by the C
 and Desktop. Its production dependencies are declared directly in its manifest.
 Workspace libraries and Git code that tsdown bundles are build dependencies.
 
-The private `@dev.fast/review-canvas` workspace at `packages/review/app` owns
+The private `@dev.fast/whiteboard-canvas` workspace at `packages/whiteboard/app` owns
 React, layout libraries, Vite, and browser tests. Desktop builds and copies that
 canvas separately; the CLI neither builds nor ships it. Release packaging only
 stamps metadata and stages docs; it never rewrites the dependency graph.

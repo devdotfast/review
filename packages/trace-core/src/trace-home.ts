@@ -9,7 +9,7 @@ export const DEV_WHITEBOARD_HOME_ENV = "DEV_WHITEBOARD_HOME";
  * modules disagree about the directory. An empty value means "use the
  * default".
  */
-export function devReviewHome(
+export function devWhiteboardHome(
   env: NodeJS.ProcessEnv = process.env,
   homeDir: string = os.homedir(),
 ): string {

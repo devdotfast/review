@@ -63,7 +63,7 @@ current worktree has no matching active session.
 
 Create one with the whiteboard skill, which registers the repository, resolves
 pins, and calls `session_create` (or the equivalent `whiteboard api` command). See
-`packages/review/skills/whiteboard/SKILL.md`.
+`packages/whiteboard/skills/whiteboard/SKILL.md`.
 Use `whiteboard info --all` to inspect active sessions across every worktree in the
 repository.
 
@@ -139,11 +139,11 @@ join the [dev.fast Discord](https://discord.gg/wYvd2cpMQg).
 ## Structural diffs say diffr cannot be found
 
 Review Desktop ships its own `diffr` at `bin/diffr` inside its runtime and
-uses it unless `REVIEW_DIFFR_BINARY` names another executable. If the
+uses it unless `WHITEBOARD_DIFFR_BINARY` names another executable. If the
 message names a path under the app, the install is damaged; reinstall
 Review. In a source checkout, run
 `pnpm --filter @dev.fast/review ensure:diffr` to download the pinned
 binary. Downloads are explicit so offline and unsupported-host builds still
 work. For the npm CLI or an unbundled headless server, install `diffr` on
-PATH or set `REVIEW_DIFFR_BINARY` to its executable. A headless server
+PATH or set `WHITEBOARD_DIFFR_BINARY` to its executable. A headless server
 started from the Desktop installation uses its adjacent bundled binary too.

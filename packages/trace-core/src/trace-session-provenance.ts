@@ -15,7 +15,7 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
 import { traceCommandPrefix } from "./trace-command";
-import { devReviewHome } from "./trace-home";
+import { devWhiteboardHome } from "./trace-home";
 import {
   type TraceRepositoryTarget,
   traceTargetKey,
@@ -40,7 +40,7 @@ export type TraceCaptureIdentity = Pick<
   "identity" | "allowed"
 >;
 
-export function capturedSessionsDir(devHome = devReviewHome()): string {
+export function capturedSessionsDir(devHome = devWhiteboardHome()): string {
   return path.join(devHome, "trace", "captured-sessions");
 }
 
@@ -87,7 +87,7 @@ export async function recordTraceSessionProvenance(input: {
   allowed: boolean;
   devHome?: string;
 }): Promise<void> {
-  const devHome = input.devHome ?? devReviewHome();
+  const devHome = input.devHome ?? devWhiteboardHome();
   const fileName = `${createHash("sha256").update(input.identity).digest("hex")}.json`;
   const filePath = path.join(sessionDir(input.sessionId, devHome), fileName);
 
@@ -129,7 +129,7 @@ export async function readTraceSessionProvenance(
   sessionId: string,
   devHome?: string,
 ): Promise<TraceSessionProvenanceRecord[]> {
-  const dir = sessionDir(sessionId, devHome ?? devReviewHome());
+  const dir = sessionDir(sessionId, devHome ?? devWhiteboardHome());
   const files = await readdir(dir).catch(() => []);
   const records: TraceSessionProvenanceRecord[] = [];
 

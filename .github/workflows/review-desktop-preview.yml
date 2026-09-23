@@ -67,7 +67,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
+          CURRENT=$(node -p "require('./apps/whiteboard-desktop/package.json').version")
           if [[ "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
             PATCH="${BASH_REMATCH[3]}"
             NEXT_PATCH="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((PATCH + 1))"
@@ -121,7 +121,7 @@ jobs:
 
       - name: Stamp preview release channel
         run: |
-          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+          node apps/whiteboard-desktop/scripts/stamp-release-channel.mjs \
             --version "${{ needs.version.outputs.version }}" \
             --quality preview
 
@@ -150,25 +150,25 @@ jobs:
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          node-version-file: apps/whiteboard-desktop/code-oss/.nvmrc
           cache: npm
-          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+          cache-dependency-path: apps/whiteboard-desktop/code-oss/**/package-lock.json
 
       - name: Restore Code OSS dependencies
         id: code-oss-deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-code-oss-deps-v2-
 
@@ -179,14 +179,14 @@ jobs:
         env:
           # Embeds the PostHog project key into the review runtime build so
           # released apps ship telemetry enabled. Source builds embed nothing.
-          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
-        run: bash apps/review-desktop/scripts/compile-darwin-payload.sh
+          WHITEBOARD_POSTHOG_KEY: ${{ vars.WHITEBOARD_POSTHOG_KEY }}
+        run: bash apps/whiteboard-desktop/scripts/compile-darwin-payload.sh
 
       - name: Upload darwin payload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: darwin-payload
-          path: apps/review-desktop/dist/darwin-payload.tar.zst
+          path: apps/whiteboard-desktop/dist/darwin-payload.tar.zst
           retention-days: 3
           compression-level: 0
 
@@ -196,8 +196,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+            apps/whiteboard-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
           lookup-only: true
 
       - name: Save Code OSS dependencies
@@ -205,16 +205,16 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
 
   build:
     name: Build, sign, publish preview
@@ -232,7 +232,7 @@ jobs:
 
       - name: Stamp preview release channel
         run: |
-          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+          node apps/whiteboard-desktop/scripts/stamp-release-channel.mjs \
             --version "$RELEASE_VERSION" \
             --quality preview
 
@@ -251,26 +251,26 @@ jobs:
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          node-version-file: apps/whiteboard-desktop/code-oss/.nvmrc
           cache: npm
-          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+          cache-dependency-path: apps/whiteboard-desktop/code-oss/**/package-lock.json
 
       - name: Restore Code OSS dependencies
         id: code-oss-deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
-            apps/review-desktop/code-oss/.build/electron
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/.build/electron
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-code-oss-deps-v2-
 
@@ -334,13 +334,13 @@ jobs:
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
           SKIP_NOTARIZE: ${{ vars.SKIP_NOTARIZE }}
-          REVIEW_DESKTOP_PRECOMPILED: "1"
-          REVIEW_APP_ICON_CHANNEL: preview
+          WHITEBOARD_DESKTOP_PRECOMPILED: "1"
+          WHITEBOARD_APP_ICON_CHANNEL: preview
         run: |
           # The build can run well over an hour before the first codesign call.
           security unlock-keychain -p "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}" \
             "$RUNNER_TEMP/buildagent.keychain"
-          pnpm --filter @dev.fast/review-desktop app:package:macos
+          pnpm --filter @dev.fast/whiteboard-desktop app:package:macos
 
       - name: Check for existing Code OSS dependency cache
         if: steps.code-oss-deps.outputs.cache-hit != 'true'
@@ -348,8 +348,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+            apps/whiteboard-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
           lookup-only: true
 
       - name: Save Code OSS dependencies
@@ -357,21 +357,21 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
-            apps/review-desktop/code-oss/.build/electron
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/.build/electron
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
 
       - name: Validate release artifacts
         run: |
-          node apps/review-desktop/scripts/validate-release-artifacts.mjs \
+          node apps/whiteboard-desktop/scripts/validate-release-artifacts.mjs \
             --version "$RELEASE_VERSION" \
             --commit "$RELEASE_COMMIT" \
             --channel preview
@@ -379,7 +379,7 @@ jobs:
       # Signed and stapled says nothing about whether the app runs. Launch it
       # and require a renderer before anything reaches R2.
       - name: Smoke launch the packaged app
-        run: node apps/review-desktop/scripts/smoke-launch-packaged.mjs
+        run: node apps/whiteboard-desktop/scripts/smoke-launch-packaged.mjs
 
       # Payloads first, manifest last: a client must never see a latest.json
       # whose zip is not yet downloadable.
@@ -392,7 +392,7 @@ jobs:
           AWS_REGION: auto
           R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
         run: |
-          DIST=apps/review-desktop/dist
+          DIST=apps/whiteboard-desktop/dist
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
           DMG_DISPOSITION="attachment; filename=\"df-whiteboard-preview-${RELEASE_VERSION}.dmg\""
 
@@ -450,7 +450,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: review-desktop-preview-${{ env.RELEASE_VERSION }}-dmg
-          path: apps/review-desktop/dist/Whiteboard-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
+          path: apps/whiteboard-desktop/dist/Whiteboard-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
           retention-days: 3
           compression-level: 0
 
@@ -484,7 +484,7 @@ jobs:
         run: |
           mkdir linux-repository
           tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
-          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET" --channel preview
+          python3 apps/whiteboard-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET" --channel preview
       - name: Check the preview channel is served
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}

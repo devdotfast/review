@@ -50,22 +50,22 @@ jobs:
         id: release
         env:
           RELEASE_BUMP: ${{ inputs.bump }}
-        run: node scripts/review-cli-release.mjs plan
+        run: node scripts/whiteboard-cli-release.mjs plan
       - name: Check release and headless behavior
         if: steps.release.outputs.published != 'true'
         run: |
-          node --test scripts/review-cli-release.test.mjs scripts/review-cli-dependencies.test.mjs
+          node --test scripts/whiteboard-cli-release.test.mjs scripts/whiteboard-cli-dependencies.test.mjs
           pnpm --filter @dev.fast/trace-core test
           pnpm --filter @dev.fast/whiteboard ensure:tutorial-assets
           pnpm --filter @dev.fast/whiteboard exec vitest run --config vitest.config.ts --project shared-module-graph src/server/headless-host.test.ts src/server/headless-sharing.test.ts src/cli-install.test.ts
       - name: Build release tarball
         if: steps.release.outputs.published != 'true'
-        run: node scripts/pack-review-cli.mjs release-artifacts
+        run: node scripts/pack-whiteboard-cli.mjs release-artifacts
       - name: Test installed tarball without Desktop
         if: steps.release.outputs.published != 'true'
         env:
           VERSION: ${{ steps.release.outputs.version }}
-        run: node scripts/smoke-review-cli.mjs "release-artifacts/dev.fast-whiteboard-${VERSION}.tgz" "$VERSION"
+        run: node scripts/smoke-whiteboard-cli.mjs "release-artifacts/dev.fast-whiteboard-${VERSION}.tgz" "$VERSION"
       - name: Validate npm publish command
         if: steps.release.outputs.published != 'true'
         env:
@@ -88,7 +88,7 @@ jobs:
       - name: Reserve release tag
         if: steps.release.outputs.published != 'true' && !inputs.dry_run
         # GITHUB_TOKEN tag pushes don't start another workflow. This run publishes below.
-        run: node scripts/review-cli-release.mjs tag
+        run: node scripts/whiteboard-cli-release.mjs tag
       - name: Publish tested package
         if: steps.release.outputs.published != 'true' && !inputs.dry_run
         env:

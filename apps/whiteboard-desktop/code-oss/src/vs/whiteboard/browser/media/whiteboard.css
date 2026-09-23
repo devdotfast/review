@@ -1,0 +1,1249 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) dev.fast. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE in the repository root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The workbench grid reserves a bottom gutter (`gutterBottom` in
+   whiteboard/browser/workbench.ts), so a strip of the workbench root stays exposed
+   below the editor. Without this rule it falls through to the stock
+   WORKBENCH_BACKGROUND (#252526 on dark) and reads as a band under the canvas. */
+.monaco-workbench.whiteboard-workbench {
+  background: var(--vscode-editor-background);
+}
+
+.monaco-workbench.whiteboard-workbench.nomaineditorarea {
+  background-image: url("./whiteboard-letterpress-light.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 260px 260px;
+}
+
+.monaco-workbench.whiteboard-workbench.nomaineditorarea.vs-dark {
+  background-image: url("./whiteboard-letterpress-dark.svg");
+}
+
+.monaco-workbench.whiteboard-workbench.nomaineditorarea.hc-light {
+  background-image: url("./whiteboard-letterpress-hc-light.svg");
+}
+
+.monaco-workbench.whiteboard-workbench.nomaineditorarea.hc-black {
+  background-image: url("./whiteboard-letterpress-hc-dark.svg");
+}
+
+/* KEEP IN SYNC WITH WHITEBOARD_CHROME_HEIGHT in whiteboard/common/whiteboardChrome.ts. The
+   overlay must be as tall as the editor tab strip below it, or the window
+   controls and the navigation arrows stop aligning with the tab pills. */
+.monaco-workbench .part.titlebar.whiteboard-chrome-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  width: 100%;
+  height: 40px;
+  box-shadow: none;
+  pointer-events: none;
+  background: transparent;
+}
+
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-left,
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-right {
+  width: max-content !important;
+  min-width: 0;
+  flex: 0 0 auto !important;
+  padding-left: 0 !important;
+  pointer-events: auto;
+}
+
+.monaco-workbench.linux
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-right {
+  margin-left: auto;
+}
+
+/* The native macOS stoplights sit over the left container. Make its unused
+   area draggable, including the space between and around the stoplights. The
+   navigation control below removes itself from this drag region. */
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-left {
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-right {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-drag-region {
+  left: var(--whiteboard-chrome-left-width, 0px);
+  right: var(--whiteboard-chrome-right-width, 0px);
+  width: auto;
+  display: none;
+  pointer-events: none;
+}
+
+.monaco-workbench.nomaineditorarea
+  .part.titlebar.whiteboard-chrome-overlay
+  > .whiteboard-titlebar-container
+  > .titlebar-drag-region {
+  display: block;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.whiteboard-chrome-tab-strip {
+  box-sizing: border-box;
+  padding-left: 6px;
+  padding-right: 6px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench.whiteboard-tab-dragging
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.whiteboard-chrome-tab-strip {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .tabs-and-actions-container.whiteboard-chrome-tab-strip
+  .tabs-container {
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench.whiteboard-tab-dragging
+  .part.editor
+  .tabs-and-actions-container.whiteboard-chrome-tab-strip
+  .tabs-container {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.whiteboard-chrome-inset {
+  padding-left: calc(var(--whiteboard-chrome-left-width, 0px) + 6px);
+  padding-right: calc(var(--whiteboard-chrome-right-width, 0px) + 6px);
+}
+
+.monaco-workbench .part.editor .tabs-container > .tab,
+.monaco-workbench .part.editor .tabs-container > .tabs-bar-add-tab,
+.monaco-workbench .part.editor .tabs-and-actions-container > .editor-actions,
+.monaco-workbench .part.editor .tabs-and-actions-container > .editor-layout-actions,
+.monaco-workbench
+  .part.editor
+  .tabs-and-actions-container
+  > .monaco-scrollable-element
+  > .scrollbar {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------------------------------------------------------------------
+   Whiteboard file explorer
+
+   The explorer is the leftmost surface whenever it is visible, so the window
+   controls and the navigation arrows sit over its top row instead of over the
+   editor tab strip. Two rules follow from that: the explorer reserves one chrome
+   row for them, and the tab strip drops the traffic-light inset it would
+   otherwise need.
+   --------------------------------------------------------------------------- */
+
+/* The grid sizes the `.split-view-view` wrapper, not the part inside it, and the
+   part is a static block. Without this the part grows to the list's content
+   height, the list never scrolls, and every row renders. */
+.monaco-workbench .part.whiteboard-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--vscode-editor-background);
+  /* An inset shadow rather than a border, so the tree keeps the full part width
+     and `WhiteboardExplorerPart.layout` needs no separator correction. */
+  box-shadow: inset -1px 0 0
+    var(--vscode-panel-border, var(--vscode-sideBar-border, transparent));
+  overflow: hidden;
+}
+
+/* The one chrome row keeps the editor tab-strip background, so the top of the
+   window reads as a single bar running across the tree and the tabs. The step
+   from that background down to the tree is the whole divider — deliberately no
+   bottom rule.
+
+   A 1px rule here would be the only horizontal line at this edge: the editor tab
+   strip ends at the same y with no border and no shadow, because the Whiteboard pill
+   tabs carry no separators by design (see the pill-tab section below). A line on
+   just the tree half stops dead at the sash and reads as an unfinished stub.
+
+   `WhiteboardExplorerPart` writes `--whiteboard-chrome-height` on this part and the
+   workbench layout writes `--whiteboard-explorer-width` on the inset tab strip
+   (never on the workbench root; see `publishWhiteboardChromeInset`), so
+   WHITEBOARD_CHROME_HEIGHT stays the only source. The fallbacks cover the frame
+   before the part first lays out. */
+.monaco-workbench .part.whiteboard-explorer > .whiteboard-explorer-chrome-spacer {
+  box-sizing: border-box;
+  height: var(--whiteboard-chrome-height, 40px);
+  flex-shrink: 0;
+  background-color: var(--vscode-editorGroupHeader-tabsBackground);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+/* Flex rather than `calc(100% - <chrome>)`: the row above is the only fixed
+   height, so the tree takes whatever is left and the height is written once. */
+.monaco-workbench .part.whiteboard-explorer > .whiteboard-explorer-tree {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   The file-tree toggle
+
+   The button always occupies its 22px slot, so the titlebar's left cluster keeps
+   a constant width. That matters because a ResizeObserver on the cluster feeds
+   `--whiteboard-chrome-left-width`, which the editor tab strip pads itself by — a
+   button that grew from 0 would slide every tab as it appeared. Only opacity and
+   transform animate here, so nothing reflows.
+   --------------------------------------------------------------------------- */
+
+.monaco-workbench .whiteboard-titlebar-file-tree-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  color: var(--vscode-icon-foreground);
+  /* Nothing to toggle until a file or diff tab is active. */
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  /* The cluster around it drags the window; this button must not. */
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench.whiteboard-explorer-available .whiteboard-titlebar-file-tree-toggle {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Reduced motion gets a straight cut: `monaco-enable-motion` is absent then,
+   because accessibility/browser/accessibilityService.ts toggles it from
+   `workbench.reduceMotion`. */
+.monaco-workbench.monaco-enable-motion .whiteboard-titlebar-file-tree-toggle {
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.monaco-workbench .whiteboard-titlebar-file-tree-toggle:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .whiteboard-titlebar-file-tree-toggle:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* One icon per state, picked here so the titlebar part needs no explorer state. */
+.monaco-workbench .whiteboard-titlebar-file-tree-toggle > .whiteboard-file-tree-icon-open,
+.monaco-workbench.whiteboard-explorer-visible
+  .whiteboard-titlebar-file-tree-toggle
+  > .whiteboard-file-tree-icon-closed {
+  display: none;
+}
+
+.monaco-workbench.whiteboard-explorer-visible
+  .whiteboard-titlebar-file-tree-toggle
+  > .whiteboard-file-tree-icon-open {
+  display: block;
+}
+
+/* The tab strip pads itself past the traffic lights and the navigation arrows,
+   which is correct only while the editor is the leftmost surface. The tree now
+   covers that chrome, so the strip only has to clear whatever the tree does NOT
+   cover — subtract the tree's width rather than assuming it covers all of it.
+
+   A flat `6px` would be wrong whenever the left cluster is wider than the tree.
+   The cluster counter-zooms (see `WhiteboardTitlebarPart.layout`), so zooming the
+   window out grows it in CSS pixels until it passes even the tree's 170px
+   minimum, and it would then sit over the first tab and swallow clicks as window
+   drags. `max()` keeps the plain 6px gutter in the normal case. */
+.monaco-workbench.whiteboard-explorer-visible
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.whiteboard-chrome-inset {
+  padding-left: max(
+    6px,
+    calc(
+      var(--whiteboard-chrome-left-width, 0px) + 6px -
+        var(--whiteboard-explorer-width, 0px)
+    )
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Whiteboard pill tabs
+
+   The tab row keeps the titlebar background and carries no separators, no
+   bottom border, and no per-tab top-border indicator. The active tab is a
+   raised pill. The other tabs are flat.
+
+   Each rule below starts with `body` because it must outrank an upstream rule
+   of the same class count in multieditortabscontrol.css.
+   --------------------------------------------------------------------------- */
+
+.monaco-workbench.whiteboard-workbench {
+  /* Each pill color mixes over the tab-strip background, so a theme change
+     carries into the pill. */
+  /* Whiteboard: the active tab is a board-colored pill with a hairline, the
+     same surface and rule the canvas uses, so the tab reads as a piece of the
+     board lifted onto the tray. No drop shadow in either theme. */
+  --whiteboard-tab-fill: var(--vscode-editor-background);
+  --whiteboard-tab-border: var(--vscode-panel-border);
+  --whiteboard-tab-hover-fill: color-mix(
+    in srgb,
+    #ffffff 4%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --whiteboard-tab-separator: var(--vscode-panel-border);
+  --whiteboard-tab-shadow: none;
+  --whiteboard-chrome-font: "Geist Mono", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+}
+
+/* The light themes use weaker mixes, so the pill stays subtle. */
+.monaco-workbench.whiteboard-workbench.vs,
+.monaco-workbench.whiteboard-workbench.hc-light {
+  --whiteboard-tab-fill: var(--vscode-editor-background);
+  --whiteboard-tab-border: var(--vscode-panel-border);
+  --whiteboard-tab-hover-fill: color-mix(
+    in srgb,
+    #ffffff 40%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --whiteboard-tab-separator: var(--vscode-panel-border);
+  --whiteboard-tab-shadow: none;
+}
+
+/* 28px pill + 6px above + 6px below = the 40px row. EditorTabsControl reports
+   the same 40px through EDITOR_TAB_HEIGHT.whiteboard. The tab-height variable is
+   an inline style on `.title`, so this rule redeclares it one level down. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container {
+  --editor-group-tab-height: 28px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title.compact-height
+  > .tabs-and-actions-container {
+  --editor-group-tab-height: 20px;
+}
+
+/* No bottom border below the row. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title.title-border-bottom::after,
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.tabs-border-bottom::after {
+  display: none;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container {
+  gap: 4px;
+}
+
+/* Flat by default. `redrawTabBorders` writes the separator as an inline
+   `border-right`, so only `!important` removes it.
+
+   The pill carries no border at all: a 1px border would leave a 22px content
+   box inside the 24px tab, and the label line is `--editor-group-tab-height`
+   tall, so the icon and the name would sit 1px below the center. The active
+   pill draws its outline as an inset shadow instead, which costs no layout. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab {
+  border: none !important;
+  border-radius: 6px;
+  background-color: transparent;
+  box-shadow: none;
+  /* The whole inset. Upstream pads 10px on the left and nothing on the right,
+     which reads wider than the Paper design. */
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Upstream shrinking tabs keep the label at its natural width, clip its flex
+   parent, and paint a gradient over the clipped edge. That treatment assumes
+   flat tabs. Inside Whiteboard's raised pill it becomes a dark block, and changing
+   only `text-overflow` cannot produce an ellipsis because the label itself
+   never gets narrower.
+
+   Give the label the pill's available width instead. The browser then draws an
+   ellipsis only when the text is actually clipped. Remove the upstream
+   gradient in every tab state; theme rules can still assign its background,
+   but the pseudo-element has no box to paint. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:is(.sizing-shrink, .sizing-fixed)
+  > .monaco-icon-label
+  > .monaco-icon-label-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:is(.sizing-shrink, .sizing-fixed)
+  .monaco-icon-label-container::after {
+  content: none;
+  display: none;
+}
+
+/* The raised pill. The first shadow is the 1px outline. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.active {
+  background-color: var(--whiteboard-tab-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--whiteboard-tab-border),
+    var(--whiteboard-tab-shadow);
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:hover:not(.active) {
+  background-color: var(--whiteboard-tab-hover-fill);
+  box-shadow: none;
+}
+
+/* The close button carries three insets of its own: a 28px column, a 16px
+   button centered in it, and 2px of padding around the glyph. Together they put
+   the glyph 10px inside the pill while the icon on the left sits at 4px. The
+   column hugs the glyph instead, so both sides read the same. The vertical
+   padding stays, so the hit target keeps its height. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions,
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions
+  > .monaco-action-bar {
+  width: 16px;
+}
+
+/* The 28px column also held the gap after the name. Restore it as the 6px the
+   icon puts between itself and the name. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions {
+  margin-left: 6px;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions
+  .action-label.codicon {
+  padding: 2px 0;
+}
+
+/* Home carries no close button, but `sizing-fit` still stretches it to a fixed
+   120px. That leaves ~30px of dead space on each side of the home icon and the
+   name, which reads as an off-center label. The pill hugs them instead. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky {
+  width: fit-content;
+}
+
+/* Home is the one sticky tab, so it is always the last one before the whiteboard
+   tabs. A rule after it separates the two groups. `redrawTabBorders` draws that
+   rule as an inline border-right, which the flat rule above removes, so the
+   pseudo-element below draws it instead. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky:not(:last-child) {
+  margin-right: 8px;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  pointer-events: none;
+  background-color: var(--whiteboard-tab-separator);
+}
+
+body
+  .monaco-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .editor-group-watermark-wrapper
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./whiteboard-letterpress-light.svg");
+}
+
+body
+  .monaco-workbench.vs-dark
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./whiteboard-letterpress-dark.svg");
+}
+
+body
+  .monaco-workbench.hc-light
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./whiteboard-letterpress-hc-light.svg");
+}
+
+body
+  .monaco-workbench.hc-black
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./whiteboard-letterpress-hc-dark.svg");
+}
+
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  .whiteboard-titlebar-container
+  .whiteboard-traffic-light-inset {
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* The navigation control sits in .titlebar-left, after the traffic lights.
+   titlebarpart.css scopes every .command-center rule to `.titlebar-center >
+   .window-title >`, so the rules below restate the ones that still apply here.
+   The margin is the gap from the traffic lights. It is also the only left
+   padding in macOS fullscreen, where the inset collapses to zero. */
+.whiteboard-titlebar-container .whiteboard-titlebar-navigation {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.whiteboard-titlebar-container .whiteboard-application-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 30px;
+  height: 28px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.whiteboard-titlebar-container .whiteboard-application-menu:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.whiteboard-titlebar-container .whiteboard-application-menu:focus-visible,
+.whiteboard-titlebar-container .window-controls-container > button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.whiteboard-titlebar-container .window-controls-container > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+
+/* Equal space on each side of the arrows.
+
+   `CodeWindow.updateWindowControls` moves the traffic lights itself: it calls
+   `setWindowButtonPosition({ x: floor((WHITEBOARD_CHROME_HEIGHT - buttonHeight) / 2) + 1 })`.
+   At 40px with the 14px macOS Tahoe button that is x=14, and three 14px buttons
+   on the 20px macOS pitch end at 68. Change WHITEBOARD_CHROME_HEIGHT and that
+   number moves.
+
+   The arrow glyph carries 2px of side bearing inside its box, so the back arrow
+   starts drawing 19px after the last light. On the other side the tab strip
+   adds 6px of its own (`.whiteboard-chrome-inset`), so 8px here lands the Home tab
+   19px after the forward arrow draws. */
+.monaco-workbench
+  .part.titlebar.whiteboard-chrome-overlay
+  .whiteboard-titlebar-navigation {
+  margin-left: 12px;
+  margin-right: 8px;
+}
+
+/* Without no-drag the full-size .titlebar-drag-region takes the clicks and the
+   arrows stop working. */
+.whiteboard-titlebar-container .whiteboard-titlebar-navigation > .command-center {
+  z-index: 2500;
+  -webkit-app-region: no-drag;
+}
+
+.whiteboard-titlebar-container .whiteboard-titlebar-navigation > .command-center.hide {
+  visibility: hidden;
+}
+
+.whiteboard-titlebar-container
+  .whiteboard-titlebar-navigation
+  > .command-center
+  > .monaco-toolbar
+  > .monaco-action-bar
+  > .actions-container
+  > .action-item
+  > .action-label {
+  color: inherit;
+}
+
+.whiteboard-canvas-part,
+.whiteboard-canvas-part > .whiteboard-canvas-container,
+.whiteboard-canvas-part .whiteboard-canvas-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* The canvas topbar dresses itself as workbench chrome and reads its colors and
+   its type ramp straight from the --vscode-* theme variables, but there is no
+   such variable for the workbench UI font: style.css hardcodes a stack per
+   platform and per language. `system-ui` resolves to the same platform UI face
+   without copying that matrix. The selector outranks the canvas stylesheet's own
+   default, which keeps the standalone browser build on its mono face. Every text
+   item in the topbar reads this token, so the bar shows one face throughout. */
+.whiteboard-canvas-host .whiteboard-app {
+  --chrome-font: var(--whiteboard-chrome-font, var(--font-mono));
+}
+
+/* Whiteboard: every label on the tray is set in the same mono face as the
+   canvas chrome. The faces ship with the canvas stylesheet, whose @font-face
+   rules are hoisted out of its @scope so they apply document-wide. */
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  .monaco-icon-label {
+  font-family: var(--whiteboard-chrome-font);
+  font-size: 12px;
+}
+
+body
+  .monaco-workbench.whiteboard-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.active
+  .monaco-icon-label {
+  font-weight: 600;
+}
+
+/* Multi-diff headers print a full Whiteboard path in one label. Keep the file name
+   visible in narrow panes by placing the ellipsis at the leading edge. */
+.whiteboard-path-label .monaco-icon-label-container {
+  direction: rtl;
+  text-align: left;
+}
+
+.whiteboard-path-label .label-name {
+  unicode-bidi: plaintext;
+}
+
+.whiteboard-multidiff-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.whiteboard-multidiff-counts[hidden] {
+  display: none;
+}
+
+.whiteboard-multidiff-additions {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.whiteboard-multidiff-deletions {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.whiteboard-counts-folded .whiteboard-multidiff-additions {
+  color: var(--vscode-descriptionForeground);
+}
+
+.whiteboard-multidiff-open-container {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 3px;
+}
+
+.whiteboard-multidiff-open-container[hidden] {
+  display: none;
+}
+
+.whiteboard-multidiff-open.monaco-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  line-height: 22px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--vscode-icon-foreground) 20%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--vscode-icon-foreground) 5%, transparent);
+  color: var(--vscode-icon-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.whiteboard-multidiff-open.monaco-button .codicon[class*="codicon-"] {
+  margin: 0;
+  font-size: 13px;
+}
+
+.whiteboard-multidiff-open.monaco-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.whiteboard-files-editor,
+.whiteboard-files-editor-tree,
+.whiteboard-files-editor-diffs {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.whiteboard-files-editor {
+  width: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+}
+
+/* The sidebar is one tray from the progress line to the last file: the tree
+   paints no ground of its own and inherits the tray behind it (see the
+   "Sidebar tone" board). Hover and selection come from the theme's list
+   colors, the well and the marker tint. */
+.whiteboard-files-editor-tree {
+  border-right: 1px solid var(--vscode-sideBar-border, transparent);
+}
+
+.whiteboard-changed-files {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--whiteboard-chrome-font, system-ui, sans-serif);
+}
+
+.whiteboard-changed-files-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.whiteboard-changed-files-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-right: 8px;
+}
+
+.whiteboard-changed-files-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--vscode-icon-foreground);
+  text-align: center;
+}
+
+.whiteboard-changed-files-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whiteboard-changed-files-folder .whiteboard-changed-files-label {
+  margin-left: 7px;
+  font-weight: 600;
+}
+
+.whiteboard-files-editor-diffs {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-multiDiffEditor-background);
+}
+
+.whiteboard-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content {
+  margin-top: 0;
+}
+
+.whiteboard-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  .file-path
+  .title {
+  font-size: 12px;
+}
+
+.whiteboard-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions {
+  padding: 0;
+}
+
+.whiteboard-files-editor-diffs
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions.has-no-actions {
+  display: none;
+}
+
+.whiteboard-canvas-part > .whiteboard-canvas-container {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.whiteboard-canvas-part .whiteboard-canvas-host {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Hosts fixedOverflowWidgets (hover, definition) for the inline peek editors.
+   Lives in the workbench container — inside .monaco-workbench so theme
+   variables apply, outside .whiteboard-canvas-root whose container-query
+   containment would re-anchor and clip position: fixed widgets. The widgets
+   position themselves against the viewport; z-index matches the workbench's
+   other overflow-widget hosts (scm, keybindings editor). */
+.whiteboard-overflow-widgets {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 5000;
+}
+
+/* The host carries tabindex="-1" so the canvas app can focus it programmatically
+   (desktop-entry's mount handle calls container.focus()). It is a document
+   surface rather than a control, and it is not tab-reachable, so suppress the
+   workbench-wide `[tabindex="-1"]:focus` ring that would otherwise trace the
+   whole pane -- the same treatment upstream gives editor group containers. */
+.monaco-workbench .whiteboard-canvas-part .whiteboard-canvas-host:focus {
+  outline: none;
+}
+
+.whiteboard-reveal-line {
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  border-left: 2px solid var(--vscode-panel-border);
+}
+
+/* Give commenting and folding separate hit targets in the Files view. */
+.whiteboard-files-editor .monaco-editor .margin-view-overlays .cldr:is(
+  .codicon-folding-expanded,
+  .codicon-folding-collapsed,
+  .codicon-folding-manual-expanded,
+  .codicon-folding-manual-collapsed
+) {
+  margin-left: 30px;
+  width: 20px !important;
+}
+
+.whiteboard-files-editor-diffs { position: relative; }
+.whiteboard-files-editor-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBar-border, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.whiteboard-files-editor-summary[hidden] {
+  display: none;
+}
+
+.whiteboard-files-editor-summary-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.whiteboard-files-editor-summary-removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.whiteboard-files-editor-summary-bar {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.whiteboard-files-editor-summary-block {
+  width: 8px;
+  height: 8px;
+  background: var(--vscode-editorWidget-border);
+}
+
+.whiteboard-files-editor-summary-block.added {
+  background: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.whiteboard-files-editor-summary-block.removed {
+  background: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.whiteboard-multidiff-note {
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.whiteboard-multidiff-note[hidden] {
+  display: none;
+}
+
+.whiteboard-structural-label-inline {
+  color: var(--vscode-editor-foldPlaceholderForeground);
+  font-style: italic;
+}
+
+.whiteboard-structural-label-zone {
+  background-color: var(--vscode-editor-foldBackground);
+  color: var(--vscode-editor-foldPlaceholderForeground);
+}
+
+.whiteboard-structural-label-zone pre {
+  margin: 0;
+  padding-left: 4ch;
+  font: inherit;
+  white-space: pre;
+}
+
+.whiteboard-structural-stream-status:not([hidden]) {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+}
+.whiteboard-structural-stream-status.loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: whiteboard-structural-loading 1s linear infinite;
+}
+@keyframes whiteboard-structural-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .whiteboard-structural-stream-status.loading::before { animation: none; }
+}
+.whiteboard-header-viewed { width: 16px; height: 16px; padding: 0; margin: 0 8px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; color: var(--vscode-editor-foreground); background: transparent; font: 12px/14px sans-serif; cursor: pointer; }
+.whiteboard-header-viewed[aria-checked="true"], .whiteboard-counts-viewed { opacity: .45; }
+.whiteboard-tree-counts { display:inline-flex; flex-shrink:0; gap:6px; margin-left:auto; padding-left:8px; padding-right:8px; font:11px/22px var(--whiteboard-chrome-font, monospace); font-variant-numeric:tabular-nums; }
+.whiteboard-tree-added { color:var(--vscode-gitDecoration-addedResourceForeground); }
+.whiteboard-tree-removed { color:var(--vscode-gitDecoration-deletedResourceForeground); }
+
+/* One disclosure glyph. The canvas draws it as an inline SVG (DisclosureChevron);
+   the workbench trees and the multi-diff headers use codicons, so their glyph is
+   swapped for the same 12px stroke path through a mask. The tree sets the
+   twistie's left padding to the row's indent; stock sizing is border-box, so
+   past the first level the padding eats the whole 16px box and the glyph
+   lands on the label. Content-box keeps the 16px glyph slot beside the
+   indent at every depth, so the chevron sits the same distance from its
+   label as a file mark does from its name. The file header button and the
+   section header toggle are keyed on their codicon name, down = open. */
+.whiteboard-workbench .monaco-tl-twistie.codicon-tree-item-expanded {
+  box-sizing: content-box;
+  width: 16px;
+  padding-right: 0;
+  justify-content: center;
+}
+.whiteboard-workbench .monaco-tl-twistie.codicon-tree-item-expanded::before,
+.whiteboard-workbench .collapse-button .codicon-chevron-down::before,
+.whiteboard-workbench .collapse-button .codicon-chevron-right::before,
+.whiteboard-workbench .whiteboard-diff-group-toggle .codicon-chevron-down::before,
+.whiteboard-workbench .whiteboard-diff-group-toggle .codicon-chevron-right::before {
+  content: "";
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M4.25 2.5 8 6l-3.75 3.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 12px 12px no-repeat;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+.whiteboard-workbench .monaco-tl-twistie.collapsed.codicon-tree-item-expanded::before,
+.whiteboard-workbench .collapse-button .codicon-chevron-right::before,
+.whiteboard-workbench .whiteboard-diff-group-toggle .codicon-chevron-right::before {
+  transform: rotate(0deg);
+}
+
+/* File marks in the changed-files tree: status is one stroke beside the name,
+   never a boxed codicon. Plus, minus, dot, arrow, a ghost file for referenced
+   context, three dots while loading, a bang on error; viewed replaces the mark
+   with a check. Colors come from the theme's gitDecoration foregrounds (add,
+   del, warn amber, ink-muted). Folder rows keep an empty slot and paint nothing. */
+.whiteboard-workbench {
+  --whiteboard-mark-plus: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 4v8M4 8h8' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --whiteboard-mark-minus: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 8h8' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --whiteboard-mark-dot: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='2.75' fill='black'/></svg>");
+  --whiteboard-mark-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8h9M9 4.5 12.5 8 9 11.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --whiteboard-mark-file: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4.5 2.5h4.5l3 3v8h-7.5z M9 2.5v3h3' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --whiteboard-mark-check: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.5 8.5 6.5 11.5 12.5 5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --whiteboard-mark-fold: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2.5' y='5' width='11' height='6' rx='2' fill='none' stroke='black' stroke-width='1.25'/><circle cx='5.5' cy='8' r='.8' fill='black'/><circle cx='8' cy='8' r='.8' fill='black'/><circle cx='10.5' cy='8' r='.8' fill='black'/></svg>");
+  --whiteboard-mark-dots: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='4' cy='8' r='1.25' fill='black'/><circle cx='8' cy='8' r='1.25' fill='black'/><circle cx='12' cy='8' r='1.25' fill='black'/></svg>");
+  --whiteboard-mark-bang: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 3.5v5.5' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/><circle cx='8' cy='12' r='1' fill='black'/></svg>");
+}
+.whiteboard-workbench .whiteboard-changed-files-icon[class*="whiteboard-changed-files-icon-"]::before,
+.whiteboard-workbench .whiteboard-changed-files-icon.codicon-loading::before,
+.whiteboard-workbench .whiteboard-changed-files-icon.codicon-error::before,
+.whiteboard-workbench .whiteboard-file-viewed .whiteboard-changed-files-icon::before,
+.whiteboard-workbench .whiteboard-file-folded .whiteboard-changed-files-icon::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: var(--whiteboard-mark-color, currentColor);
+  mask: var(--whiteboard-mark) center / 16px 16px no-repeat;
+  animation: none !important;
+}
+.whiteboard-workbench .whiteboard-changed-files-icon:not([hidden]) { display: flex; align-items: center; justify-content: center; }
+.whiteboard-workbench .whiteboard-changed-files-icon-added { --whiteboard-mark: var(--whiteboard-mark-plus); --whiteboard-mark-color: var(--vscode-gitDecoration-addedResourceForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon-deleted { --whiteboard-mark: var(--whiteboard-mark-minus); --whiteboard-mark-color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon-modified { --whiteboard-mark: var(--whiteboard-mark-dot); --whiteboard-mark-color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon-renamed { --whiteboard-mark: var(--whiteboard-mark-arrow); --whiteboard-mark-color: var(--vscode-gitDecoration-renamedResourceForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon-unchanged { --whiteboard-mark: var(--whiteboard-mark-file); --whiteboard-mark-color: var(--vscode-disabledForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon.codicon-loading { --whiteboard-mark: var(--whiteboard-mark-dots); --whiteboard-mark-color: var(--vscode-descriptionForeground); }
+.whiteboard-workbench .whiteboard-changed-files-icon.codicon-error { --whiteboard-mark: var(--whiteboard-mark-bang); --whiteboard-mark-color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.whiteboard-workbench .whiteboard-file-viewed { opacity: 1; color: var(--vscode-descriptionForeground); }
+.whiteboard-workbench .whiteboard-file-viewed .whiteboard-changed-files-icon { --whiteboard-mark: var(--whiteboard-mark-check); --whiteboard-mark-color: var(--vscode-disabledForeground); }
+/* Folded by default counts as done: the viewed treatment, with a fold mark. */
+.whiteboard-workbench .whiteboard-file-folded { opacity: 1; color: var(--vscode-descriptionForeground); }
+.whiteboard-workbench .whiteboard-file-folded .whiteboard-changed-files-icon { --whiteboard-mark: var(--whiteboard-mark-fold); --whiteboard-mark-color: var(--vscode-disabledForeground); }
+
+/* Folds get out of the way: ghost ink on the code's own background, in the
+   chrome font. The theme sets the unchangedRegion background, foreground and
+   shadow. The row keeps Monaco's 24px height: its view zone and the handle
+   transforms assume it, and a shorter row rides up over the previous line. */
+.whiteboard-workbench .monaco-editor .diff-hidden-lines .center {
+  font: 11px/24px var(--whiteboard-chrome-font, monospace);
+}
+.whiteboard-workbench .monaco-editor .diff-hidden-lines .center:hover {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The unfold glyph sits where the fold glyph will appear once the region is
+   open: in the glyph margin lane (an 18px square, the editor's line height)
+   at the top-left of the row, not centered under the line numbers and the
+   24px row. Expand, and the collapse glyph lands under the same pointer.
+   Monaco centers the slot inline, hence the important. */
+.whiteboard-workbench .monaco-editor .diff-hidden-lines .center > div:first-child {
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+.whiteboard-workbench .monaco-editor .diff-hidden-lines .center > div:first-child > a {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The canvas stylesheet resets every element to border-box, and the Diff
+   view's editors live inside the canvas. Monaco sizes the fold's drag
+   handles as content-box (4px tall plus 6px of transparent borders) and
+   offsets the whole widget by that sum, so a border-box handle is 4px short
+   and the fold row rides up over the previous line. */
+.monaco-editor .diff-hidden-lines .top,
+.monaco-editor .diff-hidden-lines .bottom {
+  box-sizing: content-box;
+}
+.whiteboard-changed-files-label { flex:1; min-width:0; }
+/* Left inset 10px and title gap 5px mirror the file header below it (5px
+   padding + 5px collapse-button margin, then 5px to the path), so the
+   section chevron and the file chevron sit on one vertical line. */
+.whiteboard-diff-group { height:48px; min-height:48px; box-sizing:border-box; display:flex; align-items:center; gap:12px; padding:12px 16px 4px 10px; border-top:1px solid var(--vscode-panel-border); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); }
+.whiteboard-diff-group[hidden] { display:none; }
+.whiteboard-diff-group-title { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.whiteboard-diff-group-counts { margin-left:auto; font:11px var(--vscode-editor-font-family, monospace); color:var(--vscode-descriptionForeground); white-space:nowrap; }
+.whiteboard-diff-group.is-viewed > span { opacity:.45; }
+
+.whiteboard-diff-group-toggle { display:flex; align-items:center; gap:5px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
+.whiteboard-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+
+/* The surrounding navigation owns the top edge of the diff pane. */
+.multi-diff-sticky-section .whiteboard-diff-group,
+.whiteboard-files-editor-diffs .multiDiffEntry:first-child > .whiteboard-diff-group {
+  border-top: 0;
+}

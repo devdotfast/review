@@ -15,7 +15,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
    ```sh
    cd <worktree for the branch under test>
    pnpm install
-   HOME_DIR=$(bash apps/review-desktop/scripts/legacy-import-live-home.sh | head -1)
+   HOME_DIR=$(bash apps/whiteboard-desktop/scripts/legacy-import-live-home.sh | head -1)
    cat "$HOME_DIR/TESTER-README.md"     # inventory, expected outcomes, CLI env
    DEV_WHITEBOARD_HOME="$HOME_DIR" DEV_FAST_WHITEBOARD_TELEMETRY_DISABLED=1 DEV_FAST_WHITEBOARD_CLI_NO_DELEGATE=1 DEV_WHITEBOARD_EXTENSIONS=none pnpm dev
    ```
@@ -66,7 +66,7 @@ Pick the imported review with the richest content (peeks, a diagram, a database 
 
 | # | Step | Expected |
 |---|---|---|
-| C1 | Seed one more published review into `<home>/reviews/<uuid>/` **while the app is running** — copy it from `~/.dev/reviews` (one whose worktree exists), or extract a `packages/review/src/fixtures/legacy-reviews/*.tgz` into a directory named after its `sourceUuid` — then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
+| C1 | Seed one more published review into `<home>/reviews/<uuid>/` **while the app is running** — copy it from `~/.dev/reviews` (one whose worktree exists), or extract a `packages/whiteboard/src/fixtures/legacy-reviews/*.tgz` into a directory named after its `sourceUuid` — then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
 | C2 | Run `review app pick --review <uuid>` again. | Exit 0, the JSON tab is focused, no second import line. |
 
 ## D. The JSON API is the only authoring route

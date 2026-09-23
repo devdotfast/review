@@ -158,7 +158,7 @@ export async function runTraceEnable(input: {
   const result = await enableTraceRepository({
     cwd: input.cwd,
     scope: input.scope,
-    reviewCommand: input.traceCommand,
+    whiteboardCommand: input.traceCommand,
   });
 
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
@@ -253,7 +253,7 @@ export async function runTraceRepair(input: {
   const result = await repairTraceRepository({
     cwd: input.cwd,
     scope: input.scope,
-    reviewCommand: input.traceCommand,
+    whiteboardCommand: input.traceCommand,
   });
 
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);

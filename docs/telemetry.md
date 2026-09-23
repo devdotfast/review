@@ -215,7 +215,7 @@ text, and only as described in "Error reports".
 ### Desktop and canvas events
 
 The server checks all properties in this table against
-`packages/review/src/ui-telemetry-events.ts`.
+`packages/whiteboard/src/ui-telemetry-events.ts`.
 
 | Event                             | Additional properties                                                                                                                                          | When                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -323,7 +323,7 @@ as `ENOENT: no such file or directory, open '<REDACTED: user-file-path>'`.
 The cleaner is Microsoft's, taken from VS Code, which Whiteboard is built on. Whiteboard
 uses it rather than a rule of its own so that you can check it against a known
 implementation. The copy is in
-`packages/review/src/telemetry-clean-text.ts`, and its header lists
+`packages/whiteboard/src/telemetry-clean-text.ts`, and its header lists
 every difference from the original.
 
 Two rules sit on top of the cleaner:
@@ -344,7 +344,7 @@ cannot be turned back into the message.
 
 **Whiteboard sends only its own stack frames.** Each frame reads as
 `file:line:column`, where the file is a path inside the Whiteboard program, such as
-`vs/review/browser/workbench.js:456:12`. Whiteboard finds the shipped program
+`vs/whiteboard/browser/workbench.js:456:12`. Whiteboard finds the shipped program
 directory in each frame and discards everything before it, which removes your
 home directory. It then keeps a frame only when the result starts inside a known
 Whiteboard directory. A frame in your repository, in `node_modules`, or in an
@@ -448,15 +448,15 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 
 | Concern                    | File                                                                                           |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
-| Telemetry API and identity | `packages/review/src/review-telemetry.ts`                                                      |
-| Batch queue                | `packages/review/src/posthog-capture-client.ts`                                                |
-| Opt-out rules              | `packages/review/src/telemetry-config.ts`                                                      |
-| Developer sink             | `packages/review/src/telemetry-debug-sink.ts`                                                  |
-| UI allowlist               | `packages/review/src/ui-telemetry-events.ts`                                                   |
-| Error message and frames   | `packages/review/src/error-telemetry.ts`                                                       |
-| Message cleaner (VS Code)  | `packages/review/src/telemetry-clean-text.ts`                                                  |
-| Error reporting rules      | `apps/review-desktop/code-oss/src/vs/review/common/reviewErrorReport.ts`                       |
-| Pre-start crash note       | `apps/review-desktop/code-oss/src/vs/review/node/reviewBootstrapBreadcrumb.ts`                 |
-| Desktop setting            | `apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts`                     |
-| Settings screen            | `packages/review/app/src/settings-page.tsx`                                                    |
-| First-use notice           | `apps/review-desktop/code-oss/src/vs/review/contrib/telemetry/reviewTelemetry.contribution.ts` |
+| Telemetry API and identity | `packages/whiteboard/src/whiteboard-telemetry.ts`                                                      |
+| Batch queue                | `packages/whiteboard/src/posthog-capture-client.ts`                                                |
+| Opt-out rules              | `packages/whiteboard/src/telemetry-config.ts`                                                      |
+| Developer sink             | `packages/whiteboard/src/telemetry-debug-sink.ts`                                                  |
+| UI allowlist               | `packages/whiteboard/src/ui-telemetry-events.ts`                                                   |
+| Error message and frames   | `packages/whiteboard/src/error-telemetry.ts`                                                       |
+| Message cleaner (VS Code)  | `packages/whiteboard/src/telemetry-clean-text.ts`                                                  |
+| Error reporting rules      | `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/common/whiteboardErrorReport.ts`                       |
+| Pre-start crash note       | `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/node/whiteboardBootstrapBreadcrumb.ts`                 |
+| Desktop setting            | `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/common/whiteboardConfiguration.ts`                     |
+| Settings screen            | `packages/whiteboard/app/src/settings-page.tsx`                                                    |
+| First-use notice           | `apps/whiteboard-desktop/code-oss/src/vs/whiteboard/contrib/telemetry/whiteboardTelemetry.contribution.ts` |

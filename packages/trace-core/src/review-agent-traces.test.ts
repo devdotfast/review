@@ -9,8 +9,8 @@ import {
   clearTraceEnvCache,
   describeTraceSession,
   findLocalTrace,
-  listReviewTraceSessions,
-  loadReviewAgentTrace,
+  listWhiteboardTraceSessions,
+  loadWhiteboardAgentTrace,
   lookupReviewTraceBlame,
   lookupReviewTraceCommit,
   lookupReviewTraceSession,
@@ -45,7 +45,7 @@ describe("review-agent-traces", () => {
 
     process.env.TRACE_R2_MODE = "mock";
     process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
-    process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
+    process.env.WHITEBOARD_TEST_TRACE_SEARCH_DIR = searchDir;
     process.env.TRACE_LOCAL_TRACE_ROOT = localClaudeDir;
     process.env.TRACE_CODEX_SESSIONS_ROOT = localCodexDir;
     process.env.TRACE_PI_SESSIONS_ROOT = localPiDir;
@@ -55,7 +55,7 @@ describe("review-agent-traces", () => {
   afterEach(() => {
     delete process.env.TRACE_R2_MODE;
     delete process.env.TRACE_R2_MOCK_DIR;
-    delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
+    delete process.env.WHITEBOARD_TEST_TRACE_SEARCH_DIR;
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
     delete process.env.TRACE_CODEX_SESSIONS_ROOT;
     delete process.env.TRACE_PI_SESSIONS_ROOT;
@@ -87,7 +87,7 @@ describe("review-agent-traces", () => {
       { mode: 0o755 },
     );
     vi.stubEnv("PATH", `${binDir}${path.delimiter}${process.env.PATH}`);
-    vi.stubEnv("DEV_WHITEBOARD_HOME", path.join(tempDir, "review-home"));
+    vi.stubEnv("DEV_WHITEBOARD_HOME", path.join(tempDir, "whiteboard-home"));
 
     try {
       const synced = await syncReviewTrace({
@@ -103,7 +103,7 @@ describe("review-agent-traces", () => {
         ),
       ).toBe(true);
 
-      const loaded = await loadReviewAgentTrace({
+      const loaded = await loadWhiteboardAgentTrace({
         sessionId,
         repo: "acme/widgets",
       });
@@ -202,7 +202,7 @@ describe("review-agent-traces", () => {
     );
 
     // Load main trace
-    const mainLoaded = await loadReviewAgentTrace({
+    const mainLoaded = await loadWhiteboardAgentTrace({
       sessionId,
       repo: "acme/widgets",
     });
@@ -213,7 +213,7 @@ describe("review-agent-traces", () => {
     expect(mainLoaded?.traceName).toBeNull();
 
     // Load subagent trace
-    const subLoaded = await loadReviewAgentTrace({
+    const subLoaded = await loadWhiteboardAgentTrace({
       sessionId,
       trace: "pi-run-0-sub1",
       repo: "acme/widgets",
@@ -676,7 +676,7 @@ describe("review-agent-traces", () => {
     });
   });
 
-  describe("listReviewTraceSessions squash-merge fallback", () => {
+  describe("listWhiteboardTraceSessions squash-merge fallback", () => {
     it("scans PR branches when range commits carry no trailers", async () => {
       const originBare = path.join(tempDir, "range-remote.git");
       const clientRepo = path.join(tempDir, "range-client");
@@ -734,7 +734,7 @@ describe("review-agent-traces", () => {
         encoding: "utf8",
       }).trim();
 
-      const sessions = await listReviewTraceSessions({
+      const sessions = await listWhiteboardTraceSessions({
         rootPath: clientRepo,
         baseCommit: baseSha,
         headCommit: squashSha,
@@ -777,7 +777,7 @@ describe("review-agent-traces", () => {
         encoding: "utf8",
       }).trim();
 
-      const sessions = await listReviewTraceSessions({
+      const sessions = await listWhiteboardTraceSessions({
         rootPath: gitDir,
         baseCommit: baseSha,
         headCommit: headSha,

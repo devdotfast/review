@@ -38,7 +38,7 @@ jobs:
             jq -r '
               select(.sourceRepository == "devdotfast/review") |
               .baseCommit, .sourceCommit
-            ' packages/review/src/fixtures/legacy-reviews/*.json |
+            ' packages/whiteboard/src/fixtures/legacy-reviews/*.json |
               sort -u
           )
           test "${#fixture_commits[@]}" -gt 0
@@ -68,7 +68,7 @@ jobs:
 
       - name: Install Playwright Chromium
         if: steps.playwright-chromium.outputs.cache-hit != 'true'
-        run: pnpm --filter @dev.fast/review-canvas exec playwright install chromium --only-shell
+        run: pnpm --filter @dev.fast/whiteboard-canvas exec playwright install chromium --only-shell
 
       - name: Save Playwright Chromium
         if: steps.playwright-chromium.outputs.cache-hit != 'true'
@@ -96,14 +96,14 @@ jobs:
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev xvfb python3
 
       - name: Install Playwright Chromium system dependencies
-        run: pnpm --filter @dev.fast/review-canvas exec playwright install-deps chromium
+        run: pnpm --filter @dev.fast/whiteboard-canvas exec playwright install-deps chromium
 
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          node-version-file: apps/whiteboard-desktop/code-oss/.nvmrc
           cache: npm
-          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+          cache-dependency-path: apps/whiteboard-desktop/code-oss/**/package-lock.json
 
       # out/ is deliberately not cached: the build rebuilds it from scratch, so
       # caching it only adds download/upload time. The nested extension and
@@ -118,47 +118,47 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
-            apps/review-desktop/code-oss/.build/electron
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/.build/electron
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-code-oss-deps-v2-
 
       - name: Build Review Desktop
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REVIEW_DESKTOP_CI_FAST: "1"
-        run: pnpm --filter @dev.fast/review-desktop app:build
+          WHITEBOARD_DESKTOP_CI_FAST: "1"
+        run: pnpm --filter @dev.fast/whiteboard-desktop app:build
 
       - name: Validate Review Desktop build
         run: |
-          test -d apps/review-desktop/code-oss/node_modules
-          test -f apps/review-desktop/code-oss/out/main.js
+          test -d apps/whiteboard-desktop/code-oss/node_modules
+          test -f apps/whiteboard-desktop/code-oss/out/main.js
 
       - name: Save Code OSS dependencies
         if: steps.code-oss-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
-            apps/review-desktop/code-oss/node_modules
-            apps/review-desktop/code-oss/build/node_modules
-            apps/review-desktop/code-oss/extensions/node_modules
-            apps/review-desktop/code-oss/extensions/*/node_modules
-            apps/review-desktop/code-oss/extensions/*/server/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
-            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
-            apps/review-desktop/code-oss/.build/electron
+            apps/whiteboard-desktop/code-oss/node_modules
+            apps/whiteboard-desktop/code-oss/build/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/node_modules
+            apps/whiteboard-desktop/code-oss/extensions/*/server/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/whiteboard-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/whiteboard-desktop/code-oss/.build/electron
             ~/.cache/node-gyp
-          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/whiteboard-desktop/code-oss/**/package-lock.json') }}
 
       - name: Check the tutorial assets
         run: pnpm --filter @dev.fast/whiteboard check:tutorial
@@ -171,11 +171,11 @@ jobs:
 
       - name: Configure Electron sandbox
         run: |
-          sudo chown root:root apps/review-desktop/code-oss/.build/electron/chrome-sandbox
-          sudo chmod 4755 apps/review-desktop/code-oss/.build/electron/chrome-sandbox
+          sudo chown root:root apps/whiteboard-desktop/code-oss/.build/electron/chrome-sandbox
+          sudo chmod 4755 apps/whiteboard-desktop/code-oss/.build/electron/chrome-sandbox
 
       - name: Desktop language services E2E
-        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
+        run: xvfb-run -a pnpm --filter @dev.fast/whiteboard-desktop test:e2e:lsp --keep
 
       - name: Upload Desktop language services diagnostics
         if: always()
@@ -196,7 +196,7 @@ jobs:
         with:
           name: vitest-browser-diagnostics
           path: |
-            packages/review/app/.vitest-attachments
-            packages/review/**/__screenshots__
-            packages/review/**/__traces__
+            packages/whiteboard/app/.vitest-attachments
+            packages/whiteboard/**/__screenshots__
+            packages/whiteboard/**/__traces__
           if-no-files-found: ignore

@@ -258,8 +258,8 @@ def build_env(run_dir: Path, spec: RunSpec, home: Path) -> dict[str, str]:
     env["DEV_WHITEBOARD_HOME"] = str(home)
     # Trace storage is part of the experiment: "on" gets a fresh per-run corpus
     # (so every run pulls, like a first review of a PR would), "off" removes
-    # trace storage end to end (see reviewTracesDisabled in the CLI).
-    env["REVIEW_TEST_TRACE_SEARCH_DIR"] = str(run_dir / "profile" / "trace-search")
+    # trace storage end to end (see whiteboardTracesDisabled in the CLI).
+    env["WHITEBOARD_TEST_TRACE_SEARCH_DIR"] = str(run_dir / "profile" / "trace-search")
     if not spec.traces:
         env["DEV_FAST_WHITEBOARD_TRACES"] = "off"
     if spec.review_cli == "source":
@@ -464,7 +464,7 @@ def collect_review(run_dir: Path, home: Path, log) -> dict | None:
     uuids: set[str] = set()
     for trace_file in (run_dir / "cli-traces").glob("*.json"):
         trace = json.loads(trace_file.read_text())
-        uuid = trace.get("attributes", {}).get("reviewUuid")
+        uuid = trace.get("attributes", {}).get("whiteboardUuid")
         if uuid:
             uuids.add(uuid)
     if not uuids:

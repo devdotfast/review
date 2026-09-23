@@ -12,7 +12,7 @@ and system views around that document.
 flowchart LR
   A[Branch, change, or PR] --> B[Agent authors a session]
   B --> C[Server saves each edit through the Whiteboard API]
-  C --> D[Reviewer reads in Whiteboard]
+  C --> D[Whiteboarder reads in Whiteboard]
 ```
 
 ## A session is more than a diff
@@ -46,12 +46,12 @@ See [session targets](cli-reference.md#session-targets) for the API options.
 Authoring goes through the JSON API: `whiteboard api`, the Whiteboard MCP tools, or
 the whiteboard skill. Every accepted edit is saved as soon as it is applied;
 there is no publish, checkpoint, or render-report step. See
-`packages/review/skills/whiteboard/SKILL.md`
-and `packages/review/src/review-api/README.md`
+`packages/whiteboard/skills/whiteboard/SKILL.md`
+and `packages/whiteboard/src/session-api/README.md`
 for the full authoring workflow.
 
-The published document is `.bundle/document/review-document.json`, with format
-`review-document/1` and a version-2 manifest. Software-map bundles contain
+The published document is `.bundle/document/whiteboard-document.json`, with format
+`whiteboard-document/1` and a version-2 manifest. Software-map bundles contain
 `head-map.json` and `base-map.json`, with format `software-map/1`. The server
 serves JSON and the canvas renders it with built-in components, without
 executing authored document or map JavaScript. The local server may evaluate

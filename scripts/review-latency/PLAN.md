@@ -43,27 +43,27 @@ repo's DEV-REVIEW.md asks for), not a product lever.
 
 ## #6 design: resolve code peeks at publish, embed in the bundle (agreed)
 
-Today the published bundle ends in `await __reviewDefinitionsReady()`; in the
+Today the published bundle ends in `await __whiteboardDefinitionsReady()`; in the
 browser that waits for one `POST /code-peek/resolve` per peek (8 concurrent),
 each of which re-resolves the worktrees and spawns `git diff` — 21 peeks ≈
 3.9s of the mount. Publish's `evaluate` step already resolves every peek
 against the same pinned worktrees.
 
 1. Move `resolveCodePeekDiff` (+ helpers) out of `server/review-api.ts` into a
-   shared module; extend `ReviewPublishEvidenceTargets` with the diff refs
-   (`baseRef`, `headRef`, `diffRootPath`) from `resolveReviewSourceTarget`.
-2. `evaluateReviewDocumentBundleForPublish`: for each peek also compute the
+   shared module; extend `WhiteboardPublishEvidenceTargets` with the diff refs
+   (`baseRef`, `headRef`, `diffRootPath`) from `resolveWhiteboardSourceTarget`.
+2. `evaluateWhiteboardDocumentBundleForPublish`: for each peek also compute the
    diff summary and collect `codePeeks[graph|file|from|to] = {snapshot, diff}`;
-   return it in `ReviewPublishEvaluationResult`.
+   return it in `WhiteboardPublishEvaluationResult`.
 3. `embedCodePeeks(bundle, codePeeks)`: prepend
-   `globalThis.__reviewEmbeddedCodePeeks = {"<routePath>": {...}};` to the
+   `globalThis.__whiteboardEmbeddedCodePeeks = {"<routePath>": {...}};` to the
    bundle code, recompute `contentHash`; called in
-   `prepareReviewDocumentBundle` after evaluation, before
-   `writeReviewDocumentBundle`.
-4. `createBrowserReviewDefinitionSession` (app runtime): if the global carries
+   `prepareWhiteboardDocumentBundle` after evaluation, before
+   `writeWhiteboardDocumentBundle`.
+4. `createBrowserWhiteboardDefinitionSession` (app runtime): if the global carries
    this route's map, `resolveCodePeek` is a lookup (missing key = error, the
    bundle is immutable); no map = pre-change bundle, keep the fetch path.
-5. Rebuild: `pnpm run build` + `app:desktop:build` in `packages/review`, then
+5. Rebuild: `pnpm run build` + `app:desktop:build` in `packages/whiteboard`, then
    `app:build` for the desktop; measure with review-8-cold / review-83-fork.
 
 Expected: mount ≈ first commit only (well under 1s); publish desktop half
@@ -76,7 +76,7 @@ Expected: mount ≈ first commit only (well under 1s); publish desktop half
   `DEV_FAST_WHITEBOARD_TRACES=off` in the agent env, which the CLI honors end to
   end (no R2, no local corpus, no local transcripts, `review info` lists no
   sessions). Off variants carry the id suffix `-notrace`.
-- **Per-run trace corpus**: every run gets `REVIEW_TEST_TRACE_SEARCH_DIR`
+- **Per-run trace corpus**: every run gets `WHITEBOARD_TEST_TRACE_SEARCH_DIR`
   under its profile, so "traces on" always pulls fresh instead of reusing what
   earlier runs cached.
 - **Fork prompt** is "review of this branch": the worktree sits at the
@@ -181,8 +181,8 @@ judge a fix on the change in medians.
   harness-owned `ZDOTDIR` that re-prepends the shim (2026-09-03).
 - Desktop-side edits need `WHITEBOARD_DESKTOP_DEV_FAST=1 pnpm --filter
   @dev-fast/review-desktop app:build` (renderer; a bare `npm run compile`
-  leaves `out/vs/review/common/reviewProtocol.js` importing `zod/v4` and the
-  window fails to start) and `pnpm run build` in `packages/review`
+  leaves `out/vs/whiteboard/common/whiteboardProtocol.js` importing `zod/v4` and the
+  window fails to start) and `pnpm run build` in `packages/whiteboard`
   (server) before a `desktop = "dev"` run sees them.
 
 ## Not levers (checked)
@@ -244,5 +244,5 @@ Per-run detail (after):
 ## Harness realism notes (2026-09-03 evening)
 
 - Fork worktrees share the repo's stash stack. A "perf WIP (stashed by agent-server refactor)" entry, created by the review#83 session itself, cost one warm run 20s of "important finding" detours. Dropped; keep the stash stack empty during experiments.
-- The `review` shim broke whenever the agent's shell cwd was inside the fork worktree's `packages/review`: tsx reads tsconfig from the cwd, and the worktree's `paths` remapped `@dev.fast/local-vcs` onto the worktree's older source (no `setLocalVcsCommandObserver`). The agent then routed around the shim with the worktree's own `cli.ts`, silently changing the CLI under test (16:21 and 17:50 runs). Fixed: the shim pins `--tsconfig` to the instrumented checkout, and the runner aborts on any CLI load failure (`review-shim-stderr.log`).
+- The `review` shim broke whenever the agent's shell cwd was inside the fork worktree's `packages/whiteboard`: tsx reads tsconfig from the cwd, and the worktree's `paths` remapped `@dev.fast/local-vcs` onto the worktree's older source (no `setLocalVcsCommandObserver`). The agent then routed around the shim with the worktree's own `cli.ts`, silently changing the CLI under test (16:21 and 17:50 runs). Fixed: the shim pins `--tsconfig` to the instrumented checkout, and the runner aborts on any CLI load failure (`review-shim-stderr.log`).
 - Rule placement matters more than wording: the typecheck/test reflex fires at call ~4, before any `references/*.md` is opened. Rules about what not to do before authoring belong in SKILL.md (loaded at invocation); `document-authoring.md` is only in context once the agent is about to write.

@@ -39,7 +39,7 @@ whiteboard app pick --session <uuid>
 
 Most people let the installed Whiteboard skill drive this workflow: it authors
 through `whiteboard api` or the Whiteboard MCP tools. See
-`packages/review/skills/whiteboard/SKILL.md`.
+`packages/whiteboard/skills/whiteboard/SKILL.md`.
 
 `whiteboard api` prints a tool's JSON result, except for text replies such as
 `session_get` and `session_diff` patches, which print as-is. List arguments are
@@ -138,8 +138,8 @@ The legacy `whiteboard app --session <uuid>` form remains a compatibility alias 
 
 sessions are created and edited through the JSON API: `whiteboard api`, the Whiteboard
 MCP tools, or the installed whiteboard skill. See
-`packages/review/skills/whiteboard/SKILL.md`
-and `packages/review/src/review-api/README.md`
+`packages/whiteboard/skills/whiteboard/SKILL.md`
+and `packages/whiteboard/src/session-api/README.md`
 for the authoring workflow and the full tool/route list. `whiteboard api tools`
 prints the current tool catalog.
 
@@ -275,7 +275,7 @@ S3-compatible bucket you own, R2 included) or the **hosted** store at
   "stores": {
     "s3": {
       "endpoint": "https://<account>.r2.cloudflarestorage.com",
-      "bucket": "review-traces",
+      "bucket": "whiteboard-traces",
       "accessKeyId": "…",
       "secretAccessKey": "…",
       "region": "auto",

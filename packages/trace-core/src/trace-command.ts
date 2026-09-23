@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { isStringValue } from "@dev.fast/json";
 
-import { devReviewHome } from "./trace-home";
+import { devWhiteboardHome } from "./trace-home";
 
 /** Where one CLI run reads its machine state; built once at the entry. */
 export interface TraceScope {
@@ -20,7 +20,7 @@ export function traceScope(
   const env = input.env ?? process.env;
   const homeDir = input.homeDir ?? os.homedir();
 
-  return { homeDir, env, devHome: devReviewHome(env, homeDir) };
+  return { homeDir, env, devHome: devWhiteboardHome(env, homeDir) };
 }
 
 /** The executable a hook re-enters, plus the leading arguments it needs. */

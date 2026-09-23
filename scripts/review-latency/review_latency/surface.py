@@ -57,7 +57,7 @@ def surface_fingerprint(review_bin: str) -> dict:
         ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
     ).stdout.strip()
     dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--", "packages/review", "docs"],
+        ["git", "status", "--porcelain", "--", "packages/whiteboard", "docs"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

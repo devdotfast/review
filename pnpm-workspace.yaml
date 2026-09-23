@@ -1,6 +1,6 @@
 packages:
   - "packages/*"
-  - "packages/review/app"
+  - "packages/whiteboard/app"
   - "apps/*"
 
 nodeLinker: hoisted

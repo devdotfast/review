@@ -34,18 +34,18 @@ importers:
         specifier: npm:typescript@7.0.1-rc
         version: 7.0.1-rc
 
-  apps/review-desktop:
+  apps/whiteboard-desktop:
     dependencies:
-      '@dev.fast/review-protocol':
+      '@dev.fast/whiteboard-protocol':
         specifier: workspace:*
-        version: link:../../packages/review-protocol
+        version: link:../../packages/whiteboard-protocol
       '@dev.fast/whiteboard':
         specifier: workspace:*
-        version: link:../../packages/review
+        version: link:../../packages/whiteboard
     devDependencies:
-      '@dev.fast/review-canvas':
+      '@dev.fast/whiteboard-canvas':
         specifier: workspace:*
-        version: link:../../packages/review/app
+        version: link:../../packages/whiteboard/app
       '@types/node':
         specifier: 24.12.2
         version: 24.12.2
@@ -93,7 +93,7 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
 
-  packages/review:
+  packages/whiteboard:
     dependencies:
       '@hono/node-server':
         specifier: 2.0.12
@@ -150,12 +150,12 @@ importers:
       '@dev.fast/local-vcs':
         specifier: workspace:0.1.0
         version: link:../local-vcs
-      '@dev.fast/review-protocol':
+      '@dev.fast/whiteboard-protocol':
         specifier: workspace:*
-        version: link:../review-protocol
-      '@dev.fast/review-share-protocol':
+        version: link:../whiteboard-protocol
+      '@dev.fast/whiteboard-share-protocol':
         specifier: workspace:*
-        version: link:../review-share-protocol
+        version: link:../whiteboard-share-protocol
       '@dev.fast/trace-core':
         specifier: workspace:*
         version: link:../trace-core
@@ -190,7 +190,7 @@ importers:
         specifier: 4.1.11
         version: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
 
-  packages/review-protocol:
+  packages/whiteboard-protocol:
     dependencies:
       '@dev.fast/diffr':
         specifier: 0.1.1
@@ -212,7 +212,7 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
 
-  packages/review-share-protocol:
+  packages/whiteboard-share-protocol:
     dependencies:
       zod:
         specifier: 4.4.3
@@ -222,11 +222,11 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
 
-  packages/review/app:
+  packages/whiteboard/app:
     dependencies:
-      '@dev.fast/review-protocol':
+      '@dev.fast/whiteboard-protocol':
         specifier: workspace:*
-        version: link:../../review-protocol
+        version: link:../../whiteboard-protocol
       '@dev.fast/whiteboard':
         specifier: workspace:*
         version: link:..

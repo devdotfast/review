@@ -395,7 +395,7 @@ export async function runTraceAllow(
     await enableTraceRepository({
       cwd: input.cwd,
       scope: input.scope,
-      reviewCommand: input.traceCommand,
+      whiteboardCommand: input.traceCommand,
     });
     await enableHostedCapture(input.scope.devHome, storeOrigin);
     await allowTraceRepository(

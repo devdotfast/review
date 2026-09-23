@@ -1095,7 +1095,7 @@ describe("hosted trace commands", () => {
     await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
-      reviewCommand: { file: "/opt/review/bin/review", args: [] },
+      whiteboardCommand: { file: "/opt/review/bin/review", args: [] },
     });
     const out = collect();
 

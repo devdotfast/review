@@ -23,7 +23,7 @@
     "dist/**",
     "**/dist/**",
     "**/.vite/**",
-    "apps/review-desktop/code-oss/**",
+    "apps/whiteboard-desktop/code-oss/**",
     ".agent/**",
     ".agents/**",
     ".claude/**",

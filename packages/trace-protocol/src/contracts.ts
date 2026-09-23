@@ -37,7 +37,7 @@ const nonBlankString = z
 
 const anyString = z.string({ error: "must be a string" });
 
-export const ReviewAgentTraceEventSchema = z.discriminatedUnion("kind", [
+export const WhiteboardAgentTraceEventSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("user"),
     text: anyString,
@@ -69,9 +69,11 @@ export const ReviewAgentTraceEventSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export type ReviewAgentTraceEvent = z.infer<typeof ReviewAgentTraceEventSchema>;
+export type WhiteboardAgentTraceEvent = z.infer<
+  typeof WhiteboardAgentTraceEventSchema
+>;
 
-export const ReviewAgentTraceSessionSchema = z.strictObject({
+export const WhiteboardAgentTraceSessionSchema = z.strictObject({
   sessionId: nonBlankString,
   title: z.string().optional(),
   harness: z.enum(["claude-code", "codex", "opencode", "pi", "unknown"]),
@@ -82,6 +84,6 @@ export const ReviewAgentTraceSessionSchema = z.strictObject({
   commits: z.array(z.strictObject({ sha: nonBlankString, subject: anyString })),
 });
 
-export type ReviewAgentTraceSession = z.infer<
-  typeof ReviewAgentTraceSessionSchema
+export type WhiteboardAgentTraceSession = z.infer<
+  typeof WhiteboardAgentTraceSessionSchema
 >;

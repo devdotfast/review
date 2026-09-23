@@ -23,7 +23,7 @@ export async function runTraceUninstallHooks(
 
   emitJsonEvent(input, {
     event: "trace.uninstall-hooks",
-    owner: "review",
+    owner: "whiteboard",
     removed,
     repositories: disabled,
   });

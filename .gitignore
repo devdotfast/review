@@ -1,8 +1,8 @@
 # Node
 node_modules/
 dist/
-packages/review/tutorial/.bundle/
-packages/review/tutorial/git-stub/
+packages/whiteboard/tutorial/.bundle/
+packages/whiteboard/tutorial/git-stub/
 *.tsbuildinfo
 
 # pnpm
@@ -31,10 +31,10 @@ Thumbs.db
 **/.wrangler/
 apps/ci/.wrangler-jaeger.jsonc
 .dev-fast/
-apps/review-desktop/.node/
-apps/review-desktop/VSCode-darwin-arm64/
-apps/review-desktop/VSCode-linux-*/
-apps/review-desktop/*.dmg
+apps/whiteboard-desktop/.node/
+apps/whiteboard-desktop/VSCode-darwin-arm64/
+apps/whiteboard-desktop/VSCode-linux-*/
+apps/whiteboard-desktop/*.dmg
 
 # Logs
 *.log
@@ -61,11 +61,11 @@ packages/code-graph/canvas/public/snapshot*.json
 packages/code-graph/.ci-tools/
 packages/code-graph/fixtures/indexing/rust/target/
 packages/code-graph/fixtures/semantic-baseline/rust/target/
-packages/review/.playwright-cli/
-packages/review/.vitest-attachments/
-packages/review/app/.vitest-attachments/
-packages/review/**/__screenshots__/
-packages/review/**/__traces__/
+packages/whiteboard/.playwright-cli/
+packages/whiteboard/.vitest-attachments/
+packages/whiteboard/app/.vitest-attachments/
+packages/whiteboard/**/__screenshots__/
+packages/whiteboard/**/__traces__/
 
 .playwright-mcp
 backups/
@@ -91,5 +91,5 @@ backend.hcl
 artifacts/devbox/
 scripts/acceptance/evidence/
 
-packages/review/tutorial/pins.json
-packages/review/bin/
+packages/whiteboard/tutorial/pins.json
+packages/whiteboard/bin/

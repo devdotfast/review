@@ -36,14 +36,14 @@ const FORBIDDEN_MODULES = [
   "trace-cli.ts",
   "trace-storage/s3.ts",
   "tutorial-trace.ts",
-  "review-home.ts",
+  "whiteboard-home.ts",
   "review-state-store.ts",
-  "review-vcs.ts",
-  "review-head-checkout.ts",
-  "review-worktree-target.ts",
+  "whiteboard-vcs.ts",
+  "whiteboard-head-checkout.ts",
+  "whiteboard-worktree-target.ts",
   "server/cli-install.ts",
   "install.ts",
-  "review-telemetry.ts",
+  "whiteboard-telemetry.ts",
   "startup-trace.ts",
 ];
 
@@ -251,15 +251,15 @@ describe("trace-core package independence", () => {
         `
       import type { App } from "@dev.fast/whiteboard";
       export type { App } from "@dev.fast/whiteboard/authoring";
-      const app = import("../../review/src/runtime");
-      type AppType = import("../../review/src/authoring").App;
+      const app = import("../../whiteboard/src/runtime");
+      type AppType = import("../../whiteboard/src/authoring").App;
     `,
       ),
     ).toEqual([
       "@dev.fast/whiteboard",
       "@dev.fast/whiteboard/authoring",
-      "../../review/src/runtime",
-      "../../review/src/authoring",
+      "../../whiteboard/src/runtime",
+      "../../whiteboard/src/authoring",
     ]);
   });
 });

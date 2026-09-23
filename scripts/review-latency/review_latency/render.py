@@ -208,7 +208,7 @@ document.getElementById('phases').innerHTML = '<tr><th>phase</th><th>start</th><
   phases.map(p => '<tr><td>'+p.name+'</td><td class="num">'+mmss(p.start_ms-t0)+'</td><td class="num">'+s(p.end_ms-p.start_ms)+'</td><td class="num">'+(100*(p.end_ms-p.start_ms)/total).toFixed(0)+'%</td></tr>').join('');
 
 document.getElementById('commands').innerHTML = '<tr><th>command</th><th>duration</th><th>review</th></tr>' +
-  S.review_commands.map(c => '<tr><td><code>review '+escapeHtml(c.command)+'</code></td><td class="num">'+s(c.duration_s*1000)+'</td><td>'+(c.attributes.reviewUuid ? c.attributes.reviewUuid.slice(0,8) : '')+'</td></tr>').join('');
+  S.review_commands.map(c => '<tr><td><code>review '+escapeHtml(c.command)+'</code></td><td class="num">'+s(c.duration_s*1000)+'</td><td>'+(c.attributes.whiteboardUuid ? c.attributes.whiteboardUuid.slice(0,8) : '')+'</td></tr>').join('');
 
 document.getElementById('publishes').innerHTML = '<tr><th>#</th><th>start</th><th>duration</th><th>ok</th><th>errors</th></tr>' +
   S.publish_attempts_detail.map((p,i) => '<tr><td>'+(i+1)+'</td><td class="num">'+mmss(p.start_ms-t0)+'</td><td class="num">'+s(p.duration_ms)+'</td><td>'+(p.ok?'yes':'no')+'</td><td class="err">'+escapeHtml(p.errors.join('\\n'))+'</td></tr>').join('');

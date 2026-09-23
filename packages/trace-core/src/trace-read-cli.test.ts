@@ -35,7 +35,7 @@ describe("trace-read-cli", () => {
       TRACE_SETTINGS_FILE: path.join(tempDir, "settings.json"),
       TRACE_R2_MODE: "mock",
       TRACE_R2_MOCK_DIR: mockR2Dir,
-      REVIEW_TEST_TRACE_SEARCH_DIR: searchDir,
+      WHITEBOARD_TEST_TRACE_SEARCH_DIR: searchDir,
     }))
       vi.stubEnv(name, value);
     clearTraceEnvCache();

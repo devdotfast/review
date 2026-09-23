@@ -1,0 +1,86 @@
+import type { WhiteboardRuntimeConfig } from "@dev.fast/whiteboard-protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  jsonWhiteboardApiUrl,
+  whiteboardFetchUrl,
+  whiteboardStorageKey,
+  whiteboardWasmUrl,
+} from "./whiteboard-client";
+
+const injectedConfig = {
+  serverUrl: "http://127.0.0.1:5570",
+  sessionId: "desktop-session",
+  token: "secret-token",
+  wasmUrl: "vscode-file://review/libavoid.wasm",
+  appVersion: "0.0.13",
+  theme: "dark",
+  host: "desktop",
+} satisfies WhiteboardRuntimeConfig;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("review host client", () => {
+  it("uses injected desktop routing and asset configuration", () => {
+    expect(injectedConfig.host).toBe("desktop");
+    expect(whiteboardWasmUrl(injectedConfig)).toBe(
+      "vscode-file://review/libavoid.wasm",
+    );
+    expect(whiteboardStorageKey(injectedConfig, "files", "main", "head")).toBe(
+      "progressive-review:files:desktop-session:main:head",
+    );
+  });
+
+  it("adds the desktop bearer token to API requests", async () => {
+    let requestInit: RequestInit | undefined;
+
+    const fetchMock: typeof fetch = async (_input, init) => {
+      requestInit = init;
+
+      return new Response(null, { status: 204 });
+    };
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await whiteboardFetchUrl(
+      injectedConfig,
+      jsonWhiteboardApiUrl(injectedConfig, "review", "/telemetry/event"),
+    );
+
+    expect(new Headers(requestInit?.headers).get("x-whiteboard-token")).toBe(
+      "secret-token",
+    );
+  });
+});
+
+it("routes JSON reports and authenticated beacons without legacy document parameters", () => {
+  const report = new URL(
+    jsonWhiteboardApiUrl(injectedConfig, "review/id", "/telemetry/bug-report", {
+      version: 0,
+    }),
+  );
+
+  expect(report.pathname).toBe(
+    "/sessions-api/review%2Fid/telemetry/bug-report",
+  );
+  expect([...report.searchParams]).toEqual([["version", "0"]]);
+
+  const beacon = new URL(
+    jsonWhiteboardApiUrl(
+      {
+        ...injectedConfig,
+        serverUrl: "http://localhost:5570/",
+        token: "a+b&c",
+      },
+      "review",
+      "/telemetry/tab",
+      { tokenInQuery: true },
+    ),
+  );
+
+  expect(beacon.pathname).toBe("/sessions-api/review/telemetry/tab");
+  expect(beacon.searchParams.get("token")).toBe("a+b&c");
+  expect(beacon.searchParams.has("document")).toBe(false);
+});

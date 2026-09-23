@@ -1,0 +1,186 @@
+import { act, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { whiteboardPreferenceKey } from "./host/whiteboard-client";
+import { WhiteboardSessionProvider } from "./host/whiteboard-session";
+import { useRightPanelResize } from "./side-panel-resizer";
+import { testWhiteboardSession } from "./whiteboard-session-test-utils";
+
+let root: ReturnType<typeof createRoot> | undefined;
+
+let host: HTMLDivElement | undefined;
+
+const session = testWhiteboardSession();
+
+function Panel({
+  stateKey,
+  cramped = false,
+  side = "right",
+}: {
+  stateKey: string;
+  cramped?: boolean;
+  side?: "left" | "right";
+}) {
+  // Exercise the pre-layout path with an explicit zero-width container.
+  const containerRef = useRef<HTMLElement | null>(null);
+
+  const resize = useRightPanelResize({
+    stateKey,
+    side,
+    defaultWidth: 360,
+    minWidth: 360,
+    maxWidth: 920,
+    minMainWidth: 560,
+    separatorWidth: 10,
+    label: "Resize test panel",
+    containerRef: cramped ? containerRef : undefined,
+  });
+
+  return (
+    <section ref={containerRef} style={cramped ? { width: 0 } : undefined}>
+      <div className="side-panel-resizer" {...resize.separatorProps} />
+    </section>
+  );
+}
+
+function separator(): HTMLDivElement {
+  const element = host?.querySelector<HTMLDivElement>(".side-panel-resizer");
+
+  if (!element) throw new Error("Separator not rendered.");
+
+  return element;
+}
+
+function widenWithKeyboard() {
+  act(() => {
+    separator().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+    );
+  });
+}
+
+function mountPanel(
+  stateKey: string,
+  options: { cramped?: boolean; side?: "left" | "right" } = {},
+) {
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => {
+    root?.render(
+      <WhiteboardSessionProvider session={session}>
+        <Panel
+          stateKey={stateKey}
+          cramped={options.cramped}
+          side={options.side}
+        />
+      </WhiteboardSessionProvider>,
+    );
+  });
+}
+
+function unmountPanel() {
+  act(() => {
+    root?.unmount();
+  });
+  root = undefined;
+  host?.remove();
+  host = undefined;
+}
+
+beforeEach(() => {
+  // Control ResizeObserver delivery so the resize behavior is deterministic.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private readonly callback: () => void) {}
+      observe() {
+        this.callback();
+      }
+      disconnect() {}
+    },
+  );
+  window.localStorage.clear();
+});
+
+afterEach(() => {
+  if (root) unmountPanel();
+  vi.unstubAllGlobals();
+  window.localStorage.clear();
+});
+
+describe("useRightPanelResize persistence", () => {
+  it("restores the width a reader set after the panel remounts", () => {
+    mountPanel("test-panel-width");
+    expect(separator().getAttribute("aria-valuenow")).toBe("360");
+    widenWithKeyboard();
+    expect(separator().getAttribute("aria-valuenow")).toBe("392");
+    unmountPanel();
+
+    mountPanel("test-panel-width");
+    expect(separator().getAttribute("aria-valuenow")).toBe("392");
+  });
+
+  it("does not let a container too small to honour the width overwrite it", () => {
+    mountPanel("test-panel-width");
+    widenWithKeyboard();
+    widenWithKeyboard();
+
+    const requested = window.localStorage.getItem(
+      whiteboardPreferenceKey("ui", "test-panel-width"),
+    );
+
+    expect(requested).toBe("424");
+    unmountPanel();
+
+    // Mounting against an unlaid-out container clamps the rendered width to the
+    // minimum, but must leave the remembered width alone.
+    mountPanel("test-panel-width", { cramped: true });
+    expect(separator().getAttribute("aria-valuenow")).toBe("360");
+    unmountPanel();
+
+    mountPanel("test-panel-width");
+    expect(separator().getAttribute("aria-valuenow")).toBe("424");
+  });
+
+  it("stores nothing for a panel the reader never resized", () => {
+    mountPanel("test-panel-width");
+    expect(
+      window.localStorage.getItem(
+        whiteboardPreferenceKey("ui", "test-panel-width"),
+      ),
+    ).toBeNull();
+
+    widenWithKeyboard();
+    expect(
+      window.localStorage.getItem(
+        whiteboardPreferenceKey("ui", "test-panel-width"),
+      ),
+    ).toBe("392");
+  });
+
+  it("keeps each panel's width separate", () => {
+    mountPanel("test-panel-width");
+    widenWithKeyboard();
+    unmountPanel();
+
+    mountPanel("other-panel-width");
+    expect(separator().getAttribute("aria-valuenow")).toBe("360");
+  });
+});
+
+it("grows a left sidebar toward the right and remembers its width", () => {
+  mountPanel("left-sidebar", { side: "left" });
+  act(() => {
+    separator().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+  });
+  expect(separator().getAttribute("aria-valuenow")).toBe("392");
+  unmountPanel();
+  mountPanel("left-sidebar", { side: "left" });
+  expect(separator().getAttribute("aria-valuenow")).toBe("392");
+  widenWithKeyboard();
+  expect(separator().getAttribute("aria-valuenow")).toBe("360");
+});

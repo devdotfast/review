@@ -19,12 +19,12 @@ const RELEASE_IDENTITIES = Object.freeze({
   }),
 });
 
-// Squirrel renames an install to the folder name inside the update zip, so a
-// release ships one zip per folder name still installed: `bundle` is that
-// folder name (minus .app), `artifact` prefixes the zip file. The first entry
-// is what a client that does not name its folder receives: such a client
-// predates the parameter, so it gets the pre-rename name. The DMG always
-// carries the channel's nameShort.
+// Squirrel renames an install to the update's executable name, so a release
+// ships one zip per bundle name still installed, each with its executable
+// named to match: `bundle` is that name (the .app folder and the executable),
+// `artifact` prefixes the zip file. The first entry is what a client that does
+// not name its bundle receives: such a client predates the parameter, so it
+// gets the pre-rename name. The DMG always carries the channel's nameShort.
 const UPDATE_BUNDLES = Object.freeze({
   stable: Object.freeze([
     Object.freeze({ bundle: "Review", artifact: "Review" }),

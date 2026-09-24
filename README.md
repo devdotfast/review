@@ -5,7 +5,7 @@
     alt="Whiteboard logo"
   />
   <h1>Whiteboard</h1>
-  <p><strong>Cursor for code review.</strong></p>
+  <p><strong>an open-source IDE for thoughtful software design</strong></p>
   <p>
     <a href="https://install.dev.fast">Download for macOS</a> ·
     <a href="https://dev.fast">Website</a> ·
@@ -13,20 +13,19 @@
   </p>
 </div>
 
-Whiteboard is an open-source desktop app for understanding and reviewing
-agent-written code. Coding agents turn a branch or pull request into a guided,
-interactive Whiteboard connected to the exact code behind it.
+We’re building Whiteboard, an open-source desktop app where humans and agents can architect software together in a common workspace.
 
-Explore architecture and data flow, inspect diffs, and explore coding traces
-from one interface.
+Whiteboard plugs into the tools you already use - e.g. Claude Code, Codex, etc. – and gives your agent an SDK to draw on an in-app canvas to describe its work.
 
 <p align="center">
   <img
-    src="docs/assets/whiteboard-overview.png"
+    src="docs/assets/whiteboard-demo.gif"
     width="880"
-    alt="Whiteboard showing a guided code review and interactive sequence diagram"
+    alt="An agent draws a flow diagram on a Whiteboard next to the code it describes"
   />
 </p>
+
+Here’s a 1 min demo video explaining more: https://youtu.be/n3bPlt2KzCA
 
 ## Quickstart
 
@@ -35,7 +34,11 @@ from one interface.
 3. Ask your agent to review your current branch against up-to-date main and
    open the result in Whiteboard.
 
-## Why vendor Code OSS?
+## How it works
+
+### Built on top of CodeOSS
+
+We found that pure HTML tools didn’t provide easy affordances to connect a spec, plan, or diagram to code; this is especially tricky since tradeoffs are often only discovered after a first pass at implementation. In Whiteboard, when you click on visualizations like a sequence diagram, an entity relationship diagram, or a quote from the agent’s trace, you can jump to the underlying code directly. When navigating code, you get keybindings and LSP support from VSCode out of the box. We take care to make sure these diagrams are rendered incrementally as well, as if someone was drawing them out for you.
 
 With everyone using dedicated agent TUIs and desktop apps, we only use our text
 editors for reviewing line-by-line diffs now, so we figured why not have a text
@@ -49,11 +52,20 @@ Code (i.e., ~45% of the codebase is Copilot these days 😬) that we don't need.
 We regularly monitor upstream Code OSS and merge in security/feature patches as
 they come in.
 
+### Semantic diff viewer
+
+Even with that, we found that a raw diff view was often too noisy, so we wrote a semantic, AST-aware diff viewer in Rust so you can only view the code changes which are relevant to you. We’ve set up some sane defaults: large added functions are summarized as pseudocode, and things like unit tests and documentation changes are collapsed. This is all customizable with a WASM-based plugin system.
+
+### Decision Log
+
+We found it difficult to reason about what set of decisions our agents made autonomously & how that impacts a change. So we built tools for agents to query and link their own traces on the Whiteboard, so you can visualize the requirements that you set, understand how they were implemented, and understand what decisions the agent made autonomously.
+
 ## Contributing
 
-We welcome bug reports, fixes, and features. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request workflow, and
-follow our [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as
+Please poke through and feel free to contribute! We would love to hear any feedback and to learn from your expertise.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request workflow,
+and follow our [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as
 described in [SECURITY.md](SECURITY.md). Questions? Ask on
 [Discord](https://discord.gg/wYvd2cpMQg).
 
@@ -65,6 +77,8 @@ your code, diffs, Whiteboard text, prompts, or model output. Read the
 [telemetry reference](docs/telemetry.md), or turn telemetry off at any time.
 
 ## License
+
+We’re releasing our desktop app under an MIT license. Eventually we’ll charge companies for a hosted product that manages session creation alongside features like trajectory storage and multiplayer reviews. Everything will always remain self-hostable.
 
 Whiteboard is available under the [MIT License](LICENSE). The vendored Code -
 OSS fork retains Microsoft's MIT license and third-party notices; see

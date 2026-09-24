@@ -115,7 +115,7 @@ export function FlowGraph({
             markerEnd: ARROW,
             data: {
               unitId: block.edges[edge.index]!.id,
-              label: block.edges[edge.index]!.label,
+              label: edge.label,
               dashed: block.edges[edge.index]!.style === "dashed",
               points: edge.points,
             },
@@ -237,10 +237,19 @@ interface Layout {
     index: number;
     section: number;
     points: { x: number; y: number }[];
+    label?: { text: string; x: number; y: number };
   }[];
 }
 
 const SIZE = { width: 210, height: 62 };
+
+// The label's 9px mono font, so ELK leaves room for it between layers.
+const LABEL = { charWidth: 5.4, height: 12, maxLength: 28 };
+
+const labelText = (label: string) =>
+  label.length > LABEL.maxLength
+    ? `${label.slice(0, LABEL.maxLength - 1)}…`
+    : label;
 
 async function layoutFlow(
   block: FlowDiagramBlock,
@@ -255,11 +264,24 @@ async function layoutFlow(
       "elk.layered.spacing.nodeNodeBetweenLayers": "44",
     },
     children: block.nodes.map((node) => ({ id: node.key, ...SIZE })),
-    edges: block.edges.map((edge, index) => ({
-      id: String(index),
-      sources: [edge.from],
-      targets: [edge.to],
-    })),
+    edges: block.edges.map((edge, index) => {
+      const text = edge.label && labelText(edge.label);
+
+      return {
+        id: String(index),
+        sources: [edge.from],
+        targets: [edge.to],
+        labels: text
+          ? [
+              {
+                text,
+                width: text.length * LABEL.charWidth,
+                height: LABEL.height,
+              },
+            ]
+          : [],
+      };
+    }),
   });
 
   return {
@@ -272,15 +294,24 @@ async function layoutFlow(
       ]),
     ),
     edges: (result.edges ?? []).flatMap((edge) =>
-      (edge.sections ?? []).map((section, index) => ({
-        index: Number(edge.id),
-        section: index,
-        points: [
-          section.startPoint,
-          ...(section.bendPoints ?? []),
-          section.endPoint,
-        ],
-      })),
+      (edge.sections ?? []).map((section, index) => {
+        const label = index ? undefined : edge.labels?.[0];
+
+        return {
+          index: Number(edge.id),
+          section: index,
+          points: [
+            section.startPoint,
+            ...(section.bendPoints ?? []),
+            section.endPoint,
+          ],
+          label: label && {
+            text: label.text ?? "",
+            x: label.x ?? 0,
+            y: (label.y ?? 0) + LABEL.height - 3,
+          },
+        };
+      }),
     ),
   };
 }
@@ -296,7 +327,7 @@ type FlowNodeType = Node<FlowNodeData, "flowNode">;
 
 interface FlowEdgeData extends Record<string, unknown> {
   unitId: string | undefined;
-  label: string | undefined;
+  label: { text: string; x: number; y: number } | undefined;
   dashed: boolean;
   points: { x: number; y: number }[];
 }
@@ -420,8 +451,6 @@ function FlowEdge({ id, data, markerEnd }: EdgeProps<FlowEdgeType>) {
     .map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`)
     .join(" ");
 
-  const start = data.points[0]!;
-
   return (
     <>
       <BaseEdge
@@ -441,11 +470,11 @@ function FlowEdge({ id, data, markerEnd }: EdgeProps<FlowEdgeType>) {
       {data.label && (
         <text
           className="lens-flow-edge-label"
-          x={start.x + 7}
-          y={start.y + 20}
+          x={data.label.x}
+          y={data.label.y}
           data-motion={motion}
         >
-          {data.label.length > 28 ? `${data.label.slice(0, 27)}…` : data.label}
+          {data.label.text}
         </text>
       )}
     </>

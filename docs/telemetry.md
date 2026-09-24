@@ -90,7 +90,9 @@ Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
 events, retries temporary failures, and deletes events after seven days. Each
 event keeps one random `uuid` across retries, so PostHog ingests a resent event
-once, and its `timestamp` is when it happened, not when it was sent.
+once, and its `timestamp` is when it happened, not when it was sent. A
+`review_telemetry_dropped` count is queued the same way, so a resent count lands
+once too.
 Telemetry is best-effort and never blocks Review from working.
 
 Three identifiers support exact lifecycle correlation without PostHog identity

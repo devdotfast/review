@@ -315,23 +315,18 @@ export class PostHogCaptureClient {
       return doneResult(nextRetryAt);
     }
 
-    const diagnosticEvents = droppedEvents(
+    const diagnostics = await this.queueDropDiagnostics(
       drops,
       eligible[0]!.event.distinctId,
-      this.defaultProperties,
+      now,
     );
 
-    const sentEligible = eligible.slice(
-      0,
-      Math.max(0, BATCH_LIMIT - diagnosticEvents.length),
-    );
+    const sentEligible = [...diagnostics, ...eligible].slice(0, BATCH_LIMIT);
 
-    hasMoreEligible ||= sentEligible.length < eligible.length;
+    hasMoreEligible ||=
+      sentEligible.length < diagnostics.length + eligible.length;
 
-    const batch = [
-      ...diagnosticEvents,
-      ...sentEligible.map(({ event }) => event),
-    ];
+    const batch = sentEligible.map(({ event }) => event);
 
     const remainingMs = Math.max(1, deadlineMs - (this.now() - startedAt));
     const result = await this.sendBatch(batch, remainingMs);
@@ -342,10 +337,6 @@ export class PostHogCaptureClient {
           rm(path.join(queueDir, fileName), { force: true }),
         ),
       );
-
-      if (diagnosticEvents.length > 0) {
-        await rm(path.join(queueDir, DROPPED_FILE), { force: true });
-      }
 
       this.queuedSinceFlush = 0;
 
@@ -358,8 +349,10 @@ export class PostHogCaptureClient {
           rm(path.join(queueDir, fileName), { force: true }),
         ),
       );
-      addDrop(drops, "permanent_rejection", sentEligible.length);
-      await this.writeDroppedCounts(drops);
+      // Earlier counts are queued as diagnostics by now; only this is new.
+      await this.writeDroppedCounts({
+        permanent_rejection: sentEligible.length,
+      });
       this.queuedSinceFlush = 0;
 
       return hasMoreEligible ? { state: "more" } : doneResult(nextRetryAt);
@@ -431,6 +424,56 @@ export class PostHogCaptureClient {
     }
   }
 
+  /**
+   * Turns the pending drop tally into queued events, each with its own uuid,
+   * and clears the tally. A diagnostic then retries like any event, so a
+   * batch resent after a lost response cannot count a drop twice.
+   */
+  private async queueDropDiagnostics(
+    drops: Partial<Record<DropReason, number>>,
+    distinctId: string,
+    now: number,
+  ): Promise<Array<{ fileName: string; event: QueuedPostHogEvent }>> {
+    const queueDir = this.queueDir!;
+
+    const diagnostics = DROP_REASONS.flatMap((reason) => {
+      const count = drops[reason];
+
+      if (count === undefined || count <= 0) return [];
+      const uuid = this.idFactory();
+
+      const event: QueuedPostHogEvent = {
+        uuid,
+        event: "review_telemetry_dropped",
+        distinctId,
+        properties: compactProperties({
+          ...this.defaultProperties,
+          reason,
+          count,
+        }),
+        createdAt: now,
+        attempts: 0,
+        nextAttemptAt: 0,
+      };
+
+      return [{ fileName: `${now}-${uuid}.json`, event }];
+    });
+
+    if (diagnostics.length === 0) return [];
+
+    for (const { fileName, event } of diagnostics) {
+      writeFileAtomic(
+        path.join(queueDir, fileName),
+        `${JSON.stringify(event)}\n`,
+        "utf8",
+      );
+    }
+
+    await rm(path.join(queueDir, DROPPED_FILE), { force: true });
+
+    return diagnostics;
+  }
+
   private scheduleFlush(delayMs: number): void {
     if (!this.queueDir || this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
@@ -479,29 +522,6 @@ export class PostHogCaptureClient {
       "utf8",
     );
   }
-}
-
-function droppedEvents(
-  drops: Partial<Record<DropReason, number>>,
-  distinctId: string,
-  defaults: PostHogCaptureProperties,
-): QueuedPostHogEvent[] {
-  return DROP_REASONS.flatMap((reason) => {
-    const count = drops[reason];
-
-    if (count === undefined || count <= 0) return [];
-
-    return [
-      {
-        event: "review_telemetry_dropped",
-        distinctId,
-        properties: { ...defaults, reason, count },
-        createdAt: Date.now(),
-        attempts: 0,
-        nextAttemptAt: 0,
-      },
-    ];
-  });
 }
 
 function doneResult(nextRetryAt: number | undefined): FlushBatchResult {

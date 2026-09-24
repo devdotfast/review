@@ -2660,25 +2660,8 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
   ).toEqual({ additions: 3, deletions: 3 });
 });
 
-it("rejects document lenses, unsafe patterns and missing range sources", async () => {
+it("rejects unsafe patterns and missing range sources", async () => {
   const { reviewId } = await create();
-
-  // Lenses left the document: an insert says where they went.
-  for (const content of [
-    {
-      type: "file_lens",
-      title: "Old",
-      targets: [{ kind: "files", patterns: ["**"] }],
-    },
-    {
-      type: "section",
-      title: "Nested",
-      children: [{ type: "file_lens", title: "Old", patterns: ["**"] }],
-    },
-  ])
-    expect(() => edit(reviewId, { type: "insert", content })).toThrow(
-      /no longer a document block.*session_lens_edit/,
-    );
 
   await expect(
     writeLens(reviewId, {

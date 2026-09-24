@@ -19,7 +19,7 @@ import {
   flowNodeInsertSchema,
   flowNodeSchema,
 } from "./blocks/flow_diagram.js";
-import { type Block, blockSchema, fileLensMoved } from "./blocks/index.js";
+import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { ReviewInputError } from "./input-error.js";
 
@@ -348,10 +348,12 @@ export function sourceReferences(
 
 export const documentSchema = z.array(blockSchema);
 
-export const contentSchema = z.union(
-  [blockSchema, stepSchema, flowNodeInsertSchema, flowEdgeSchema],
-  { error: fileLensMoved },
-);
+export const contentSchema = z.union([
+  blockSchema,
+  stepSchema,
+  flowNodeInsertSchema,
+  flowEdgeSchema,
+]);
 
 const placement = { parentId: label.optional(), afterId: label.optional() };
 

@@ -426,22 +426,22 @@ export class LocalReviewData {
       };
 
       // The review-files extension compares the folder with this base.
-      const settings = Object.fromEntries(
-        Object.entries(workspace.settings).filter(
-          ([key]) => !key.startsWith("reviewFiles."),
-        ),
+      const settings = Object.entries(workspace.settings).filter(
+        ([key]) => !key.startsWith("reviewFiles."),
       );
+
+      settings.push(["window.title", title]);
+
+      if (baseRoot !== null)
+        settings.push(
+          ["reviewFiles.base", baseRoot],
+          ["reviewFiles.untracked", live],
+        );
 
       const next = {
         ...workspace,
         folders: [{ path: headRoot, name }, ...workspace.folders.slice(1)],
-        settings: {
-          ...settings,
-          "window.title": title,
-          ...(baseRoot === null
-            ? {}
-            : { "reviewFiles.base": baseRoot, "reviewFiles.untracked": live }),
-        },
+        settings: Object.fromEntries(settings),
       };
 
       if (JSON.stringify(next) !== JSON.stringify(current))

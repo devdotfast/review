@@ -16,6 +16,7 @@ test("posts named main-process telemetry through the embedded server", async () 
       url: "http://127.0.0.1:1234/__progressive-review",
       token: "secret",
       instanceId: "instance",
+      appSessionId: "launch-1",
     }),
     isTelemetryEnabled: () => true,
     fetchImpl: async (_input, init) => {
@@ -35,6 +36,10 @@ test("posts named main-process telemetry through the embedded server", async () 
   await new Promise<void>((resolve) => setImmediate(resolve));
 
   assert.equal(requests.length, 1);
+  assert.equal(
+    new Headers(requests[0].headers).get("x-review-app-session-id"),
+    "launch-1",
+  );
   assert.deepEqual(JSON.parse(String(requests[0].body)), {
     name: "update_failed",
     properties: { phase: "download", message_source: "electron" },

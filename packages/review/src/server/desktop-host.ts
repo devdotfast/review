@@ -10,6 +10,7 @@ import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { devReviewHome } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
 import { SharedReviewStore } from "../sharing/import.js";
+import { reviewTelemetryChannel } from "../telemetry-config";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
 
@@ -28,10 +29,20 @@ export async function runDesktopHost(
   const toolingRoot = env.DEV_FAST_REVIEW_TOOLING_ROOT || packageRoot;
   const telemetryEnv = { ...env };
   delete telemetryEnv.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
-  const telemetry = ReviewTelemetry.fromEnv(telemetryEnv);
+
+  const telemetry = ReviewTelemetry.fromEnv(telemetryEnv, {
+    surface: "desktop",
+  });
+
   await telemetry.setEnabled(
     !isEnabledEnvValue(env.DEV_FAST_REVIEW_TELEMETRY_DISABLED),
   );
+
+  // An unpackaged Desktop is ours; remember that so every later process on
+  // this machine, CLI included, reports internal.
+  if (reviewTelemetryChannel(env) === "dev") await telemetry.setInternal(true);
+  await telemetry.captureInstallationCreated().catch(() => undefined);
+  await telemetry.reconcileOpenSessions().catch(() => undefined);
   const installationId = await telemetry.getInstallationId();
   // This value bootstraps the stored setting. Remove it after persistence so
   // a later in-app enable also reaches telemetry instances created elsewhere.

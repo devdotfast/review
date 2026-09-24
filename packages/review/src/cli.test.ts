@@ -20,6 +20,7 @@ import { runReviewCli } from "./cli-runner";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import {
   PostHogCaptureClient,
+  type PostHogCaptureInput,
   type PostHogCaptureProperties,
 } from "./posthog-capture-client";
 import { runReviewAppPick as runReviewAppActual } from "./review-app";
@@ -336,6 +337,7 @@ describe("Whiteboard CLI", () => {
     );
 
     const telemetry = {
+      setSurface: vi.fn<ReviewTelemetry["setSurface"]>(),
       createCommandRunId: vi.fn<ReviewTelemetry["createCommandRunId"]>(
         () => "run-12345678",
       ),
@@ -377,6 +379,46 @@ describe("Whiteboard CLI", () => {
     expect(captureCommandSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({ command }),
     );
+  });
+
+  it("labels every event of a headless server process headless", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-cli-surface-"),
+    );
+
+    const events: PostHogCaptureInput[] = [];
+
+    const telemetry = new ReviewTelemetry({
+      captureClient: {
+        enabled: true,
+        capture: async (event) => {
+          events.push(event);
+        },
+      },
+      env: {},
+      installConfigPath: path.join(rootPath, "telemetry.json"),
+      legacyInstallConfigPath: path.join(rootPath, "legacy.json"),
+    });
+
+    try {
+      await expect(
+        runReviewCli({
+          argv: ["server", "start", "--port", "99999"],
+          stdout: outputStream(),
+          stderr: outputStream(),
+          telemetry,
+        }),
+      ).resolves.toBe(1);
+
+      expect(events.map((event) => event.event)).toContain(
+        "review_installation_created",
+      );
+      expect(new Set(events.map((event) => event.properties?.surface))).toEqual(
+        new Set(["headless"]),
+      );
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
   });
 
   it("persists command start before an unresolved handler and completes the same run", async () => {
@@ -491,6 +533,7 @@ describe("Whiteboard CLI", () => {
     );
 
     const telemetry = {
+      setSurface: vi.fn<ReviewTelemetry["setSurface"]>(),
       createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
       captureInstallationCreated: vi.fn<
         ReviewTelemetry["captureInstallationCreated"]

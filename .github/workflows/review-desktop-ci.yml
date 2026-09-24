@@ -177,6 +177,29 @@ jobs:
       - name: Desktop language services E2E
         run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
 
+      - name: Stage the Review runtime for journeys
+        run: |
+          (cd packages/review && pnpm pack --pack-destination /tmp/review-pack)
+          mkdir -p /tmp/review-runtime
+          (cd /tmp/review-runtime && npm init -y >/dev/null && npm install --omit=dev /tmp/review-pack/dev.fast-review-*.tgz)
+
+      - name: Telemetry contract journey
+        env:
+          REVIEW_E2E_RUNTIME: /tmp/review-runtime/node_modules/@dev.fast/review
+        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:telemetry
+
+      - name: Upload telemetry journey diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: telemetry-contract-diagnostics
+          path: |
+            /tmp/review-e2e-telemetry-contract-*/report.json
+            /tmp/review-e2e-telemetry-contract-*/app.log
+            /tmp/review-e2e-telemetry-contract-*/failure.png
+            /tmp/review-e2e-telemetry-contract-*/failure-dom.txt
+          if-no-files-found: ignore
+
       - name: Upload Desktop language services diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

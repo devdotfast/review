@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { errorHandler } from "../../base/common/errors.js";
-import { generateUuid } from "../../base/common/uuid.js";
 import type { ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import {
   ReviewErrorReportLimiter,
@@ -50,8 +49,6 @@ interface PendingReviewTelemetryEvent {
  * direct call from here would bypass both.
  */
 export class ReviewMainErrorTelemetry {
-  readonly appSessionId = generateUuid();
-
   private readonly limiter = new ReviewErrorReportLimiter();
   private readonly queued: PendingReviewTelemetryEvent[] = [];
   private readonly unbind: () => void;
@@ -153,7 +150,7 @@ export class ReviewMainErrorTelemetry {
       void send(
         `${connection.url}/telemetry/event`,
         reviewTelemetryEventRequest(
-          { token: connection.token, appSessionId: this.appSessionId },
+          connection,
           {
             name: pending.name,
             properties: pending.properties,

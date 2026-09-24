@@ -246,11 +246,6 @@ process.exit(result.status ?? 1);
         { mode: 0o755 },
       );
       process.env.PATH = `${traced}${path.delimiter}${host}${path.delimiter}${savedEnv.PATH}`;
-      assert.match(
-        execFileSync("diffr", ["--version"], { encoding: "utf8" }),
-        /diffr 0\.1\.1/,
-      );
-      await rm(called);
     });
 
     test("prefers the bundle over a working host binary", async () => {

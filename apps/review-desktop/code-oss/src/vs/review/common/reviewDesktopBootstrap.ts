@@ -25,7 +25,12 @@ export interface ReviewDesktopConnection {
   readonly installationId?: string;
   readonly cliPath?: string;
   readonly cliVersion?: string;
+  /** Minted once per launch by the main process, never announced by the server. */
+  readonly appSessionId: string;
 }
+
+/** What the server's ready event announces, before main adds its own fields. */
+export type ReviewServerAnnouncement = Omit<ReviewDesktopConnection, "appSessionId">;
 
 export interface ReviewDesktopCredentials {
   readonly token: string;
@@ -70,7 +75,7 @@ export class ReviewReadyEventReader {
    * ignored; a ready event that fails validation throws immediately so startup
    * fails with a real reason instead of stalling until the readiness timeout.
    */
-  push(chunk: string): ReviewDesktopConnection | undefined {
+  push(chunk: string): ReviewServerAnnouncement | undefined {
     if (this.done) return undefined;
     this.buffer += chunk;
     let newline = this.buffer.indexOf("\n");
@@ -88,7 +93,7 @@ export class ReviewReadyEventReader {
     return undefined;
   }
 
-  private readLine(line: string): ReviewDesktopConnection | undefined {
+  private readLine(line: string): ReviewServerAnnouncement | undefined {
     if (!line.startsWith("{")) return undefined;
     let parsed: unknown;
     try {
@@ -100,7 +105,7 @@ export class ReviewReadyEventReader {
     return this.validate(parsed);
   }
 
-  private validate(event: Record<string, unknown>): ReviewDesktopConnection {
+  private validate(event: Record<string, unknown>): ReviewServerAnnouncement {
     const version = event["version"];
     if (version !== REVIEW_DESKTOP_CONNECTION_VERSION) {
       throw new Error(

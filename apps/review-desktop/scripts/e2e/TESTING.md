@@ -3,8 +3,10 @@
 A manual suite. Each journey in `journeys/` launches Review Desktop once against
 an isolated review home, profile, remote-debugging port and temp root, and drives
 it through the JSON review API, the installed `review` CLI and Playwright over
-CDP. Nothing runs it in CI; the only automated gate is `../e2e-runner.test.mjs`,
-a contract test that checks every journey exports `name`, `phase` and `run`.
+CDP. CI runs one journey, `telemetry-contract`, through
+`pnpm --filter @dev.fast/review-desktop test:e2e:telemetry`; the rest are
+manual. `../e2e-runner.test.mjs` checks every journey exports `name`, `phase`
+and `run`.
 
 ## Prerequisites
 
@@ -50,9 +52,11 @@ re-materializes its extension group through `run.sh`, so this checkout's
 A journey module exports `name` (matching its basename), `phase`, `options`
 passed to `createHarness`, and `run(ctx)`. Useful `ctx` helpers: `until` for
 polling, `api` and `apiOk` for the JSON review API, `cli` and `cliRaw` for the
-installed CLI, `check` to record what the journey proved, plus `knownBug`,
-`restartDesktop`, `createReview`, `openHome` and `pickReview`. Throw
-`Error("skip: ...")` when the machine cannot run the journey.
+installed CLI, `appLog` for the Desktop's output so far, `check` to record
+what the journey proved, plus `knownBug`, `restartDesktop` (`{ signal: "SIGKILL" }` for a crash),
+`quitAndRelaunchDesktop` (a real quit through the workbench), `createReview`,
+`openHome` and `pickReview`. Throw `Error("skip: ...")` when the machine cannot
+run the journey.
 
 ## Known bugs
 

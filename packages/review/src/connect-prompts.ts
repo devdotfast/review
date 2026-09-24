@@ -33,10 +33,6 @@ export function reviewMcpLaunch(hasShim: boolean): {
     : { command: "whiteboard", args: ["mcp"] };
 }
 
-function whiteboardCli(hasShim: boolean): string {
-  return hasShim ? '"$HOME/.local/bin/whiteboard"' : "whiteboard";
-}
-
 function shellQuote(value: string): string {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
@@ -78,6 +74,17 @@ function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
   }
 }
 
+function cursorSteps(): string[] {
+  const launch = reviewMcpLaunch(true);
+  const deeplink = cursorInstallDeeplink(launch);
+  const entry = JSON.stringify({ whiteboard: launch }, null, 2);
+
+  return [
+    `Do not paste the install link in chat. Chat clients do not open cursor:// links. Open Cursor's MCP install deeplink with the OS URL handler using the command for this operating system, then stop and let me confirm the install:\n\nmacOS: open ${shellQuote(deeplink)}\nLinux: xdg-open ${shellQuote(deeplink)}\nWindows: cmd /c start "" "${deeplink}"`,
+    `After I confirm, check for a whiteboard server in ~/.cursor/mcp.json. If the deeplink did not add it, merge this entry into the file's mcpServers object without removing other servers or settings (create the file and object if missing). Do not use this fallback if I declined the install:\n\n\`\`\`json\n${entry}\n\`\`\``,
+  ];
+}
+
 export function connectPrompt(
   target: InstallTarget,
   input: ConnectPromptInput,
@@ -93,8 +100,10 @@ export function connectPrompt(
 
   const verify =
     target === "pi"
-      ? `Ask me to run /reload in Pi, then run \`${whiteboardCli(input.hasShim)} api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
-      : "Reload your MCP tools and call `session_get_instructions` on the Whiteboard server. If a restart is needed, tell me and verify after it. Do not author anything yet.";
+      ? `Ask me to run /reload in Pi, then run \`whiteboard api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
+      : target === "opencode"
+        ? "Stop and tell me to quit and reopen OpenCode: it loads plugins and MCP servers only at startup. After I reopen it, call `session_get_instructions` on the Whiteboard server to confirm the connection. Do not author anything yet."
+        : "Reload your MCP tools and call `session_get_instructions` on the Whiteboard server. If a restart is needed, tell me and verify after it. Do not author anything yet.";
 
   return [
     "Connect this agent to dev.fast Whiteboard.",
@@ -106,10 +115,9 @@ export function connectPrompt(
           ]
         : []),
       ...(target === "cursor"
-        ? [
-            `Show me this link and ask me to confirm the installation in Cursor:\n\n${cursorInstallDeeplink(reviewMcpLaunch(true))}`,
-          ]
-        : [...pluginSteps(target), ...extra, verify]),
+        ? cursorSteps()
+        : [...pluginSteps(target), ...extra]),
+      verify,
     ]),
   ].join("\n");
 }

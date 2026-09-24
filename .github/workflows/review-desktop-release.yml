@@ -557,6 +557,14 @@ jobs:
       - name: Smoke launch the packaged app
         run: node apps/review-desktop/scripts/smoke-launch-packaged.mjs
 
+      # The packaged app must still report errors, tag them as smoke traffic,
+      # and deliver them; the launch above only proves it starts.
+      - name: Smoke telemetry delivery and error reporting
+        run: |
+          APP="apps/review-desktop/VSCode-darwin-arm64/$(node -p "require('./apps/review-desktop/code-oss/product.json').nameShort").app"
+          node apps/review-desktop/scripts/smoke-telemetry-delivery.mjs --app "$APP"
+          node apps/review-desktop/scripts/smoke-error-telemetry.mjs --app "$APP"
+
       # Payloads first, manifest last: a client must never see a latest.json
       # whose zip is not yet downloadable.
       - name: Upload release to R2

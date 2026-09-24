@@ -89,6 +89,7 @@ export async function createHarness({
     DEV_REVIEW_HOME: home,
     DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
     DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
+    DEV_FAST_REVIEW_TELEMETRY_ENV: "e2e",
     DEV_REVIEW_EXTENSIONS: extensions,
   };
 
@@ -513,14 +514,19 @@ export async function createHarness({
   async function waitForExit(label, timeout = 30000) {
     const deadline = Date.now() + timeout;
 
-    while (app.exitCode === null && Date.now() < deadline) await sleep(100);
+    // A signal death leaves exitCode null and sets signalCode instead.
+    const running = () => app.exitCode === null && app.signalCode === null;
 
-    if (app.exitCode === null)
+    while (running() && Date.now() < deadline) await sleep(100);
+
+    if (running())
       throw new Error(`Timed out waiting for ${label}`);
   }
 
-  async function restartDesktop() {
-    killGroup("SIGTERM");
+  /** `signal: "SIGKILL"` stops the Desktop without letting it run any shutdown handler. */
+  async function restartDesktop({ signal = "SIGTERM" } = {}) {
+    lifecycle(`Restarting with ${signal}`);
+    killGroup(signal);
 
     try {
       await waitForExit("Desktop shutdown");
@@ -530,6 +536,18 @@ export async function createHarness({
       await waitForExit("Desktop shutdown after SIGKILL");
     }
 
+    await relaunch();
+  }
+
+  /** Quits the way a reader does, through `workbench.action.quit` (Cmd/Ctrl+Q), then relaunches. */
+  async function quitAndRelaunchDesktop() {
+    lifecycle("Quitting through workbench.action.quit");
+    await page.keyboard.press("ControlOrMeta+KeyQ");
+    await waitForExit("Desktop quit");
+    await relaunch();
+  }
+
+  async function relaunch() {
     await browser?.close();
     spawnDesktop();
     await attach();
@@ -583,6 +601,7 @@ export async function createHarness({
 
   return Object.assign(ctx, {
     api,
+    appLog: () => appLog,
     apiOk,
     apiCanvasFor,
     cli,
@@ -590,6 +609,7 @@ export async function createHarness({
     check: (...names) => report.checks.push(...names),
     knownBug,
     restartDesktop,
+    quitAndRelaunchDesktop,
     close,
   });
 }
@@ -659,7 +679,11 @@ export const orderReviewBlocks = [
   },
   {
     type: "code_peek",
-    source: { side: "head", file: "order.ts", fromLine: 1, toLine: 1 },
+    source: {
+      file: "order.ts",
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 1 },
+    },
   },
 ];
 
@@ -697,7 +721,7 @@ export async function dismissModalEditor(
 /** Opens a review the way a reader does, with `review app pick --review`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", reviewId, "--json"],
+    ["app", "pick", "--session", reviewId, "--json"],
     cwd,
   );
 

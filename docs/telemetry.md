@@ -87,13 +87,30 @@ PostHog's `identify()` API, and it sends every event, including
 PostHog to process it as a personless event and never create a person profile
 for that ID.
 
+Whiteboard Preview keeps a separate installation ID in
+`telemetry/progressive-review.preview.json`. The standalone CLI always uses the
+stable ID.
+
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
-events, retries temporary failures, and deletes events after seven days.
+events, retries temporary failures, and deletes events after seven days. Each
+event keeps one random `uuid` across retries, so PostHog ingests a resent event
+once, and its `timestamp` is when it happened, not when it was sent.
 Telemetry is best-effort and never blocks Whiteboard from working.
 
-`command_run_id` is a new random UUID for each CLI invocation. It links a
-command's start event to its result.
+Three identifiers support exact lifecycle correlation without PostHog identity
+or group profiles:
+
+- `command_run_id` is a new random UUID for each CLI invocation.
+- `review_id` is `rv_` plus 128 bits of a namespaced HMAC of the whiteboard's
+  ID.
+- `presentation_id` is `pr_` plus 128 bits of a namespaced HMAC of the ID of
+  one opening of a whiteboard in the app.
+
+The HMAC key is the random installation ID. The same whiteboard therefore has
+a stable `review_id` only on one installation; another installation produces a
+different value. The raw IDs are used only inside the local server and never
+reach the capture client.
 
 Whiteboard disables the built-in Microsoft telemetry inherited from Code -
 OSS. A hardening test enforces that rule.
@@ -140,48 +157,77 @@ sent, so the real event still goes out on the next normal run.
 
 Every event from the Whiteboard telemetry API includes these properties:
 
-| Property      | Value                                   |
-| ------------- | --------------------------------------- |
-| `product`     | `review-cli`                            |
-| `package`     | `@dev.fast/review`                      |
-| `version`     | CLI package version                     |
-| `app_version` | Optional Whiteboard app release version |
-| `node_major`  | Node major version                      |
-| `platform`    | Node platform enum                      |
-| `arch`        | Node architecture enum                  |
-| `ci`          | Boolean                                 |
-| `internal`    | Boolean for a dev.fast workspace build  |
+| Property         | Value                                                              |
+| ---------------- | ------------------------------------------------------------------ |
+| `cli_version`    | CLI package version (`version` repeats it for one release)         |
+| `app_version`    | Whiteboard app release version; absent for the standalone CLI      |
+| `channel`        | `stable`, `preview`, or `dev` for an unpackaged build              |
+| `environment`    | `production`, `ci`, `internal`, `e2e`, or `smoke`                  |
+| `surface`        | `desktop`, `cli`, `headless`, `mcp`, or `api`                      |
+| `node_major`     | Node major version                                                 |
+| `platform`       | Node platform enum                                                 |
+| `arch`           | Node architecture enum                                             |
+| `os_version`     | Kernel release string                                              |
+| `ci`             | Boolean                                                            |
+| `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
+| `app_session_id` | One random ID per app launch, shared by every app process          |
 
-The event names and the `product` and `package` values predate the Whiteboard
-name and are unchanged.
+`environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
+(`CI` set), `internal`, `production`. These variables set it and `channel`:
 
-UI events also include `source: review_app` and a random `app_session_id`. The
-app creates a new app session identifier for each renderer lifetime.
+- `DEV_FAST_REVIEW_TELEMETRY_ENV`: `e2e` or `smoke` for a test harness. Other
+  values are ignored.
+- `DEV_FAST_REVIEW_CHANNEL`: set by the app for its server to `stable`,
+  `preview`, or `dev`.
+- `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL`: `1` marks telemetry as internal and
+  `0` as external, overriding the stored marker and workspace detection.
 
-The embedded Desktop server adds `app_version` to all of its telemetry events.
-Standalone CLI events omit this property.
+The event names predate the Whiteboard name and are unchanged. UI events also
+include `source: review_app`.
 
-The transport creates `review_telemetry_dropped` directly. That
-event includes only `reason`, `count`, and the random installation identifier.
+Events about one opened whiteboard also include `review_id` and
+`presentation_id`. Global main-process and renderer errors remain unscoped;
+Whiteboard does not guess which open whiteboard caused them.
+
+`review_telemetry_dropped` carries the common properties of the process that
+dropped the events.
 
 ### CLI and lifecycle events
 
-| Event                         | Additional properties                                                                  | When                                 |
-| ----------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------ |
-| `review_installation_created` | None                                                                                   | The first enabled Whiteboard use     |
-| `review_command_started`      | `command_path`, `command_run_id`, `agent_kind`                                         | A public CLI handler is about to run |
-| `review_command_succeeded`    | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, and closed command flags | A public CLI command succeeds        |
-| `review_command_failed`       | The success properties plus `error_name` and `error_category` closed enums             | A public CLI command fails           |
-| `review_telemetry_dropped`    | `reason`, `count`                                                                      | The queue drops one or more events   |
+| Event                           | Additional properties                                                      | When                                                |
+| ------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `review_installation_created`   | None                                                                       | The first enabled Whiteboard use                    |
+| `review_command_started`        | `command_path`, `command_run_id`, `agent_kind`                             | A public CLI handler is about to run                |
+| `review_command_succeeded`      | `command_path`, `command_run_id`, `exit_code`, `duration_ms`               | A public CLI command succeeds                       |
+| `review_command_failed`         | The success properties plus `error_name` and `error_category` closed enums | A public CLI command fails                          |
+| `review_telemetry_dropped`      | `reason`, `count`                                                          | The queue drops one or more events                  |
+| `review_session_started`        | `source_kind`, `review_id`, `presentation_id`                              | A whiteboard opens in the app canvas                |
+| `review_review_presented`       | `load_ms`, `review_id`, `presentation_id`                                  | The canvas signals ready                            |
+| `review_first_review_presented` | `review_id`, `presentation_id`                                             | The first presented whiteboard on this installation |
+| `review_session_ended`          | `outcome`, `duration_ms`, `review_id`, `presentation_id`                   | The whiteboard closes; see outcomes below           |
+
+`source_kind` is `worktree`, `commits`, or `scratchpad`, set by the server from
+the opened whiteboard. `agent_kind` is allowlisted for session events but not
+yet sent.
+
+| `outcome`  | Meaning                                                                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`   | The tab closed or another whiteboard replaced it                                                                                                     |
+| `app_quit` | The app quit with the whiteboard open                                                                                                                |
+| `abnormal` | The app died with the whiteboard open. Sent by the next launch, without `duration_ms`, with the dead launch's common properties and `app_session_id` |
+
+`dismissed` and `deleted` are allowlisted outcomes that are not sent.
 
 `command_path` is a closed enum: `help`, `version`, `app.launch`, `app.pick`,
 `info`, `connect`, `instances`, `instances.use`, `instances.clear`,
 `migrate.apply`, `login`, `logout`, `whoami`,
 `trace.store.create`, `trace.store.delete`, `trace.store.info`,
 `trace.install`, `trace.allow`, `trace.deny`, `trace.storage.use`,
-`trace.config.migrate`, `api`, `mcp`, and `invalid`. Other commands, such as
-`share` and `status`, send no command events. Whiteboard sends no arguments,
-refs, tokens, or storage credentials.
+`trace.config.migrate`, `api`, `mcp`, `server.start`, and `invalid`. Other
+commands, such as `share` and `status`, send no command events. Whiteboard
+sends no arguments, refs, tokens, or storage credentials. `surface` is
+`headless` for `server.start`, `mcp` for `mcp`, `api` for `api`, and `cli`
+otherwise, on every event the command's process sends.
 
 The CLI writes `review_command_started` to the disk queue before entering the
 command handler. The queue normally begins its background flush after five
@@ -234,10 +280,25 @@ The server checks all properties in this table against
 ### Reserved events
 
 The allowlist also defines these events, but no current code sends them:
-`review_session_started`, `review_session_ended`, `review_review_presented`,
 `review_review_deleted`, `review_review_reaped`, `review_review_dismissed`, and
 `review_review_restored`. If a future change sends them, it will update this
 page in the same change.
+
+### Suspected hangs
+
+A session whose app never ends it cleanly arrives as
+`review_session_ended` with `outcome: "abnormal"`: Whiteboard records open
+sessions under `${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch
+reports any its predecessor left open.
+
+Operational queries also flag a start with no terminal event after five
+minutes:
+
+- a command start with no success or failure sharing `command_run_id`; or
+- a session start with no presentation sharing `presentation_id`.
+
+This observes lifecycle gaps; it does not time out or kill work. A late
+terminal or ready event removes the match automatically.
 
 ### Workbench events
 

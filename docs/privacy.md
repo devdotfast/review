@@ -38,13 +38,15 @@ PostHog.
 ## Anonymous product telemetry
 
 Anonymous telemetry is enabled by default. Whiteboard creates a random
-installation UUID and sends every event with PostHog's
-`$process_person_profile: false` flag, so PostHog does not create a person
-profile for it.
+installation UUID per release channel and sends `$process_person_profile:
+false` with every event, so PostHog creates no person profile.
 
 Telemetry can include closed enums, booleans, counts, durations, the CLI and
-app versions, operating-system and architecture categories, feature usage, a
-random per-command run ID, and sanitized product errors. PostHog may derive
+app versions, release channel, operating-system version and architecture
+categories, feature usage, opaque lifecycle-correlation identifiers, and
+sanitized product errors. Whiteboard derives whiteboard and presentation
+correlation IDs locally with a namespaced HMAC keyed by the random
+installation ID; raw whiteboard IDs never reach PostHog. PostHog may derive
 coarse location at ingestion, but the project discards the source IP.
 
 Pending events are stored in a bounded local queue under

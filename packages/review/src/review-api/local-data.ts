@@ -439,12 +439,15 @@ export class LocalReviewData {
           ["reviewFiles.untracked", live],
           [
             "reviewFiles.review",
-            {
-              reviewId: snapshot.reviewId,
-              version: snapshot.version,
-              commit: source.commit,
-              pins: source.anchor,
-            },
+            // A round trip through JSON drops the view's unset fields.
+            JSON.parse(
+              JSON.stringify({
+                reviewId: snapshot.reviewId,
+                version: snapshot.version,
+                commit: source.commit,
+                pins: source.anchor,
+              }),
+            ),
           ],
         );
 

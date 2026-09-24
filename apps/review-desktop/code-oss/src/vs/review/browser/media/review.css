@@ -1098,6 +1098,8 @@ body
 .review-viewed-check:disabled { cursor: default; opacity: .4; }
 /* Nothing to view: the box hides but keeps its slot, so columns stay aligned. */
 .review-viewed-check.is-empty { visibility: hidden; }
+/* File headers without a viewed action leave Open file at the trailing edge. */
+.review-multidiff-open-container + .review-viewed-check.is-empty { display: none; }
 .review-viewed-check[aria-checked="mixed"]::after {
   content: "";
   position: absolute;

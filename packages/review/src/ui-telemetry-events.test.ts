@@ -254,4 +254,62 @@ describe("sanitizeUiTelemetryEvent", () => {
 
     expect(output?.properties).not.toHaveProperty("file_path");
   });
+
+  it("allowlists the session lifecycle events", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "session_started",
+        properties: { app_session_id: "abcdefghij" },
+      }),
+    ).toEqual({
+      event: "review_session_started",
+      properties: { app_session_id: "abcdefghij" },
+    });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "session_ended",
+        properties: {
+          outcome: "app_quit",
+          duration_ms: 1500,
+          reviewUuid: "leak",
+        },
+      }),
+    ).toEqual({
+      event: "review_session_ended",
+      properties: { outcome: "app_quit", duration_ms: 1500 },
+    });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "session_ended",
+        properties: { outcome: "rage_quit" },
+      }),
+    ).toEqual({ event: "review_session_ended", properties: {} });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "review_presented",
+        properties: { load_ms: 240 },
+      }),
+    ).toEqual({
+      event: "review_review_presented",
+      properties: { load_ms: 240 },
+    });
+  });
+
+  it("allowlists source_kind and agent_kind on session_started, dropping invalid values", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "session_started",
+        properties: { source_kind: "commits", agent_kind: "claude" },
+      }),
+    ).toEqual({
+      event: "review_session_started",
+      properties: { source_kind: "commits", agent_kind: "claude" },
+    });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "session_started",
+        properties: { source_kind: "not-a-kind", agent_kind: "not-an-agent" },
+      }),
+    ).toEqual({ event: "review_session_started", properties: {} });
+  });
 });

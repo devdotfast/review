@@ -72,6 +72,7 @@ import {
   serverNotReady,
 } from "./server-discovery";
 import { setTraceAttribute, span } from "./startup-trace";
+import type { ReviewTelemetrySurface } from "./telemetry-config";
 import {
   runTraceBlame,
   runTraceDisable,
@@ -837,12 +838,13 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       state.json = true;
     }
 
-    const command = telemetryCommandPath(actionCommand, input.argv);
+    const command = telemetryCommandPath(actionCommand);
 
     if (!command) return;
     const commandRunId = telemetry.createCommandRunId();
     setTraceAttribute("command", command);
     setTraceAttribute("commandRunId", commandRunId);
+    telemetry.setSurface(commandSurface(command));
     activeTelemetry = {
       command,
       commandRunId,
@@ -1153,7 +1155,6 @@ async function captureOneOffCommand(
 
 function telemetryCommandPath(
   command: Command,
-  argv: readonly string[],
 ): ReviewCliCommandPath | undefined {
   const name = command.name();
   const parent = command.parent?.name();
@@ -1176,6 +1177,8 @@ function telemetryCommandPath(
 
   if (parent === "config" && name === "migrate") return "trace.config.migrate";
 
+  if (parent === "server" && name === "start") return "server.start";
+
   if (name === "login" || name === "logout" || name === "whoami") return name;
 
   if (name === "api" || name === "mcp" || name === "connect") return name;
@@ -1191,15 +1194,20 @@ function telemetryCommandPath(
     return name;
   }
 
-  if (name === "app") {
-    return argv.some(
-      (argument) => argument === "--review" || argument.startsWith("--review="),
-    )
-      ? "app.pick"
-      : "app.launch";
-  }
+  // Bare `app` takes no --session; picking is only `app pick`.
+  if (name === "app") return "app.launch";
 
   return undefined;
+}
+
+function commandSurface(command: ReviewCliCommandPath): ReviewTelemetrySurface {
+  if (command === "server.start") return "headless";
+
+  if (command === "mcp") return "mcp";
+
+  if (command === "api") return "api";
+
+  return "cli";
 }
 
 interface ErrorClassification {

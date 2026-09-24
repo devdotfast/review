@@ -72,7 +72,10 @@ export function jsonReviewBugReportSource(
 /** Telemetry and report uploads for a pinned native review. */
 export function createJsonReviewReporting(
   store: ReviewStore,
-  telemetry: Pick<ReviewTelemetry, "captureUiEvent" | "captureTabViewed">,
+  telemetry: Pick<
+    ReviewTelemetry,
+    "captureUiEvent" | "captureTabViewed" | "envelope"
+  >,
   options: {
     submit?: typeof submitReviewBugReport;
     shared?: SharedReviewStore;
@@ -101,19 +104,24 @@ export function createJsonReviewReporting(
     } else store.assertExists(id);
     await next();
   });
-  app.post("/:id/telemetry/event", async (context) => {
-    const body = await readBoundedRequestJson(context.req.raw, undefined, {});
+  app.post("/:id/telemetry/event", async (c) => {
+    const body = await readBoundedRequestJson(c.req.raw, undefined, {});
     const payload = isJsonObject(body) ? body : {};
+    const rawContext = isJsonObject(payload.context) ? payload.context : {};
     await captureSanitizedUiTelemetry(
       telemetry,
-      context.req.raw,
+      c.req.raw,
       payload.name,
       payload.properties,
       recordClientError,
       payload.error,
+      // The path id wins: the middleware above already asserted it exists,
+      // so a payload trying to assert a different review id is overridden.
+      { ...rawContext, reviewUuid: c.req.param("id") },
+      payload.occurredAt,
     );
 
-    return context.json({ ok: true });
+    return c.json({ ok: true });
   });
   app.post("/:id/telemetry/tab", async (context) => {
     const input = await readBoundedRequestJson(
@@ -155,6 +163,8 @@ export function createJsonReviewReporting(
             }
           : jsonReviewBugReportSource(store, snapshot),
         clientErrorNames: clientErrorsForSession(report.app_session_id),
+        // A locked telemetry config must not cost the user their report.
+        telemetryEnvelope: await telemetry.envelope().catch(() => undefined),
       }),
     );
   });

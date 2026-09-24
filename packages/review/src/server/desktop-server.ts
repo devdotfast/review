@@ -284,11 +284,36 @@ export function createGlobalReviewServer(
       const body = await readBoundedRequestJson(context.req.raw, undefined, {});
       const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
+
+      // The workbench has no reader on the stored review; the server does, so
+      // `session_started`'s source_kind is filled in here rather than trusted
+      // from the client.
+      const eventProperties: JsonObject = isJsonObject(payload.properties)
+        ? { ...payload.properties }
+        : {};
+
+      if (payload.name === "session_started") {
+        // Both are server-derived only: a client can never assert its own
+        // source_kind or agent_kind, so a review the store cannot resolve
+        // must not fall back to whatever the client sent.
+        delete eventProperties.source_kind;
+        delete eventProperties.agent_kind;
+
+        const rawContext = isJsonObject(payload.context) ? payload.context : {};
+
+        const sourceKind = sessionStartedSourceKind(
+          reviewStore,
+          jsonString(rawContext.reviewUuid),
+        );
+
+        if (sourceKind) eventProperties.source_kind = sourceKind;
+      }
+
       await captureSanitizedUiTelemetry(
         telemetry,
         context.req.raw,
         payload.name,
-        payload.properties,
+        eventProperties,
         (event) => {
           flushBeforeOptOut =
             event.event === "review_setting_changed" &&
@@ -296,6 +321,8 @@ export function createGlobalReviewServer(
             event.properties.enabled === false;
         },
         payload.error,
+        payload.context,
+        payload.occurredAt,
       );
 
       if (flushBeforeOptOut) await telemetry.flush(500);
@@ -624,6 +651,29 @@ export function createGlobalReviewServer(
 
 function httpJsonStatus(cause: unknown): number {
   return cause instanceof HttpJsonError ? cause.statusCode : 400;
+}
+
+/**
+ * `session_started`'s `source_kind`: the opened review's target kind, or
+ * `scratchpad` for the one scratchpad. Undefined when the review is gone (a
+ * shared review this store never had, or one deleted between open and the
+ * event arriving) or was left without a target.
+ */
+export function sessionStartedSourceKind(
+  reviewStore: ReviewStore,
+  reviewUuid: string | undefined,
+): string | undefined {
+  if (!reviewUuid) return undefined;
+
+  try {
+    const snapshot = reviewStore.read(reviewUuid);
+
+    return snapshot.kind === "scratchpad"
+      ? snapshot.kind
+      : snapshot.target?.kind;
+  } catch {
+    return undefined;
+  }
 }
 
 function globalJson<T>(status: number, body: T): Response {

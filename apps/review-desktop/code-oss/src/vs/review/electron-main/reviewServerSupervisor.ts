@@ -18,6 +18,7 @@ import * as semver from "../../base/common/semver/semver.js";
 import {
   type ReviewDesktopConnection,
   ReviewReadyEventReader,
+  type ReviewServerAnnouncement,
   resolveReviewServerEntry,
 } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_SERVER_RESTART_DELAYS } from "../common/reviewReconnect.js";
@@ -43,8 +44,12 @@ export interface IReviewServerProcess extends IDisposable {
   kill(): void;
 }
 
+/** `dev` marks an unpackaged run; packaged builds take `quality` from product.json. */
+export type ReviewReleaseChannel = "stable" | "preview" | "dev";
+
 export interface ReviewServerSupervisorOptions {
   readonly appRoot: string;
+  readonly channel: ReviewReleaseChannel;
   readonly appVersion: string;
   readonly appUrlProtocol?: string;
   readonly releaseChannel?: string;
@@ -73,6 +78,8 @@ export function createReviewServerEnvironment(options: {
   readonly appPid: number;
   readonly telemetryEnabled: boolean;
   readonly rustAnalyzerSource?: string;
+  readonly appSessionId: string;
+  readonly channel: ReviewReleaseChannel;
 }): Record<string, string | undefined> {
   return {
     ...options.applicationEnvironment,
@@ -95,6 +102,8 @@ export function createReviewServerEnvironment(options: {
     // depends on a system Node.
     DEV_FAST_REVIEW_CLI_RUNTIME: process.execPath,
     DEV_FAST_REVIEW_RUST_ANALYZER: options.rustAnalyzerSource,
+    DEV_FAST_REVIEW_APP_SESSION_ID: options.appSessionId,
+    DEV_FAST_REVIEW_CHANNEL: options.channel,
   };
 }
 
@@ -189,6 +198,13 @@ export class ReviewServerSupervisor extends Disposable {
   private readonly instanceId = randomUUID();
   private port = 0;
 
+  /**
+   * One id per app launch. A restarted server inherits it, so the sessions it
+   * left open still belong to this launch, and every renderer reads it from
+   * the connection instead of minting its own.
+   */
+  private readonly appSessionId = randomUUID();
+
   private readonly connected = new DeferredPromise<ReviewDesktopConnection>();
   private readonly readyTimeout: number;
 
@@ -274,14 +290,18 @@ export class ReviewServerSupervisor extends Disposable {
         this.options.logInfo(`[Review server] ${value.trimEnd()}`);
         if (ready) return;
         this.armReadyTimeout();
-        let connection: ReviewDesktopConnection | undefined;
+        let announced: ReviewServerAnnouncement | undefined;
         try {
-          connection = reader.push(value);
+          announced = reader.push(value);
         } catch (error) {
           this.failStartup(error);
           return;
         }
-        if (!connection) return;
+        if (!announced) return;
+        const connection: ReviewDesktopConnection = {
+          ...announced,
+          appSessionId: this.appSessionId,
+        };
         ready = true;
         this.port = Number(new URL(connection.url).port);
         this.restartCount = 0;
@@ -353,6 +373,8 @@ export class ReviewServerSupervisor extends Disposable {
       appPid,
       telemetryEnabled: this.telemetryEnabled,
       rustAnalyzerSource,
+      appSessionId: this.appSessionId,
+      channel: this.options.channel,
     });
     const started = serverProcess.start({
       type: "review-desktop-host",

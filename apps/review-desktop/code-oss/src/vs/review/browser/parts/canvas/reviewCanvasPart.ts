@@ -37,6 +37,7 @@ import type {
 import { EditorPaneSelectionChangeReason } from "../../../../workbench/common/editor.js";
 import type { IEditorGroup } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IHostService } from "../../../../workbench/services/host/browser/host.js";
+import { ILifecycleService } from "../../../../workbench/services/lifecycle/common/lifecycle.js";
 import { IWorkbenchLayoutService, Parts } from "../../../../workbench/services/layout/browser/layoutService.js";
 import {
 	REVIEW_KEYMAP_SETTING,
@@ -85,6 +86,7 @@ import { ReviewEmbeddedEditors } from "../../../services/reviewEmbeddedEditors.j
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 
 import "../../media/review.css";
+import { ReviewSessionTelemetry } from "../../reviewSessionTelemetry.js";
 import { applyReviewThemeChoice, currentReviewThemeChoice } from "../../reviewThemeChoice.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 
@@ -151,6 +153,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private readonly modelSubscription = this._register(new MutableDisposable());
 	private readonly inlineEditors: ReviewEmbeddedEditors;
 	private readonly diffViews: ReviewDiffViewService;
+	private readonly sessionTelemetry: ReviewSessionTelemetry;
 
 	constructor(
 		group: IEditorGroup,
@@ -179,8 +182,15 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IHoverService private readonly hoverService: IHoverService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IEditorProgressService editorProgressService: IEditorProgressService,
+		@ILifecycleService lifecycleService: ILifecycleService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
+		this.sessionTelemetry = new ReviewSessionTelemetry((name, properties, context) =>
+			this.reviewTelemetryService.capture(name, properties, undefined, context),
+		);
+		// A clean quit ends the open session before the server would reconcile it as abnormal.
+		this._register(lifecycleService.onWillShutdown(() => this.sessionTelemetry.end("app_quit")));
+		this._register(toDisposable(() => this.sessionTelemetry.end("closed")));
 		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewEmbeddedEditors));
 		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
@@ -302,6 +312,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		generation: number,
 	): Promise<void> {
 		await super.setInput(input, options, context, token);
+		// The new input replaces whatever review this pane showed; an api target starts its own session below.
+		this.sessionTelemetry.end("closed");
 		this.restoreEmbeddedSelection(options);
 		try {
 			await this.desktopConnection.initialize();
@@ -315,6 +327,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
+			// clearInput ended the session when this review was hidden; the mounted canvas is already ready.
+			this.sessionTelemetry.start(input.target.reviewId);
+			this.sessionTelemetry.resumed();
 			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
 			return;
 		}
@@ -338,6 +353,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (generation !== this.loadGeneration || token.isCancellationRequested) return;
 				this.renderedInput = input;
 				this.setCanvasState("active", reviewId);
+				this.sessionTelemetry.start(reviewId);
 				void this.apiCatalog
 					.attention(reviewId, "view")
 					.catch((error) => this.logService.warn("[Whiteboard] Could not mark session viewed:", error));
@@ -386,10 +402,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							...source,
 							...this.sharedBridge(generation, () => {
 								this.readyInput = input;
+								this.sessionTelemetry.presented();
 							}),
+							appSessionId: connection.appSessionId,
 							config: this.reviewRuntimeConfig(
 								{
-									...connection,
+									serverUrl: connection.serverUrl,
+									token: connection.token,
 									reviewId: reviewId,
 								},
 								assets,
@@ -420,7 +439,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					assets,
 				);
 			} catch (error) {
-				if (generation === this.loadGeneration) await this.renderError(error, generation);
+				if (generation === this.loadGeneration) {
+					this.sessionTelemetry.end("closed");
+					await this.renderError(error, generation);
+				}
 			}
 			return;
 		}
@@ -532,6 +554,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// Keep apiContent with the mounted canvas so resuming it preserves its review identity.
 		// render() replaces both when another input is shown.
 		this.refreshProgress.stop();
+		this.sessionTelemetry.end("closed");
 		await super.clearInput();
 	}
 
@@ -970,7 +993,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		lifecycle?: ReviewCanvasLoadLifecycle,
 	): Pick<
 		ReviewCanvasBridge,
-		| "appSessionId"
 		| "subscribe"
 		| "currentTheme"
 		| "onDidChangeTheme"
@@ -983,7 +1005,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		| "reportDiagnostic"
 	> {
 		return {
-			appSessionId: this.reviewTelemetryService.appSessionId,
 			subscribe: (listener) => this.surfaceEvents.event(listener),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),

@@ -9,6 +9,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { readReviewPackageVersion } from "../package-paths";
+import { type PostHogCaptureProperties } from "../posthog-capture-client";
 import { type ReviewDiffFilesResult } from "../review-diff-files";
 import {
   type AuthoringTraceAttachment,
@@ -53,6 +54,8 @@ export interface BugReportPayload {
     // Review source files the report did not send, by name. Triage reads a
     // missing module as a rendering bug unless the report says it dropped one.
     review_omitted_files?: string[];
+    /** The telemetry envelope, so triage can tell channel, environment and surface apart. */
+    telemetry?: Record<string, string | number | boolean | null>;
   };
 }
 
@@ -78,6 +81,7 @@ export async function submitReviewBugReport(input: {
   clientErrorNames: string[];
   fetchImpl?: typeof fetch;
   source: BugReportSource;
+  telemetryEnvelope?: PostHogCaptureProperties;
 }) {
   const cliVersion = readReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
@@ -93,6 +97,15 @@ export async function submitReviewBugReport(input: {
       client_error_names: input.clientErrorNames.slice(-20),
     },
   };
+
+  if (input.telemetryEnvelope) {
+    payload.diagnostics.telemetry = Object.fromEntries(
+      Object.entries(input.telemetryEnvelope).filter(
+        (entry): entry is [string, string | number | boolean | null] =>
+          entry[1] !== undefined,
+      ),
+    );
+  }
 
   if (input.report.screenshot) payload.screenshot = input.report.screenshot;
 

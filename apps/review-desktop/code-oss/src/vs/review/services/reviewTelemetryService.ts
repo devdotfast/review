@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { generateUuid } from "../../base/common/uuid.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IMainProcessService } from "../../platform/ipc/common/mainProcessService.js";
@@ -22,6 +21,9 @@ interface QueuedReviewTelemetryEvent {
 	readonly name: string;
 	readonly properties: ReviewTelemetryProperties | undefined;
 	readonly error?: ReviewErrorReport;
+	readonly context?: unknown;
+	/** Epoch ms at capture; parallel requests can reach the server out of order. */
+	readonly occurredAt: number;
 }
 
 export const IReviewTelemetryService = createDecorator<IReviewTelemetryService>(
@@ -30,8 +32,6 @@ export const IReviewTelemetryService = createDecorator<IReviewTelemetryService>(
 
 export interface IReviewTelemetryService {
 	readonly _serviceBrand: undefined;
-	/** The per-window session id all workbench events carry. */
-	readonly appSessionId: string;
 	/**
 	 * Fire-and-forget. Never throws. Drops when telemetry is off.
 	 *
@@ -39,15 +39,17 @@ export interface IReviewTelemetryService {
 	 * properties, never inside them. It reaches only the loopback server on this
 	 * machine, which replaces the message with a digest and keeps only the stack
 	 * frames that resolve inside the shipped bundle.
+	 *
+	 * `context` carries raw local ids (such as a review's uuid) beside the
+	 * properties; the loopback server replaces them with keyed digests.
 	 */
-	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport): void;
+	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport, context?: unknown): void;
 	/** Best-effort flush. Resolves within approximately 500 ms. */
 	flush(): Promise<void>;
 }
 
 export class ReviewTelemetryService implements IReviewTelemetryService {
 	declare readonly _serviceBrand: undefined;
-	readonly appSessionId = generateUuid();
 
 	private readonly queued: QueuedReviewTelemetryEvent[] = [];
 	private readonly inFlight = new Set<Promise<void>>();
@@ -77,11 +79,11 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		});
 	}
 
-	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport): void {
+	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport, context?: unknown): void {
 		if (this.configurationService.getValue(REVIEW_TELEMETRY_SETTING) === false) {
 			return;
 		}
-		const event = { name, properties, ...(error ? { error } : {}) };
+		const event = { name, properties, ...(error ? { error } : {}), ...(context ? { context } : {}), occurredAt: Date.now() };
 		if (this.connection) {
 			this.send(event);
 			return;
@@ -114,7 +116,7 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		request = fetch(
 			`${connection.url}/telemetry/event`,
 			reviewTelemetryEventRequest(
-				{ token: connection.token, appSessionId: this.appSessionId },
+				connection,
 				event,
 				{ keepalive: true },
 			),

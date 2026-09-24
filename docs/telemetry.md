@@ -7,7 +7,7 @@ This page is the complete public contract for Review Desktop and CLI telemetry.
 For a shorter overview of all product data, including local files, coding
 agents, and bug reports, see [Privacy](privacy.md).
 
-Last checked against this repository: 2026-08-18.
+Last checked against this repository: 2026-09-23.
 
 ## The short version
 
@@ -82,9 +82,15 @@ PostHog's `identify()` API, and it sends every event, including
 PostHog to process it as a personless event and never create a person profile
 for that ID.
 
+Review Desktop Preview keeps a separate installation id in
+`telemetry/progressive-review.preview.json`. The standalone CLI always uses the
+stable id.
+
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
-events, retries temporary failures, and deletes events after seven days.
+events, retries temporary failures, and deletes events after seven days. Each
+event keeps one random `uuid` across retries, so PostHog ingests a resent event
+once, and its `timestamp` is when it happened, not when it was sent.
 Telemetry is best-effort and never blocks Review from working.
 
 Three identifiers support exact lifecycle correlation without PostHog identity
@@ -145,53 +151,71 @@ sent, so the real event still goes out on the next normal run.
 
 Every event from the Review telemetry API includes these properties:
 
-| Property      | Value                                   |
-| ------------- | --------------------------------------- |
-| `product`     | `review-cli`                            |
-| `package`     | `@dev.fast/review`                      |
-| `version`     | Review CLI package version              |
-| `app_version` | Optional Review Desktop release version |
-| `node_major`  | Node major version                      |
-| `platform`    | Node platform enum                      |
-| `arch`        | Node architecture enum                  |
-| `ci`          | Boolean                                 |
-| `internal`    | Boolean for a dev.fast workspace build  |
+| Property         | Value                                                              |
+| ---------------- | ------------------------------------------------------------------ |
+| `cli_version`    | Review CLI package version (`version` repeats it for one release)  |
+| `app_version`    | Review Desktop release version; absent for the standalone CLI      |
+| `channel`        | `stable`, `preview`, or `dev` for an unpackaged build              |
+| `environment`    | `production`, `ci`, `internal`, `e2e`, or `smoke`                  |
+| `surface`        | `desktop`, `cli`, `headless`, `mcp`, or `api`                      |
+| `node_major`     | Node major version                                                 |
+| `platform`       | Node platform enum                                                 |
+| `arch`           | Node architecture enum                                             |
+| `os_version`     | Kernel release string                                              |
+| `ci`             | Boolean                                                            |
+| `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
+| `app_session_id` | One random id per Desktop launch, shared by every Desktop process  |
 
-UI events also include `source: review_app` and a random `app_session_id`. The
-app creates a new app session identifier for each renderer lifetime.
+`environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
+(`CI` set), `internal`, `production`.
+
+UI events also include `source: review_app`.
 
 Review-scoped events can also include `review_id`. Events routed through a
 specific Desktop Review session can include both `review_id` and
 `presentation_id`. Global main-process and renderer errors remain unscoped;
 Review does not guess which open Review caused them.
 
-The embedded Desktop server adds `app_version` to all of its telemetry events.
-Standalone CLI events omit this property.
-
-The transport creates `review_telemetry_dropped` directly. That
-event includes only `reason`, `count`, and the random installation identifier.
+`review_telemetry_dropped` carries the envelope of the process that dropped the
+events.
 
 ### CLI and lifecycle events
 
-| Event                          | Additional properties                                                                                        | When                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| `review_installation_created`  | None                                                                                                         | The first enabled Review use            |
-| `review_command_started`       | `command_path`, `command_run_id`, `agent_kind`                                                               | A public CLI handler is about to run    |
-| `review_command_succeeded`     | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, and closed command flags                       | A public CLI command succeeds           |
-| `review_command_failed`        | The success properties plus `error_name` and `error_category` closed enums                                   | A public CLI command fails              |
-| `review_session_started`       | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id`                       | A Desktop review session opens          |
-| `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review is dismissed                   |
-| `review_review_deleted`        | None                                                                                                         | A user deletes a stored review          |
-| `review_review_reaped`         | `retention_days`                                                                                             | Retention deletes a dismissed review    |
-| `review_telemetry_dropped`     | `reason`, `count`                                                                                            | The queue drops one or more events      |
+| Event                            | Additional properties                                     | When                                              |
+| --------------------------------- | ---------------------------------------------------------- | --------------------------------------------------- |
+| `review_installation_created`     | None                                                        | The first enabled Review use                        |
+| `review_command_started`          | `command_path`, `command_run_id`, `agent_kind`              | A public CLI handler is about to run                |
+| `review_command_succeeded`        | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, and closed command flags | A public CLI command succeeds       |
+| `review_command_failed`           | The success properties plus `error_name` and `error_category` closed enums | A public CLI command fails          |
+| `review_session_started`          | `review_id`, `presentation_id`, `app_session_id`            | A review opens in the Desktop canvas                |
+| `review_review_presented`         | `load_ms`, `review_id`, `presentation_id`                   | The canvas signals ready                            |
+| `review_first_review_presented`   | `review_id`, `presentation_id`                              | The first presented review on this installation     |
+| `review_session_ended`            | `outcome`, `duration_ms`, `review_id`, `presentation_id`    | The review closes; see outcomes below               |
+| `review_review_deleted`           | None                                                        | A user deletes a stored review                      |
+| `review_review_reaped`            | `retention_days`                                            | Retention deletes a dismissed review                |
+| `review_telemetry_dropped`        | `reason`, `count`                                           | The queue drops one or more events                  |
+
+`review_session_started` also carries `source_kind`, which the server sets from
+the opened review. `agent_kind` is allowlisted but not yet sent.
+
+| `outcome`  | Meaning                                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`   | The tab closed or another review replaced it                                                                                                |
+| `app_quit` | The Desktop quit with the review open                                                                                                       |
+| `abnormal` | The Desktop died with the review open. Sent by the next launch, without `duration_ms`, with the dead launch's envelope and `app_session_id` |
+
+`dismissed` and `deleted` are reserved.
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app.launch`, `app.pick`, `info`, `install`, `migrate.apply`,
+`version`, `app.launch`, `app.pick`, `info`, `instances`, `instances.use`,
+`instances.clear`, `connect`, `migrate.apply`,
 `map.open`, `map.check`, `map.prune`, `map.push`, `map.fetch`, `login`,
 `logout`, `whoami`, `trace.store.create`, `trace.store.delete`,
 `trace.store.info`, `trace.install`, `trace.allow`, `trace.deny`,
-`trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, and `invalid`.
-Review sends no arguments, refs, tokens, or storage credentials.
+`trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, `server.start`, and
+`invalid`. Review sends no arguments, refs, tokens, or storage credentials.
+`surface` is `headless` for `server.start`, `mcp` for `mcp`, `api` for `api`,
+and `cli` otherwise, on every event the command's process sends.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.
@@ -212,14 +236,14 @@ text, and only as described in "Error reports".
   `internal`.
 - Queue drop reasons: `queue_full`, `expired`, `corrupt`,
   `permanent_rejection`, and `storage_failure`.
-- Session sources: `pull_request`, `git_branch`, `jj_bookmark`, and
-  `jj_change`. Agent kinds are `codex`, `claude`, `pi`, and `other`. The session
-  outcome is `dismissed`.
+- Session sources: `worktree`, `commits`, and `scratchpad`. Agent kinds are
+  `codex`, `claude`, `pi`, and `other`.
 
 ### Desktop and canvas events
 
 The server checks all properties in this table against
-`packages/review/src/ui-telemetry-events.ts`.
+`packages/review/src/ui-telemetry-events.ts`. Session lifecycle events are
+listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 
 | Event                             | Additional properties                                                                                                                                          | When                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -245,7 +269,6 @@ The server checks all properties in this table against
 | `review_bug_report_send_failed`   | Short `error_name`                                                                                                                                             | A bug report request fails                   |
 | `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled; `enabled`                                                              | A user changes a Review setting              |
 | `review_review_opened`            | `via` in home, cli, other                                                                                                                                      | A user opens a review                        |
-| `review_review_presented`         | `review_id`, `presentation_id`                                                                                                                                 | A visible canvas loads and signals ready     |
 | `review_home_empty_state_viewed`  | None                                                                                                                                                           | The empty Home state opens                   |
 
 The server emits `review_review_dismissed` after it stores a dismissal. Its property is `via` in
@@ -257,14 +280,18 @@ is the implicit undo: a reader who opens a dismissed review brings it back.
 
 ## Suspected hangs
 
-Operational queries classify a lifecycle start as a suspected hang after five
-minutes without its matching terminal event:
+A Desktop session that never ends cleanly arrives as
+`review_session_ended{outcome:"abnormal"}`: Review records open sessions under
+`${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch reports any its
+predecessor left open.
+
+Operational queries also flag a start with no terminal event after five
+minutes:
 
 - a command start with no success or failure sharing `command_run_id`; or
 - a session start with no presentation sharing `presentation_id`.
 
-This observes lifecycle gaps; it does not time out or kill work. A suspected
-hang can also be a crash, force-kill, or telemetry delivery loss. A late
+This observes lifecycle gaps; it does not time out or kill work. A late
 terminal or ready event removes the match automatically.
 
 ### Workbench events

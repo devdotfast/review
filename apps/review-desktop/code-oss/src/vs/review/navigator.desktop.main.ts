@@ -40,6 +40,13 @@ import { Extensions, IConfigurationRegistry } from '../platform/configuration/co
 import { IStorageService, StorageScope, StorageTarget } from '../platform/storage/common/storage.js';
 import { AccountsActivityActionViewItem } from '../workbench/browser/parts/globalCompositeBar.js';
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../workbench/common/contributions.js';
+import { Disposable } from '../base/common/lifecycle.js';
+import { Event } from '../base/common/event.js';
+import { SidebarPart } from '../workbench/browser/parts/sidebar/sidebarPart.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../workbench/common/views.js';
+import { VIEWLET_ID as EXPLORER_VIEWLET_ID } from '../workbench/contrib/files/common/files.js';
+import { IPaneCompositePartService } from '../workbench/services/panecomposite/browser/panecomposite.js';
+import { IWorkbenchLayoutService, Parts } from '../workbench/services/layout/browser/layoutService.js';
 
 class NavigatorDefaults {
 	constructor(@IStorageService storage: IStorageService) {
@@ -52,6 +59,41 @@ class NavigatorDefaults {
 }
 
 registerWorkbenchContribution2('review.navigator.defaults', NavigatorDefaults, WorkbenchPhase.BlockStartup);
+
+/**
+ * The Explorer hides while it has no views, and its Folders view registers only
+ * once the workspace resolves. Upstream's Outline and Timeline views keep it
+ * populated while the layout restores; this product ships neither, so the
+ * sidebar fell back to Search. Open the Explorer once it has views whenever the
+ * restore meant to show it.
+ */
+class NavigatorExplorerRestore extends Disposable {
+	constructor(
+		@IStorageService storage: IStorageService,
+		@IViewDescriptorService viewDescriptors: IViewDescriptorService,
+		@IPaneCompositePartService panes: IPaneCompositePartService,
+		@IWorkbenchLayoutService layout: IWorkbenchLayoutService,
+	) {
+		super();
+		const stored = storage.get(SidebarPart.activeViewletSettingsKey, StorageScope.WORKSPACE);
+		const explorer = viewDescriptors.getViewContainerById(EXPLORER_VIEWLET_ID);
+		if ((stored !== undefined && stored !== EXPLORER_VIEWLET_ID) || !explorer) {
+			return;
+		}
+		const model = viewDescriptors.getViewContainerModel(explorer);
+		if (model.visibleViewDescriptors.length) {
+			return;
+		}
+		this._register(Event.once(model.onDidAddVisibleViewDescriptors)(async () => {
+			await layout.whenRestored;
+			if (layout.isVisible(Parts.SIDEBAR_PART) && panes.getActivePaneComposite(ViewContainerLocation.Sidebar)?.getId() !== EXPLORER_VIEWLET_ID) {
+				await panes.openPaneComposite(EXPLORER_VIEWLET_ID, ViewContainerLocation.Sidebar);
+			}
+		}));
+	}
+}
+
+registerWorkbenchContribution2('review.navigator.explorerRestore', NavigatorExplorerRestore, WorkbenchPhase.BlockStartup);
 
 Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
 	ctor: CommandsQuickAccessProvider,

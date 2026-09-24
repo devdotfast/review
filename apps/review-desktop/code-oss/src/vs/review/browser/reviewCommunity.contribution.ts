@@ -11,6 +11,7 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { isFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { REVIEW_DISCORD_URL } from '../common/reviewProtocol.js';
 import { IReviewApiCatalogService } from '../services/reviewApiCatalogService.js';
+import { IReviewTelemetryService } from '../services/reviewTelemetryService.js';
 
 export const DISMISSED_KEY = 'review.community.dontShowAgain';
 
@@ -23,15 +24,16 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 		@IStorageService storageService: IStorageService,
 		@IOpenerService openerService: IOpenerService,
 		@IReviewApiCatalogService catalogService: IReviewApiCatalogService,
+		@IReviewTelemetryService telemetryService: IReviewTelemetryService,
 	) {
 		if (storageService.getBoolean(DISMISSED_KEY, StorageScope.APPLICATION, false)) {
 			return;
 		}
 
-		this.invite(dialogService, storageService, openerService, catalogService).catch(onUnexpectedError);
+		this.invite(dialogService, storageService, openerService, catalogService, telemetryService).catch(onUnexpectedError);
 	}
 
-	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService, catalogService: IReviewApiCatalogService): Promise<void> {
+	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService, catalogService: IReviewApiCatalogService, telemetryService: IReviewTelemetryService): Promise<void> {
 		if (await isFirstRunReloadPending()) {
 			return; // the seeding reload would discard both the question and the answer
 		}
@@ -39,6 +41,7 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 		if (catalogService.reviews.filter(review => review.kind !== 'scratchpad').length < 2) {
 			return;
 		}
+		telemetryService.capture('discord_dialog_shown');
 		const result = await dialogService.confirm({
 			type: 'info',
 			message: 'Join the Whiteboard community',
@@ -48,7 +51,10 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 		});
 		storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 		if (result.confirmed) {
+			telemetryService.capture('discord_clicked', { via: 'dialog' });
 			await openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
+		} else {
+			telemetryService.capture('discord_dialog_dismissed');
 		}
 	}
 }

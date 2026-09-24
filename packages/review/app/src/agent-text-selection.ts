@@ -1,6 +1,6 @@
 import type { AgentSelection } from "../../src/agent-selection";
 
-/** Only authored document prose participates; native code editors report their own selections. */
+/** Authored document text participates; native code editors report their own selections. */
 export function observeAgentTextSelection(
   article: HTMLElement,
   select: (
@@ -26,8 +26,10 @@ export function observeAgentTextSelection(
         element &&
         article.contains(element) &&
         element.closest("[data-review-copy-prose]") &&
+        (!element.closest("pre") ||
+          element.closest("code[data-review-copy-prose]")) &&
         !element.closest(
-          ".monaco-editor, pre, button, select, input, textarea, [data-review-copy-ignore]",
+          ".monaco-editor, button, select, input, textarea, [data-review-copy-ignore]",
         )
       );
     };

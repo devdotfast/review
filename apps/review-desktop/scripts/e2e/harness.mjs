@@ -514,14 +514,19 @@ export async function createHarness({
   async function waitForExit(label, timeout = 30000) {
     const deadline = Date.now() + timeout;
 
-    while (app.exitCode === null && Date.now() < deadline) await sleep(100);
+    // A signal death leaves exitCode null and sets signalCode instead.
+    const running = () => app.exitCode === null && app.signalCode === null;
 
-    if (app.exitCode === null)
+    while (running() && Date.now() < deadline) await sleep(100);
+
+    if (running())
       throw new Error(`Timed out waiting for ${label}`);
   }
 
-  async function restartDesktop() {
-    killGroup("SIGTERM");
+  /** `signal: "SIGKILL"` stops the Desktop without letting it run any shutdown handler. */
+  async function restartDesktop({ signal = "SIGTERM" } = {}) {
+    lifecycle(`Restarting with ${signal}`);
+    killGroup(signal);
 
     try {
       await waitForExit("Desktop shutdown");
@@ -531,6 +536,18 @@ export async function createHarness({
       await waitForExit("Desktop shutdown after SIGKILL");
     }
 
+    await relaunch();
+  }
+
+  /** Quits the way a reader does, through `workbench.action.quit` (Cmd/Ctrl+Q), then relaunches. */
+  async function quitAndRelaunchDesktop() {
+    lifecycle("Quitting through workbench.action.quit");
+    await page.keyboard.press("ControlOrMeta+KeyQ");
+    await waitForExit("Desktop quit");
+    await relaunch();
+  }
+
+  async function relaunch() {
     await browser?.close();
     spawnDesktop();
     await attach();
@@ -592,6 +609,7 @@ export async function createHarness({
     check: (...names) => report.checks.push(...names),
     knownBug,
     restartDesktop,
+    quitAndRelaunchDesktop,
     close,
   });
 }

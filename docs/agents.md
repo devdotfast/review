@@ -88,7 +88,7 @@ and Codex marketplace commands work once the plugins are on `main`.
 | Agent | What installs | Install |
 | --- | --- | --- |
 | Claude Code | plugin with the `review` MCP server | `/plugin marketplace add devdotfast/review`, then `/plugin install review@devfast` |
-| Codex | plugin with the `review` MCP server and a `review` skill | `codex plugin marketplace add devdotfast/review`, then `codex plugin add review@devfast` |
+| Codex | plugin with the `review` MCP server | `codex plugin marketplace add devdotfast/review`, then `codex plugin add review@devfast` |
 | Cursor | `review` MCP server | **Install in Cursor** on the connect card |
 | OpenCode | npm plugin `@dev.fast/opencode-review` | add `"@dev.fast/opencode-review"` to `"plugin"` in `~/.config/opencode/opencode.json` |
 | Pi | npm package `@dev.fast/pi-review` with the `review` skill | `pi install npm:@dev.fast/pi-review` |

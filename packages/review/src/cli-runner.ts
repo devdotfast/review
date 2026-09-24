@@ -783,7 +783,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       state.json = true;
     }
 
-    const command = telemetryCommandPath(actionCommand, input.argv);
+    const command = telemetryCommandPath(actionCommand);
 
     if (!command) return;
     const commandRunId = telemetry.createCommandRunId();
@@ -1100,7 +1100,6 @@ async function captureOneOffCommand(
 
 function telemetryCommandPath(
   command: Command,
-  argv: readonly string[],
 ): ReviewCliCommandPath | undefined {
   const name = command.name();
   const parent = command.parent?.name();
@@ -1137,13 +1136,8 @@ function telemetryCommandPath(
     return name;
   }
 
-  if (name === "app") {
-    return argv.some(
-      (argument) => argument === "--review" || argument.startsWith("--review="),
-    )
-      ? "app.pick"
-      : "app.launch";
-  }
+  // Bare `app` takes no --session; picking is only `app pick`.
+  if (name === "app") return "app.launch";
 
   return undefined;
 }

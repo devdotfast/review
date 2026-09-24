@@ -277,6 +277,9 @@ async function layoutFlow(
                 text,
                 width: text.length * LABEL.charWidth,
                 height: LABEL.height,
+                // Beside the source, so the label widens its own gap
+                // instead of getting a layer of its own.
+                layoutOptions: { "elk.edgeLabels.placement": "TAIL" },
               },
             ]
           : [],

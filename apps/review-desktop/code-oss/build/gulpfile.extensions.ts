@@ -62,6 +62,7 @@ const compilations = [
 	'extensions/markdown-language-features/tsconfig.json',
 	'extensions/media-preview/tsconfig.json',
 	'extensions/references-view/tsconfig.json',
+	'extensions/review-files/tsconfig.json',
 	'extensions/typescript-language-features/web/tsconfig.json',
 	'extensions/typescript-language-features/tsconfig.json',
 ];

@@ -25,50 +25,9 @@ import { localize } from "../../nls.js";
 import { IHoverService } from "../../platform/hover/browser/hover.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { WorkbenchCompressibleObjectTree } from "../../platform/list/browser/listService.js";
-import { registerColor } from "../../platform/theme/common/colorRegistry.js";
 import type { ReviewDiffFileWire, ReviewDiffProgressFile, StructuralLineCounts } from "../common/reviewProtocol.js";
+import "./reviewDecorationColors.js";
 import { REVIEW_COUNTS_PENDING_TOOLTIP, reviewCountsTooltip, ReviewTooltip, type ReviewTooltipHoverService } from "./reviewTooltip.js";
-
-registerColor(
-  "gitDecoration.addedResourceForeground",
-  {
-    light: "#587c0c",
-    dark: "#81b88b",
-    hcDark: "#a1e3ad",
-    hcLight: "#374e06",
-  },
-  localize("review.gitDecoration.added", "Color for added file resources."),
-);
-registerColor(
-  "gitDecoration.modifiedResourceForeground",
-  {
-    light: "#895503",
-    dark: "#E2C08D",
-    hcDark: "#E2C08D",
-    hcLight: "#895503",
-  },
-  localize("review.gitDecoration.modified", "Color for modified file resources."),
-);
-registerColor(
-  "gitDecoration.deletedResourceForeground",
-  {
-    light: "#ad0707",
-    dark: "#c74e39",
-    hcDark: "#c74e39",
-    hcLight: "#ad0707",
-  },
-  localize("review.gitDecoration.deleted", "Color for deleted file resources."),
-);
-registerColor(
-  "gitDecoration.renamedResourceForeground",
-  {
-    light: "#007100",
-    dark: "#73C991",
-    hcDark: "#73C991",
-    hcLight: "#007100",
-  },
-  localize("review.gitDecoration.renamed", "Color for renamed file resources."),
-);
 
 const CHANGED_FILE_ROW_HEIGHT = 22;
 

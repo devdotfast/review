@@ -1066,7 +1066,7 @@ it("opens a stable native workspace on the Review's pinned checkout at the selec
   ).toBe(404);
 });
 
-it("opens navigator files at their base, head, commit and explicit pins", async () => {
+it("opens base and head files in one window that compares the two checkouts", async () => {
   const { reviewId } = await local.store.execute(
     command({ type: "create", title: "Navigator files", pins }),
   );
@@ -1088,36 +1088,53 @@ it("opens navigator files at their base, head, commit and explicit pins", async 
   const base = await open({ version: "0", side: "base", file: source.file });
   expect(readFileSync(head.filePath, "utf8")).toContain("value = 2");
   expect(readFileSync(base.filePath, "utf8")).toContain("value = 1");
-  expect(head.workspacePath).not.toBe(base.workspacePath);
-  expect(
-    (
-      await open({
-        version: "0",
-        commit: pins.head,
-        side: "base",
-        file: source.file,
-      })
-    ).filePath,
-  ).toBe(base.filePath);
-  expect(
-    (
-      await open({
-        version: "0",
-        repositoryId: pins.repositoryId,
-        head: pins.base,
-        file: source.file,
-      })
-    ).filePath,
-  ).toBe(base.filePath);
+  expect(head.workspacePath).toBe(base.workspacePath);
 
-  const empty = await open({
+  const workspace = JSON.parse(readFileSync(head.workspacePath, "utf8"));
+  expect(workspace.folders[0].path).toBe(path.dirname(head.filePath));
+  expect(workspace.settings["reviewFiles.base"]).toBe(
+    path.dirname(base.filePath),
+  );
+  expect(workspace.settings["reviewFiles.untracked"]).toBe(false);
+
+  expect(
+    readFileSync(
+      (
+        await open({
+          version: "0",
+          commit: pins.head,
+          side: "base",
+          file: source.file,
+        })
+      ).filePath,
+      "utf8",
+    ),
+  ).toContain("value = 1");
+  expect(
+    readFileSync(
+      (
+        await open({
+          version: "0",
+          repositoryId: pins.repositoryId,
+          head: pins.base,
+          file: source.file,
+        })
+      ).filePath,
+      "utf8",
+    ),
+  ).toContain("value = 1");
+
+  // An added file's empty base side opens the head file.
+  const added = await open({
     version: "0",
     side: "base",
-    file: "added.ts",
+    file: "literal1.ts",
     empty: "true",
   });
 
-  expect(readFileSync(empty.filePath, "utf8")).toBe("");
+  expect(added.filePath).toBe(
+    path.join(path.dirname(head.filePath), "literal1.ts"),
+  );
   expect(
     (
       await app.request(`/${reviewId}/navigator?file=missing.ts`, {
@@ -1148,7 +1165,6 @@ it("keeps a live navigator attached to the live checkout without preparing it", 
   );
 
   git("config", "devfast.prepare", "echo unexpected > prepared");
-  const before = git("worktree", "list", "--porcelain");
 
   const { workspacePath } = await local.data.navigatorWorkspace(
     local.store.read(reviewId),
@@ -1156,13 +1172,19 @@ it("keeps a live navigator attached to the live checkout without preparing it", 
 
   const workspace = JSON.parse(readFileSync(workspacePath, "utf8"));
   const root = workspace.folders[0].path;
+  const baseRoot = workspace.settings["reviewFiles.base"];
   expect(root).toBe(realpathSync(repository));
+  expect(workspace.settings["reviewFiles.untracked"]).toBe(true);
+  expect(readFileSync(path.join(baseRoot, source.file), "utf8")).toContain(
+    "value = 1",
+  );
   writeFileSync(path.join(repository, source.file), "live edit\n");
   expect(readFileSync(path.join(root, source.file), "utf8")).toBe(
     "live edit\n",
   );
-  expect(git("worktree", "list", "--porcelain")).toBe(before);
+  await local.data.workspaces.idle();
   expect(existsSync(path.join(root, "prepared"))).toBe(false);
+  expect(existsSync(path.join(baseRoot, "prepared"))).toBe(false);
 
   const live = await local.data.navigatorWorkspace(local.store.read(reviewId), {
     file: source.file,
@@ -1248,6 +1270,8 @@ it("names a linked worktree's source workspace after its repository", async () =
     "files.readonlyInclude": { "**/*": true },
     "editor.wordWrap": "on",
     "window.title": "Worktree source — Live source — Whiteboard",
+    "reviewFiles.base": expect.any(String),
+    "reviewFiles.untracked": true,
   });
   expect(existsSync(legacy)).toBe(true);
 

@@ -40,6 +40,17 @@ import { Extensions, IConfigurationRegistry } from '../platform/configuration/co
 import { IStorageService, StorageScope, StorageTarget } from '../platform/storage/common/storage.js';
 import { AccountsActivityActionViewItem } from '../workbench/browser/parts/globalCompositeBar.js';
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../workbench/common/contributions.js';
+import { IEditorResolverService } from '../workbench/services/editor/common/editorResolverService.js';
+import { IConfigurationService } from '../platform/configuration/common/configuration.js';
+import { Disposable } from '../base/common/lifecycle.js';
+import { Extensions as ViewExtensions, IViewsRegistry } from '../workbench/common/views.js';
+import { VIEW_ID as EXPLORER_FOLDERS_VIEW_ID } from '../workbench/contrib/files/common/files.js';
+import './browser/reviewDecorationColors.js';
+import { NavigatorDecorationsService, NavigatorDiffEditorResolverService, NavigatorEmptySourceContentProvider, reviewFilesBase } from './services/navigatorDiffEditorResolverService.js';
+import { IDecorationsService } from '../workbench/services/decorations/common/decorations.js';
+
+/** Contributed by the built-in review-files extension. */
+const REVIEW_FILES_VIEW_ID = 'reviewFiles.tree';
 
 class NavigatorDefaults {
 	constructor(@IStorageService storage: IStorageService) {
@@ -52,6 +63,35 @@ class NavigatorDefaults {
 }
 
 registerWorkbenchContribution2('review.navigator.defaults', NavigatorDefaults, WorkbenchPhase.BlockStartup);
+
+/**
+ * The review-files tree replaces the Folders view when the folder is compared
+ * with a base. Folders stays until the tree registers, so the Explorer is never
+ * empty while the window restores its sidebar.
+ */
+class NavigatorReviewFiles extends Disposable {
+	constructor(@IConfigurationService configuration: IConfigurationService) {
+		super();
+		if (reviewFilesBase(configuration) === undefined) {
+			return;
+		}
+		const views = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
+		const replace = () => {
+			const folders = views.getView(EXPLORER_FOLDERS_VIEW_ID);
+			const container = views.getViewContainer(EXPLORER_FOLDERS_VIEW_ID);
+			if (folders && container && views.getView(REVIEW_FILES_VIEW_ID)) {
+				views.deregisterViews([folders], container);
+			}
+		};
+		replace();
+		this._register(views.onViewsRegistered(replace));
+	}
+}
+
+registerWorkbenchContribution2('review.navigator.reviewFiles', NavigatorReviewFiles, WorkbenchPhase.BlockStartup);
+registerWorkbenchContribution2('review.navigator.emptySource', NavigatorEmptySourceContentProvider, WorkbenchPhase.BlockStartup);
+registerSingleton(IEditorResolverService, NavigatorDiffEditorResolverService, InstantiationType.Delayed);
+registerSingleton(IDecorationsService, NavigatorDecorationsService, InstantiationType.Delayed);
 
 Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
 	ctor: CommandsQuickAccessProvider,
@@ -73,6 +113,9 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration).registerDefaultCon
 		'chat.disableAIFeatures': true,
 		'security.workspace.trust.enabled': false,
 		'workbench.startupEditor': 'none',
+		// Every source file opens as a whole-file inline diff against the base.
+		'diffEditor.renderSideBySide': false,
+		'diffEditor.hideUnchangedRegions.enabled': false,
 		'window.autoDetectColorScheme': reviewConfigurationDefaults['window.autoDetectColorScheme'],
 		'workbench.colorTheme': reviewConfigurationDefaults['workbench.colorTheme'],
 		'workbench.preferredDarkColorTheme': reviewConfigurationDefaults['workbench.preferredDarkColorTheme'],

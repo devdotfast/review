@@ -1,0 +1,161 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) dev.fast. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE in the repository root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { isThenable } from "../../base/common/async.js";
+import { Codicon } from "../../base/common/codicons.js";
+import { Disposable, type IDisposable } from "../../base/common/lifecycle.js";
+import { Schemas } from "../../base/common/network.js";
+import { basename, extUri, joinPath } from "../../base/common/resources.js";
+import { ThemeIcon } from "../../base/common/themables.js";
+import { URI } from "../../base/common/uri.js";
+import type { IDocumentDiff } from "../../editor/common/diff/documentDiffProvider.js";
+import type { ITextModel } from "../../editor/common/model.js";
+import { ILanguageService } from "../../editor/common/languages/language.js";
+import { IEditorWorkerService } from "../../editor/common/services/editorWorker.js";
+import { IModelService } from "../../editor/common/services/model.js";
+import { ITextModelService, type ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
+import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
+import type { ITextEditorOptions } from "../../platform/editor/common/editor.js";
+import { IFileService } from "../../platform/files/common/files.js";
+import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
+import { ILogService } from "../../platform/log/common/log.js";
+import { INotificationService } from "../../platform/notification/common/notification.js";
+import { IQuickInputService } from "../../platform/quickinput/common/quickInput.js";
+import { IStorageService } from "../../platform/storage/common/storage.js";
+import { IWorkspaceContextService } from "../../platform/workspace/common/workspace.js";
+import type { IWorkbenchContribution } from "../../workbench/common/contributions.js";
+import { isResourceEditorInput, type IResourceDiffEditorInput, type IUntypedEditorInput } from "../../workbench/common/editor.js";
+import { DecorationsService } from "../../workbench/services/decorations/browser/decorationsService.js";
+import type { IDecorationData, IDecorationsProvider } from "../../workbench/services/decorations/common/decorations.js";
+import { EditorResolverService } from "../../workbench/services/editor/browser/editorResolverService.js";
+import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
+import type { ResolvedEditor } from "../../workbench/services/editor/common/editorResolverService.js";
+import type { PreferredGroup } from "../../workbench/services/editor/common/editorService.js";
+import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
+
+/** The workspace setting naming the base checkout the source folder is compared with. */
+export const REVIEW_FILES_BASE_SETTING = "reviewFiles.base";
+
+/** The base checkout from the workspace file; the registered setting defaults to empty everywhere. */
+export function reviewFilesBase(configuration: IConfigurationService): string | undefined {
+	const base = configuration.inspect<unknown>(REVIEW_FILES_BASE_SETTING).workspaceValue;
+	return typeof base === "string" ? base : undefined;
+}
+
+/** An empty side for a file that exists only in the base or only in the head checkout. */
+export const REVIEW_EMPTY_SOURCE_SCHEME = "review-empty";
+
+/**
+ * Open every source file as an inline diff against the base checkout, however
+ * it is reached: the file tree, Quick Open, search or a definition.
+ */
+export class NavigatorDiffEditorResolverService extends EditorResolverService {
+	constructor(
+		@IEditorGroupsService groups: IEditorGroupsService,
+		@IInstantiationService services: IInstantiationService,
+		@IConfigurationService private readonly configuration: IConfigurationService,
+		@IQuickInputService quickInput: IQuickInputService,
+		@INotificationService notifications: INotificationService,
+		@IStorageService storage: IStorageService,
+		@IExtensionService extensions: IExtensionService,
+		@ILogService log: ILogService,
+		@IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
+		@IFileService private readonly files: IFileService,
+		@ITextModelService private readonly textModels: ITextModelService,
+		@IEditorWorkerService private readonly editorWorker: IEditorWorkerService,
+	) {
+		super(groups, services, configuration, quickInput, notifications, storage, extensions, log);
+	}
+
+	override async resolveEditor(editor: IUntypedEditorInput, group: PreferredGroup | undefined): Promise<ResolvedEditor> {
+		return super.resolveEditor((await this.compare(editor)) ?? editor, group);
+	}
+
+	private async compare(editor: IUntypedEditorInput): Promise<IResourceDiffEditorInput | undefined> {
+		if (!isResourceEditorInput(editor) || editor.resource.scheme !== Schemas.file) return undefined;
+		const base = reviewFilesBase(this.configuration);
+		const headRoot = this.workspace.getWorkspace().folders[0]?.uri;
+		if (base === undefined || !headRoot) return undefined;
+		const baseRoot = base ? URI.file(base) : undefined;
+
+		const fromBase = !extUri.isEqualOrParent(editor.resource, headRoot);
+		const relative = extUri.relativePath(fromBase && baseRoot ? baseRoot : headRoot, editor.resource);
+		if (relative === undefined || relative === "") return undefined;
+
+		const head = joinPath(headRoot, relative);
+		const original = baseRoot && joinPath(baseRoot, relative);
+		const [inHead, inBase] = await Promise.all([this.files.exists(head), original ? this.files.exists(original) : false]);
+		if (!inHead && !inBase) return undefined;
+
+		const empty = URI.from({ scheme: REVIEW_EMPTY_SOURCE_SCHEME, path: `/${relative}` });
+		const input = {
+			original: { resource: inBase && original ? original : empty },
+			modified: { resource: inHead ? head : empty },
+			label: basename(head),
+			description: relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : undefined,
+		};
+		const options = editor.options as ITextEditorOptions | undefined;
+		const selection = options?.selection;
+		if (!fromBase || !selection || !inHead) return { ...input, options };
+
+		// A base-side line lives in the original model; reveal where it now sits.
+		const line = await this.modifiedLine(input.original.resource, head, selection.startLineNumber).catch(() => undefined);
+		const moved: ITextEditorOptions = { ...options, selection: line === undefined ? undefined : { startLineNumber: line, startColumn: 1 } };
+		return { ...input, options: moved };
+	}
+
+	private async modifiedLine(original: URI, modified: URI, line: number): Promise<number | undefined> {
+		const references = await Promise.all([this.textModels.createModelReference(original), this.textModels.createModelReference(modified)]);
+		try {
+			const diff: IDocumentDiff | null = await this.editorWorker.computeDiff(original, modified, { ignoreTrimWhitespace: false, maxComputationTimeMs: 1000, computeMoves: false }, "advanced");
+			if (!diff) return undefined;
+			let offset = 0;
+			for (const change of diff.changes) {
+				if (line < change.original.startLineNumber) break;
+				if (line < change.original.endLineNumberExclusive) return change.modified.startLineNumber;
+				offset = change.modified.endLineNumberExclusive - change.original.endLineNumberExclusive;
+			}
+			return line + offset;
+		} finally {
+			for (const reference of references) reference.dispose();
+		}
+	}
+}
+
+/** Serves the empty side of an added or deleted file, in that file's language. */
+export class NavigatorEmptySourceContentProvider extends Disposable implements IWorkbenchContribution, ITextModelContentProvider {
+	constructor(
+		@ITextModelService textModels: ITextModelService,
+		@IModelService private readonly models: IModelService,
+		@ILanguageService private readonly languages: ILanguageService,
+	) {
+		super();
+		this._register(textModels.registerTextModelContentProvider(REVIEW_EMPTY_SOURCE_SCHEME, this));
+	}
+
+	async provideTextContent(resource: URI): Promise<ITextModel> {
+		return this.models.getModel(resource) ?? this.models.createModel("", this.languages.createByFilepathOrFirstLine(resource), resource);
+	}
+}
+
+/**
+ * Every source file is read-only, so an open file's lock badge carries no
+ * information and would hide its A/M/D badge: icon badges win over letters.
+ * The Read-only tooltip remains.
+ */
+export class NavigatorDecorationsService extends DecorationsService {
+	override registerDecorationsProvider(provider: IDecorationsProvider): IDisposable {
+		const withoutLock = (data: IDecorationData | undefined) =>
+			data && ThemeIcon.isThemeIcon(data.letter) && data.letter.id === Codicon.lockSmall.id ? { ...data, letter: undefined } : data;
+		return super.registerDecorationsProvider({
+			label: provider.label,
+			onDidChange: provider.onDidChange,
+			provideDecorations: (uri, token) => {
+				const data = provider.provideDecorations(uri, token);
+				return isThenable(data) ? data.then(withoutLock) : withoutLock(data);
+			},
+		});
+	}
+}

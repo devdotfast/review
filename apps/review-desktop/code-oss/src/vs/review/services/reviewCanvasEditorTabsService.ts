@@ -105,32 +105,30 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		await this.host.openWindow([{ workspaceUri: URI.file(result.workspacePath), label: title }], { forceNewWindow: true });
 	}
 
-	/** Hand source opens to the native workspace before Review creates an editor group. */
+	/**
+	 * Hand source opens to the native workspace before Review creates an editor
+	 * group. That window compares base with head, so a diff opens its head side.
+	 */
 	async openSourceEditor(editor: IUntypedEditorInput): Promise<boolean> {
 		const diff = isResourceDiffEditorInput(editor);
-		const resources = diff ? [editor.original.resource, editor.modified.resource] : [isResourceEditorInput(editor) ? editor.resource : undefined];
-		if (!resources.every((resource): resource is URI => !!resource && [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(resource.scheme))) return false;
-		const destinations = await Promise.all(resources.map(async resource => {
-			const target = sourceLocation(resource);
-			const local = resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME;
-			const result = await this.navigatorWorkspace(target.view.reviewId, {
-				...reviewSourceQuery(target.view),
-				side: target.side,
-				file: local ? undefined : target.file,
-				empty: new URLSearchParams(resource.query).has("empty") ? "true" : undefined,
-			});
-			const filePath = local ? resource.fsPath : result.filePath;
-			if (!filePath) throw new Error("The navigator did not resolve the source file.");
-			const selection = !diff ? (editor.options as ITextEditorOptions | undefined)?.selection : undefined;
-			return {
-				workspaceUri: URI.file(result.workspacePath),
-				fileUri: URI.file(selection ? `${filePath}:${selection.startLineNumber}:${selection.startColumn ?? 1}` : filePath),
-			};
-		}));
+		const resource = diff ? editor.modified.resource : isResourceEditorInput(editor) ? editor.resource : undefined;
+		const resources = diff ? [editor.original.resource, resource] : [resource];
+		if (!resource || !resources.every(item => !!item && [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(item.scheme))) return false;
+		const target = sourceLocation(resource);
+		const local = resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME;
+		const result = await this.navigatorWorkspace(target.view.reviewId, {
+			...reviewSourceQuery(target.view),
+			side: target.side,
+			file: local ? undefined : target.file,
+			empty: new URLSearchParams(resource.query).has("empty") ? "true" : undefined,
+		});
+		const filePath = local ? resource.fsPath : result.filePath;
+		if (!filePath) throw new Error("The navigator did not resolve the source file.");
+		const selection = !diff ? (editor.options as ITextEditorOptions | undefined)?.selection : undefined;
 		await this.host.openWindow([
-			{ workspaceUri: destinations[destinations.length - 1].workspaceUri },
-			...destinations.map(({ fileUri }) => ({ fileUri })),
-		], { forceNewWindow: true, gotoLineMode: true, diffMode: diff });
+			{ workspaceUri: URI.file(result.workspacePath) },
+			{ fileUri: URI.file(selection ? `${filePath}:${selection.startLineNumber}:${selection.startColumn ?? 1}` : filePath) },
+		], { forceNewWindow: true, gotoLineMode: true });
 		return true;
 	}
 

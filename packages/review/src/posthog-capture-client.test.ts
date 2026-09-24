@@ -240,6 +240,76 @@ describe("PostHogCaptureClient", () => {
     });
   });
 
+  it("sends nested JSON properties unchanged", async () => {
+    const bodies: string[] = [];
+
+    const client = new PostHogCaptureClient({
+      apiKey: "phc_test",
+      fetch: async (_url, init) => {
+        bodies.push(String(init?.body));
+
+        return new Response(null, { status: 200 });
+      },
+    });
+
+    await client.capture({
+      event: "$exception",
+      distinctId: "install-1",
+      properties: {
+        $exception_list: [
+          { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+        ],
+        gone: undefined,
+      },
+    });
+    await client.flush(1_000);
+
+    const batch = JSON.parse(bodies[0]).batch;
+    expect(
+      batch[0].properties.$exception_list[0].stacktrace.frames[0].lineno,
+    ).toBe(1);
+    expect("gone" in batch[0].properties).toBe(false);
+  });
+
+  it("keeps nested JSON properties through the on-disk queue", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
+    roots.push(root);
+
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+
+    const client = new PostHogCaptureClient({
+      apiKey: "test-key",
+      fetch: fetchMock,
+      queueDir: root,
+    });
+
+    await client.capture({
+      event: "$exception",
+      distinctId: "install-1",
+      properties: {
+        $exception_list: [
+          { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+        ],
+      },
+    });
+    await client.flush();
+
+    const sent = fetchMock.mock.calls.flatMap(
+      ([, init]) =>
+        JSON.parse(String(init?.body)).batch as Array<{
+          event: string;
+          properties: PostHogCaptureProperties;
+        }>,
+    );
+
+    expect(sent.map((event) => event.event)).toEqual(["$exception"]);
+    expect(sent[0].properties.$exception_list).toEqual([
+      { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+    ]);
+  });
+
   it("does not send without a key and swallows network errors", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       throw new Error("network down");

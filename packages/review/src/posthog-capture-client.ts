@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { type JsonValue, jsonValueSchema } from "@dev.fast/json";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
@@ -9,10 +10,7 @@ import { z } from "zod";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
 
-export type PostHogCaptureProperties = Record<
-  string,
-  boolean | number | string | null | undefined
->;
+export type PostHogCaptureProperties = Record<string, JsonValue | undefined>;
 
 export interface PostHogCaptureInput {
   event: string;
@@ -507,12 +505,7 @@ function doneResult(nextRetryAt: number | undefined): FlushBatchResult {
 const QueuedPostHogEventSchema = z.object({
   event: z.string(),
   distinctId: z.string(),
-  properties: z
-    .record(
-      z.string(),
-      z.union([z.boolean(), z.number(), z.string(), z.null()]),
-    )
-    .optional(),
+  properties: z.record(z.string(), jsonValueSchema).optional(),
   createdAt: z.number(),
   attempts: z.number(),
   nextAttemptAt: z.number(),
@@ -576,11 +569,10 @@ function nonEmpty(value: string | undefined): string | undefined {
 
 function compactProperties(
   properties: PostHogCaptureProperties,
-): Record<string, boolean | number | string | null> {
+): Record<string, JsonValue> {
   return Object.fromEntries(
     Object.entries(properties).filter(
-      (entry): entry is [string, boolean | number | string | null] =>
-        entry[1] !== undefined,
+      (entry): entry is [string, JsonValue] => entry[1] !== undefined,
     ),
   );
 }

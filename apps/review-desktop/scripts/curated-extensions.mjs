@@ -29,7 +29,6 @@ import {
   supportedTargets,
   targetKeyFor,
 } from "./curated-extensions.manifest.mjs";
-import { buildGoTools, goToolsStamp } from "./curated-go-tools.mjs";
 
 const APP_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -222,14 +221,12 @@ function readStamp(directory) {
   }
 }
 
-function stampMatches(stamp, extension, targetKey, sha256, target) {
+function stampMatches(stamp, extension, targetKey, sha256) {
   return (
     stamp?.id === extension.id &&
     stamp?.version === extension.version &&
     stamp?.target === targetKey &&
-    stamp?.sha256 === sha256 &&
-    (!extension.goTools ||
-      JSON.stringify(stamp.goTools) === JSON.stringify(goToolsStamp(target)))
+    stamp?.sha256 === sha256
   );
 }
 
@@ -280,7 +277,7 @@ function ensureExecutables(directory, extension) {
   }
 }
 
-function extractVsix(vsix, extension, targetKey, sha256, target) {
+function extractVsix(vsix, extension, targetKey, sha256) {
   const destination = path.join(EXTENSIONS_DIR, extension.id);
   const staging = `${destination}.staging`;
   fs.rmSync(staging, { recursive: true, force: true });
@@ -306,21 +303,10 @@ function extractVsix(vsix, extension, targetKey, sha256, target) {
       );
     }
 
-    if (extension.goTools) buildGoTools(payload, target);
     ensureExecutables(payload, extension);
-
-    const stamp = {
-      id: extension.id,
-      version: extension.version,
-      target: targetKey,
-      sha256,
-      engine,
-    };
-
-    if (extension.goTools) stamp.goTools = goToolsStamp(target);
     fs.writeFileSync(
       path.join(payload, STAMP_FILE),
-      `${JSON.stringify(stamp, undefined, 2)}\n`,
+      `${JSON.stringify({ id: extension.id, version: extension.version, target: targetKey, sha256, engine }, undefined, 2)}\n`,
     );
     fs.rmSync(destination, { recursive: true, force: true });
     fs.renameSync(payload, destination);
@@ -391,9 +377,7 @@ export function verifyCuratedExtensions({
   )) {
     const directory = path.join(root, extension.id);
 
-    if (
-      !stampMatches(readStamp(directory), extension, targetKey, sha256, target)
-    ) {
+    if (!stampMatches(readStamp(directory), extension, targetKey, sha256)) {
       throw new Error(
         `${extension.id} is not materialized for ${target} at ${root}`,
       );
@@ -468,7 +452,7 @@ export function copyCuratedExtensions({
     const source = path.join(sourceRoot, extension.id);
     const stamp = readStamp(source);
 
-    if (!stampMatches(stamp, extension, targetKey, sha256, target)) {
+    if (!stampMatches(stamp, extension, targetKey, sha256)) {
       throw new Error(
         `${extension.id} is not materialized for ${target}; run without --copy-to first`,
       );
@@ -568,9 +552,7 @@ async function main() {
   )) {
     const destination = path.join(EXTENSIONS_DIR, extension.id);
 
-    if (
-      stampMatches(readStamp(destination), extension, targetKey, sha256, target)
-    ) {
+    if (stampMatches(readStamp(destination), extension, targetKey, sha256)) {
       verifyEngine(destination, extension);
       continue;
     }
@@ -583,14 +565,12 @@ async function main() {
       allowDownload: !options.check,
     });
 
-    extractVsix(vsix, extension, targetKey, sha256, target);
+    extractVsix(vsix, extension, targetKey, sha256);
     verifyEngine(destination, extension);
     console.log(
       `materialized ${extension.id}@${extension.version} (${targetKey})`,
     );
   }
-
-  verifyCuratedExtensions({ root: EXTENSIONS_DIR, target, groups });
 }
 
 const require = createRequire(import.meta.url);

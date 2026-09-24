@@ -1,4 +1,4 @@
-/** Exercises bundled go language support with a local toolchain. */
+/** The optional `go` group ships no language server: `golang.go` runs `go install` for gopls once consented to, so this is phase 2. */
 import { lspOptions, runLspJourney } from "../lsp-languages.mjs";
 
 export const name = "lsp-go";

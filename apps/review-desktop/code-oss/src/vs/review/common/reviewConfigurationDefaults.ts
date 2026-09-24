@@ -113,7 +113,6 @@ export const curatedExtensionConfigurationDefaults = {
 	'go.survey.prompt': false,
 	// Prompts to `go install` newer tools against a toolchain Review does not ship.
 	'go.toolsManagement.checkForUpdates': 'off',
-	'go.toolsManagement.autoUpdate': false,
 
 	// "This file is not linked to a Cargo project" — routine when the review is
 	// scoped to a subdirectory of a workspace.

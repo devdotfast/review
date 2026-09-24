@@ -37,18 +37,23 @@ export function startStallWatchdog(options: StallWatchdogOptions): () => void {
 	let last = now();
 	let reports = 0;
 	const stopWatchingVisibility = options.onVisibilityChange?.(() => { last = now(); });
+	const stop = () => {
+		stopTicking();
+		stopWatchingVisibility?.();
+	};
 	const stopTicking = schedule(() => {
 		const current = now();
 		const lag = current - last - intervalMs;
 		last = current;
-		if (!isVisible() || lag < thresholdMs || lag > maxLagMs || reports >= maxReports) {
+		if (!isVisible() || lag < thresholdMs || lag > maxLagMs) {
 			return;
 		}
 		reports++;
 		options.onStall(Math.round(lag));
+		// Nothing more can be reported this session, so the timer has no job left.
+		if (reports >= maxReports) {
+			stop();
+		}
 	}, intervalMs);
-	return () => {
-		stopTicking();
-		stopWatchingVisibility?.();
-	};
+	return stop;
 }

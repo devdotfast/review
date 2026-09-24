@@ -12,14 +12,28 @@ export interface CrashDump {
   readonly bytes: number;
 }
 
+/** One app launch, so a dump written during it reports that launch's identity. */
+export interface CrashDumpLaunch {
+  readonly startedAt: number;
+  readonly appSessionId: string;
+  readonly appVersion: string;
+  cliVersion?: string;
+}
+
 export interface CrashDumpLedger {
   uploaded: string[];
   /** When a crash was counted: by a live listener, or from its dump. */
   liveCrashesAt: number[];
+  /** The most recent launches, oldest first. */
+  launches: CrashDumpLaunch[];
 }
+
+const MAX_LAUNCHES = 10;
 
 const MAX_DUMP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const LIVE_CRASH_WINDOW_MS = 10_000;
+/** The Worker refuses a gzip dump over this; retrying cannot help. */
+const DUMP_TOO_LARGE = 413;
 const LEDGER_FILE = "ledger.json";
 /** Crashpad's completed-report folders on macOS/Linux and Windows. */
 const DUMP_FOLDERS = ["completed", "reports", "pending"];
@@ -39,6 +53,15 @@ export function planCrashDumps(input: { dumps: CrashDump[]; ledger: CrashDumpLed
     report.push({ ...dump, covered });
   }
   return { report, discard };
+}
+
+/** The launch a dump belongs to: the latest one that started before it was written. */
+export function launchOfDump(launches: readonly CrashDumpLaunch[], mtime: number): CrashDumpLaunch | undefined {
+  let match: CrashDumpLaunch | undefined;
+  for (const launch of launches) {
+    if (launch.startedAt <= mtime && (!match || launch.startedAt > match.startedAt)) match = launch;
+  }
+  return match;
 }
 
 export function listCrashDumps(dumpsDir: string): CrashDump[] {
@@ -72,12 +95,22 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
+function launches(value: unknown): CrashDumpLaunch[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: { startedAt?: unknown; appSessionId?: unknown; appVersion?: unknown; cliVersion?: unknown } | null) => {
+    if (!entry || typeof entry.startedAt !== "number" || typeof entry.appSessionId !== "string" || typeof entry.appVersion !== "string") return [];
+    const launch: CrashDumpLaunch = { startedAt: entry.startedAt, appSessionId: entry.appSessionId, appVersion: entry.appVersion };
+    if (typeof entry.cliVersion === "string") launch.cliVersion = entry.cliVersion;
+    return [launch];
+  });
+}
+
 export function readLedger(dumpsDir: string): CrashDumpLedger {
   try {
-    const parsed = JSON.parse(fs.readFileSync(path.join(dumpsDir, LEDGER_FILE), "utf8")) as { uploaded?: unknown; liveCrashesAt?: unknown };
-    return { uploaded: strings(parsed.uploaded), liveCrashesAt: numbers(parsed.liveCrashesAt) };
+    const parsed = JSON.parse(fs.readFileSync(path.join(dumpsDir, LEDGER_FILE), "utf8")) as { uploaded?: unknown; liveCrashesAt?: unknown; launches?: unknown };
+    return { uploaded: strings(parsed.uploaded), liveCrashesAt: numbers(parsed.liveCrashesAt), launches: launches(parsed.launches) };
   } catch {
-    return { uploaded: [], liveCrashesAt: [] };
+    return { uploaded: [], liveCrashesAt: [], launches: [] };
   }
 }
 
@@ -92,27 +125,31 @@ export function writeLedger(dumpsDir: string, ledger: CrashDumpLedger): void {
 
 export interface ReviewCrashDumpsOptions {
   readonly dumpsDir: string;
-  readonly whenConnected: () => Promise<{ readonly url: string; readonly token: string }>;
+  /** This launch; recorded at once, so a crash before the server is up still maps to it. */
+  readonly launch: Omit<CrashDumpLaunch, "cliVersion">;
+  readonly whenConnected: () => Promise<{ readonly url: string; readonly token: string; readonly cliVersion?: string }>;
   readonly isTelemetryEnabled: () => boolean;
-  readonly capture: (name: string, properties: Record<string, string | number | boolean>) => void;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
   readonly logError?: (message: string) => void;
 }
 
 /**
- * Turns the minidumps Crashpad wrote during earlier runs into crash events and
- * uploads. A dump the live listeners already counted still uploads, but is not
- * counted twice. With telemetry off the dumps are deleted and nothing leaves.
- * The server makes the upload, so its opt-out check and envelope apply; a
- * failed upload (the Worker rate-limits per IP) is retried next launch until
- * the dump is 7 days old.
+ * Hands the minidumps Crashpad wrote during earlier runs to the server, which
+ * counts each one no live listener covered as a crash event and uploads it,
+ * both stamped with the launch the dump came from. With telemetry off the
+ * dumps are deleted and nothing leaves. A failed upload (the Worker
+ * rate-limits per IP) is retried next launch until the dump is 7 days old.
  */
 export class ReviewCrashDumps {
   private readonly ledger: CrashDumpLedger;
+  private readonly launch: CrashDumpLaunch;
 
   constructor(private readonly options: ReviewCrashDumpsOptions) {
     this.ledger = readLedger(options.dumpsDir);
+    this.launch = { ...options.launch };
+    this.ledger.launches = [...this.ledger.launches.slice(-(MAX_LAUNCHES - 1)), this.launch];
+    writeLedger(options.dumpsDir, this.ledger);
   }
 
   recordLiveCrash(at: number): void {
@@ -130,33 +167,46 @@ export class ReviewCrashDumps {
       writeLedger(this.options.dumpsDir, this.ledger);
       return;
     }
+    let connection: Awaited<ReturnType<ReviewCrashDumpsOptions["whenConnected"]>>;
+    try {
+      connection = await this.options.whenConnected();
+    } catch (error) {
+      this.options.logError?.(`[Review Desktop] crash dumps wait for the next launch: ${error}`);
+      return;
+    }
+    if (connection.cliVersion && !this.launch.cliVersion) this.launch.cliVersion = connection.cliVersion;
     for (const dump of plan.report) {
-      if (!dump.covered) {
-        this.options.capture("crash", { process: "unknown", reason: "minidump", source: "minidump" });
-        // Counted now, so a retry after a failed upload does not count it again.
-        this.ledger.liveCrashesAt.push(dump.mtime);
-      }
-      if (await this.upload(dump)) {
-        this.ledger.uploaded = [...this.ledger.uploaded.slice(-200), dump.path];
-        this.remove(dump.path);
-      }
+      const result = await this.upload(connection, dump);
+      // Counted now, so a retry after a failed upload does not count it again.
+      if (result?.counted) this.ledger.liveCrashesAt.push(dump.mtime);
+      if (result?.ok) this.ledger.uploaded = [...this.ledger.uploaded.slice(-200), dump.path];
+      if (result?.ok || result?.status === DUMP_TOO_LARGE) this.remove(dump.path);
     }
     this.ledger.liveCrashesAt = this.ledger.liveCrashesAt.filter((at) => now - at <= MAX_DUMP_AGE_MS);
     writeLedger(this.options.dumpsDir, this.ledger);
   }
 
-  private async upload(dump: CrashDump & { covered: boolean }): Promise<boolean> {
+  private async upload(
+    connection: { readonly url: string; readonly token: string },
+    dump: CrashDump & { covered: boolean },
+  ): Promise<{ ok: boolean; status: number; counted: boolean } | undefined> {
+    const launch = launchOfDump(this.ledger.launches, dump.mtime);
     try {
-      const connection = await this.options.whenConnected();
       const response = await (this.options.fetchImpl ?? fetch)(`${connection.url}/crash-reports`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-review-token": connection.token },
-        body: JSON.stringify({ dump_path: dump.path, crashed_at: dump.mtime, covered: dump.covered }),
+        body: JSON.stringify({
+          dump_path: dump.path,
+          crashed_at: dump.mtime,
+          covered: dump.covered,
+          launch: launch && { app_session_id: launch.appSessionId, app_version: launch.appVersion, cli_version: launch.cliVersion },
+        }),
       });
-      return response.ok;
+      const body = (await response.json().catch(() => ({}))) as { counted?: unknown };
+      return { ok: response.ok, status: response.status, counted: body.counted === true };
     } catch (error) {
       this.options.logError?.(`[Review Desktop] crash dump upload failed: ${error}`);
-      return false;
+      return undefined;
     }
   }
 

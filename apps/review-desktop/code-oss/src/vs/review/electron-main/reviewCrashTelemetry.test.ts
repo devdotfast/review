@@ -84,3 +84,26 @@ test("stops listening once disposed", () => {
   app.emit("child-process-gone", {}, { type: "GPU", reason: "crashed", exitCode: 5 });
   assert.deepEqual(captured, []);
 });
+
+test("ends a hang when its window closes or its renderer dies", () => {
+  let now = 0;
+  const { app, captured } = setup(() => now);
+  const closing = new EventEmitter();
+  const crashing = Object.assign(new EventEmitter(), { webContents: { id: 2 } });
+  app.emit("browser-window-created", {}, closing);
+  app.emit("browser-window-created", {}, crashing);
+  closing.emit("unresponsive");
+  crashing.emit("unresponsive");
+  now = 1_000;
+  closing.emit("closed");
+  now = 3_000;
+  app.emit("render-process-gone", {}, crashing.webContents, { reason: "crashed", exitCode: 11 });
+  crashing.emit("responsive");
+  assert.deepEqual(captured.map(([name, properties]) => [name, properties.duration_ms ?? properties.process]), [
+    ["hang_started", undefined],
+    ["hang_started", undefined],
+    ["hang_ended", 1_000],
+    ["hang_ended", 3_000],
+    ["crash", "renderer"],
+  ]);
+});

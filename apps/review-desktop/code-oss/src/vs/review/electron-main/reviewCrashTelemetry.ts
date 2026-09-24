@@ -7,7 +7,8 @@ import type { IDisposable } from "../../base/common/lifecycle.js";
 import { REVIEW_SERVER_PROCESS_TYPE, type ReviewServerTermination } from "./reviewServerSupervisor.js";
 
 export interface ReviewCrashWindow {
-  on(event: "unresponsive" | "responsive", listener: () => void): unknown;
+  readonly webContents?: unknown;
+  on(event: "unresponsive" | "responsive" | "closed", listener: () => void): unknown;
 }
 
 interface ProcessGoneDetails {
@@ -57,13 +58,19 @@ export class ReviewCrashTelemetry implements IDisposable {
   private readonly now: () => number;
   private readonly launchedAt: number;
   private readonly unbind: Array<() => void> = [];
-  private readonly hangs = new WeakMap<ReviewCrashWindow, number>();
+  /** Hung windows and when their hang started. Closed windows leave it. */
+  private readonly hangs = new Map<ReviewCrashWindow, number>();
 
   constructor(private readonly options: ReviewCrashTelemetryOptions) {
     this.now = options.now ?? Date.now;
     this.launchedAt = options.launchedAt ?? this.now();
-    const onRendererGone = (_event: unknown, _contents: unknown, details: ProcessGoneDetails) =>
+    const onRendererGone = (_event: unknown, contents: unknown, details: ProcessGoneDetails) => {
+      // A hung window whose renderer died never turns responsive again.
+      for (const window of this.hangs.keys()) {
+        if (window.webContents === contents) this.endHang(window);
+      }
       this.crash("renderer", details.reason, details.exitCode);
+    };
     const onChildGone = (_event: unknown, details: ChildProcessGoneDetails) => {
       // The server's supervisor reports its death, and knows a deliberate stop.
       if (details.type === "Utility" && details.name?.startsWith(`${REVIEW_SERVER_PROCESS_TYPE}-`)) return;
@@ -112,11 +119,15 @@ export class ReviewCrashTelemetry implements IDisposable {
       this.hangs.set(window, this.now());
       this.options.capture("hang_started", {});
     });
-    window.on("responsive", () => {
-      const started = this.hangs.get(window);
-      if (started === undefined) return;
-      this.hangs.delete(window);
-      this.options.capture("hang_ended", { duration_ms: this.now() - started });
-    });
+    window.on("responsive", () => this.endHang(window));
+    // Closing a hung window ends its hang, so every start has an end.
+    window.on("closed", () => this.endHang(window));
+  }
+
+  private endHang(window: ReviewCrashWindow): void {
+    const started = this.hangs.get(window);
+    if (started === undefined) return;
+    this.hangs.delete(window);
+    this.options.capture("hang_ended", { duration_ms: this.now() - started });
   }
 }

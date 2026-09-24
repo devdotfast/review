@@ -127,11 +127,16 @@ export class ReviewDesktopHost extends Disposable {
     this._register(toDisposable(() => errorTelemetry.dispose()));
     const crashDumps = new ReviewCrashDumps({
       dumpsDir: crashDumpsDir,
+      launch: {
+        startedAt: Date.now(),
+        appSessionId: this.supervisor.appSessionId,
+        appVersion:
+          this.productService.reviewVersion ?? this.productService.version,
+      },
       whenConnected: () => this.whenConnected(),
       isTelemetryEnabled: () =>
         this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
         false,
-      capture: (name, properties) => errorTelemetry.capture(name, properties),
       logError: (message) => this.logService.error(message),
     });
     crashTelemetry = this._register(

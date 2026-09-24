@@ -212,7 +212,7 @@ export class ReviewServerSupervisor extends Disposable {
    * left open still belong to this launch, and every renderer reads it from
    * the connection instead of minting its own.
    */
-  private readonly appSessionId = randomUUID();
+  readonly appSessionId = randomUUID();
 
   private readonly connected = new DeferredPromise<ReviewDesktopConnection>();
   private readonly readyTimeout: number;

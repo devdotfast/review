@@ -40,8 +40,15 @@ test("reports a tick that arrives two seconds late, at most twice", () => {
 	assert.deepEqual(h.stalls, []);
 	h.advance(3_000);
 	h.advance(2_600);
+	assert.deepEqual(h.stalls, [2_500, 2_100]);
+	assert.equal(h.isScheduled(), false, 'the last report stops the timer');
+	assert.equal(h.isWatchingVisibility(), false);
 	h.advance(9_000);
 	assert.deepEqual(h.stalls, [2_500, 2_100]);
+});
+
+test("stopping cancels the timer and the visibility listener", () => {
+	const h = harness();
 	h.stop();
 	assert.equal(h.isScheduled(), false);
 	assert.equal(h.isWatchingVisibility(), false);

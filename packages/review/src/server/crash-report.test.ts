@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -146,28 +147,32 @@ describe("uploadCrashDump", () => {
     ]);
   });
 
-  it("refuses a dump larger than the cap without reading it", async () => {
+  it("applies the Worker's limit to the gzip size, not the raw size", async () => {
     const dir = await tempDir();
-    const dump = path.join(dir, "big.dmp");
-    await writeFile(dump, Buffer.alloc(1024));
+    const compressible = path.join(dir, "zeros.dmp");
+    const incompressible = path.join(dir, "random.dmp");
+    await writeFile(compressible, Buffer.alloc(4096));
+    await writeFile(incompressible, randomBytes(4096));
+    const { fetchImpl, forms } = captureForm();
 
-    const result = await uploadCrashDump({
-      dumpPath: dump,
-      crashedAt: 0,
-      covered: true,
-      distinctId: "i",
-      envelope: {},
-      maxDumpBytes: 512,
-      fetchImpl: async () => {
-        throw new Error("must not fetch");
-      },
-    });
+    const upload = (dumpPath: string) =>
+      uploadCrashDump({
+        dumpPath,
+        crashedAt: 0,
+        covered: true,
+        distinctId: "i",
+        envelope: {},
+        maxDumpBytes: 1024,
+        fetchImpl,
+      });
 
-    expect(result).toEqual({
+    await expect(upload(compressible)).resolves.toEqual({ ok: true });
+    await expect(upload(incompressible)).resolves.toEqual({
       ok: false,
       status: 413,
       error: "Crash dump is too large.",
     });
+    expect(forms).toHaveLength(1);
   });
 
   it("passes the Worker's failure status through so the dump is kept", async () => {
@@ -191,13 +196,116 @@ describe("uploadCrashDump", () => {
 });
 
 describe("reportCrashDump", () => {
-  function telemetry(sends: boolean): Parameters<typeof reportCrashDump>[0] {
-    return {
+  const OLD_SESSION_ID = "0b7d9c3e-5d1f-4a2b-8c6e-1f2a3b4c5d6e";
+
+  function telemetry(sends: boolean) {
+    const events: Array<{ event: string; properties?: object }> = [];
+
+    const fake: Parameters<typeof reportCrashDump>[0] = {
       sendsEvents: async () => sends,
-      envelope: async () => ({ platform: "darwin" }),
+      envelope: async () => ({
+        platform: "darwin",
+        app_version: "0.0.36",
+        cli_version: "0.0.36",
+        app_session_id: SESSION_ID,
+      }),
       getInstallationId: async () => "install-1",
+      captureEvent: async (event, properties) => {
+        events.push({ event, properties });
+      },
     };
+
+    return { fake, events };
   }
+
+  async function dumpInDirectory() {
+    const dumpsDir = await tempDir();
+    const dump = await writeDump(dumpsDir);
+
+    return { dumpsDir, dump };
+  }
+
+  it("counts and uploads a dump as the launch that wrote it", async () => {
+    const { dumpsDir, dump } = await dumpInDirectory();
+    const { fetchImpl, forms } = captureForm();
+    const { fake, events } = telemetry(true);
+
+    const result = await reportCrashDump(
+      fake,
+      {
+        dump_path: dump,
+        crashed_at: 5,
+        covered: false,
+        launch: {
+          app_session_id: OLD_SESSION_ID,
+          app_version: "0.0.35",
+          cli_version: "0.0.34",
+        },
+      },
+      dumpsDir,
+      fetchImpl,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true, counted: true } });
+    expect(JSON.parse(String(forms[0]?.get("meta")))).toMatchObject({
+      app_session_id: OLD_SESSION_ID,
+      app_version: "0.0.35",
+      cli_version: "0.0.34",
+    });
+    expect(events).toEqual([
+      {
+        event: "review_crash",
+        properties: {
+          process: "unknown",
+          reason: "minidump",
+          source: "minidump",
+          app_session_id: OLD_SESSION_ID,
+          app_version: "0.0.35",
+          cli_version: "0.0.34",
+        },
+      },
+    ]);
+  });
+
+  it("leaves out the session id of a dump older than every recorded launch", async () => {
+    const { dumpsDir, dump } = await dumpInDirectory();
+    const { fetchImpl, forms } = captureForm();
+    const { fake, events } = telemetry(true);
+
+    await reportCrashDump(
+      fake,
+      { dump_path: dump, crashed_at: 5, covered: false },
+      dumpsDir,
+      fetchImpl,
+    );
+
+    const meta = JSON.parse(String(forms[0]?.get("meta")));
+
+    expect(meta).not.toHaveProperty("app_session_id");
+    expect(meta).toMatchObject({ app_version: "0.0.36" });
+    expect(events[0]?.properties).toEqual({
+      process: "unknown",
+      reason: "minidump",
+      source: "minidump",
+      app_session_id: undefined,
+    });
+  });
+
+  it("does not count a dump a live listener covered", async () => {
+    const { dumpsDir, dump } = await dumpInDirectory();
+    const { fetchImpl } = captureForm();
+    const { fake, events } = telemetry(true);
+
+    const result = await reportCrashDump(
+      fake,
+      { dump_path: dump, crashed_at: 5, covered: true },
+      dumpsDir,
+      fetchImpl,
+    );
+
+    expect(result.body.counted).toBe(false);
+    expect(events).toEqual([]);
+  });
 
   it("uploads a dump inside the Review dump directory", async () => {
     const dumpsDir = await tempDir();
@@ -206,13 +314,16 @@ describe("reportCrashDump", () => {
     const { fetchImpl, forms } = captureForm();
 
     const result = await reportCrashDump(
-      telemetry(true),
-      { dump_path: dump, crashed_at: 5, covered: false },
+      telemetry(true).fake,
+      { dump_path: dump, crashed_at: 5, covered: true },
       dumpsDir,
       fetchImpl,
     );
 
-    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, counted: false },
+    });
     expect(JSON.parse(String(forms[0]?.get("meta")))).toMatchObject({
       distinct_id: "install-1",
       platform: "darwin",
@@ -233,7 +344,7 @@ describe("reportCrashDump", () => {
       path.join(dumpsDir, "..", path.basename(outside)),
     ]) {
       const result = await reportCrashDump(
-        telemetry(true),
+        telemetry(true).fake,
         { dump_path: dumpPath, crashed_at: 5, covered: false },
         dumpsDir,
         async () => {
@@ -245,7 +356,7 @@ describe("reportCrashDump", () => {
     }
 
     const noDirectory = await reportCrashDump(
-      telemetry(true),
+      telemetry(true).fake,
       { dump_path: outside, crashed_at: 5, covered: false },
       undefined,
     );
@@ -258,7 +369,7 @@ describe("reportCrashDump", () => {
     const dump = await writeDump(dumpsDir);
 
     const result = await reportCrashDump(
-      telemetry(false),
+      telemetry(false).fake,
       { dump_path: dump, crashed_at: 5, covered: false },
       dumpsDir,
       async () => {
@@ -268,7 +379,7 @@ describe("reportCrashDump", () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, skipped: "telemetry_disabled" },
+      body: { ok: true, counted: true, skipped: "telemetry_disabled" },
     });
   });
 });

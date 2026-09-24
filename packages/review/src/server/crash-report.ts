@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 
 import { ReviewBugReportMetaV2Schema } from "@dev.fast/review-protocol";
 import { z } from "zod";
@@ -11,7 +12,19 @@ import type { ReviewTelemetry } from "../review-telemetry";
 
 const CRASH_REPORT_URL = "https://bug.dev.fast/api/v2/crashes";
 
-const DEFAULT_MAX_DUMP_BYTES = 50 * 1024 * 1024;
+const gzipAsync = promisify(gzip);
+
+/** The Worker's limit on the gzip dump it stores. */
+const DEFAULT_MAX_DUMP_BYTES = 50_000_000;
+
+/** Reading a dump this large into memory is not worth it; it can never fit. */
+const MAX_RAW_DUMP_BYTES = 512 * 1024 * 1024;
+
+const DUMP_TOO_LARGE = {
+  ok: false,
+  status: 413,
+  error: "Crash dump is too large.",
+} as const;
 
 const UPSTREAM_TIMEOUT_MS = 60_000;
 
@@ -61,11 +74,21 @@ const CrashEnvelopeSchema = z.object({
   app_session_id: z.uuid().optional().catch(undefined),
 });
 
+/** The launch a dump was written during, from Electron main's dump ledger. */
+const CrashLaunchSchema = CrashEnvelopeSchema.pick({
+  app_session_id: true,
+  app_version: true,
+  cli_version: true,
+});
+
+type CrashLaunch = z.infer<typeof CrashLaunchSchema>;
+
 /** The body Electron main posts to `/crash-reports`. */
 export const CrashReportRequestSchema = z.object({
   dump_path: z.string().min(1),
   crashed_at: z.number().int().nonnegative(),
   covered: z.boolean(),
+  launch: CrashLaunchSchema.optional(),
 });
 
 export type CrashReportRequest = z.infer<typeof CrashReportRequestSchema>;
@@ -74,6 +97,26 @@ export interface CrashUploadResult {
   ok: boolean;
   status?: number;
   error?: string;
+}
+
+/**
+ * A dump belongs to the launch that wrote it, not to this one: its session id
+ * and versions override the current envelope. Without a matching launch the
+ * crashed session is unknown, so its id is left out; the versions stay the
+ * current launch's, the best guess there is.
+ */
+function crashedLaunchProperties(
+  launch: CrashLaunch | undefined,
+): PostHogCaptureProperties {
+  const properties = { app_session_id: launch?.app_session_id };
+
+  if (!launch) return properties;
+
+  return {
+    ...properties,
+    app_version: launch.app_version,
+    cli_version: launch.cli_version,
+  };
 }
 
 /**
@@ -91,10 +134,12 @@ export async function uploadCrashDump(input: {
 }): Promise<CrashUploadResult> {
   const maxDumpBytes = input.maxDumpBytes ?? DEFAULT_MAX_DUMP_BYTES;
 
-  if ((await stat(input.dumpPath)).size > maxDumpBytes)
-    return { ok: false, status: 413, error: "Crash dump is too large." };
+  if ((await stat(input.dumpPath)).size > MAX_RAW_DUMP_BYTES)
+    return DUMP_TOO_LARGE;
 
-  const dump = gzipSync(await readFile(input.dumpPath), { level: 6 });
+  const dump = await gzipAsync(await readFile(input.dumpPath), { level: 6 });
+
+  if (dump.byteLength > maxDumpBytes) return DUMP_TOO_LARGE;
 
   const meta = {
     schema_version: 1,
@@ -142,18 +187,23 @@ export async function uploadCrashDump(input: {
 /**
  * `POST /crash-reports` from Electron main. The server token also reaches the
  * canvas, so only a `.dmp` file whose real path sits inside the Review dump
- * directory is ever read. Nothing leaves the machine when telemetry is off or
- * only printed (the debug sink).
+ * directory is ever read. A dump no live listener covered is counted here as
+ * `review_crash`, stamped with its own launch, which the `/telemetry/event`
+ * route cannot do: that route stamps the sender's session. Nothing is uploaded
+ * when telemetry is off or only printed (the debug sink).
  */
 export async function reportCrashDump(
   telemetry: Pick<
     ReviewTelemetry,
-    "envelope" | "getInstallationId" | "sendsEvents"
+    "captureEvent" | "envelope" | "getInstallationId" | "sendsEvents"
   >,
   request: CrashReportRequest,
   crashDumpsDir: string | undefined,
   fetchImpl?: typeof fetch,
-): Promise<{ status: number; body: CrashUploadResult & { skipped?: string } }> {
+): Promise<{
+  status: number;
+  body: CrashUploadResult & { counted?: boolean; skipped?: string };
+}> {
   const dumpPath = await dumpInside(request.dump_path, crashDumpsDir);
 
   if (!dumpPath)
@@ -162,19 +212,36 @@ export async function reportCrashDump(
       body: { ok: false, error: "Not a Review crash dump." },
     };
 
+  const launch = crashedLaunchProperties(request.launch);
+  const counted = !request.covered;
+
+  if (counted)
+    await telemetry.captureEvent("review_crash", {
+      process: "unknown",
+      reason: "minidump",
+      source: "minidump",
+      ...launch,
+    });
+
   if (!(await telemetry.sendsEvents()))
-    return { status: 200, body: { ok: true, skipped: "telemetry_disabled" } };
+    return {
+      status: 200,
+      body: { ok: true, counted, skipped: "telemetry_disabled" },
+    };
 
   const result = await uploadCrashDump({
     dumpPath,
     crashedAt: request.crashed_at,
     covered: request.covered,
     distinctId: await telemetry.getInstallationId(),
-    envelope: await telemetry.envelope(),
+    envelope: { ...(await telemetry.envelope()), ...launch },
     fetchImpl,
   });
 
-  return { status: result.ok ? 200 : (result.status ?? 502), body: result };
+  return {
+    status: result.ok ? 200 : (result.status ?? 502),
+    body: { ...result, counted },
+  };
 }
 
 async function dumpInside(

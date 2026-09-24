@@ -35,6 +35,11 @@ import { AvailableForDownload, IUpdate, State, StateType, UpdateType } from '../
 import { IMeteredConnectionService } from '../../meteredConnection/common/meteredConnection.js';
 import { AbstractUpdateService, createUpdateURL, getUpdateRequestHeaders, IUpdateURLOptions, UpdateErrorClassification } from './abstractUpdateService.js';
 
+/** The .app folder name this process runs from, e.g. "Review" for /Applications/Review.app; undefined outside a bundle. */
+function darwinBundleName(): string | undefined {
+	return /\/([^/]+)\.app\/Contents\/MacOS\//.exec(process.execPath)?.[1];
+}
+
 export class DarwinUpdateService extends AbstractUpdateService implements IRelaunchHandler {
 	private feedUrlError: string | undefined;
 
@@ -114,7 +119,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
 		this.feedUrlError = undefined;
 		const assetID = this.productService.darwinUniversalAssetId ?? (process.arch === 'x64' ? 'darwin' : 'darwin-arm64');
-		const url = createUpdateURL(this.productService.updateUrl!, assetID, quality, commit, options);
+		const url = createUpdateURL(this.productService.updateUrl!, assetID, quality, commit, { ...options, bundle: darwinBundleName() });
 		const headers = getUpdateRequestHeaders(this.productService.version);
 		try {
 			this.logService.trace('update#buildUpdateFeedUrl - setting feed URL for Electron autoUpdater', { url, assetID, quality, commit, headers });

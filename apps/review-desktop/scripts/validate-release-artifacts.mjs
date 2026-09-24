@@ -17,6 +17,8 @@ import { verifyCuratedExtensions } from "./curated-extensions.mjs";
 import {
   assertReleaseChannel,
   releaseIdentityFor,
+  updateBundlesFor,
+  updateZipName,
 } from "./release-channel.mjs";
 import { assertPackagedArtifacts } from "./stage-review-runtime.mjs";
 
@@ -26,21 +28,44 @@ const UPDATE_URL = "https://update.dev.fast";
 
 export { assertReleaseChannel };
 
-export function buildManifest({
-  version,
-  commit,
-  zipSha256,
-  now = new Date(),
-}) {
+// `payloads` is one entry per update zip, in updateBundlesFor() order: the
+// first is the default for clients that do not name their bundle folder.
+export function buildManifest({ version, commit, payloads, now = new Date() }) {
+  const bundles = Object.fromEntries(
+    payloads.map(({ bundle, artifact, sha256 }) => [
+      bundle,
+      {
+        url: `${UPDATE_URL}/releases/${version}/darwin-arm64/${updateZipName(artifact, version)}`,
+        sha256hash: sha256,
+      },
+    ]),
+  );
+  const [fallback] = Object.values(bundles);
+
   return {
     version,
     commit,
-    url: `${UPDATE_URL}/releases/${version}/darwin-arm64/Whiteboard-darwin-arm64-${version}.zip`,
+    ...fallback,
     name: version,
     pub_date: now.toISOString(),
     timestamp: now.getTime(),
-    sha256hash: zipSha256,
+    bundles,
   };
+}
+
+// Squirrel installs the zip's top-level folder under that name, so a zip whose
+// folder does not match the bundle it is served to would rename the install.
+export function assertZipFolder(zip, folder) {
+  const entries = execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  const roots = new Set(entries.map((entry) => entry.split("/")[0]));
+
+  if (roots.size !== 1 || !roots.has(folder)) {
+    throw new Error(
+      `${zip} must contain only ${folder}/, found ${[...roots].join(", ") || "nothing"}`,
+    );
+  }
 }
 
 export function assertPackagedProduct(product, { commit, channel = "stable" }) {
@@ -136,7 +161,11 @@ async function main() {
     `${sourceProduct.nameShort}.app`,
   );
 
-  const zip = path.join(artifactDir, `Whiteboard-darwin-arm64-${version}.zip`);
+  const zips = updateBundlesFor(channel).map(({ bundle, artifact }) => ({
+    bundle,
+    artifact,
+    file: path.join(artifactDir, updateZipName(artifact, version)),
+  }));
   const dmg = path.join(artifactDir, `Whiteboard-darwin-arm64-${version}.dmg`);
 
   await assertPackagedArtifacts(app);
@@ -159,12 +188,19 @@ async function main() {
   run("spctl", ["-a", "-vv", "--type", "exec", app]);
   run("xcrun", ["stapler", "validate", dmg]);
 
-  const manifest = buildManifest({ version, commit, zipSha256: sha256(zip) });
+  for (const { bundle, file } of zips) {
+    assertZipFolder(file, `${bundle}.app`);
+  }
+
+  const payloads = zips.map((zip) => ({ ...zip, sha256: sha256(zip.file) }));
+  const manifest = buildManifest({ version, commit, payloads });
   const manifestPath = path.join(artifactDir, "latest.json");
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   console.log(`Validated release artifacts for ${version} (${commit}):`);
-  console.log(`  ${zip} sha256=${manifest.sha256hash}`);
+  for (const { bundle, file, sha256 } of payloads) {
+    console.log(`  ${file} (${bundle}.app) sha256=${sha256}`);
+  }
   console.log(`  ${dmg} sha256=${sha256(dmg)}`);
   console.log(`  ${manifestPath}`);
 }

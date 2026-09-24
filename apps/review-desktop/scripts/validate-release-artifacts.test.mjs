@@ -33,18 +33,30 @@ test("buildManifest emits the schema the update Worker serves", () => {
   const manifest = buildManifest({
     version: "1.2.3",
     commit: "abc123",
-    zipSha256: "cafe",
+    payloads: [
+      { bundle: "Review", artifact: "Review", sha256: "cafe" },
+      { bundle: "Whiteboard", artifact: "Whiteboard", sha256: "f00d" },
+    ],
     now,
   });
 
+  const review =
+    "https://update.dev.fast/releases/1.2.3/darwin-arm64/Review-darwin-arm64-1.2.3.zip";
   assert.deepEqual(manifest, {
     version: "1.2.3",
     commit: "abc123",
-    url: "https://update.dev.fast/releases/1.2.3/darwin-arm64/Whiteboard-darwin-arm64-1.2.3.zip",
+    url: review,
     name: "1.2.3",
     pub_date: "2026-07-29T00:00:00.000Z",
     timestamp: now.getTime(),
     sha256hash: "cafe",
+    bundles: {
+      Review: { url: review, sha256hash: "cafe" },
+      Whiteboard: {
+        url: "https://update.dev.fast/releases/1.2.3/darwin-arm64/Whiteboard-darwin-arm64-1.2.3.zip",
+        sha256hash: "f00d",
+      },
+    },
   });
 });
 

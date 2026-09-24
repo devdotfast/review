@@ -47,7 +47,7 @@ export function authoringTools(
     name: `review_${name}`,
     description,
     inputSchema: {
-      ...z.toJSONSchema(schema, { io: "input" }),
+      ...z.toJSONSchema(schema, { io: "input", reused: "ref" }),
       type: "object" as const,
     },
     method,

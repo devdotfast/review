@@ -994,7 +994,7 @@ it("serves a historical version's file at the pins that version was saved with",
   });
 });
 
-it("opens a stable native workspace at the selected version, separate from prepared language files", async () => {
+it("opens a stable native workspace on the Review's pinned checkout at the selected version", async () => {
   const { reviewId } = await local.store.execute(
     command({ type: "create", title: "Navigator", pins }),
   );
@@ -1008,7 +1008,6 @@ it("opens a stable native workspace at the selected version, separate from prepa
   );
 
   expect(language.rootPath).not.toBeNull();
-  writeFileSync(path.join(language.rootPath!, source.file), "prepared code\n");
   writeFileSync(path.join(repository, source.file), "new HEAD\n");
   git("add", ".");
   git("-c", "commit.gpgsign=false", "commit", "-qm", "New HEAD");
@@ -1049,7 +1048,7 @@ it("opens a stable native workspace at the selected version, separate from prepa
   expect(readFileSync(path.join(current.root, source.file), "utf8")).toBe(
     "new HEAD\n",
   );
-  expect(old.root).not.toBe(language.rootPath);
+  expect(old.root).toBe(language.rootPath);
   writeFileSync(path.join(old.root, source.file), "unexpected edit\n");
   expect(
     (await app.request(`/${reviewId}/navigator?version=0`, { method: "POST" }))

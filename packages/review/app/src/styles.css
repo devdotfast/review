@@ -185,15 +185,8 @@
 .review-commits-range {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 12px;
   padding-bottom: 20px;
-}
-
-.review-commits-range > div,
-.review-commits-range-shas {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
 }
 
 .review-commits-range strong {
@@ -203,21 +196,15 @@
 }
 
 .review-commits-range span {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-muted);
-  font-size: 11px;
+  font: 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.review-commits-range-shas span {
-  color: var(--ink-faint);
-  font-size: 10px;
-}
-
-.review-commits-range code,
-.review-commit-stats code,
-.review-diff-scope-summary code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--control-bg);
+.review-diff-scope-bar code {
   color: var(--ink-muted);
   font: 10px var(--font-mono);
 }
@@ -275,16 +262,19 @@
   background: var(--surface);
 }
 
-.review-commit-card:hover,
 .review-commit-card--expanded {
   background: var(--surface-raised);
 }
 
+/* Subject over who, when and how much; the commit's actions centered at the
+   right. The toggle's hit area covers the whole header, under the actions. */
 .review-commit-card-header {
-  display: flex;
+  position: relative;
+  display: grid;
   align-items: center;
-  padding: 10px 12px 10px 8px;
-  gap: 8px;
+  padding: 10px 12px;
+  gap: 4px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .review-commit-card--expanded .review-commit-card-header {
@@ -294,24 +284,41 @@
 .review-commit-toggle {
   display: flex;
   min-width: 0;
-  flex: 1;
   align-items: center;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
+  gap: 10px;
   text-align: left;
 }
 
-.review-commit-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
+.review-commit-toggle::after {
+  position: absolute;
+  inset: 0;
+  content: "";
 }
 
-.review-commit-copy strong {
+.review-commit-toggle:focus-visible {
+  outline: none;
+}
+
+.review-commit-card-header:has(.review-commit-toggle:focus-visible) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.review-commit-toggle .review-chevron {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* The whole card is the toggle's hit area, so it stays quiet on hover. */
+.review-commit-toggle:hover > .review-chevron {
+  color: var(--ink-faint);
+}
+
+.review-commit-toggle strong {
   overflow: hidden;
   color: var(--ink);
   font-size: 12px;
@@ -320,22 +327,23 @@
   white-space: nowrap;
 }
 
-.review-commit-copy > span,
-.review-commit-stats > span {
-  color: var(--ink-muted);
-  font-size: 10px;
-}
-
-.review-commit-stats {
+.review-commit-actions {
+  position: relative;
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
-  margin-left: 16px;
+  gap: 2px;
+  grid-column: 2;
+  grid-row: 1 / 3;
 }
 
-.review-commit-stats > span:first-child {
+.review-commit-sha {
+  margin-right: 6px;
   color: var(--ink-faint);
+}
+
+.review-commit-meta {
+  padding-left: 26px;
+  color: var(--ink-muted);
 }
 
 .review-commit-files {
@@ -352,7 +360,7 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   padding: 6px 12px;
   border: 0;
   background: transparent;
@@ -374,9 +382,15 @@
 }
 
 .review-commit-files-footer {
-  padding: 4px 12px;
+  padding: 6px 12px 4px 38px;
+  border: 0;
+  background: transparent;
   color: var(--ink-faint);
   font-size: 10px;
+}
+
+.review-commit-files-footer:hover {
+  color: var(--accent);
 }
 
 .review-diff-scope-bar {
@@ -384,23 +398,19 @@
   height: 30px;
   flex: 0 0 30px;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 0 12px;
   border-bottom: 1px solid var(--rule-soft);
   background: var(--surface);
 }
 
-.review-diff-scope-summary {
-  display: flex;
+.review-diff-scope-subject {
   min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.review-diff-scope-label {
-  color: var(--ink-faint);
-  font-size: 10px;
-  text-transform: uppercase;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-diff-scope-bar > button {
@@ -413,34 +423,9 @@
   font-size: 10px;
 }
 
-.commit-file-diff-body {
-  height: 100%;
-  overflow: auto;
-  background: var(--surface);
-}
-
-.commit-file-diff-body pre {
-  min-width: max-content;
-  margin: 0;
-  padding: 16px;
-  color: var(--ink-muted);
-  font: 11px/1.55 var(--font-mono);
-  tab-size: 2;
-}
-
 @media (max-width: 760px) {
   .review-commits-view {
     padding: 24px 16px;
-  }
-
-  .review-commits-range,
-  .review-commit-card-header {
-    align-items: flex-start;
-  }
-
-  .review-commit-stats span:first-child,
-  .review-commit-open {
-    display: none;
   }
 }
 
@@ -2044,54 +2029,46 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
+  gap: 6px;
   color: inherit;
-  font-size: inherit;
   white-space: nowrap;
 }
 
-.review-branch-ref {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 3px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.review-branch-label {
-  color: var(--ink-faint);
-}
-
-.review-branch-name {
-  max-width: 150px;
-  overflow: hidden;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  text-overflow: ellipsis;
-}
-
+/* Each pinned commit is a small mono chip that copies its full hash. */
 .review-branch-copy {
   position: relative;
   display: inline-flex;
-  min-width: 20px;
-  height: 22px;
+  min-width: 0;
   align-items: center;
-  gap: 4px;
   margin: 0;
-  padding: 4px;
-  font: inherit;
-  border: 0;
-  border-radius: var(--chrome-control-radius);
-  background: transparent;
-  color: var(--ink-faint);
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--tray);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
   cursor: pointer;
+}
+
+.review-branch-copy[data-side="base"] {
+  color: var(--ink-muted);
 }
 
 .review-branch-copy:hover,
 .review-branch-copy:focus-visible {
   background: var(--chrome-hover-bg);
-  color: var(--chrome-fg);
+  color: var(--ink);
   outline: none;
+}
+
+.review-branch-copy:focus-visible {
+  border-color: var(--accent);
+}
+
+.review-branch-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .review-branch-copy[data-copied] .review-branch-name {
@@ -2106,7 +2083,6 @@ button {
 }
 
 .review-branch-arrow {
-  margin: 0 4px;
   color: var(--ink-faint);
 }
 
@@ -2628,64 +2604,6 @@ button {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.bug-report-option {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.bug-report-trace-info {
-  position: relative;
-  display: inline-flex;
-}
-
-.bug-report-trace-info > button {
-  display: grid;
-  width: 15px;
-  height: 15px;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  padding: 0;
-  background: transparent;
-  color: var(--ink-faint);
-  font: 600 9px/1 var(--font-mono);
-  cursor: help;
-}
-
-.bug-report-trace-info > button:hover,
-.bug-report-trace-info > button:focus-visible {
-  color: var(--ink);
-  outline: none;
-}
-
-.bug-report-trace-tooltip {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: -8px;
-  z-index: 13;
-  width: min(320px, calc(100vw - 64px));
-  padding: 7px 9px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  box-shadow: 0 8px 20px var(--shadow-color-strong);
-  color: var(--ink-muted);
-  font: 10px/1.45 var(--font-mono);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-2px);
-  transition:
-    opacity 100ms ease,
-    transform 100ms ease;
-}
-
-.bug-report-trace-info:hover .bug-report-trace-tooltip,
-.bug-report-trace-info:focus-within .bug-report-trace-tooltip {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .bug-report-screenshot {
@@ -5947,15 +5865,13 @@ button.review-stack-row:disabled .review-stack-relation {
   color: var(--ink);
 }
 
-.review-connect-hint {
-  margin: 4px 0 0;
-  color: var(--ink-muted);
-  font: 12px/18px var(--font-mono);
-}
-
 .review-connect-modes button {
   padding: 2px 8px;
   font-size: 11px;
+}
+
+.review-connect-option {
+  white-space: nowrap;
 }
 
 .review-connect a.review-home-prompt-copy {
@@ -5989,10 +5905,15 @@ button.review-stack-row:disabled .review-stack-relation {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--review-home-rule-soft);
   font-size: 12px;
+}
+
+.review-connect-legacy button {
+  margin-top: 8px;
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .review-connect-legacy p {
@@ -6089,6 +6010,33 @@ button.review-stack-row:disabled .review-stack-relation {
 /* The Welcome pane: an intro column beside the three-step rail that owns the
    whole first-run flow. Colors come from the themed --review-home-* / --ink
    vars, so light mode follows without a second block. */
+.review-welcome-page {
+  min-height: 100%;
+}
+
+.review-welcome-page .review-home-zero-hint code {
+  padding: 1px 5px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--control-bg);
+  font-family: var(--font-mono);
+}
+
+.review-welcome-feedback {
+  margin: auto 0 0;
+  padding-top: 48px;
+  color: var(--review-home-meta);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.review-welcome-feedback a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .review-onboarding-columns {
   display: flex;
   gap: 72px;
@@ -6164,6 +6112,31 @@ button.review-stack-row:disabled .review-stack-relation {
   font-size: 12px;
 }
 
+.review-onboarding-step-body > .review-onboarding-primary {
+  min-height: 42px;
+  padding: 10px 24px;
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-onboarding-step-body > .review-onboarding-install {
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.review-onboarding-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.review-onboarding-primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 /* One accordion item per step. The header is always visible; only the open
    step renders a body, so a single step asks for attention at a time. */
 .review-onboarding-step {
@@ -6196,6 +6169,12 @@ button.review-stack-row:disabled .review-stack-relation {
   outline: 1px solid var(--accent);
   outline-offset: -2px;
   border-radius: 10px;
+}
+
+.review-welcome-dismiss:disabled,
+.review-onboarding-step-header:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* The chevron closes the row: it sits in the trailing lane, after the note. */
@@ -7663,26 +7642,8 @@ button.review-stack-row:disabled .review-stack-relation {
 .diff-count-removed {
   color: var(--change-removed);
 }
-.viewed-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  border: 1px solid var(--ink-faint);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--ink);
-  font: 12px/1 var(--font-mono);
-  cursor: pointer;
-}
-.viewed-check:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-.viewed-check--viewed,
+/* The viewed box (.review-viewed-check) is styled once, in the workbench's
+   review.css, so the canvas and the diff headers share one look. */
 .diff-workspace .is-viewed {
   opacity: 0.42;
 }
@@ -7857,12 +7818,74 @@ button.review-stack-row:disabled .review-stack-relation {
   fill: var(--change-removed);
 }
 
+/* A selected lens is a filter chip around its funnel, name and clear mark; the
+   counts stay outside it so they keep their column. */
+.diff-lens-hint {
+  padding: 0 14px 6px 16px;
+  color: var(--ink-faint);
+  font: 11px/16px var(--font-mono);
+}
+.diff-lens-chip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+}
+.diff-lens-chip .diff-lens-name {
+  flex: 0 1 auto;
+}
+.diff-lens-toggle > .diff-counts {
+  margin-left: auto;
+}
 .diff-lens-toggle.is-active {
   color: var(--accent);
+}
+.diff-lens-toggle.is-active .diff-lens-chip {
+  padding-right: 4px;
   background: var(--marker-tint);
 }
 .diff-lens-toggle.is-active .diff-lens-icon {
   color: inherit;
+  fill: currentColor;
+}
+.diff-lens-clear {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+}
+.diff-lens-clear path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.diff-lens-toggle.is-active:hover {
+  background: transparent;
+}
+.diff-lens-toggle.is-active:hover .diff-lens-clear {
+  background: var(--marker-glow);
+}
+/* The filter outranks the viewed fade; the checkbox beside it says viewed. */
+.diff-workspace .diff-lens-toggle.is-active.is-viewed {
+  opacity: 1;
+}
+/* A lens with no changes (usually Uncategorized) has nothing to filter to. */
+.diff-lens-toggle.is-empty {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.diff-lens-toggle.is-empty .diff-lens-icon {
+  color: inherit;
+}
+.diff-lens-toggle.is-empty:hover {
+  background: transparent;
 }
 
 /* The hit areas overlap adjacent panes; the visible dividers stay one pixel. */

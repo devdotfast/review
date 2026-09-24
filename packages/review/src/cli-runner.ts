@@ -40,6 +40,7 @@ import {
   type InstallTarget,
   isInstallTarget,
 } from "./install";
+import { scanLegacySkills } from "./legacy-skills";
 import { runReviewMigration } from "./migrate";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewAgentCliHelp } from "./review-api/agent-cli";
@@ -464,7 +465,9 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   const connect = configureJsonOutput(
     program
       .command("connect")
-      .description("Print the prompt that connects a coding agent to Review")
+      .description(
+        "Print the prompt that connects a coding agent to Whiteboard",
+      )
       .addArgument(
         new Argument("[target...]", "coding agent").choices([
           "claude",
@@ -485,6 +488,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     const { homeDir, devHome } = scope;
 
     const prompts = connectPrompts({
+      legacyPaths: await scanLegacySkills(homeDir),
       hasShim: await isOwnedShim(pathShimPath(homeDir)),
       traceEnabled: await traceMachineEnabled({ homeDir, env }),
       fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),

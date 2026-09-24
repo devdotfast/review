@@ -89,6 +89,7 @@ export function ReviewHome({
   onOpenTutorial,
 }: ReviewHomeProps) {
   const [showDismissed, setShowDismissed] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [query, setQuery] = useState("");
   const [, setNow] = useState(Date.now);
 
@@ -193,9 +194,15 @@ export function ReviewHome({
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
  */
-  if (listed.length === 0 && deletions.size === 0 && !deleteError) {
+  if (
+    !onboardingDismissed &&
+    listed.length === 0 &&
+    deletions.size === 0 &&
+    !deleteError
+  ) {
     return (
       <WelcomePage
+        onDismissUpdate={() => setOnboardingDismissed(true)}
         install={install}
         setupActions={setupActions}
         onboarding={onboarding}
@@ -262,6 +269,30 @@ function SearchBox({
   onChange(query: string): void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+
+  // ⌘F (Ctrl+F off the Mac) jumps to the filter instead of the browser's
+  // find bar. Ctrl+F stays forward-char on the Mac.
+  useEffect(() => {
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+
+    const keydown = (event: KeyboardEvent) => {
+      if (
+        (mac ? event.metaKey : event.ctrlKey) &&
+        !(mac ? event.ctrlKey : event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        input.current?.focus();
+        input.current?.select();
+      }
+    };
+
+    window.addEventListener("keydown", keydown);
+
+    return () => window.removeEventListener("keydown", keydown);
+  }, []);
 
   return (
     <div className="review-home-search">
@@ -948,7 +979,7 @@ function worktreeLabel(value: string): string {
   return parts.at(-1) ?? value;
 }
 
-function countLabel(count: number, singular: string): string {
+export function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 

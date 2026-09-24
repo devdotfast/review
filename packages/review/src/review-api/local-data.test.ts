@@ -1187,6 +1187,77 @@ it("keeps a live navigator attached to the live checkout without preparing it", 
   ).rejects.toThrow("leaves the selected worktree");
 });
 
+it("names a linked worktree's source workspace after its repository", async () => {
+  const worktree = path.join(directory, "autocompact-500k-f92161");
+  git("worktree", "add", "--detach", worktree, pins.head);
+  const registered = await local.data.register(worktree);
+
+  const { reviewId } = await local.store.execute(
+    command({
+      type: "create",
+      title: "Worktree source",
+      target: { kind: "worktree", repositoryId: registered.id },
+    }),
+  );
+
+  const open = async () => {
+    const { workspacePath } = await local.data.navigatorWorkspace(
+      local.store.read(reviewId),
+    );
+
+    return {
+      workspacePath,
+      workspace: JSON.parse(readFileSync(workspacePath, "utf8")),
+    };
+  };
+
+  const first = await open();
+  expect(path.basename(first.workspacePath)).toBe("repository.code-workspace");
+  expect(first.workspace.folders).toEqual([
+    { path: realpathSync(worktree), name: "repository" },
+  ]);
+  expect(first.workspace.settings["window.title"]).toBe(
+    "Worktree source — Live source — Whiteboard",
+  );
+
+  // A workspace named after the checkout directory carries its preferences
+  // over and stays in place for a window still open on it.
+  const legacy = path.join(
+    path.dirname(first.workspacePath),
+    "autocompact-500k-f92161.code-workspace",
+  );
+
+  writeFileSync(
+    legacy,
+    JSON.stringify({
+      folders: [
+        { path: realpathSync(worktree), name: "autocompact-500k-f92161" },
+      ],
+      settings: {
+        "files.readonlyInclude": { "**/*": true },
+        "editor.wordWrap": "on",
+        "window.title": "Worktree source — Live source — Review",
+      },
+    }),
+  );
+  rmSync(first.workspacePath);
+
+  const migrated = await open();
+  expect(migrated.workspacePath).toBe(first.workspacePath);
+  expect(migrated.workspace.folders[0].name).toBe("repository");
+  expect(migrated.workspace.settings).toEqual({
+    "files.readonlyInclude": { "**/*": true },
+    "editor.wordWrap": "on",
+    "window.title": "Worktree source — Live source — Whiteboard",
+  });
+  expect(existsSync(legacy)).toBe(true);
+
+  git("remote", "add", "origin", "git@github.com:acme/whiteboard.git");
+  const remote = await open();
+  expect(path.basename(remote.workspacePath)).toBe("whiteboard.code-workspace");
+  expect(remote.workspace.folders[0].name).toBe("whiteboard");
+});
+
 it("browses committed directories, including history, without listing untracked files", async () => {
   mkdirSync(path.join(repository, "nested", "deeper"), { recursive: true });
   writeFileSync(

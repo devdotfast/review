@@ -231,13 +231,14 @@ registerAction2(UninstallReviewDesktopAction);
  * First-run onboarding, the upgrade screen, and silent re-sync. Consent lives in the server's
  * install stamp (~/.dev/review-desktop/state/cli-install.json), not workbench
  * storage, so the CLI and the app read one source of truth:
- * - no stamp: open no tab; empty Home renders the Welcome rail, and
+ * - legacy skills: open Welcome regardless of the stamp or update marker;
+ * - otherwise, no stamp: open no tab; empty Home renders the Welcome rail, and
  *   Preferences > Getting Started reaches the same pane when Home has
  *   reviews to list instead;
  * - granted + stamp without the update marker: open Welcome, which shows the
  *   update screen, unless empty Home already renders the Welcome rail;
- * - granted + stale CLI fingerprint: rewrite the review command silently;
- * - declined or skipped: never open automatically (the menu action stays available).
+ * - granted + stale CLI fingerprint: rewrite the whiteboard command silently;
+ * - declined or skipped without legacy skills: never open automatically.
  *
  * Dev sessions (`pnpm dev`, isBuilt false) never auto-open.
  */

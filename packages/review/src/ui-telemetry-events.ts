@@ -56,7 +56,13 @@ export interface UiTelemetryEventSpec {
   readonly properties: Readonly<Record<string, UiTelemetryPropertySpec>>;
 }
 
-const PEEK_VIA = ["prose_link", "diagram", "map", "db_lens"] as const;
+const PEEK_VIA = [
+  "prose_link",
+  "diagram",
+  "map",
+  "db_lens",
+  "call_stack_frame",
+] as const;
 
 export const LSP_FEATURE = [
   "hover",

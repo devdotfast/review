@@ -1,7 +1,6 @@
 import { createStore } from "zustand/vanilla";
 
 import type {
-  CommitDiffPanel,
   GuidedTour,
   PeekPanel,
   ReviewPanel,
@@ -17,7 +16,6 @@ export interface ReviewPanelActions {
   suppressMotion: () => void;
   openPeek: (panel: PeekPanel) => void;
   openTour: (tour: GuidedTour, activeAnchor: string) => void;
-  openCommitDiff: (panel: CommitDiffPanel) => void;
   restoreTour: (tour: GuidedTour, activeAnchor: string) => void;
   activateTourAnchor: (anchorId: string, options: { reveal: boolean }) => void;
   close: () => void;
@@ -46,7 +44,6 @@ export function createReviewPanelStore() {
         motion: "live",
       }));
     },
-    openCommitDiff: (panel) => set({ active: panel, motion: "live" }),
     restoreTour: (tour, activeAnchor) => {
       set({
         active: {

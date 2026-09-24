@@ -73,18 +73,15 @@ Review document or does not pass a second local path-and-secret check.
 
 The **Report bug** dialog sends a report only after you select **Send**.
 
-Under **Include diagnostic attachments**, three independent checkboxes control
+Under **Include diagnostic attachments**, two independent checkboxes control
 whether Review attaches:
 
 - **Review**: the current Review source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
-- **Agent session trace**: the complete local trace records for the session that
-  authored the Review and available ancestor-session history through each fork
-  point
 
-The Review and changed-file diff attachments are selected by default. **The
-agent session trace is off by default and is included only when you explicitly
-select it for that report.**
+Both attachments are selected by default. Attaching the agent session trace
+that authored a Review is not available yet: the dialog offers no trace control
+and reports never include agent traces.
 
 Review captures a screenshot before the dialog opens, so the dialog itself is
 not in the image. The screenshot is attached by default with a visible preview.
@@ -92,18 +89,7 @@ You can remove it with the × button, or paste or drag an image to replace it.
 Pasted and dropped PNG, JPEG, and WebP images are normalized to JPEG and limited
 to 3 MiB.
 
-You can turn off either default attachment, leave the trace unselected, and
-remove the screenshot before sending.
-
-If you opt in, the report includes those session records and can also include
-up to ten of the most recently modified subagent trace tails. This data can
-contain prompts, model output, source code, file paths, URLs, and email
-addresses.
-
-Review replaces recognizable Google API keys, JWTs, Slack tokens, GitHub
-tokens, and Microsoft Entra tokens before attaching the trace. Other
-credentials or secrets may remain. Passive telemetry and trace-sync settings do
-not enable this attachment.
+You can turn off either attachment and remove the screenshot before sending.
 
 The checkboxes control only those optional attachments. Every submitted report
 also includes the optional description (which may be empty), app and CLI
@@ -112,10 +98,7 @@ sanitized JavaScript error class names seen during that canvas session. It does
 not include error messages in that list.
 
 If a selected Review, map, or diff attachment is unavailable, Review omits it
-and sends the other available data. The source session's own trace is sent
-complete or the report fails. Ancestor history is sent as far as Review can
-read it, and the report names any ancestor it omits. If the compressed report
-would exceed the upload limit, Review drops the trace and sends the rest.
+and sends the other available data.
 
 The report never attaches Review metadata. Review stores completed reports in a private /dev/fast Cloudflare R2
 bucket and deletes them after 90 days.

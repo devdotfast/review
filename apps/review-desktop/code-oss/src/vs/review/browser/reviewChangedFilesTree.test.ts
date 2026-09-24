@@ -32,6 +32,7 @@ function row(state: ReviewDiffProgressFile['state'] | undefined, counts?: Struct
 		new Map(counts ? [[path, counts]] : []),
 		new Map(state ? [[path, progress(path, state, state === 'unread' ? 3 : 0)]] : []),
 		new Map(),
+		{ showInstantHover: () => undefined },
 	);
 	const template = renderer.renderTemplate(document.createElement('div'));
 	renderer.renderElement({ element: { kind: 'file', name: 'a.ts', file: file(path) } } as never, 0, template);

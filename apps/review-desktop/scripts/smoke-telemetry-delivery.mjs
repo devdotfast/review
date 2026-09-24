@@ -196,7 +196,18 @@ export async function smokeTelemetryDelivery({
     const warmUp = "review telemetry delivery smoke warm-up";
     await waitFor(
       async () => {
-        await throwInWindow(warmUp);
+        try {
+          await throwInWindow(warmUp);
+        } catch (error) {
+          // CDP can connect while the workbench is still navigating. Retry
+          // this disposable warm-up once the new execution context exists.
+
+          if (!/Execution context was destroyed/.test(error.message))
+            throw error;
+
+          return false;
+        }
+
         await sleep(2500);
 
         return capture.batches.some((entry) => entry.body.includes(warmUp));

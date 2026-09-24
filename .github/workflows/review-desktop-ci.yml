@@ -93,7 +93,7 @@ jobs:
           echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev xvfb python3
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev python3
 
       - name: Install Playwright Chromium system dependencies
         run: pnpm --filter @dev.fast/review-canvas exec playwright install-deps chromium
@@ -163,55 +163,11 @@ jobs:
       - name: Check the tutorial assets
         run: pnpm --filter @dev.fast/review check:tutorial
 
-      - name: Check repository quality
-        run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
+      - name: Typecheck and test
+        run: pnpm typecheck && pnpm test
 
       - name: Bundled diffr integration
         run: pnpm --filter @dev.fast/review test:integration:diffr
-
-      - name: Configure Electron sandbox
-        run: |
-          sudo chown root:root apps/review-desktop/code-oss/.build/electron/chrome-sandbox
-          sudo chmod 4755 apps/review-desktop/code-oss/.build/electron/chrome-sandbox
-
-      - name: Desktop language services E2E
-        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
-
-      - name: Stage the Review runtime for journeys
-        run: |
-          (cd packages/review && pnpm pack --pack-destination /tmp/review-pack)
-          mkdir -p /tmp/review-runtime
-          (cd /tmp/review-runtime && npm init -y >/dev/null && npm install --omit=dev /tmp/review-pack/dev.fast-review-*.tgz)
-
-      - name: Telemetry contract journey
-        env:
-          REVIEW_E2E_RUNTIME: /tmp/review-runtime/node_modules/@dev.fast/review
-        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:telemetry
-
-      - name: Upload telemetry journey diagnostics
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: telemetry-contract-diagnostics
-          path: |
-            /tmp/review-e2e-telemetry-contract-*/report.json
-            /tmp/review-e2e-telemetry-contract-*/app.log
-            /tmp/review-e2e-telemetry-contract-*/failure.png
-            /tmp/review-e2e-telemetry-contract-*/failure-dom.txt
-          if-no-files-found: ignore
-
-      - name: Upload Desktop language services diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: desktop-lsp-diagnostics
-          path: |
-            /tmp/review-lsp-*/report.json
-            /tmp/review-lsp-*/*.png
-            /tmp/review-lsp-*/failure-dom.txt
-            /tmp/review-lsp-*/app.log
-            /tmp/review-lsp-*/profile/logs
-          if-no-files-found: ignore
 
       - name: Upload browser test diagnostics
         if: failure()

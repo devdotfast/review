@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { Emitter } from '../../base/common/event.js';
+import { REVIEW_DESKTOP_CONNECTION_VERSION } from '../common/reviewDesktopBootstrap.js';
 import {
 	createReviewServerEnvironment,
 	type IReviewServerProcess,
@@ -96,7 +97,7 @@ class FakeServerProcess implements IReviewServerProcess {
 	announceReady(): void {
 		this.stdout.fire(`${JSON.stringify({
 			event: 'ready',
-			version: 3,
+			version: REVIEW_DESKTOP_CONNECTION_VERSION,
 			url: 'http://127.0.0.1:4321',
 			token: this.env.DEV_FAST_REVIEW_SERVER_TOKEN,
 			instanceId: this.env.DEV_FAST_REVIEW_INSTANCE_ID,

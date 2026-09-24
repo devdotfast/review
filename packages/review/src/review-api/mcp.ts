@@ -24,7 +24,7 @@ import { REVIEW_STATUS_TOOL } from "./status-tool.js";
 const RELOAD_TOOLS =
   "Whiteboard is running now, but this session listed Whiteboard's tools before it started, so you may see only session_get_instructions. Before authoring, reload the `whiteboard` MCP server's tools (reconnect it in your agent, or start a new agent session). If you can already see tools such as session_create, carry on.";
 
-export function mcpServerInstructions(context: {
+function mcpAuthoringGuidance(context: {
   scratchpadAvailable: boolean;
   traceEnabled: boolean;
 }): string {
@@ -65,12 +65,6 @@ export async function serveReviewMcp(
     { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      // Initialize comes before Desktop can be asked; the scratchpad
-      // sentence defers to session_capabilities.
-      instructions: mcpServerInstructions({
-        scratchpadAvailable: true,
-        traceEnabled,
-      }),
     },
   );
 
@@ -123,7 +117,12 @@ export async function serveReviewMcp(
       tools: [...always, ...tools.filter((tool) => !always.includes(tool))].map(
         ({ name, description, inputSchema }) => ({
           name,
-          description,
+          // Some clients prepend server instructions to every tool. Keep shared
+          // guidance on the discovery tool instead, including before Desktop starts.
+          description:
+            name === instructionsTool.name
+              ? `${mcpAuthoringGuidance({ scratchpadAvailable: true, traceEnabled })}\n\n${description}`
+              : description,
           inputSchema,
         }),
       ),

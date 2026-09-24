@@ -39,9 +39,18 @@ export class ReviewSessionTelemetry {
 	}
 
 	presented(): void {
+		if (this.active) this.markPresented({ load_ms: this.now() - this.active.startedAt });
+	}
+
+	/** Presented from an already-ready canvas: no load time, so it cannot skew the load distribution. */
+	resumed(): void {
+		this.markPresented({});
+	}
+
+	private markPresented(properties: Record<string, number>): void {
 		if (!this.active || this.active.presented) return;
 		this.active.presented = true;
-		this.capture("review_presented", { load_ms: this.now() - this.active.startedAt }, this.active.context);
+		this.capture("review_presented", properties, this.active.context);
 	}
 
 	end(outcome: ReviewSessionOutcome): void {

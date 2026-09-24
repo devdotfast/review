@@ -37,6 +37,19 @@ test('a session starts, presents once and ends with its duration', () => {
 	]);
 });
 
+test('a resumed session is presented without a load time', () => {
+	const { events, telemetry, advance } = setup();
+	telemetry.start('review-a');
+	advance(5);
+	telemetry.resumed();
+	telemetry.presented();
+
+	assert.deepEqual(events.map((e) => [e.name, e.properties]), [
+		['session_started', {}],
+		['review_presented', {}],
+	]);
+});
+
 test('opening another review closes the current one first', () => {
 	const { events, telemetry } = setup();
 	telemetry.start('review-a');

@@ -326,11 +326,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
 			// clearInput ended the session when this review was hidden; the mounted canvas is already ready.
 			this.sessionTelemetry.start(input.target.reviewId);
-			this.sessionTelemetry.presented();
+			this.sessionTelemetry.resumed();
 			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
 			return;
 		}
-		this.sessionTelemetry.end("closed");
 		if (input.target.kind === "api-source") {
 			// The Source placeholder replaces the mount, so the reuse shortcuts
 			// above must not treat the previous review as still rendered.

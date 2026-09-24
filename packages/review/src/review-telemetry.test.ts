@@ -99,8 +99,8 @@ describe("ReviewTelemetry", () => {
       $process_person_profile: false,
     });
 
-    await telemetry.captureAccountAlias("account-12345");
-    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureAccountAlias(async () => "account-12345");
+    await telemetry.captureAccountAlias(async () => "account-12345");
     await telemetry.captureCommandSucceeded({
       command: "info",
       commandRunId: "run-2",
@@ -125,7 +125,7 @@ describe("ReviewTelemetry", () => {
 
     // The first account wins: another login must not merge a second account
     // into this install's person.
-    await telemetry.captureAccountAlias("account-67890");
+    await telemetry.captureAccountAlias(async () => "account-67890");
     expect(
       events.filter((event) => event.event === "$create_alias"),
     ).toHaveLength(1);
@@ -657,6 +657,24 @@ describe("ReviewTelemetry", () => {
       expect(events[0].properties).not.toHaveProperty("app_version");
     },
   );
+
+  it("does not look up the account to alias when telemetry is off", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { DO_NOT_TRACK: "1" },
+    });
+
+    cleanupPaths.push(rootPath);
+    let lookups = 0;
+
+    await telemetry.captureAccountAlias(async () => {
+      lookups++;
+
+      return "account-12345";
+    });
+
+    expect(lookups).toBe(0);
+    expect(events).toEqual([]);
+  });
 
   it("does not write config or send events when DO_NOT_TRACK is set", async () => {
     const { configPath, events, markersPath, rootPath, telemetry } =

@@ -16,13 +16,15 @@ export async function aliasInstallationToAccount(
 
     if (!auth) return;
 
-    const session = await new StoreClient({
-      origin: auth.origin,
-      token: auth.token,
-      fetch: fetchImpl,
-    }).session();
+    await telemetry.captureAccountAlias(async () => {
+      const session = await new StoreClient({
+        origin: auth.origin,
+        token: auth.token,
+        fetch: fetchImpl,
+      }).session();
 
-    await telemetry.captureAccountAlias(session.user.id);
+      return session.user.id;
+    });
   } catch {
     // No alias this time; the next login tries again.
   }

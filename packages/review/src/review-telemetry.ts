@@ -379,10 +379,15 @@ export class ReviewTelemetry {
    * leaves this process. Once per installation: the first account wins. A
    * later login to another account sends nothing, because a second alias
    * would merge two accounts, and every later install of either, into one
-   * PostHog person.
+   * PostHog person. The account is looked up only when an alias would be
+   * sent, so a login with telemetry off makes no network call.
    */
-  async captureAccountAlias(accountId: string): Promise<void> {
-    const alias = accountAlias(accountId);
+  async captureAccountAlias(
+    lookupAccountId: () => Promise<string>,
+  ): Promise<void> {
+    if (!(await this.isEnabled()) || this.installConfig?.accountAlias) return;
+
+    const alias = accountAlias(await lookupAccountId());
 
     await this.announceOnce("accountAlias", alias, async (config) => {
       await this.captureClient.capture({

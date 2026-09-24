@@ -13,7 +13,7 @@ import * as vscode from 'vscode';
 // shows it as an inline diff against the base; the workbench does that for
 // every file open, so the tree only opens the file itself.
 
-type Status = 'A' | 'M' | 'D';
+type Status = 'A' | 'M' | 'D' | 'R';
 
 interface Entry {
 	readonly name: string;
@@ -24,15 +24,24 @@ interface Entry {
 	/** Where the entry exists: head unless it was deleted. */
 	uri: vscode.Uri;
 	status?: Status;
+	/** The base path of a renamed file. */
+	renamedFrom?: string;
 }
 
-const statusLabels: Record<Status, string> = { A: 'Added', M: 'Modified', D: 'Deleted' };
+const statusLabels: Record<Status, string> = { A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' };
 
 const statusColors: Record<Status, vscode.ThemeColor> = {
 	A: new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
 	M: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
 	D: new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
+	R: new vscode.ThemeColor('gitDecoration.renamedResourceForeground'),
 };
+
+interface Changes {
+	readonly modified: ReadonlySet<string>;
+	/** Head path to base path, for files Git pairs as renamed. */
+	readonly renames: ReadonlyMap<string, string>;
+}
 
 const run = promisify(execFile);
 
@@ -46,6 +55,8 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 	private root: Entry;
 	private readonly entries = new Map<string, Entry>();
 	private readonly decorations = new Map<string, vscode.FileDecoration>();
+	private renames = new Map<string, string>();
+	private loaded: Promise<void> | undefined;
 
 	private readonly treeChanged = new vscode.EventEmitter<void>();
 	readonly onDidChangeTreeData = this.treeChanged.event;
@@ -60,13 +71,32 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 		this.root = this.folder('', undefined, head);
 	}
 
+	load(): Promise<void> {
+		this.loaded = this.list();
+		return this.loaded;
+	}
+
+	/** The path of a file on the other side: a renamed file's base path, or its head path from the base. */
+	async counterpart(side: 'base' | 'head', path: string): Promise<string | undefined> {
+		await this.loaded?.catch(() => undefined);
+		if (side === 'head') {
+			return this.renames.get(path);
+		}
+		for (const [head, base] of this.renames) {
+			if (base === path) {
+				return head;
+			}
+		}
+		return undefined;
+	}
+
 	/** List both checkouts with Git, so ignored files such as prepared dependencies stay out. */
-	async load(): Promise<void> {
-		const [headFiles, missing, baseFiles, changed] = await Promise.all([
+	private async list(): Promise<void> {
+		const [headFiles, missing, baseFiles, changes] = await Promise.all([
 			git(this.head, ['ls-files', '-z', '--cached', ...(this.untracked ? ['--others', '--exclude-standard'] : [])]),
 			this.untracked ? git(this.head, ['ls-files', '-z', '--deleted']) : [],
 			this.base ? git(this.base, ['ls-files', '-z', '--cached']) : [],
-			this.base ? this.changedFiles(this.base) : [],
+			this.base ? this.changes(this.base) : { modified: new Set<string>(), renames: new Map<string, string>() },
 		]);
 
 		const inHead = new Set(headFiles);
@@ -74,20 +104,26 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 			inHead.delete(file);
 		}
 		const inBase = new Set(baseFiles);
-		const modified = new Set(changed);
+		const renamedFrom = new Set(changes.renames.values());
 
 		this.root = this.folder('', undefined, this.head);
 		this.entries.clear();
 		this.decorations.clear();
+		this.renames = new Map(changes.renames);
 		for (const file of new Set([...inHead, ...inBase])) {
-			const status: Status | undefined = !inBase.has(file) ? 'A' : !inHead.has(file) ? 'D' : modified.has(file) ? 'M' : undefined;
-			this.add(file, inHead.has(file), status);
+			const renamed = inHead.has(file) ? changes.renames.get(file) : undefined;
+			// A renamed file appears once, at its head path.
+			if (!inHead.has(file) && renamedFrom.has(file)) {
+				continue;
+			}
+			const status: Status | undefined = renamed ? 'R' : !inBase.has(file) ? 'A' : !inHead.has(file) ? 'D' : changes.modified.has(file) ? 'M' : undefined;
+			this.add(file, inHead.has(file), status).renamedFrom = renamed;
 		}
 		for (const entry of this.entries.values()) {
 			if (!entry.status) {
 				continue;
 			}
-			this.decorations.set(entry.uri.toString(), { badge: entry.status, color: statusColors[entry.status], tooltip: statusLabels[entry.status] });
+			this.decorations.set(entry.uri.toString(), { badge: entry.status, color: statusColors[entry.status], tooltip: describe(entry) });
 			for (let folder = entry.parent; folder && folder !== this.root; folder = folder.parent) {
 				this.decorations.set(folder.uri.toString(), { color: statusColors.M, tooltip: 'Contains changes' });
 			}
@@ -97,12 +133,24 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 	}
 
 	/** Tracked files whose head content differs from the base commit, including a live checkout's edits. */
-	private async changedFiles(base: vscode.Uri): Promise<string[]> {
+	private async changes(base: vscode.Uri): Promise<Changes> {
 		const [commit] = await git(base, ['rev-parse', 'HEAD']);
-		return git(this.head, ['diff', '--name-only', '-z', '--no-renames', commit.trim()]);
+		const fields = await git(this.head, ['diff', '--name-status', '-z', '-M', commit.trim()]);
+		const modified = new Set<string>();
+		const renames = new Map<string, string>();
+		for (let index = 0; index < fields.length;) {
+			const status = fields[index++];
+			if (status.startsWith('R')) {
+				const from = fields[index++];
+				renames.set(fields[index++], from);
+			} else {
+				modified.add(fields[index++]);
+			}
+		}
+		return { modified, renames };
 	}
 
-	private add(file: string, inHead: boolean, status: Status | undefined): void {
+	private add(file: string, inHead: boolean, status: Status | undefined): Entry {
 		const parts = file.split('/');
 		let parent = this.root;
 		for (const [index, name] of parts.entries()) {
@@ -123,6 +171,7 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 			parent = entry;
 		}
 		parent.status = status;
+		return parent;
 	}
 
 	private folder(path: string, parent: Entry | undefined, side: vscode.Uri): Entry {
@@ -142,7 +191,7 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 	getTreeItem(entry: Entry): vscode.TreeItem {
 		const item = new vscode.TreeItem(entry.uri, entry.children ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
 		item.id = entry.path;
-		const label = entry.status ? `${entry.path}, ${statusLabels[entry.status]}` : entry.path;
+		const label = entry.status ? `${entry.path}, ${describe(entry)}` : entry.path;
 		item.tooltip = label;
 		item.accessibilityInformation = { label };
 		if (!entry.children) {
@@ -163,6 +212,10 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
 		return this.decorations.get(uri.toString());
 	}
+}
+
+function describe(entry: Entry): string {
+	return entry.renamedFrom ? `Renamed from ${entry.renamedFrom}` : entry.status ? statusLabels[entry.status] : '';
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -200,6 +253,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		view,
 		vscode.window.registerFileDecorationProvider(files),
 		vscode.commands.registerCommand('reviewFiles.refresh', load),
+		// The workbench asks which base file a head file is compared with, and back.
+		vscode.commands.registerCommand('reviewFiles.counterpart', (side: 'base' | 'head', path: string) => files.counterpart(side, path)),
 		vscode.window.onDidChangeActiveTextEditor(reveal),
 		view.onDidChangeVisibility(() => reveal(vscode.window.activeTextEditor)),
 	);

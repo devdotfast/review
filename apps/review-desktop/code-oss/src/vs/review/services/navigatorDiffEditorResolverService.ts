@@ -16,6 +16,7 @@ import { ILanguageService } from "../../editor/common/languages/language.js";
 import { IEditorWorkerService } from "../../editor/common/services/editorWorker.js";
 import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService, type ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
+import { ICommandService } from "../../platform/commands/common/commands.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import type { ITextEditorOptions } from "../../platform/editor/common/editor.js";
 import { IFileService } from "../../platform/files/common/files.js";
@@ -65,6 +66,7 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 		@IFileService private readonly files: IFileService,
 		@ITextModelService private readonly textModels: ITextModelService,
 		@IEditorWorkerService private readonly editorWorker: IEditorWorkerService,
+		@ICommandService private readonly commands: ICommandService,
 	) {
 		super(groups, services, configuration, quickInput, notifications, storage, extensions, log);
 	}
@@ -84,17 +86,20 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 		const relative = extUri.relativePath(fromBase && baseRoot ? baseRoot : headRoot, editor.resource);
 		if (relative === undefined || relative === "") return undefined;
 
-		const head = joinPath(headRoot, relative);
-		const original = baseRoot && joinPath(baseRoot, relative);
+		// A renamed file pairs with its path on the other side.
+		const counterpart = baseRoot ? await this.counterpart(fromBase ? "base" : "head", relative) : undefined;
+		const headPath = fromBase ? (counterpart ?? relative) : relative;
+		const head = joinPath(headRoot, headPath);
+		const original = baseRoot && joinPath(baseRoot, fromBase ? relative : (counterpart ?? relative));
 		const [inHead, inBase] = await Promise.all([this.files.exists(head), original ? this.files.exists(original) : false]);
 		if (!inHead && !inBase) return undefined;
 
-		const empty = URI.from({ scheme: REVIEW_EMPTY_SOURCE_SCHEME, path: `/${relative}` });
+		const empty = URI.from({ scheme: REVIEW_EMPTY_SOURCE_SCHEME, path: `/${headPath}` });
 		const input = {
 			original: { resource: inBase && original ? original : empty },
 			modified: { resource: inHead ? head : empty },
 			label: basename(head),
-			description: relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : undefined,
+			description: headPath.includes("/") ? headPath.slice(0, headPath.lastIndexOf("/")) : undefined,
 		};
 		const options = editor.options as ITextEditorOptions | undefined;
 		const selection = options?.selection;
@@ -104,6 +109,16 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 		const line = await this.modifiedLine(input.original.resource, head, selection.startLineNumber).catch(() => undefined);
 		const moved: ITextEditorOptions = { ...options, selection: line === undefined ? undefined : { startLineNumber: line, startColumn: 1 } };
 		return { ...input, options: moved };
+	}
+
+	/** The review-files extension knows Git's renames; without it, paths pair as-is. */
+	private async counterpart(side: "base" | "head", path: string): Promise<string | undefined> {
+		try {
+			const other = await this.commands.executeCommand<unknown>("reviewFiles.counterpart", side, path);
+			return typeof other === "string" ? other : undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	private async modifiedLine(original: URI, modified: URI, line: number): Promise<number | undefined> {

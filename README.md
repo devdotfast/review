@@ -36,29 +36,19 @@ Here’s a 1 min demo video explaining more: https://youtu.be/n3bPlt2KzCA
 
 ## How it works
 
-### Built on top of CodeOSS
-
-We found that pure HTML tools didn’t provide easy affordances to connect a spec, plan, or diagram to code; this is especially tricky since tradeoffs are often only discovered after a first pass at implementation. In Whiteboard, when you click on visualizations like a sequence diagram, an entity relationship diagram, or a quote from the agent’s trace, you can jump to the underlying code directly. When navigating code, you get keybindings and LSP support from VSCode out of the box. We take care to make sure these diagrams are rendered incrementally as well, as if someone was drawing them out for you.
-
-With everyone using dedicated agent TUIs and desktop apps, we only use our text
-editors for reviewing line-by-line diffs now, so we figured why not have a text
-editor meant for reviewing code. In that case, might as well start off with the
-most successful open source editor out there as a baseline.
-
-We vendor Code OSS unlike other forks that maintain patches because coding
-agents have a hard time with patches and there's a lot of stuff from stock VS
-Code (i.e., ~45% of the codebase is Copilot these days 😬) that we don't need.
-
-We regularly monitor upstream Code OSS and merge in security/feature patches as
-they come in.
-
-### Semantic diff viewer
-
-Even with that, we found that a raw diff view was often too noisy, so we wrote a semantic, AST-aware diff viewer in Rust so you can only view the code changes which are relevant to you. We’ve set up some sane defaults: large added functions are summarized as pseudocode, and things like unit tests and documentation changes are collapsed. This is all customizable with a WASM-based plugin system.
-
-### Decision Log
-
-We found it difficult to reason about what set of decisions our agents made autonomously & how that impacts a change. So we built tools for agents to query and link their own traces on the Whiteboard, so you can visualize the requirements that you set, understand how they were implemented, and understand what decisions the agent made autonomously.
+- **Built on top of CodeOSS:** In Whiteboard, when you click on visualizations
+  like a sequence diagram, an entity relationship diagram, or a quote from the
+  agent’s trace, you can jump to the underlying code directly. When navigating
+  code, you get keybindings and LSP support from VSCode out of the box. We
+  vendor Code OSS rather than maintaining patches, and regularly merge in
+  upstream security/feature patches.
+- **Semantic diff viewer:** We wrote a semantic, AST-aware diff viewer in Rust
+  so you can only view the code changes which are relevant to you. This is all
+  customizable with a WASM-based plugin system.
+- **Decision Log:** We built tools for agents to query and link their own
+  traces on the Whiteboard, so you can visualize the requirements that you set,
+  understand how they were implemented, and understand what decisions the agent
+  made autonomously.
 
 ## Contributing
 

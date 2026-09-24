@@ -21,7 +21,7 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
 import { IQuickPickItem, IQuickInputService, IQuickPickSeparator, QuickPickInput } from '../../../../platform/quickinput/common/quickInput.js';
-import { AUX_WINDOW_GROUP, AUX_WINDOW_GROUP_TYPE, IEditorService } from '../../../services/editor/common/editorService.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { ContextKeyExpr, ContextKeyExpression } from '../../../../platform/contextkey/common/contextkey.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
@@ -119,7 +119,6 @@ class OutputContribution extends Disposable implements IWorkbenchContribution {
 		this.registerClearOutputAction();
 		this.registerToggleAutoScrollAction();
 		this.registerOpenActiveOutputFileAction();
-		this.registerOpenActiveOutputFileInAuxWindowAction();
 		this.registerSaveActiveOutputAsAction();
 		this.registerShowLogsAction();
 		this.registerOpenLogFileAction();
@@ -392,29 +391,6 @@ class OutputContribution extends Disposable implements IWorkbenchContribution {
 		}));
 	}
 
-	private registerOpenActiveOutputFileInAuxWindowAction(): void {
-		const that = this;
-		this._register(registerAction2(class extends Action2 {
-			constructor() {
-				super({
-					id: `workbench.action.openActiveLogOutputFileInNewWindow`,
-					title: nls.localize2('openActiveOutputFileInNewWindow', "Open Output in New Window"),
-					menu: [{
-						id: MenuId.ViewTitle,
-						when: ContextKeyExpr.equals('view', OUTPUT_VIEW_ID),
-						group: 'navigation',
-						order: 5,
-						isHiddenByDefault: true
-					}],
-					icon: Codicon.emptyWindow,
-				});
-			}
-			async run(): Promise<void> {
-				that.openActiveOutput(AUX_WINDOW_GROUP);
-			}
-		}));
-	}
-
 	private registerSaveActiveOutputAsAction(): void {
 		this._register(registerAction2(class extends Action2 {
 			constructor() {
@@ -442,7 +418,7 @@ class OutputContribution extends Disposable implements IWorkbenchContribution {
 		}));
 	}
 
-	private async openActiveOutput(group?: AUX_WINDOW_GROUP_TYPE): Promise<void> {
+	private async openActiveOutput(): Promise<void> {
 		const channel = this.outputService.getActiveChannel();
 		if (channel) {
 			await this.editorService.openEditor({
@@ -450,7 +426,7 @@ class OutputContribution extends Disposable implements IWorkbenchContribution {
 				options: {
 					pinned: true,
 				},
-			}, group);
+			});
 		}
 	}
 

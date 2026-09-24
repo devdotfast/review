@@ -485,28 +485,9 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 		};
 	}
 
-	private async restoreState(state: IEditorPartsUIState): Promise<void> {
-		if (state.auxiliary.length) {
-			const auxiliaryEditorPartPromises: Promise<IAuxiliaryEditorPart>[] = [];
-
-			// Create auxiliary editor parts
-			for (const auxiliaryEditorPartState of state.auxiliary) {
-				auxiliaryEditorPartPromises.push(this.createAuxiliaryEditorPart(auxiliaryEditorPartState));
-			}
-
-			// Await creation
-			await Promise.allSettled(auxiliaryEditorPartPromises);
-
-			// Update MRU list
-			if (state.mru.length === this.parts.length) {
-				this.mostRecentActiveParts = state.mru.map(index => this.parts[index]);
-			} else {
-				this.mostRecentActiveParts = [...this.parts];
-			}
-
-			// Await ready
-			await Promise.allSettled(this.parts.map(part => part.whenReady));
-		}
+	private async restoreState(_state: IEditorPartsUIState): Promise<void> {
+		// Whiteboard does not support detached editor windows, so any
+		// persisted by older builds are dropped instead of restored.
 	}
 
 	get hasRestorableState(): boolean {

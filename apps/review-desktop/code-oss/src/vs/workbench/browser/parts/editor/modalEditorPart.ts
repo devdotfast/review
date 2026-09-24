@@ -40,7 +40,7 @@ import { IHistoryService } from '../../../services/history/common/history.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { localize } from '../../../../nls.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { CLOSE_MODAL_EDITOR_COMMAND_ID, MOVE_MODAL_EDITOR_TO_MAIN_COMMAND_ID, MOVE_MODAL_EDITOR_TO_WINDOW_COMMAND_ID, NAVIGATE_MODAL_EDITOR_NEXT_COMMAND_ID, NAVIGATE_MODAL_EDITOR_PREVIOUS_COMMAND_ID, TOGGLE_MODAL_EDITOR_MAXIMIZED_COMMAND_ID, TOGGLE_MODAL_EDITOR_SIDEBAR_COMMAND_ID } from './editorCommands.js';
+import { CLOSE_MODAL_EDITOR_COMMAND_ID, MOVE_MODAL_EDITOR_TO_MAIN_COMMAND_ID, NAVIGATE_MODAL_EDITOR_NEXT_COMMAND_ID, NAVIGATE_MODAL_EDITOR_PREVIOUS_COMMAND_ID, TOGGLE_MODAL_EDITOR_MAXIMIZED_COMMAND_ID, TOGGLE_MODAL_EDITOR_SIDEBAR_COMMAND_ID } from './editorCommands.js';
 import { IModalEditorNavigation, IModalEditorPartOptions, IModalEditorSidebar, isModalEditorOptionsProvider } from '../../../../platform/editor/common/editor.js';
 
 const MODAL_MIN_WIDTH = 400;
@@ -109,7 +109,6 @@ const defaultModalEditorAllowableCommands = new Set([
 	// Modal editor
 	CLOSE_MODAL_EDITOR_COMMAND_ID,
 	MOVE_MODAL_EDITOR_TO_MAIN_COMMAND_ID,
-	MOVE_MODAL_EDITOR_TO_WINDOW_COMMAND_ID,
 	TOGGLE_MODAL_EDITOR_MAXIMIZED_COMMAND_ID,
 	NAVIGATE_MODAL_EDITOR_PREVIOUS_COMMAND_ID,
 	NAVIGATE_MODAL_EDITOR_NEXT_COMMAND_ID,

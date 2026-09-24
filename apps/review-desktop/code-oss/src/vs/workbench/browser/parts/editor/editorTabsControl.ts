@@ -505,12 +505,8 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 		return this.editorPartsView.createAuxiliaryEditorPart({ bounds });
 	}
 
-	protected isNewWindowOperation(e: DragEvent): boolean {
-		if (this.groupsView.partOptions.dragToOpenWindow) {
-			return !e.altKey;
-		}
-
-		return e.altKey;
+	protected isNewWindowOperation(_e: DragEvent): boolean {
+		return false; // Whiteboard does not support detached editor windows
 	}
 
 	protected isMoveOperation(e: DragEvent, sourceGroup: GroupIdentifier, sourceEditor?: EditorInput): boolean {

@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { useReviewSession } from "./host/review-session";
+import { captureUiEvent } from "./ui-telemetry";
 
 export type ReviewSubmissionOutcome =
   | "approved"
@@ -84,8 +85,9 @@ export function ReviewProvider({
 
   const dismissReview = useCallback(async () => {
     await review.dismiss();
+    captureUiEvent(session, "review_dismissed", { via: "review_topbar" });
     setSubmissionOutcome("dismissed");
-  }, [review]);
+  }, [review, session]);
 
   const actions = useMemo<ReviewActionsValue>(
     () => ({

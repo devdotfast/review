@@ -33,10 +33,6 @@ export function reviewMcpLaunch(hasShim: boolean): {
     : { command: "whiteboard", args: ["mcp"] };
 }
 
-function whiteboardCli(hasShim: boolean): string {
-  return hasShim ? '"$HOME/.local/bin/whiteboard"' : "whiteboard";
-}
-
 function shellQuote(value: string): string {
   return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
@@ -104,7 +100,7 @@ export function connectPrompt(
 
   const verify =
     target === "pi"
-      ? `Ask me to run /reload in Pi, then run \`${whiteboardCli(input.hasShim)} api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
+      ? `Ask me to run /reload in Pi, then run \`whiteboard api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
       : target === "opencode"
         ? "Stop and tell me to quit and reopen OpenCode: it loads plugins and MCP servers only at startup. After I reopen it, call `session_get_instructions` on the Whiteboard server to confirm the connection. Do not author anything yet."
         : "Reload your MCP tools and call `session_get_instructions` on the Whiteboard server. If a restart is needed, tell me and verify after it. Do not author anything yet.";

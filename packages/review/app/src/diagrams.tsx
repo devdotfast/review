@@ -569,7 +569,7 @@ function SequenceDiagramFigure({
         <DiagramHeader
           kind="SEQ"
           title={sequence.title}
-          meta={`${stopCount} stops`}
+          meta={`${stopCount} ${stopCount === 1 ? "stop" : "stops"}`}
           action={
             // The tour panel's header owns the close control fullscreen.
             onCloseTour ? null : (

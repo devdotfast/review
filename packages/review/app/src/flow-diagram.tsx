@@ -91,7 +91,7 @@ export function FlowDiagram({
       <DiagramHeader
         kind="FLOW"
         title={node.title}
-        meta={`${node.nodes.length} nodes`}
+        meta={`${node.nodes.length} ${node.nodes.length === 1 ? "node" : "nodes"}`}
         action={
           <button
             className="diagram-tour-button"

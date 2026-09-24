@@ -15,7 +15,8 @@ import {
 } from "./crash-report";
 import { createGlobalReviewServer } from "./desktop-server";
 
-const SESSION_ID = "6f1c2f55-2a4b-4b8e-9a51-0c0e3b1d7a10";
+// A Desktop launch id: a UUIDv7, which the Worker's z.uuid() accepts.
+const SESSION_ID = "01997a3c-8f10-7a2b-9c3d-4e5f60718293";
 
 const dirs: string[] = [];
 
@@ -75,6 +76,7 @@ describe("uploadCrashDump", () => {
         ci: false,
         internal: false,
         app_session_id: SESSION_ID,
+        $session_id: SESSION_ID,
         $process_person_profile: false,
       },
       fetchImpl,

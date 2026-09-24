@@ -46,6 +46,20 @@ const CHANNELS: readonly ReviewTelemetryChannel[] = [
   "dev",
 ];
 
+/**
+ * PostHog groups events into sessions by `$session_id` and accepts only a
+ * UUIDv7 there, so only a v7 app session id doubles as one.
+ */
+export const uuidV7Schema = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+
+export function isUuidV7(value: unknown): value is string {
+  return uuidV7Schema.safeParse(value).success;
+}
+
 export function reviewTelemetryChannel(
   env: NodeJS.ProcessEnv,
 ): ReviewTelemetryChannel {

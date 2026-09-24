@@ -40,6 +40,7 @@ import {
   createTelemetryInstallConfig,
   isInternalTelemetry,
   isTelemetryOptedOut,
+  isUuidV7,
   legacyAppTelemetryConfigPath,
   normalizeTelemetryInstallConfig,
   reviewTelemetryChannel,
@@ -617,11 +618,11 @@ export class ReviewTelemetry {
       await this.captureClient.capture({
         event,
         distinctId: config.installationId,
-        properties: {
+        properties: withSessionId({
           ...common,
           ...properties,
           ...correlationProperties(config.installationId, context),
-        },
+        }),
         timestamp: occurredAt,
       });
     });
@@ -877,7 +878,7 @@ export class ReviewTelemetry {
 
     if (appSessionId) properties.app_session_id = appSessionId;
 
-    return properties;
+    return withSessionId(properties);
   }
 
   private sessionAgent(): ReviewSessionAgent {
@@ -899,6 +900,22 @@ export function reviewSessionAgent(env: NodeJS.ProcessEnv): ReviewSessionAgent {
 }
 
 export { isTelemetryOptedOut } from "./telemetry-config";
+
+/**
+ * `$session_id` always mirrors the event's final `app_session_id`, which an
+ * event may override (a recovered end carries the launch that died). An id
+ * that is not a UUIDv7, such as a canvas's own fallback id or one from a
+ * launch before v7 ids, leaves `$session_id` out.
+ */
+function withSessionId(
+  properties: PostHogCaptureProperties,
+): PostHogCaptureProperties {
+  const { $session_id: _stale, ...rest } = properties;
+
+  return isUuidV7(rest.app_session_id)
+    ? { ...rest, $session_id: rest.app_session_id }
+    : rest;
+}
 
 function correlationProperties(
   installationId: string,

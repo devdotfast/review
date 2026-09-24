@@ -150,7 +150,7 @@ test('a restarted server keeps the launch\'s app session id, which the connectio
 	await whenRestarted;
 	const second = processes[1];
 
-	assert.ok(first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
+	assert.match(first.env.DEV_FAST_REVIEW_APP_SESSION_ID ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 	assert.equal(connection.appSessionId, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_APP_SESSION_ID, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_CHANNEL, 'preview');

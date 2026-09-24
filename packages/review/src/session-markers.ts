@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import type { PostHogCaptureProperties } from "./posthog-capture-client";
 import { devReviewHome } from "./review-home-paths";
-import { reviewTelemetryChannel } from "./telemetry-config";
+import { reviewTelemetryChannel, uuidV7Schema } from "./telemetry-config";
 
 /**
  * The envelope fields of the launch that opened a session which a later
@@ -26,6 +26,7 @@ const launchEnvelopeSchema = z.object({
   os_version: z.string().min(1),
   ci: z.boolean(),
   internal: z.boolean(),
+  $session_id: uuidV7Schema.optional(),
 });
 
 export type LaunchEnvelope = z.infer<typeof launchEnvelopeSchema>;

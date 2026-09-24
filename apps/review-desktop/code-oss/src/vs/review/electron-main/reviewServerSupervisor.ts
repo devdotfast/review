@@ -22,6 +22,7 @@ import {
   resolveReviewServerEntry,
 } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_SERVER_RESTART_DELAYS } from "../common/reviewReconnect.js";
+import { uuidV7 } from "../common/reviewUuidV7.js";
 
 /**
  * The slice of `UtilityProcess` the supervisor drives. Depending on this rather
@@ -220,9 +221,10 @@ export class ReviewServerSupervisor extends Disposable {
   /**
    * One id per app launch. A restarted server inherits it, so the sessions it
    * left open still belong to this launch, and every renderer reads it from
-   * the connection instead of minting its own.
+   * the connection instead of minting its own. A UUIDv7, because it doubles
+   * as PostHog's `$session_id`.
    */
-  readonly appSessionId = randomUUID();
+  readonly appSessionId = uuidV7();
 
   private readonly connected = new DeferredPromise<ReviewDesktopConnection>();
   private readonly readyTimeout: number;

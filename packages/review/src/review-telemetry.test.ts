@@ -37,6 +37,11 @@ import {
 // A process that has exited: the owner of a session that died with it.
 const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
 
+// Two Desktop launches' session ids, UUIDv7 as Electron main mints them.
+const LAUNCH_A = "01997a3c-8f10-7a2b-9c3d-4e5f60718293";
+
+const LAUNCH_B = "01997a3d-0000-7bcd-8ef0-123456789abc";
+
 describe("ReviewTelemetry", () => {
   const cleanupPaths: string[] = [];
 
@@ -215,6 +220,47 @@ describe("ReviewTelemetry", () => {
     });
     expect(events[0].properties).not.toHaveProperty("product");
     expect(events[0].properties).not.toHaveProperty("package");
+    // PostHog accepts only a UUIDv7 as a session id.
+    expect(events[0].properties).not.toHaveProperty("$session_id");
+  });
+
+  it("mirrors a UUIDv7 app session id into $session_id, following any override", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_A },
+      surface: "desktop",
+    });
+
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureCommandStarted({
+      command: "info",
+      commandRunId: "run-12345678",
+    });
+    await telemetry.captureTabViewed({
+      tab: "map",
+      durationMs: 300,
+      reason: "tab_change",
+      appSessionId: LAUNCH_B,
+    });
+    await telemetry.captureUiEvent("review_app_opened", {
+      app_session_id: "canvas-fallback-0123456789",
+    });
+
+    expect(
+      events.map(({ properties }) => [
+        properties?.app_session_id,
+        properties?.$session_id,
+      ]),
+    ).toEqual([
+      [LAUNCH_A, LAUNCH_A],
+      [LAUNCH_B, LAUNCH_B],
+      ["canvas-fallback-0123456789", undefined],
+    ]);
+    expect(events[2].properties).not.toHaveProperty("$session_id");
+    await expect(telemetry.envelope()).resolves.toMatchObject({
+      app_session_id: LAUNCH_A,
+      $session_id: LAUNCH_A,
+    });
   });
 
   it("defaults to the cli surface and the stable channel", async () => {
@@ -818,13 +864,13 @@ describe("ReviewTelemetry", () => {
 
     const versionA = launch({
       [REVIEW_APP_VERSION_ENV]: "1.0.0",
-      [REVIEW_APP_SESSION_ID_ENV]: "app-a",
+      [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_A,
       [REVIEW_TELEMETRY_ENV_ENV]: "e2e",
     });
 
     await versionA.telemetry.captureUiEvent(
       "review_session_started",
-      { app_session_id: "app-a" },
+      { app_session_id: LAUNCH_A },
       {
         reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
         presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
@@ -836,13 +882,14 @@ describe("ReviewTelemetry", () => {
       envelope: JsonObject;
     }[];
 
+    expect(marker.envelope.$session_id).toBe(LAUNCH_A);
     marker.envelope.cli_version = "0.9.0";
     marker.envelope.version = "0.9.0";
     await writeFile(markersPath, JSON.stringify([marker]));
 
     const versionB = launch({
       [REVIEW_APP_VERSION_ENV]: "2.0.0",
-      [REVIEW_APP_SESSION_ID_ENV]: "app-b",
+      [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_B,
     });
 
     await versionB.telemetry.reconcileOpenSessions();
@@ -850,7 +897,8 @@ describe("ReviewTelemetry", () => {
     expect(versionB.events).toHaveLength(1);
     expect(versionB.events[0].properties).toMatchObject({
       outcome: "abnormal",
-      app_session_id: "app-a",
+      app_session_id: LAUNCH_A,
+      $session_id: LAUNCH_A,
       app_version: "1.0.0",
       cli_version: "0.9.0",
       version: "0.9.0",

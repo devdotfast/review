@@ -28,7 +28,13 @@ const ENVELOPE = [
   "arch",
   "os_version",
   "node_major",
+  "app_session_id",
+  "$session_id",
 ];
+
+/** PostHog sessions key on `$session_id` and accept only a UUIDv7. */
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Every event this journey may see; a new name must be added here on purpose. */
 const EXPECTED_EVENTS = new Set([
@@ -86,6 +92,16 @@ function assertContract(ctx, review) {
 
     for (const key of ENVELOPE)
       assert.ok(key in event.properties, `${event.event} carries ${key}`);
+    assert.equal(
+      event.properties.$session_id,
+      event.properties.app_session_id,
+      `${event.event} keys its PostHog session on the app session`,
+    );
+    assert.match(
+      event.properties.$session_id,
+      UUID_V7,
+      `${event.event} has a UUIDv7 session id`,
+    );
     assert.equal(
       event.properties.environment,
       "e2e",

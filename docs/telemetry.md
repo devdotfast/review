@@ -19,9 +19,8 @@ Last checked against this repository: 2026-09-24.
   name, Review title, refs, revision hashes, raw Review UUID, coding-agent
   session ID, Review text, prompts, or model output.
 - Review uses a random installation ID, never your email, username, hostname,
-  or a hardware identifier. Events carry `$process_person_profile: false`
-  until you sign in with GitHub; after that PostHog keeps a person profile
-  linking every installation signed into the same account.
+  or a hardware identifier. Signing in with GitHub links installations of the
+  same account through a one-way hash.
 - Product errors may include a cleaned error message and Review-only stack
   frames. Paths, web and email addresses, and recognizable secrets are removed
   on your machine before the event is accepted.
@@ -77,21 +76,15 @@ The full event-by-event list begins at [Event reference](#event-reference).
 
 On first use, Review creates a random installation UUID and stores it at
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
-PostHog's `identify()` API. Every event, including `review_telemetry_dropped`,
-carries `$process_person_profile: false` — a personless event PostHog never
-attaches to a profile — until the installation is linked to a GitHub account.
+PostHog's `identify()` API. Events carry `$process_person_profile: false`, so
+PostHog keeps no person profile.
 
-**Account alias.** After a successful GitHub sign-in in Review Desktop, Review
-sends one `$create_alias{alias, $process_person_profile: true}` linking the
-installation ID to `gh_` plus 16 bytes of a namespaced HMAC of the signed-in
-account id. The account id, login, and email never leave the machine, and the
-hash cannot be reversed. From then on this installation's events carry
-`$process_person_profile: true`, so PostHog keeps one person profile joining
-every installation aliased to that account. Only the first account signed
-into an installation is aliased; a later sign-in to a different account sends
-nothing, and signing out does not remove the link. `review login` from the
-CLI aliases the same way, but only Desktop sign-in sends the
-`review_login_started|succeeded|failed` funnel below.
+**Account alias.** The first GitHub sign-in (Desktop or `review login`) sends
+one `$create_alias` linking the installation ID to `gh_` plus a one-way HMAC of
+the account id. The account id, login, and email never leave the machine. After
+that, events carry `$process_person_profile: true`, so installations signed into
+the same account share one PostHog person. Later sign-ins to other accounts and
+sign-outs change nothing.
 
 Review Desktop Preview keeps a separate installation id in
 `telemetry/progressive-review.preview.json`. The standalone CLI always uses the
@@ -320,23 +313,15 @@ allowlisted but not yet sent.
 
 ## Hangs and stalls
 
-Three explicit signals replace the old inferred gap queries:
+- `review_hang_started` / `review_hang_ended`: Electron's window
+  `unresponsive` / `responsive` events.
+- `review_ui_stall`: a workbench timer that fires 2 seconds or more late.
+- `review_open_timeout`: a review that neither presents nor ends within 30
+  seconds.
 
-- `review_hang_started` and `review_hang_ended{duration_ms}`, from Electron's
-  window `unresponsive` and `responsive` events.
-- `review_ui_stall{duration_ms, process, phase}`, from a main-thread timer-lag
-  watchdog in the workbench, threshold 2 seconds, capped at 5 per session.
-- `review_open_timeout{elapsed_ms}`, from the server when a review session
-  starts and no `review_review_presented` or `review_session_ended` follows
-  within 30 seconds.
-
-A Desktop session that never ends cleanly still arrives as
-`review_session_ended{outcome:"abnormal"}`: Review records open sessions under
-`${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch reports any its
-predecessor left open. A workbench reload also ends its session with
-`outcome:"app_quit"`, the same as quitting; the health dashboard's session and
-lifecycle insights drop an `app_quit` immediately followed by a new session in
-the same `app_session_id`, so a reload is never counted as a failure.
+If the Desktop dies with a review open, the next launch sends
+`review_session_ended{outcome:"abnormal"}`. A workbench reload ends its session
+with `outcome:"app_quit"`, the same as quitting.
 
 ### Workbench events
 
@@ -364,16 +349,12 @@ does not send an extension version.
 Review reports its own failures so that a defect that only happens on your
 machine can still be found and fixed. Four parts of Review report an error: the
 app window, the canvas, the background process, and a crash that happens before
-Review can start. The canvas shares the app window, so an uncaught error there
-is reported once, by the app window; the canvas reports only errors it catches
-itself.
+Review can start. Uncaught canvas errors are reported once, by the app window.
 
-Every `review_client_error` also sends the same fields as a PostHog
-`$exception`, so PostHog's error tracking and the custom event agree;
-`review_client_error` keeps sending for one release, then is removed. The
-server keeps a per-session budget of 5 reports for one `message_hash`; past that,
-Review sends one `review_error_burst{message_hash, suppressed}` in its place
-and drops the rest, so one repeating error cannot count as thousands.
+Every `review_client_error` is also sent as a PostHog `$exception` with the same
+fields; `review_client_error` is removed after one release. After 5 reports of
+one `message_hash` in a session, Review sends a `review_error_burst` instead and
+drops the rest.
 
 Review sends these properties with the `review_client_error` event. A
 `review_update_failed` event uses the same server-side message cleaning and
@@ -439,22 +420,14 @@ frame a second time. Both steps run on your machine, before anything is sent.
 
 ### Crash reports
 
-When a Review process dies, Review records a `review_crash` with the process
-kind, Electron's reason code, and the exit code — no message or stack.
-Electron also writes a local minidump under `<user data>/review-crashes`,
-never uploaded from Electron itself. On the next launch, an uncovered dump
-(one no live crash already reported) is counted too, as
-`review_crash{process:"unknown", source:"minidump"}`, and uploaded to the
-bug-report service (`bug.dev.fast`) with the telemetry envelope as metadata,
-then deleted; a dump older than seven days is deleted without upload. With
-telemetry off, dumps are still deleted but never uploaded, and no
-`review_crash` is reported for them. A minidump contains process memory and
-can include source text open in Review at the time of the crash. Reports are
-stored for 30 days.
-
-The Worker sends its own `review_crash_uploaded` event once a dump is stored,
-with the report ID, the report date, and the same crash and envelope fields —
-never the dump itself.
+A `review_crash` records the process kind, Electron's reason, and the exit code,
+with no message or stack. Electron also writes a local minidump, which can
+contain process memory, including open source text. The next launch uploads it
+to `bug.dev.fast` with the telemetry envelope and deletes it. A dump no live
+event already counted is reported as `review_crash{source:"minidump"}`. Dumps
+older than seven days, or any dump with telemetry off, are deleted without
+upload. Uploaded dumps are kept for 30 days, and the Worker records a
+`review_crash_uploaded` event without the dump.
 
 ## User-initiated bug reports
 

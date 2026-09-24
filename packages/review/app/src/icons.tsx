@@ -273,3 +273,17 @@ export function CheckIcon(): ReactElement {
     </svg>
   );
 }
+
+/** A check that draws itself in when it mounts, for a just-finished action. */
+export function DrawnCheckIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="review-drawn-check"
+      focusable="false"
+      viewBox="0 0 12 12"
+    >
+      <path d="M2.5 6.5 5 9l4.5-6" pathLength={1} />
+    </svg>
+  );
+}

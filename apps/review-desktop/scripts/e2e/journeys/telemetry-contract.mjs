@@ -30,6 +30,7 @@ const ENVELOPE = [
   "node_major",
   "app_session_id",
   "$session_id",
+  "install_age_days",
 ];
 
 /** PostHog sessions key on `$session_id` and accept only a UUIDv7. */
@@ -101,6 +102,11 @@ function assertContract(ctx, review) {
       event.properties.$session_id,
       UUID_V7,
       `${event.event} has a UUIDv7 session id`,
+    );
+    assert.ok(
+      Number.isInteger(event.properties.install_age_days) &&
+        event.properties.install_age_days >= 0,
+      `${event.event} carries a whole-day install age`,
     );
     assert.equal(
       event.properties.environment,

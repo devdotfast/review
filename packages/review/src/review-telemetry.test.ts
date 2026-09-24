@@ -42,6 +42,10 @@ const LAUNCH_A = "01997a3c-8f10-7a2b-9c3d-4e5f60718293";
 
 const LAUNCH_B = "01997a3d-0000-7bcd-8ef0-123456789abc";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const COMMAND = { command: "info", commandRunId: "run-12345678" } as const;
+
 describe("ReviewTelemetry", () => {
   const cleanupPaths: string[] = [];
 
@@ -222,6 +226,82 @@ describe("ReviewTelemetry", () => {
     expect(events[0].properties).not.toHaveProperty("package");
     // PostHog accepts only a UUIDv7 as a session id.
     expect(events[0].properties).not.toHaveProperty("$session_id");
+  });
+
+  it("sends the install's age in whole days since it was created", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 3.5 * DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 3,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+    await expect(telemetry.envelope()).resolves.toMatchObject({
+      install_age_days: 3,
+    });
+  });
+
+  it("counts an existing install's age from the first time an upgrade saw it", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, {
+      installationId: "existing-install",
+      installationCreatedSent: true,
+      enabled: true,
+    });
+
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 10 * DAY_MS;
+    await telemetry.flush();
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 10,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "existing-install",
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+  });
+
+  it("does not let an opt-out check fix the backfilled creation time", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, { installationId: "existing-install" });
+
+    // Reads the config before anything has written the backfill.
+    await telemetry.flush();
+    clock += DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 2 * DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 2,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      createdAt: "2026-01-03T03:04:05.000Z",
+    });
   });
 
   it("mirrors a UUIDv7 app session id into $session_id, following any override", async () => {
@@ -883,7 +963,9 @@ describe("ReviewTelemetry", () => {
     }[];
 
     expect(marker.envelope.$session_id).toBe(LAUNCH_A);
+    expect(marker.envelope.install_age_days).toBe(0);
     marker.envelope.cli_version = "0.9.0";
+    marker.envelope.install_age_days = 7;
     marker.envelope.version = "0.9.0";
     await writeFile(markersPath, JSON.stringify([marker]));
 
@@ -899,6 +981,7 @@ describe("ReviewTelemetry", () => {
       outcome: "abnormal",
       app_session_id: LAUNCH_A,
       $session_id: LAUNCH_A,
+      install_age_days: 7,
       app_version: "1.0.0",
       cli_version: "0.9.0",
       version: "0.9.0",

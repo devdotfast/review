@@ -27,6 +27,7 @@ const launchEnvelopeSchema = z.object({
   ci: z.boolean(),
   internal: z.boolean(),
   $session_id: uuidV7Schema.optional(),
+  install_age_days: z.number().int().nonnegative().optional(),
 });
 
 export type LaunchEnvelope = z.infer<typeof launchEnvelopeSchema>;

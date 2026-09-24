@@ -77,6 +77,7 @@ describe("uploadCrashDump", () => {
         internal: false,
         app_session_id: SESSION_ID,
         $session_id: SESSION_ID,
+        install_age_days: 12,
         $process_person_profile: false,
       },
       fetchImpl,

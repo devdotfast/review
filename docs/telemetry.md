@@ -165,6 +165,7 @@ Every event from the Review telemetry API includes these properties:
 | `ci`             | Boolean                                                            |
 | `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
 | `app_session_id` | One UUIDv7 per Desktop launch, shared by every Desktop process     |
+| `install_age_days` | Whole days since this installation id was created (for an install older than this field, since the first run that recorded it) |
 | `$session_id`    | The same id as `app_session_id`, so PostHog groups a launch's events into one session; absent when the id is not a UUIDv7 |
 
 `environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`

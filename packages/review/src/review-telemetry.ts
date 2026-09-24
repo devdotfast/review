@@ -38,6 +38,7 @@ import {
   type ReviewTelemetryInstallConfig,
   type ReviewTelemetrySurface,
   createTelemetryInstallConfig,
+  installAgeDays,
   isInternalTelemetry,
   isTelemetryOptedOut,
   isUuidV7,
@@ -46,6 +47,7 @@ import {
   reviewTelemetryChannel,
   reviewTelemetryConfigPath,
   reviewTelemetryEnvironment,
+  telemetryInstallConfigNeedsWrite,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
 import {
@@ -750,14 +752,20 @@ export class ReviewTelemetry {
     }
 
     try {
-      const config = normalizeTelemetryInstallConfig(
-        parseJsonText(await readFile(this.installConfigPath, "utf8")),
-        this.now,
+      const parsed = parseJsonText(
+        await readFile(this.installConfigPath, "utf8"),
       );
 
+      const config = normalizeTelemetryInstallConfig(parsed, this.now);
+
       if (!config) return true;
-      this.installConfig = config;
-      sharedInstallConfigs.set(this.installConfigPath, config);
+
+      // A config that still needs its one-time write is left for
+      // readOrCreateInstallConfig, which persists what it backfills.
+      if (!telemetryInstallConfigNeedsWrite(parsed, config)) {
+        this.installConfig = config;
+        sharedInstallConfigs.set(this.installConfigPath, config);
+      }
 
       return !this.optedOut(config);
     } catch {
@@ -774,7 +782,7 @@ export class ReviewTelemetry {
       const config = normalizeTelemetryInstallConfig(parsed, this.now);
 
       if (config) {
-        if (jsonObject(parsed)?.internal !== config.internal) {
+        if (telemetryInstallConfigNeedsWrite(parsed, config)) {
           try {
             this.writeInstallConfig(config);
           } catch {
@@ -852,7 +860,10 @@ export class ReviewTelemetry {
   }
 
   private async commonProperties(
-    config: Pick<ReviewTelemetryInstallConfig, "internal" | "accountAlias">,
+    config: Pick<
+      ReviewTelemetryInstallConfig,
+      "internal" | "accountAlias" | "createdAt"
+    >,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
     const appSessionId = nonEmpty(this.env[REVIEW_APP_SESSION_ID_ENV]);
@@ -870,6 +881,7 @@ export class ReviewTelemetry {
       os_version: os.release(),
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
+      install_age_days: installAgeDays(config, this.now()),
       // Anonymous until an account is aliased; then PostHog keeps a person.
       $process_person_profile: config.accountAlias !== undefined,
     };

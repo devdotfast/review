@@ -9,6 +9,10 @@ import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export interface ReviewTelemetryInstallConfig {
   installationId: string;
+  /**
+   * When this install was created, ISO 8601. A config written before the
+   * field existed gets the first time a later version read it.
+   */
   createdAt: string;
   installationCreatedSent: boolean;
   firstReviewPresentedSent: boolean;
@@ -155,7 +159,7 @@ export function isTelemetryOptedOut(
  */
 const storedTelemetryInstallConfigSchema = z.looseObject({
   installationId: z.string().min(1),
-  createdAt: z.string().optional().catch(undefined),
+  createdAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
   installationCreatedSent: z.boolean().optional().catch(undefined),
   firstReviewPresentedSent: z.boolean().optional().catch(undefined),
   enabled: z.boolean().optional().catch(undefined),
@@ -183,6 +187,37 @@ export function normalizeTelemetryInstallConfig(
   if (stored.data.accountAlias) config.accountAlias = stored.data.accountAlias;
 
   return config;
+}
+
+/**
+ * Whether normalizing changed a field an older or hand-edited file lacked, so
+ * the config must be written back once: a backfilled `createdAt` has to stay
+ * the first-seen time rather than move with every read.
+ */
+export function telemetryInstallConfigNeedsWrite(
+  parsed: JsonValue,
+  config: ReviewTelemetryInstallConfig,
+): boolean {
+  const stored = storedTelemetryInstallConfigSchema.safeParse(parsed).data;
+
+  return (
+    stored?.internal !== config.internal ||
+    stored?.createdAt !== config.createdAt
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/** Whole days since the install was created; 0 for a clock set back. */
+export function installAgeDays(
+  config: Pick<ReviewTelemetryInstallConfig, "createdAt">,
+  now: Date,
+): number {
+  const createdAt = Date.parse(config.createdAt);
+
+  if (Number.isNaN(createdAt)) return 0;
+
+  return Math.max(0, Math.floor((now.getTime() - createdAt) / DAY_MS));
 }
 
 export function createTelemetryInstallConfig(

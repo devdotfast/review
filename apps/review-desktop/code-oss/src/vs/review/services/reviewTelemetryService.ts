@@ -21,6 +21,7 @@ interface QueuedReviewTelemetryEvent {
 	readonly name: string;
 	readonly properties: ReviewTelemetryProperties | undefined;
 	readonly error?: ReviewErrorReport;
+	readonly context?: unknown;
 }
 
 export const IReviewTelemetryService = createDecorator<IReviewTelemetryService>(
@@ -36,8 +37,11 @@ export interface IReviewTelemetryService {
 	 * properties, never inside them. It reaches only the loopback server on this
 	 * machine, which replaces the message with a digest and keeps only the stack
 	 * frames that resolve inside the shipped bundle.
+	 *
+	 * `context` carries raw local ids (such as a review's uuid) beside the
+	 * properties; the loopback server replaces them with keyed digests.
 	 */
-	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport): void;
+	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport, context?: unknown): void;
 	/** Best-effort flush. Resolves within approximately 500 ms. */
 	flush(): Promise<void>;
 }
@@ -73,11 +77,11 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		});
 	}
 
-	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport): void {
+	capture(name: string, properties?: ReviewTelemetryProperties, error?: ReviewErrorReport, context?: unknown): void {
 		if (this.configurationService.getValue(REVIEW_TELEMETRY_SETTING) === false) {
 			return;
 		}
-		const event = { name, properties, ...(error ? { error } : {}) };
+		const event = { name, properties, ...(error ? { error } : {}), ...(context ? { context } : {}) };
 		if (this.connection) {
 			this.send(event);
 			return;

@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
@@ -27,9 +34,7 @@ import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 describe("Whiteboard CLI", () => {
   it("routes Cursor install instructions without connecting to Desktop", async () => {
     const { code, stdout, stderr } = await runConnect([
-      "mcp",
-      "install-instructions",
-      "--harness",
+      "connect",
       "cursor",
       "--json",
     ]);
@@ -37,8 +42,8 @@ describe("Whiteboard CLI", () => {
     expect(code).toBe(0);
     expect(stderr).toBe("");
     const result = JSON.parse(stdout);
-    expect(result.harness).toBe("cursor");
-    const link = new URL(result.instructions.match(/cursor:\/\/\S+/)[0]);
+    expect(Object.keys(result.prompts)).toEqual(["cursor"]);
+    const link = new URL(result.prompts.cursor.match(/cursor:\/\/\S+/)[0]);
     expect(link.hostname).toBe("anysphere.cursor-deeplink");
     expect(
       JSON.parse(
@@ -50,16 +55,39 @@ describe("Whiteboard CLI", () => {
     });
   });
 
-  it.each([
-    [],
-    ["--harness", "unknown"],
-    ["--harness", "cursor", "--unknown"],
-    ["--harness", "cursor", "extra"],
-  ])("rejects invalid install-instructions arguments %j", async (...args) => {
-    const result = await runConnect(["mcp", "install-instructions", ...args]);
-    expect(result.code).not.toBe(0);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).not.toBe("");
+  it("prints only scanner-owned cleanup paths", async () => {
+    let owned = "";
+    let plugin = "";
+    let unrelated = "";
+
+    const { code, stdout } = await runConnect(
+      ["connect", "--json"],
+      async (home) => {
+        owned = path.join(home, ".agents", "skills", "dev-review");
+        unrelated = path.join(home, ".agents", "skills", "review");
+        plugin = path.join(home, ".config", "opencode", "plugins", "review.ts");
+        await mkdir(owned, { recursive: true });
+        await mkdir(unrelated, { recursive: true });
+        await mkdir(path.dirname(plugin), { recursive: true });
+        await writeFile(
+          path.join(owned, "SKILL.md"),
+          '---\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "Do not edit."\n  review-version: "development"\n---\n',
+        );
+        await writeFile(path.join(unrelated, "SKILL.md"), "User-owned skill");
+        await writeFile(
+          plugin,
+          "// Managed by Review Desktop (@dev.fast/review).\n",
+        );
+      },
+    );
+
+    expect(code).toBe(0);
+
+    for (const prompt of Object.values(JSON.parse(stdout).prompts)) {
+      expect(prompt).toContain(JSON.stringify(owned));
+      expect(prompt).toContain(JSON.stringify(plugin));
+      expect(prompt).not.toContain(JSON.stringify(unrelated));
+    }
   });
 
   it("prints every prompt with headings by default", async () => {
@@ -667,6 +695,7 @@ function outputStream(): PassThrough {
 
 async function runConnect(
   argv: string[],
+  setup?: (homeDir: string) => Promise<void>,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-connect-"));
 
@@ -680,6 +709,8 @@ async function runConnect(
   stderr.on("data", (chunk) => (stderrText += String(chunk)));
 
   try {
+    await setup?.(homeDir);
+
     const code = await runReviewCli({
       argv,
       cwd: homeDir,

@@ -35,17 +35,6 @@ async function runCli(effectivePath: string): Promise<number> {
     return 1;
   }
 
-  if (argv[0] === "mcp" && argv[1] === "install-instructions") {
-    const { runMcpInstallInstructions } =
-      await import("./mcp-install-instructions.js");
-
-    return runMcpInstallInstructions({
-      argv: argv.slice(2),
-      stdout: process.stdout,
-      stderr: process.stderr,
-    });
-  }
-
   const { runReviewCli } = await import("./cli-runner.js");
 
   return runReviewCli({

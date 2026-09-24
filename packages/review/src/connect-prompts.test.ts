@@ -10,6 +10,7 @@ import { ALL_INSTALL_TARGETS } from "./install";
 
 const input = {
   hasShim: true,
+  legacyPaths: [],
   traceEnabled: false,
   fffBinaryPath: "/Users/u/.local/bin/fff-mcp",
   fffCorpusRoot: "/Users/u/.dev/trace-search",

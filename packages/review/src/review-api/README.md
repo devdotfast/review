@@ -325,5 +325,3 @@ compares with current HEAD (empty for unborn repositories). No checkout is creat
 Source ranges default to the head side. File saves refresh source without changing
 authored history. All versions of a live target read the current checkout; authors
 maintain their source references. Use a commit target for fixed source.
-
-See [review targets](../../../../docs/cli-reference.md#review-targets) for the supported source and comparison options.

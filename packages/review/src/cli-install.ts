@@ -346,12 +346,12 @@ function connectPlugins(
     claude: {
       label: "Install the Claude Code plugin",
       command:
-        "/plugin marketplace add devdotfast/review\n/plugin install whiteboard@devfast",
+        "/plugin marketplace add devdotfast/whiteboard\n/plugin install whiteboard@devfast",
     },
     codex: {
       label: "Install the Codex plugin",
       command:
-        "codex plugin marketplace add devdotfast/review\ncodex plugin add whiteboard@devfast",
+        "codex plugin marketplace add devdotfast/whiteboard\ncodex plugin add whiteboard@devfast",
     },
     cursor: hasShim
       ? {

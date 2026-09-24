@@ -787,6 +787,7 @@ function resolveOptions(opts: ScrollableElementCreationOptions): ScrollableEleme
 		verticalScrollbarSize: (typeof opts.verticalScrollbarSize !== 'undefined' ? opts.verticalScrollbarSize : globalDefaultScrollbarSize),
 		verticalHasArrows: (typeof opts.verticalHasArrows !== 'undefined' ? opts.verticalHasArrows : false),
 		verticalSliderSize: (typeof opts.verticalSliderSize !== 'undefined' ? opts.verticalSliderSize : 0),
+		verticalScrollbarTopInset: (typeof opts.verticalScrollbarTopInset !== 'undefined' ? opts.verticalScrollbarTopInset : 0),
 
 		scrollByPage: (typeof opts.scrollByPage !== 'undefined' ? opts.scrollByPage : false)
 	};

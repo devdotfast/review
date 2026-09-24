@@ -44,6 +44,9 @@ export class ReviewMultiDiffUIElementFactory
   implements IWorkbenchUIElementFactory
 {
 
+  alwaysShowScrollbars = false;
+  scrollbarBelowResourceHeader = false;
+
   get headerClickToCollapse(): boolean {
     return !this.hideResourceHeader;
   }

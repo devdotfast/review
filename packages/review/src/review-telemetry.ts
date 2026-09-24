@@ -216,6 +216,7 @@ export type ReviewCommandTelemetry = Pick<
   | "captureCommandStarted"
   | "captureCommandSucceeded"
   | "captureCommandFailed"
+  | "captureUiEvent"
   | "shutdown"
 >;
 

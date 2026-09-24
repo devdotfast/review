@@ -295,6 +295,9 @@ describe("Review CLI", () => {
       captureCommandFailed: vi.fn<() => Promise<undefined>>(
         async () => undefined,
       ),
+      captureUiEvent: vi.fn<ReviewTelemetry["captureUiEvent"]>(
+        async () => undefined,
+      ),
       shutdown: vi.fn<() => Promise<undefined>>(async () => undefined),
     } satisfies ReviewCommandTelemetry;
 
@@ -487,6 +490,9 @@ describe("Review CLI", () => {
         ReviewTelemetry["captureCommandSucceeded"]
       >(async () => undefined),
       captureCommandFailed,
+      captureUiEvent: vi.fn<ReviewTelemetry["captureUiEvent"]>(
+        async () => undefined,
+      ),
       shutdown: vi.fn<ReviewTelemetry["shutdown"]>(async () => undefined),
     } satisfies ReviewCommandTelemetry;
 

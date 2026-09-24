@@ -25,12 +25,19 @@ import {
   createNodeRequestListener,
   isAuthorizedRequest,
 } from "./hono-http.js";
+import {
+  drainServerCrashReport,
+  installProcessErrorTelemetry,
+} from "./process-error-telemetry.js";
+import type { ReviewTelemetryCapture } from "./ui-telemetry.js";
 
 interface HeadlessServerInput {
   stateDir: string;
   port?: number;
   softwareMapEnabled?: boolean;
   signal: AbortSignal;
+  /** The CLI's instance, already on the `headless` surface. */
+  telemetry?: Pick<ReviewTelemetryCapture, "captureUiEvent">;
   onReady(discovery: ReviewServerDiscovery): void;
 }
 
@@ -38,6 +45,9 @@ interface HeadlessServerInput {
 export async function runHeadlessServer(input: HeadlessServerInput) {
   await mkdir(input.stateDir, { recursive: true, mode: 0o700 });
   const stateDir = await realpath(input.stateDir);
+
+  const stopErrorTelemetry =
+    input.telemetry && installProcessErrorTelemetry(input.telemetry);
 
   const outcome = await withFileLock(
     path.join(stateDir, "headless-server.lock"),
@@ -49,7 +59,7 @@ export async function runHeadlessServer(input: HeadlessServerInput) {
       unownedGraceMs: 1_000,
     },
     () => serve({ ...input, stateDir }),
-  );
+  ).finally(() => stopErrorTelemetry?.());
 
   if (!outcome.acquired)
     throw new Error(
@@ -59,6 +69,8 @@ export async function runHeadlessServer(input: HeadlessServerInput) {
 
 async function serve(input: HeadlessServerInput) {
   if (input.signal.aborted) return;
+
+  if (input.telemetry) await drainServerCrashReport(input.telemetry);
 
   const local = await openReviewProfile(input.stateDir, {
     manageWorkspaces: false,

@@ -291,6 +291,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         port,
         softwareMapEnabled: options.softwareMaps,
         signal: controller.signal,
+        telemetry,
         onReady: ({ url, serverPid }) => {
           input.stdout.write(
             options.json

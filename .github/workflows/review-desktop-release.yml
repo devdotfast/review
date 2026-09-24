@@ -3,6 +3,15 @@ name: Review Desktop Release
 on:
   workflow_dispatch:
     inputs:
+      platforms:
+        description: "Platforms to release"
+        required: true
+        type: choice
+        options:
+          - both
+          - linux
+          - macos
+        default: both
       bump:
         description: "Version bump type"
         required: true
@@ -68,7 +77,7 @@ jobs:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Verify Linux release prerequisites
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && inputs.platforms != 'macos' }}
         env:
           SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
           SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
@@ -263,6 +272,7 @@ jobs:
             --generate-notes
 
   compile:
+    if: ${{ inputs.platforms != 'linux' }}
     name: Compile Darwin payload on Linux
     needs: tag
     runs-on: review_big_boy
@@ -376,6 +386,7 @@ jobs:
           key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
 
   linux:
+    if: ${{ inputs.platforms != 'macos' }}
     needs: tag
     uses: ./.github/workflows/review-linux-build.yml
     with:
@@ -387,6 +398,7 @@ jobs:
   build:
     name: Build, sign, publish
     needs: [tag, compile, linux]
+    if: ${{ !cancelled() && inputs.platforms != 'linux' && needs.tag.result == 'success' && needs.compile.result == 'success' && (inputs.platforms == 'macos' || needs.linux.result == 'success') }}
     runs-on: macos-15-xlarge
     timeout-minutes: 90
     env:
@@ -649,7 +661,7 @@ jobs:
     name: Publish Linux repositories
     environment: review-release
     needs: [tag, build, linux]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !cancelled() && !inputs.dry_run && inputs.platforms != 'macos' && needs.tag.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') }}
     runs-on: review_big_boy
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -679,7 +691,7 @@ jobs:
   finalize-release:
     name: Publish release
     needs: [tag, build, publish-linux]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !cancelled() && !inputs.dry_run && needs.tag.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') && (inputs.platforms == 'macos' || needs.publish-linux.result == 'success') }}
     runs-on: review_big_boy
     steps:
       - name: Publish GitHub Release

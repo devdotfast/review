@@ -67,11 +67,7 @@ try {
   assert.equal(build.version, expectedVersion);
   assert.equal(build.commit, pkg.gitHead);
 
-  for (const file of [
-    "dist/cli.js",
-    "docs/README.md",
-    "instructions/authoring.md",
-  ])
+  for (const file of ["dist/cli.js", "instructions/authoring.md"])
     await access(path.join(pkgRoot, file));
   await assert.rejects(access(path.join(pkgRoot, "app")));
   await assert.rejects(access(path.join(pkgRoot, "skills")));

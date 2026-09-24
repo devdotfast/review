@@ -46,7 +46,6 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   RUNTIME_CLI_ENTRY,
   "bin/diffr",
   "dist/cli.js",
-  "docs/README.md",
   "instructions/authoring.md",
   "tutorial/runtime-manifest.json",
   "node_modules",

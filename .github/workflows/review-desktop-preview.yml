@@ -13,11 +13,15 @@ on:
         required: false
         type: boolean
         default: false
-      linux_only:
-        description: "Build and publish only Linux. Do not create a preview tag."
-        required: false
-        type: boolean
-        default: false
+      platforms:
+        description: "Platforms to release; only both creates a promotable preview tag"
+        required: true
+        type: choice
+        options:
+          - both
+          - linux
+          - macos
+        default: both
 
 permissions:
   contents: read
@@ -38,6 +42,7 @@ jobs:
   # Previews publish a signed dev-fast-review-preview package, so the Linux
   # build signs with the production repository key rather than a CI key.
   linux:
+    if: ${{ inputs.platforms != 'macos' }}
     needs: version
     uses: ./.github/workflows/review-linux-build.yml
     with:
@@ -110,7 +115,7 @@ jobs:
   compile:
     name: Compile Darwin payload on Linux
     needs: version
-    if: ${{ !inputs.linux_only }}
+    if: ${{ inputs.platforms != 'linux' }}
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
@@ -473,7 +478,7 @@ jobs:
     name: Publish Linux preview repository
     environment: review-release
     needs: [version, build, linux]
-    if: ${{ !cancelled() && !inputs.dry_run && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.linux_only || needs.build.result == 'success') }}
+    if: ${{ !cancelled() && !inputs.dry_run && inputs.platforms != 'macos' && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') }}
     runs-on: review_big_boy
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -509,7 +514,7 @@ jobs:
   tag-preview:
     name: Tag published preview
     needs: [version, build, publish-linux]
-    if: ${{ !inputs.dry_run && !inputs.linux_only }}
+    if: ${{ !inputs.dry_run && inputs.platforms == 'both' }}
     runs-on: review_big_boy
     permissions:
       contents: write

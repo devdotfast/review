@@ -13,8 +13,9 @@ uv run review-latency render ~/.dev/review-latency/runs/<run-dir>   # re-render
 uv run review-latency dashboards                                        # compare.html + flamegraph.html over all runs
 ```
 
-Requirements: the packaged Review app installed at `/Applications/dev.fast
-Review.app` (each run launches its own isolated instance), `claude` on PATH,
+Requirements: the packaged Whiteboard app installed at
+`/Applications/Whiteboard.app` (each run launches its own isolated instance),
+`claude` on PATH,
 `tsx` on PATH (for `review_cli = "source"`), and the dev-review skill installed
 for Claude Code.
 

@@ -5,16 +5,19 @@ import {
   type ReviewCanvasSetupActions,
   type ReviewCliInstallStatus,
 } from "@dev.fast/review-protocol";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { cliInstallReady } from "./cli-install-status";
 import { ConnectCard, LegacySkillsRow } from "./connect-card";
-import { DisclosureChevron } from "./icons";
+import { DisclosureChevron, DrawnCheckIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
 import { PromptCard } from "./prompt-card";
 
 export const REVIEW_CONNECT_COPIED_STORAGE_KEY =
   "dev.fast.review.connectCopied";
+
+/** Long enough for a finished step's check to draw before the next opens. */
+export const STEP_ADVANCE_DELAY_MS = 900;
 
 /** First-run setup and migration from legacy agent skills to MCP. */
 export function WelcomePage({
@@ -61,13 +64,33 @@ export function WelcomePage({
 
   const status = cardStatus ?? install?.status;
 
+  // The step a button just finished stays open while its check draws, then
+  // hands over to the next one unless the reader opened another meanwhile.
+  const [finishing, setFinishing] = useState<{ from: string; to?: string }>();
+
+  useEffect(() => {
+    if (!finishing) return;
+
+    const timer = setTimeout(() => {
+      setFinishing(undefined);
+      setOpenStep((current) =>
+        current === finishing.from ? finishing.to : current,
+      );
+    }, STEP_ADVANCE_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [finishing]);
+
   const refreshInstall = async () => {
     if (!setupActions) return;
     const next = await setupActions.load();
     setLoadedInstall(next);
 
     if (cliInstallReady(next.status) && next.status.legacySkills.length === 0)
-      setOpenStep("Connect your agents");
+      setFinishing({
+        from: "Install the whiteboard command",
+        to: "Connect your agents",
+      });
     setCardStatus(undefined);
   };
 
@@ -99,9 +122,10 @@ export function WelcomePage({
 
   const markConnectCopied = () => {
     setConnectCopied(true);
-    setOpenStep(
-      updating ? "Continue shipping thoughtful code" : "Take the tour",
-    );
+    setFinishing({
+      from: "Connect your agents",
+      to: updating ? "Continue shipping thoughtful code" : "Take the tour",
+    });
 
     try {
       globalThis.localStorage?.setItem(REVIEW_CONNECT_COPIED_STORAGE_KEY, "1");
@@ -138,6 +162,9 @@ export function WelcomePage({
             </>
           )}
         </p>
+        {finishing?.from === "Install the whiteboard command" ? (
+          <StepDoneButton label="Installed" primary />
+        ) : null}
         {setupActions && !installed && !cliBuildMissing ? (
           <button
             type="button"
@@ -192,23 +219,27 @@ export function WelcomePage({
             label: hasLegacySkills
               ? undefined
               : "Deprecated skills removed successfully",
-            body: !hasLegacySkills ? (
-              <p role="status">Deprecated skills removed successfully</p>
-            ) : (
-              <LegacySkillsRow
-                install={{ ...install, status }}
-                onStatusChange={(next) => {
-                  setCardStatus(next);
+            body:
+              finishing?.from === "Remove deprecated skills" ? (
+                <StepDoneButton label="Removed" />
+              ) : !hasLegacySkills ? (
+                <p role="status">Deprecated skills removed successfully</p>
+              ) : (
+                <LegacySkillsRow
+                  install={{ ...install, status }}
+                  onStatusChange={(next) => {
+                    setCardStatus(next);
 
-                  if (next.legacySkills.length === 0)
-                    setOpenStep(
-                      cliInstallReady(next)
-                        ? "Connect your agents"
-                        : "Install the whiteboard command",
-                    );
-                }}
-              />
-            ),
+                    if (next.legacySkills.length === 0)
+                      setFinishing({
+                        from: "Remove deprecated skills",
+                        to: cliInstallReady(next)
+                          ? "Connect your agents"
+                          : "Install the whiteboard command",
+                      });
+                  }}
+                />
+              ),
           },
         ]
       : []),
@@ -421,6 +452,26 @@ interface WelcomeStep {
   disabled?: boolean;
   note?: string;
   body: ReactNode;
+}
+
+/** The button that finished a step, held while its check draws. */
+function StepDoneButton({
+  label,
+  primary,
+}: {
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`review-onboarding-step-done${primary ? " review-onboarding-primary review-onboarding-install" : ""}`}
+      disabled
+    >
+      <DrawnCheckIcon />
+      {label}
+    </button>
+  );
 }
 
 function StepBadge({ done, label }: { done: boolean; label: string }) {

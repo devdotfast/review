@@ -7,7 +7,11 @@ import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewHome } from "./review-home-view";
-import { REVIEW_CONNECT_COPIED_STORAGE_KEY, WelcomePage } from "./welcome-page";
+import {
+  REVIEW_CONNECT_COPIED_STORAGE_KEY,
+  STEP_ADVANCE_DELAY_MS,
+  WelcomePage,
+} from "./welcome-page";
 
 const fresh: ReviewCliInstallStatus = {
   fingerprint: "test",
@@ -73,6 +77,7 @@ describe("WelcomePage", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -82,6 +87,7 @@ describe("WelcomePage", () => {
     localStorage.removeItem(REVIEW_CONNECT_COPIED_STORAGE_KEY);
     await act(async () => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   const buttons = (label: string) =>
@@ -134,6 +140,7 @@ describe("WelcomePage", () => {
     }
 
     await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
+    await waitForStepAdvance();
     expect(setupActions.installCli).toHaveBeenCalledOnce();
     expect(buttons("Close")[0]?.disabled).toBe(false);
     expect(stepState(0)).toBe("done");
@@ -166,6 +173,7 @@ describe("WelcomePage", () => {
     expect(buttons("Remove deprecated skills")).toHaveLength(1);
 
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
+    await waitForStepAdvance();
     expect(install.removeLegacySkills).toHaveBeenCalledOnce();
     expect(container.querySelectorAll(".review-onboarding-step")).toHaveLength(
       3,
@@ -276,6 +284,9 @@ describe("WelcomePage", () => {
     expect(stepState(1)).toBe("todo");
     await act(async () => buttons("Copy prompt")[0]?.click());
     expect(stepState(1)).toBe("done");
+    expect(stepOpen(1)).toBe("true");
+    expect(buttons("Copied")).toHaveLength(1);
+    await waitForStepAdvance();
     expect(stepOpen(2)).toBe("true");
     expect(localStorage.getItem(REVIEW_CONNECT_COPIED_STORAGE_KEY)).toBe("1");
     writeText.mockRestore();
@@ -298,6 +309,7 @@ describe("WelcomePage", () => {
       ),
     );
     await act(async () => buttons("Copy prompt")[0]?.click());
+    await waitForStepAdvance();
     expect(stepOpen(1)).toBe("false");
     expect(stepOpen(2)).toBe("true");
     expect(buttons("Dismiss").at(-1)?.disabled).toBe(false);
@@ -403,6 +415,7 @@ describe("WelcomePage", () => {
     );
     expect(buttons("Dismiss")[0]?.disabled).toBe(true);
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
+    await waitForStepAdvance();
     expect(stepOpen(1)).toBe("true");
     expect(container.textContent).toContain(
       "Deprecated skills removed successfully",
@@ -411,6 +424,7 @@ describe("WelcomePage", () => {
     await act(async () => buttons("Dismiss")[0]?.click());
     expect(onClose).not.toHaveBeenCalled();
     await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
+    await waitForStepAdvance();
     expect(stepOpen(2)).toBe("true");
     expect(buttons("Dismiss")[0]?.disabled).toBe(false);
     await act(async () => buttons("Dismiss")[0]?.click());
@@ -448,6 +462,7 @@ describe("WelcomePage", () => {
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
     ).toBe(true);
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
+    await waitForStepAdvance();
     expect(
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
     ).toBe(false);
@@ -548,6 +563,7 @@ describe("WelcomePage", () => {
     expect(install.finishUpdate).not.toHaveBeenCalled();
 
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
+    await waitForStepAdvance();
     expect(install.removeLegacySkills).toHaveBeenCalledOnce();
     expect(stepState(0)).toBe("done");
     expect(stepOpen(0)).toBe("false");
@@ -570,3 +586,7 @@ describe("WelcomePage", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+function waitForStepAdvance() {
+  return act(() => vi.advanceTimersByTime(STEP_ADVANCE_DELAY_MS));
+}

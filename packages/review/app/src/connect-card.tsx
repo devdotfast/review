@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { AGENT_LOGOS } from "./agent-logos";
 import { cliInstallReady } from "./cli-install-status";
 import { CopyIcon, copyText } from "./copy-text";
+import { DrawnCheckIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
 
 export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
@@ -209,7 +210,7 @@ export function ConnectCard({
               aria-label={`${copied ? "Copied" : "Copy"} ${noun} for ${agent}`}
               onClick={() => copy(text)}
             >
-              {copied ? <CheckIcon /> : <CopyIcon />}
+              {copied ? <DrawnCheckIcon /> : <CopyIcon />}
               {copied
                 ? "Copied"
                 : `Copy ${mode === "prompt" ? "prompt" : "command"}`}
@@ -240,14 +241,6 @@ export function ConnectCard({
         <p className="review-connect-error">{status.error}</p>
       ) : null}
     </section>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M2.5 6.5 5 9l4.5-6" fill="none" />
-    </svg>
   );
 }
 

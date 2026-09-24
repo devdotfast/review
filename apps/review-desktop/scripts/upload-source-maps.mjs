@@ -3,17 +3,8 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-// Released bundles are minified, so a stack frame from one is only a position
-// in a very long line. This uploads the bundles' source maps to PostHog error
-// tracking, which resolves those positions back to source files and functions.
-//
-// The PostHog CLI tags each bundle with a chunk ID and writes the same ID into
-// its map. Frames are matched to a map by that ID, so this also records which
-// bundle carries which ID; the Review server reads that manifest to put the ID
-// on each frame it reports (packages/review/src/exception-telemetry.ts).
-//
-// Run it after the minified build and before packaging copies the bundles, so
-// the app ships exactly the files whose maps were uploaded.
+// Uploads source maps to PostHog and records each bundle's chunk ID, which the
+// Review server adds to reported frames (packages/review/src/exception-telemetry.ts).
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 
@@ -21,12 +12,10 @@ const POSTHOG_CLI = "@posthog/cli@0.18.3";
 
 const RELEASE_NAME = "review-desktop";
 
-/** The Review server reads this file from the packaged `out` directory. */
 export const CHUNK_ID_MANIFEST = "review-chunk-ids.json";
 
 const CHUNK_ID_TRAILER = /\n\/\/# chunkId=([0-9a-f-]{36})\s*$/;
 
-/** Map each injected bundle, by its path relative to `outDir`, to its chunk ID. */
 export function collectChunkIds(outDir) {
   const chunkIds = {};
 

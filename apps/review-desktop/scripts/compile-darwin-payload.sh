@@ -33,8 +33,7 @@ fi
 export BUILD_SOURCEVERSION
 npm --prefix "$CHECKOUT" run gulp -- vscode-darwin-arm64-min-prepare
 
-# A build that reports errors must also upload the source maps that make those
-# reports readable. This tags the bundles, so it runs before they are archived.
+# Tags the bundles, so it must run before they are archived.
 if [[ -n "${REVIEW_POSTHOG_KEY:-}" ]]; then
   node "$APP_DIR/scripts/upload-source-maps.mjs" --out "$CHECKOUT/out-vscode-min"
 fi

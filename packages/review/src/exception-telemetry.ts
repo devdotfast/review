@@ -19,7 +19,6 @@ const FRAME_PATTERN = /^(.+):(\d+):(\d+)$/;
 /** Processes that run on Node rather than in a browser renderer. */
 const NODE_PROCESSES = new Set(["main", "server"]);
 
-/** Bundle path to the PostHog chunk ID of its uploaded source map. */
 export type ChunkIds = ReadonlyMap<string, string>;
 
 /** Written by apps/review-desktop/scripts/upload-source-maps.mjs. */
@@ -27,11 +26,7 @@ const CHUNK_ID_MANIFEST = "review-chunk-ids.json";
 
 const CHUNK_ID_PATTERN = /^[0-9a-f-]{36}$/;
 
-/**
- * Read the chunk IDs of a released app. The server entry is
- * `<app>/review-runtime/dist/server/desktop-host.js` and the manifest sits in
- * `<app>/out`. Source builds and the standalone CLI have none.
- */
+/** The entry is `<app>/review-runtime/dist/server/desktop-host.js`. */
 export function readChunkIds(serverEntry: string | undefined): ChunkIds {
   if (!serverEntry) return new Map();
 
@@ -96,9 +91,7 @@ export function exceptionProperties(
     ],
   } satisfies JsonObject;
 
-  // PostHog groups a stack it can resolve by its source frames, which tells
-  // apart different bugs that share one message. Only an unresolvable stack
-  // falls back to the message digest.
+  // Let PostHog group resolvable stacks by frame, not by message.
   const resolvable =
     frames.length > 0 && frames.every((frame) => frame.chunk_id);
 

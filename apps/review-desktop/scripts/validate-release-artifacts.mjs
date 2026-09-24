@@ -40,6 +40,7 @@ export function buildManifest({ version, commit, payloads, now = new Date() }) {
       },
     ]),
   );
+
   const [fallback] = Object.values(bundles);
 
   return {
@@ -59,6 +60,7 @@ export function assertZipFolder(zip, folder) {
   const entries = execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" })
     .split("\n")
     .filter(Boolean);
+
   const roots = new Set(entries.map((entry) => entry.split("/")[0]));
 
   if (roots.size !== 1 || !roots.has(folder)) {
@@ -166,6 +168,7 @@ async function main() {
     artifact,
     file: path.join(artifactDir, updateZipName(artifact, version)),
   }));
+
   const dmg = path.join(artifactDir, `Whiteboard-darwin-arm64-${version}.dmg`);
 
   await assertPackagedArtifacts(app);
@@ -198,9 +201,11 @@ async function main() {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   console.log(`Validated release artifacts for ${version} (${commit}):`);
+
   for (const { bundle, file, sha256 } of payloads) {
     console.log(`  ${file} (${bundle}.app) sha256=${sha256}`);
   }
+
   console.log(`  ${dmg} sha256=${sha256(dmg)}`);
   console.log(`  ${manifestPath}`);
 }

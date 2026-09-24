@@ -42,6 +42,7 @@ test("buildManifest emits the schema the update Worker serves", () => {
 
   const review =
     "https://update.dev.fast/releases/1.2.3/darwin-arm64/Review-darwin-arm64-1.2.3.zip";
+
   assert.deepEqual(manifest, {
     version: "1.2.3",
     commit: "abc123",

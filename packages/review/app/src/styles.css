@@ -2142,6 +2142,8 @@ button {
 
 .review-topbar-context {
   display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   margin-right: auto;
 }

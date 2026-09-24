@@ -51,7 +51,8 @@ it.each([
   '<figure class="database-lens"><span>Orders</span></figure>',
   '<figure class="software-map"><span>Service</span></figure>',
   '<figure class="review-image"><figcaption>Image caption</figcaption></figure>',
-  "<div data-review-copy-prose><pre>authored code block</pre></div>",
+  "<div data-review-copy-prose><pre>unmarked preformatted text</pre></div>",
+  '<div data-review-copy-prose><pre><span aria-hidden="true">1</span><code data-review-copy-prose>const value = 1;</code></pre></div>',
   "<div data-review-copy-prose><div data-review-copy-ignore>PR metadata</div></div>",
 ])("ignores non-prose content: %s", (html) => {
   const article = document.createElement("article");

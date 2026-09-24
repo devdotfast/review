@@ -95,7 +95,11 @@ export function RenderedCodeBlock({
             )}
           </span>
         )}
-        <code {...codeAttributes} className={codeClassName}>
+        <code
+          {...codeAttributes}
+          className={codeClassName}
+          data-review-copy-prose
+        >
           {normalizedLanguage && highlightedTokens
             ? highlightedTokens.map((item, index) =>
                 item.token ? (

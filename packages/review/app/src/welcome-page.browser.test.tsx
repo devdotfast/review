@@ -186,11 +186,34 @@ describe("WelcomePage", () => {
     ).toHaveLength(5);
   });
 
-  it("requires the CLI installation even when running from source", async () => {
+  it("offers recovery instead of installation until a missing CLI is available", async () => {
+    const setupActions = {
+      load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () =>
+        content(fresh),
+      ),
+      installCli: vi.fn<() => Promise<void>>(async () => {}),
+    };
+
     await act(async () =>
-      root.render(<WelcomePage install={content({ ...fresh, cli: null })} />),
+      root.render(
+        <WelcomePage
+          install={content({ ...fresh, cli: null })}
+          setupActions={setupActions}
+        />,
+      ),
     );
     expect(stepState(0)).toBe("todo");
+    expect(container.textContent).toContain("CLI build missing.");
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(0);
+    expect(
+      (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    await act(async () => buttons("Refresh")[0]?.click());
+    expect(setupActions.load).toHaveBeenCalledOnce();
+    expect(setupActions.installCli).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("CLI build missing.");
+    expect(buttons("Install whiteboard in PATH")).toHaveLength(1);
     expect(
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
     ).toBe(true);

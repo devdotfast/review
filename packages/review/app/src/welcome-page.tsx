@@ -68,6 +68,7 @@ export function WelcomePage({
   };
 
   const installed = cliInstallReady(status);
+  const cliBuildMissing = status?.cli === null && !installed;
 
   const hasLegacySkills = (status?.legacySkills.length ?? 0) > 0;
   const setupReady = installed && !hasLegacySkills;
@@ -112,6 +113,13 @@ export function WelcomePage({
         <p className="review-home-zero-hint">
           {installed ? (
             "Installed at ~/.local/bin/whiteboard."
+          ) : cliBuildMissing ? (
+            <>
+              CLI build missing. If you’re running from source, run{" "}
+              <code>pnpm --filter @dev.fast/review build</code> from the
+              repository root, then restart Whiteboard. Otherwise, reinstall
+              Whiteboard.
+            </>
           ) : status?.shim.installed ? (
             "Add ~/.local/bin to PATH, then refresh."
           ) : (
@@ -121,7 +129,7 @@ export function WelcomePage({
             </>
           )}
         </p>
-        {setupActions && !installed ? (
+        {setupActions && !installed && !cliBuildMissing ? (
           <button
             type="button"
             className="review-onboarding-primary review-onboarding-install"
@@ -137,7 +145,9 @@ export function WelcomePage({
           </button>
         ) : null}
         {setupActions &&
-        (!install || (status?.shim.installed && !installed)) ? (
+        (!install ||
+          cliBuildMissing ||
+          (status?.shim.installed && !installed)) ? (
           <button
             type="button"
             disabled={setupBusy}

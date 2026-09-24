@@ -176,7 +176,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         commandRunId: string;
         startedAt: number;
         finished: boolean;
-        surface?: ReviewTelemetrySurface;
       }
     | undefined;
 
@@ -790,17 +789,16 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     const commandRunId = telemetry.createCommandRunId();
     setTraceAttribute("command", command);
     setTraceAttribute("commandRunId", commandRunId);
-    const surface = commandSurface(command);
+    telemetry.setSurface(commandSurface(command));
     activeTelemetry = {
       command,
       commandRunId,
       startedAt: Date.now(),
       finished: false,
-      surface,
     };
     await attemptTelemetry(() => telemetry.captureInstallationCreated());
     await attemptTelemetry(() =>
-      telemetry.captureCommandStarted({ command, commandRunId, surface }),
+      telemetry.captureCommandStarted({ command, commandRunId }),
     );
   });
   program.hook("postAction", async () => {
@@ -1041,7 +1039,6 @@ async function finishActiveTelemetry(
         commandRunId: string;
         startedAt: number;
         finished: boolean;
-        surface?: ReviewTelemetrySurface;
       }
     | undefined,
   exitCode: number,
@@ -1059,7 +1056,6 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
-          surface: active.surface,
         })
       : telemetry.captureCommandFailed({
           command: active.command,
@@ -1067,7 +1063,6 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
-          surface: active.surface,
           ...classification,
         }),
   );

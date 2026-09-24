@@ -212,7 +212,8 @@ are reserved for later PRs.
 `trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, `server.start`, and
 `invalid`. Review sends no arguments, refs, tokens, or storage credentials.
 `surface` is `headless` for `server.start`, `mcp` for `mcp`, `api` for `api`,
-and `cli` for every other command.
+and `cli` for every other command. It labels every event the command's process
+sends, including `review_installation_created`, not only command events.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.

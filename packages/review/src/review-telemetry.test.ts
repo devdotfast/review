@@ -244,20 +244,22 @@ describe("ReviewTelemetry", () => {
     });
   });
 
-  it("lets a command run override the surface", async () => {
-    const { events, rootPath, telemetry } = createTelemetry();
+  it("labels every later event and the envelope with a changed surface", async () => {
+    const { captureClient, events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
 
+    telemetry.setSurface("headless");
+    await telemetry.captureInstallationCreated();
     await telemetry.captureCommandStarted({
       command: "server.start",
       commandRunId: "run-12345678",
-      surface: "headless",
     });
 
-    expect(events[0].properties).toMatchObject({
-      command_path: "server.start",
-      surface: "headless",
-    });
+    expect(events.map((event) => event.properties?.surface)).toEqual([
+      "headless",
+      "headless",
+    ]);
+    expect(captureClient.defaults).toMatchObject({ surface: "headless" });
   });
 
   it("preserves the stored internal marker when the telemetry setting changes", async () => {

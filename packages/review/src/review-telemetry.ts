@@ -134,15 +134,11 @@ export interface ReviewCommandTelemetryInput {
   properties?: PostHogCaptureProperties;
   errorName?: ReviewTelemetryErrorName;
   errorCategory?: ReviewTelemetryErrorCategory;
-  /** Overrides the instance surface as the `surface` property. */
-  surface?: ReviewTelemetrySurface;
 }
 
 export interface ReviewCommandStartedInput {
   command: ReviewCliCommandPath;
   commandRunId: string;
-  /** Overrides the instance surface as the `surface` property. */
-  surface?: ReviewTelemetrySurface;
 }
 
 export interface ReviewTelemetryContext {
@@ -214,6 +210,7 @@ export function createLogger(_scope: string): Logger {
 export type ReviewCommandTelemetry = Pick<
   ReviewTelemetry,
   | "createCommandRunId"
+  | "setSurface"
   | "captureInstallationCreated"
   | "captureCommandStarted"
   | "captureCommandSucceeded"
@@ -231,7 +228,7 @@ export class ReviewTelemetry {
   private readonly idFactory: () => string;
   private readonly commandRunIdFactory: () => string;
   private readonly now: () => Date;
-  private readonly surface: ReviewTelemetrySurface;
+  private surface: ReviewTelemetrySurface;
   private readonly packageVersion: string;
   private installConfig: ReviewTelemetryInstallConfig | undefined;
 
@@ -270,6 +267,11 @@ export class ReviewTelemetry {
 
   createCommandRunId(): string {
     return this.commandRunIdFactory();
+  }
+
+  /** Sets the surface for every later event, envelope included. */
+  setSurface(surface: ReviewTelemetrySurface): void {
+    this.surface = surface;
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -362,10 +364,6 @@ export class ReviewTelemetry {
       command_run_id: input.commandRunId,
       agent_kind: this.sessionAgent(),
     };
-
-    if (input.surface) {
-      properties.surface = input.surface;
-    }
 
     await this.captureEvent("review_command_started", properties);
   }
@@ -579,7 +577,6 @@ export class ReviewTelemetry {
 
     if (input.errorCategory) properties.error_category = input.errorCategory;
 
-    if (input.surface) properties.surface = input.surface;
     await this.captureEvent(event, properties);
   }
 

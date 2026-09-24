@@ -2,7 +2,7 @@
  * Proves, against a running app, that an error report reaches PostHog's queue
  * carrying useful text and carrying nothing of the user's.
  *
- *   node scripts/smoke-error-telemetry.mjs [--timeout-ms 120000] [--keep-log]
+ *   node scripts/smoke-error-telemetry.mjs [--app <path to .app>] [--timeout-ms 120000] [--keep-log]
  *
  * Why this exists rather than only unit tests. The redaction is four layers —
  * the reporter packs the error, the loopback route hands it over, the server
@@ -24,7 +24,8 @@
  * Silence must never read as success: the run fails if no report arrives at
  * all, which is what a broken loopback route or a dead reporter looks like.
  *
- * Requires a built app (`pnpm --filter @dev.fast/review-desktop app:build`).
+ * Launches this checkout's dev build (`pnpm --filter @dev.fast/review-desktop
+ * app:build`), or the packaged app named by `--app`.
  * Not part of `pnpm test` — it launches the application.
  */
 import { spawn } from "node:child_process";
@@ -35,6 +36,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { chromium } from "playwright";
+
+import { reviewLaunch } from "./smoke-launch-packaged.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 
@@ -158,6 +161,7 @@ async function waitFor(check, timeoutMs, describe) {
 }
 
 export async function smokeErrorTelemetry({
+  app,
   timeoutMs = 120_000,
   keepLog = false,
 } = {}) {
@@ -179,16 +183,21 @@ export async function smokeErrorTelemetry({
       createWriteStream(logPath),
     );
 
-    child = spawn("bash", [path.join(APP_DIR, "scripts", "run.sh")], {
+    const { command, args } = await reviewLaunch({ app, stateRoot, debugPort });
+
+    child = spawn(command, args, {
       cwd: APP_DIR,
       env: {
         ...process.env,
         FORCE_COLOR: "0",
+        ELECTRON_ENABLE_LOGGING: "1",
+        ELECTRON_RUN_AS_NODE: undefined,
         // Isolate completely: a shared review home would publish into the
         // developer's real store, and a shared state root hands the launch to
         // an already-running Review instead of booting one.
         DEV_REVIEW_HOME: path.join(root, "home"),
         DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
+        DEV_FAST_REVIEW_TELEMETRY_ENV: "smoke",
         // Print events instead of sending them to the vendor.
         DEV_FAST_REVIEW_TELEMETRY_DEBUG: "1",
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),
@@ -327,6 +336,12 @@ export async function smokeErrorTelemetry({
     for (const event of events) {
       const { error_process, error_name, message_hash } = event.properties ?? {};
 
+      if (event.properties?.environment !== "smoke") {
+        failures.push(
+          `a report was tagged ${JSON.stringify(event.properties?.environment)}, expected "smoke"`,
+        );
+      }
+
       if (!error_process || !error_name || !message_hash) {
         failures.push(
           `a report was missing its identifying fields: ${JSON.stringify(event.properties)}`,
@@ -346,12 +361,14 @@ export async function smokeErrorTelemetry({
 
 const { values } = parseArgs({
   options: {
+    app: { type: "string" },
     "timeout-ms": { type: "string" },
     "keep-log": { type: "boolean" },
   },
 });
 
 const result = await smokeErrorTelemetry({
+  app: values.app && path.resolve(values.app),
   timeoutMs: values["timeout-ms"] ? Number(values["timeout-ms"]) : undefined,
   keepLog: values["keep-log"] ?? false,
 });

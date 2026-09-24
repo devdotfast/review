@@ -16,6 +16,7 @@
     "smoke:error-telemetry": "node scripts/smoke-error-telemetry.mjs",
     "smoke:telemetry-delivery": "node scripts/smoke-telemetry-delivery.mjs",
     "test:e2e:lsp": "node scripts/lsp-e2e.mjs",
+    "test:e2e:telemetry": "node scripts/e2e/run.mjs --journey telemetry-contract --runtime \"${REVIEW_E2E_RUNTIME:?stage a runtime, see scripts/e2e/TESTING.md}\"",
     "pretest": "pnpm run protocol:sync",
     "test": "node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
     "pretypecheck": "pnpm run protocol:sync",

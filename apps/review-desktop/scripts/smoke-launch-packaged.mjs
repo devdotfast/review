@@ -43,6 +43,39 @@ const DEFAULT_APP = path.join(
 
 const POLL_INTERVAL_MS = 500;
 
+/** The executable inside a packaged app, named by the app's own product.json. */
+export async function packagedBinary(app) {
+  const linux = process.platform === "linux";
+
+  const product = JSON.parse(
+    await readFile(
+      path.join(app, linux ? "resources" : "Contents/Resources", "app", "product.json"),
+      "utf8",
+    ),
+  );
+
+  return linux
+    ? path.join(app, product.applicationName)
+    : path.join(app, "Contents", "MacOS", product.nameShort);
+}
+
+/** How the telemetry smokes start Review: the packaged `app` when given, else this checkout's dev build. */
+export async function reviewLaunch({ app, stateRoot, debugPort }) {
+  if (!app)
+    return { command: "bash", args: [path.join(APP_DIR, "scripts", "run.sh")] };
+
+  return {
+    command: await packagedBinary(app),
+    args: [
+      "--disable-telemetry",
+      "--skip-welcome",
+      `--user-data-dir=${path.join(stateRoot, "user-data")}`,
+      `--extensions-dir=${path.join(stateRoot, "extensions")}`,
+      `--remote-debugging-port=${debugPort}`,
+    ],
+  };
+}
+
 const SERVER_READY_PATTERN = /\[Review Desktop\] server ready at https?:\/\//;
 
 /** Output that means the boot already failed — no point waiting for the timeout. */
@@ -115,13 +148,7 @@ export async function smokeLaunch({
   app = DEFAULT_APP,
   timeoutMs = 90_000,
 } = {}) {
-  const applicationName = process.platform === "linux"
-    ? JSON.parse(await readFile(path.join(app, "resources", "app", "product.json"), "utf8")).applicationName
-    : undefined;
-
-  const binary = process.platform === "linux"
-    ? path.join(app, applicationName)
-    : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
+  const binary = await packagedBinary(app);
 
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));
 

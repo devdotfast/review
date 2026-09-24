@@ -2,7 +2,7 @@
  * Proves an error report survives the last leg: the durable queue on disk, the
  * flush, and the HTTP request to the analytics vendor.
  *
- *   node scripts/smoke-telemetry-delivery.mjs [--timeout-ms 120000]
+ *   node scripts/smoke-telemetry-delivery.mjs [--app <path to .app>] [--timeout-ms 120000]
  *
  * Why this is separate from smoke-error-telemetry.mjs. That one runs with
  * DEV_FAST_REVIEW_TELEMETRY_DEBUG=1, and the debug sink PRINTS events instead of
@@ -19,7 +19,8 @@
  * queue file that is never deleted after a successful send — which would mean
  * the same report is sent again on every launch, forever.
  *
- * Requires a built app. Not part of `pnpm test` — it launches the application.
+ * Launches this checkout's dev build, or the packaged app named by `--app`.
+ * Not part of `pnpm test` — it launches the application.
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -30,6 +31,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { chromium } from "playwright";
+
+import { reviewLaunch } from "./smoke-launch-packaged.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 
@@ -81,7 +84,10 @@ async function waitFor(check, timeoutMs, describe) {
   }
 }
 
-export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
+export async function smokeTelemetryDelivery({
+  app,
+  timeoutMs = 120_000,
+} = {}) {
   const home = os.homedir();
   const root = await mkdtemp(path.join(os.tmpdir(), "review-delivery-smoke-"));
   // NOT under os.tmpdir(): macOS puts that in /var/folders/<long>/T, and Electron
@@ -108,13 +114,18 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
       createWriteStream(logPath),
     );
 
-    child = spawn("bash", [path.join(APP_DIR, "scripts", "run.sh")], {
+    const { command, args } = await reviewLaunch({ app, stateRoot, debugPort });
+
+    child = spawn(command, args, {
       cwd: APP_DIR,
       env: {
         ...process.env,
         FORCE_COLOR: "0",
+        ELECTRON_ENABLE_LOGGING: "1",
+        ELECTRON_RUN_AS_NODE: undefined,
         DEV_REVIEW_HOME: reviewHome,
         DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
+        DEV_FAST_REVIEW_TELEMETRY_ENV: "smoke",
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),
         // Send for real, but to us. Note there is deliberately NO
         // DEV_FAST_REVIEW_TELEMETRY_DEBUG here: the sink would suppress the
@@ -240,10 +251,23 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
       );
     }
 
-    for (const required of ["error_process", "error_name", "app_version"]) {
+    for (const required of [
+      "error_process",
+      "error_name",
+      "app_version",
+      "channel",
+      "environment",
+      "surface",
+    ]) {
       if (!event.properties?.[required]) {
         failures.push(`the delivered event lost ${required}`);
       }
+    }
+
+    if (event.properties?.environment !== "smoke") {
+      failures.push(
+        `the delivered event was tagged ${JSON.stringify(event.properties?.environment)}, expected "smoke"`,
+      );
     }
 
     // The leak check runs on the bytes that actually left the process, which is
@@ -292,9 +316,12 @@ export async function smokeTelemetryDelivery({ timeoutMs = 120_000 } = {}) {
   }
 }
 
-const { values } = parseArgs({ options: { "timeout-ms": { type: "string" } } });
+const { values } = parseArgs({
+  options: { app: { type: "string" }, "timeout-ms": { type: "string" } },
+});
 
 const result = await smokeTelemetryDelivery({
+  app: values.app && path.resolve(values.app),
   timeoutMs: values["timeout-ms"] ? Number(values["timeout-ms"]) : undefined,
 });
 

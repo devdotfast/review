@@ -81,6 +81,7 @@ export async function createHarness({
     DEV_REVIEW_HOME: home,
     DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
     DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
+    DEV_FAST_REVIEW_TELEMETRY_ENV: "e2e",
     DEV_REVIEW_EXTENSIONS: extensions,
   };
 
@@ -574,6 +575,7 @@ export async function createHarness({
 
   return Object.assign(ctx, {
     api,
+    appLog: () => appLog,
     apiOk,
     apiCanvasFor,
     cli,
@@ -646,7 +648,11 @@ export const orderReviewBlocks = [
   },
   {
     type: "code_peek",
-    source: { side: "head", file: "order.ts", fromLine: 1, toLine: 1 },
+    source: {
+      file: "order.ts",
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 1 },
+    },
   },
 ];
 

@@ -432,11 +432,11 @@ jobs:
           echo "$RESPONSE"
           echo "$RESPONSE" | grep -F "\"productVersion\":\"${RELEASE_VERSION}\""
           echo "$RESPONSE" | grep -F "\"version\":\"${RELEASE_COMMIT}\""
-          echo "$RESPONSE" | grep -F "/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip"
+          echo "$RESPONSE" | grep -F "/Review-darwin-arm64-${RELEASE_VERSION}.zip"
 
-          echo "Feed for a Review Preview.app install (expect the Review zip):"
-          curl -sf "https://update.dev.fast/api/update/darwin-arm64/preview/0000000000000000000000000000000000000000?bundle=Review%20Preview" \
-            | grep -F "/Review-darwin-arm64-${RELEASE_VERSION}.zip"
+          echo "Feed for a Whiteboard Preview.app install (expect the Whiteboard zip):"
+          curl -sf "https://update.dev.fast/api/update/darwin-arm64/preview/0000000000000000000000000000000000000000?bundle=Whiteboard%20Preview" \
+            | grep -F "/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip"
 
           echo "Feed for the just-released commit (expect 204):"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://update.dev.fast/api/update/darwin-arm64/preview/${RELEASE_COMMIT}")

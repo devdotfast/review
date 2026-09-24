@@ -63,10 +63,6 @@ export const lensEditSchema = z.discriminatedUnion("type", [
 
 export type LensEdit = z.infer<typeof lensEditSchema>;
 
-/** What a document insert of the retired block says instead of a schema dump. */
-export const FILE_LENS_MOVED =
-  "file_lens is no longer a document block. Lenses live beside the document: author them one at a time with session_lens_edit (insert, update or remove).";
-
 /** Patterns are evaluated against the changed-file list, never the
  * filesystem, but must still read as repository-relative globs. */
 export function checkLensTargets(targets: readonly LensTarget[]): void {

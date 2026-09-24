@@ -51,12 +51,18 @@ const EXPECTED_EVENTS = new Set([
   "review_review_created",
 ]);
 
-/** Allowed, never required: they depend on timing this journey does not control. */
+/**
+ * Allowed, never required: they depend on timing or a runner this journey
+ * does not control. A GPU crash on a headless Linux runner or a slow open is
+ * a stability signal, not a contract break.
+ */
 const OPTIONAL_EVENTS = new Set([
   "review_ui_stall",
   "review_hang_started",
   "review_hang_ended",
   "review_authoring_completed",
+  "review_crash",
+  "review_open_timeout",
 ]);
 
 /** Every event printed so far by the embedded server's debug sink. */

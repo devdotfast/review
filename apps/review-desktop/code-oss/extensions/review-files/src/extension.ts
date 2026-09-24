@@ -36,7 +36,8 @@ const statusColors: Record<Status, vscode.ThemeColor> = {
 	A: new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
 	M: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
 	D: new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
-	R: new vscode.ThemeColor('gitDecoration.renamedResourceForeground'),
+	// The Review theme's renamed color is a muted gray; a renamed file here is a changed file.
+	R: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
 };
 
 interface Changes {

@@ -248,3 +248,60 @@ it("reports a session that starts and never presents, and not one that does", as
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("reports app_ready once per launch, however many windows or reloads send it", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "review-app-ready-"));
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const token = "app-ready-test-token";
+
+  const telemetry = ReviewTelemetry.fromEnv({
+    ...process.env,
+    DEV_REVIEW_HOME: home,
+  });
+
+  const captureUiEvent = vi.spyOn(telemetry, "captureUiEvent");
+
+  const server = createGlobalReviewServer({
+    reviewStore: local.store,
+    reviewData: local.data,
+    appPid: process.pid,
+    packageRoot: home,
+    toolingRoot: home,
+    port: 0,
+    token,
+    discoveryPath: path.join(home, "review-desktop", "server.json"),
+    telemetry,
+  });
+
+  try {
+    await server.listen();
+
+    for (const durationMs of [900, 400]) {
+      const response = await fetch(`${server.url}/telemetry/event`, {
+        method: "POST",
+        headers: {
+          "x-review-token": token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "app_ready",
+          properties: { duration_ms: durationMs },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+    }
+
+    const ready = captureUiEvent.mock.calls.filter(
+      ([event]) => event === "review_app_ready",
+    );
+
+    expect(ready).toHaveLength(1);
+    expect(ready[0][1]).toMatchObject({ duration_ms: 900 });
+  } finally {
+    await server.close();
+    await local.data.close();
+    await local.store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});

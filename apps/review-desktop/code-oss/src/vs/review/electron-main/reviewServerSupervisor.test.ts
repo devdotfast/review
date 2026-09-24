@@ -193,6 +193,38 @@ test('reports a server process death to onServerTerminated, but not a deliberate
 	assert.equal(terminated.length, 1);
 });
 
+test('calls onServerReady for the first server and for each restarted one', async (t) => {
+	const processes: FakeServerProcess[] = [];
+	let restarted!: () => void;
+	const whenRestarted = new Promise<void>((resolve) => restarted = resolve);
+	let ready = 0;
+	const supervisor = new ReviewServerSupervisor({
+		appRoot: '/app',
+		appVersion: '0.0.34',
+		isBuilt: true,
+		channel: 'stable',
+		logInfo: () => { },
+		logError: () => { },
+		createProcess: () => {
+			const serverProcess = new FakeServerProcess();
+			processes.push(serverProcess);
+			if (processes.length === 2) queueMicrotask(restarted);
+			return serverProcess;
+		},
+		onServerReady: () => ready++,
+	});
+	t.after(() => supervisor.dispose());
+
+	supervisor.start();
+	processes[0].announceReady();
+	assert.equal(ready, 1);
+	processes[0].crash();
+	await whenRestarted;
+	assert.equal(ready, 1);
+	processes[1].announceReady();
+	assert.equal(ready, 2);
+});
+
 test('the app path names the macOS bundle, else the executable', () => {
 	assert.equal(applicationPath('/Applications/Review.app/Contents/MacOS/Review'), '/Applications/Review.app');
 	assert.equal(applicationPath('/usr/share/review-desktop/review-desktop'), '/usr/share/review-desktop/review-desktop');

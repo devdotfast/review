@@ -61,9 +61,9 @@ export function packReviewError(error: unknown): ReviewErrorReport | undefined {
 
 /**
  * Keeps error reporting from becoming its own incident: it removes bursts of
- * one repeating error, caps each error key per session so one loop cannot spend
- * the whole budget, bounds the total, and refuses to run inside itself when
- * reporting an error throws another one.
+ * one repeating error, bounds the total, and refuses to run inside itself when
+ * reporting an error throws another one. The per-error budget is the server's,
+ * which counts what it suppresses as a `review_error_burst`.
  */
 export class ReviewErrorReportLimiter {
 	private static readonly REPEAT_WINDOW_MS = 1000;
@@ -72,11 +72,9 @@ export class ReviewErrorReportLimiter {
 	private previousTime = 0;
 	private reported = 0;
 	private reporting = false;
-	private readonly perKey = new Map<string, number>();
 
 	constructor(
 		private readonly maxPerSession = 200,
-		private readonly maxPerKey = 5,
 		private readonly now: () => number = () => Date.now(),
 	) { }
 
@@ -103,11 +101,6 @@ export class ReviewErrorReportLimiter {
 			if (this.isRepeat(key)) {
 				return;
 			}
-			const seen = this.perKey.get(key) ?? 0;
-			if (seen >= this.maxPerKey) {
-				return;
-			}
-			this.perKey.set(key, seen + 1);
 			this.reported++;
 			send(packed);
 		} catch {

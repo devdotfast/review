@@ -244,6 +244,12 @@ const noopLogger: Logger = {
 
 const sharedInstallConfigs = new Map<string, ReviewTelemetryInstallConfig>();
 
+/**
+ * Announcements the debug sink printed without persisting, keyed by install
+ * config path and field, so each prints once per process.
+ */
+const printedAnnouncements = new Set<string>();
+
 export function createLogger(_scope: string): Logger {
   return noopLogger;
 }
@@ -379,10 +385,15 @@ export class ReviewTelemetry {
    * leaves this process. Once per installation: the first account wins. A
    * later login to another account sends nothing, because a second alias
    * would merge two accounts, and every later install of either, into one
-   * PostHog person.
+   * PostHog person. The account is looked up only when an alias would be
+   * sent, so a login with telemetry off makes no network call.
    */
-  async captureAccountAlias(accountId: string): Promise<void> {
-    const alias = accountAlias(accountId);
+  async captureAccountAlias(
+    lookupAccountId: () => Promise<string>,
+  ): Promise<void> {
+    if (!(await this.isEnabled()) || this.installConfig?.accountAlias) return;
+
+    const alias = accountAlias(await lookupAccountId());
 
     await this.announceOnce("accountAlias", alias, async (config) => {
       await this.captureClient.capture({
@@ -405,7 +416,8 @@ export class ReviewTelemetry {
    * the send completes: under-counting
    * is recoverable, announcing twice is not. A printed event is not a sent
    * event, so the debug sink leaves the field alone (it still always sends,
-   * ignoring opt-out as today).
+   * ignoring opt-out as today) and only remembers the announcement for the
+   * life of the process.
    */
   private async announceOnce<Field extends AnnouncedField>(
     field: Field,
@@ -420,7 +432,13 @@ export class ReviewTelemetry {
 
       if (this.optedOut(config) || config[field]) return;
 
-      if (!this.captureClient.ignoresOptOut) {
+      if (this.captureClient.ignoresOptOut) {
+        const printed = `${this.installConfigPath}\0${field}`;
+
+        if (printedAnnouncements.has(printed)) return;
+
+        printedAnnouncements.add(printed);
+      } else {
         config[field] = value;
         this.writeInstallConfig(config);
       }
@@ -470,6 +488,10 @@ export class ReviewTelemetry {
     });
   }
 
+  /**
+   * A tab dwell period ended. Time on the files tab is also the diff dwell,
+   * so it doubles as `review_diff_viewed` without a second client beacon.
+   */
   async captureTabViewed(
     event: ReviewTabTelemetryEvent,
     context?: ReviewTelemetryContext,
@@ -480,6 +502,18 @@ export class ReviewTelemetry {
         tab: event.tab,
         duration_ms: event.durationMs,
         reason: event.reason,
+        source: "review_app",
+        app_session_id: event.appSessionId,
+      },
+      context,
+    );
+
+    if (event.tab !== "files") return;
+
+    await this.captureEvent(
+      "review_diff_viewed",
+      {
+        duration_ms: event.durationMs,
         source: "review_app",
         app_session_id: event.appSessionId,
       },

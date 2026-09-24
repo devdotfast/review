@@ -59,6 +59,7 @@ export class ReviewDesktopHost extends Disposable {
     super();
     let resolvedEnvironment: Promise<NodeJS.ProcessEnv> | undefined;
     let crashTelemetry: ReviewCrashTelemetry | undefined;
+    let errorTelemetry: ReviewMainErrorTelemetry | undefined;
     const crashDumpsDir = join(
       this.environmentMainService.userDataPath,
       REVIEW_CRASH_DUMPS_DIRNAME,
@@ -97,7 +98,11 @@ export class ReviewDesktopHost extends Disposable {
           this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
           false,
         crashDumpsDir,
-        onServerTerminated: (detail) => crashTelemetry?.reportServerExit(detail),
+        onServerTerminated: (detail) => {
+          errorTelemetry?.serverLost();
+          crashTelemetry?.reportServerExit(detail);
+        },
+        onServerReady: () => errorTelemetry?.serverReady(),
       }),
     );
     this._register(
@@ -117,7 +122,7 @@ export class ReviewDesktopHost extends Disposable {
     );
     // Main-process errors report through the embedded server, so they pass the
     // same opt-out checks and the same redaction step as every other event.
-    const errorTelemetry = new ReviewMainErrorTelemetry({
+    errorTelemetry = new ReviewMainErrorTelemetry({
       whenConnected: () => this.whenConnected(),
       isTelemetryEnabled: () =>
         this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
@@ -125,7 +130,8 @@ export class ReviewDesktopHost extends Disposable {
       userDataPath: this.environmentMainService.userDataPath,
       logError: (message) => this.logService.error(message),
     });
-    this._register(toDisposable(() => errorTelemetry.dispose()));
+    const mainTelemetry = errorTelemetry;
+    this._register(toDisposable(() => mainTelemetry.dispose()));
     const crashDumps = new ReviewCrashDumps({
       dumpsDir: crashDumpsDir,
       launch: {
@@ -144,7 +150,8 @@ export class ReviewDesktopHost extends Disposable {
       new ReviewCrashTelemetry({
         app,
         windows: BrowserWindow.getAllWindows(),
-        capture: (name, properties) => errorTelemetry.capture(name, properties),
+        capture: (name, properties, onDelivered) =>
+          mainTelemetry.capture(name, properties, undefined, onDelivered),
         onCrashRecorded: (at) => crashDumps.recordLiveCrash(at),
       }),
     );
@@ -155,7 +162,7 @@ export class ReviewDesktopHost extends Disposable {
       new ReviewUpdateTelemetry({
         updateService: this.updateService,
         storageService: this.applicationStorageMainService,
-        telemetry: errorTelemetry,
+        telemetry: mainTelemetry,
         isTelemetryEnabled: () =>
           this.configurationService.getValue<boolean>(
             REVIEW_TELEMETRY_SETTING,

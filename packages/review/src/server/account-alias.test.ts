@@ -36,7 +36,10 @@ describe("aliasInstallationToAccount", () => {
     const aliased: string[] = [];
 
     await aliasInstallationToAccount(
-      { captureAccountAlias: async (id) => void aliased.push(id) },
+      {
+        captureAccountAlias: async (lookup) =>
+          void aliased.push(await lookup()),
+      },
       await home(true),
       async () => Response.json({ user: { id: "account-1", name: "alice" } }),
     );
@@ -48,7 +51,8 @@ describe("aliasInstallationToAccount", () => {
     const aliased: string[] = [];
 
     const telemetry = {
-      captureAccountAlias: async (id: string) => void aliased.push(id),
+      captureAccountAlias: async (lookup: () => Promise<string>) =>
+        void aliased.push(await lookup()),
     };
 
     await aliasInstallationToAccount(telemetry, await home(false), async () =>

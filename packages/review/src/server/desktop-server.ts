@@ -143,6 +143,10 @@ export function createGlobalReviewServer(
 
   const reviewLocks = new Map<string, Promise<void>>();
 
+  // A reload or a second window starts the workbench again, but the launch
+  // this server belongs to became ready once.
+  let appReadyReported = false;
+
   const openWatchdog = new ReviewOpenWatchdog({
     onTimeout: (context, elapsedMs) =>
       void telemetry.captureEvent(
@@ -307,6 +311,12 @@ export function createGlobalReviewServer(
       const body = await readBoundedRequestJson(context.req.raw, undefined, {});
       const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
+
+      if (payload.name === "app_ready") {
+        if (appReadyReported) return globalJson(200, { ok: true });
+
+        appReadyReported = true;
+      }
 
       // The workbench has no reader on the stored review; the server does, so
       // `session_started`'s source_kind is filled in here rather than trusted

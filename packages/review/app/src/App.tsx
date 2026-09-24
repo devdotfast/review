@@ -83,7 +83,7 @@ import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-abse
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
-import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
 import { useTooltip } from "./use-tooltip";
 import { useTraceList } from "./use-trace-list";
@@ -111,7 +111,6 @@ export function App({
   commits: readonly ReviewCommitSummary[];
   findHost?: ReviewFindHost;
 }): ReactElement {
-  useWindowErrorTelemetry();
   const resolved = useResolvedReviewDocument(documentState);
 
   return (
@@ -203,19 +202,6 @@ function useResolvedReviewDocument(
       diffDocumentKey: [routePath, filePath].join("\0"),
     };
   }, [documentState, session]);
-}
-
-function useWindowErrorTelemetry(): void {
-  const session = useReviewSession();
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      captureClientError(session, "window", event.error);
-    };
-
-    window.addEventListener("error", handleError);
-
-    return () => window.removeEventListener("error", handleError);
-  }, [session]);
 }
 
 /** A commit-scoped diff stays "commit"; otherwise it follows the reader's

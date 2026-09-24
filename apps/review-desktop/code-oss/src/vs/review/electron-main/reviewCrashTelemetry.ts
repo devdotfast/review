@@ -33,10 +33,14 @@ export interface ReviewCrashTelemetryOptions {
   readonly app: ReviewCrashEmitter;
   /** Windows that already exist; later ones arrive through `browser-window-created`. */
   readonly windows?: readonly ReviewCrashWindow[];
-  readonly capture: (name: string, properties: Record<string, string | number | boolean>) => void;
+  /** `onDelivered` runs once the event reached the server, if it ever does. */
+  readonly capture: (name: string, properties: Record<string, string | number | boolean>, onDelivered?: () => void) => void;
   readonly now?: () => number;
   readonly launchedAt?: number;
-  /** Called with the wall-clock time of every live crash, for dump reconciliation. */
+  /**
+   * Called with the wall-clock time of every live crash once it is delivered,
+   * so dump reconciliation only skips a dump whose crash was counted.
+   */
   readonly onCrashRecorded?: (at: number) => void;
 }
 
@@ -51,8 +55,8 @@ function childProcessKind(type: string): "gpu" | "utility" | "unknown" {
 
 /**
  * Counts process deaths and window hangs while the app is alive. Everything
- * goes through the main-process telemetry queue, so a crash before the server
- * is up still sends once it connects.
+ * goes through the main-process telemetry queue, so a crash while the server
+ * is down, including the server's own, still sends once it is ready.
  */
 export class ReviewCrashTelemetry implements IDisposable {
   private readonly now: () => number;
@@ -109,8 +113,7 @@ export class ReviewCrashTelemetry implements IDisposable {
       exit_code: exitCode,
       uptime_ms: Math.max(0, at - this.launchedAt),
       source: "live",
-    });
-    this.options.onCrashRecorded?.(at);
+    }, () => this.options.onCrashRecorded?.(at));
   }
 
   private watchWindow(window: ReviewCrashWindow): void {

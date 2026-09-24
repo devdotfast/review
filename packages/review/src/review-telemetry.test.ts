@@ -99,8 +99,8 @@ describe("ReviewTelemetry", () => {
       $process_person_profile: false,
     });
 
-    await telemetry.captureAccountAlias("account-12345");
-    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureAccountAlias(async () => "account-12345");
+    await telemetry.captureAccountAlias(async () => "account-12345");
     await telemetry.captureCommandSucceeded({
       command: "info",
       commandRunId: "run-2",
@@ -125,7 +125,7 @@ describe("ReviewTelemetry", () => {
 
     // The first account wins: another login must not merge a second account
     // into this install's person.
-    await telemetry.captureAccountAlias("account-67890");
+    await telemetry.captureAccountAlias(async () => "account-67890");
     expect(
       events.filter((event) => event.event === "$create_alias"),
     ).toHaveLength(1);
@@ -341,6 +341,42 @@ describe("ReviewTelemetry", () => {
       app_session_id: LAUNCH_A,
       $session_id: LAUNCH_A,
     });
+  });
+
+  it("reports time on the files tab as a diff view of the same review", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureTabViewed(
+      {
+        tab: "review",
+        durationMs: 100,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+    await telemetry.captureTabViewed(
+      {
+        tab: "files",
+        durationMs: 4_200,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+
+    expect(events.map(({ event }) => event)).toEqual([
+      "review_tab_viewed",
+      "review_tab_viewed",
+      "review_diff_viewed",
+    ]);
+    expect(events[2].properties).toMatchObject({
+      duration_ms: 4_200,
+      app_session_id: LAUNCH_A,
+      review_id: events[1].properties?.review_id,
+    });
+    expect(events[2].properties?.review_id).toEqual(expect.any(String));
   });
 
   it("defaults to the cli surface and the stable channel", async () => {
@@ -621,6 +657,24 @@ describe("ReviewTelemetry", () => {
       expect(events[0].properties).not.toHaveProperty("app_version");
     },
   );
+
+  it("does not look up the account to alias when telemetry is off", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { DO_NOT_TRACK: "1" },
+    });
+
+    cleanupPaths.push(rootPath);
+    let lookups = 0;
+
+    await telemetry.captureAccountAlias(async () => {
+      lookups++;
+
+      return "account-12345";
+    });
+
+    expect(lookups).toBe(0);
+    expect(events).toEqual([]);
+  });
 
   it("does not write config or send events when DO_NOT_TRACK is set", async () => {
     const { configPath, events, markersPath, rootPath, telemetry } =
@@ -1338,6 +1392,43 @@ describe("ReviewTelemetry", () => {
     await expect(readStoredConfig(configPath)).resolves.toMatchObject({
       firstReviewPresentedSent: true,
     });
+  });
+
+  it("under the debug sink, prints each announcement once per process without persisting it", async () => {
+    const printed: string[] = [];
+
+    const captureClient: ReviewTelemetryCaptureClient = {
+      enabled: true,
+      ignoresOptOut: true,
+      capture: async (event) => void printed.push(event.event),
+    };
+
+    const { configPath, rootPath, telemetry } = createTelemetry({
+      captureClient,
+    });
+
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+
+    expect(printed).toEqual([
+      "review_installation_created",
+      "review_review_presented",
+      "review_first_review_presented",
+      "review_review_presented",
+    ]);
+    const stored = await readStoredConfig(configPath);
+
+    expect(stored.installationCreatedSent).toBeFalsy();
+    expect(stored.firstReviewPresentedSent).toBeFalsy();
   });
 
   it("leaves global client errors unscoped", async () => {

@@ -768,16 +768,21 @@ export class ReviewTelemetry {
   }
 
   private sessionAgent(): ReviewSessionAgent {
-    const harness = resolveAuthoringSessionRef(this.env)?.harness;
-
-    if (harness === "codex") return "codex";
-
-    if (harness === "claude-code") return "claude";
-
-    if (harness === "pi") return "pi";
-
-    return "other";
+    return reviewSessionAgent(this.env);
   }
+}
+
+/** The agent harness this process runs under, from its session environment. */
+export function reviewSessionAgent(env: NodeJS.ProcessEnv): ReviewSessionAgent {
+  const harness = resolveAuthoringSessionRef(env)?.harness;
+
+  if (harness === "codex") return "codex";
+
+  if (harness === "claude-code") return "claude";
+
+  if (harness === "pi") return "pi";
+
+  return "other";
 }
 
 export { isTelemetryOptedOut } from "./telemetry-config";

@@ -154,3 +154,42 @@ it("reports download and checkout preparation without starting duplicate imports
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("reports a revoke through onRevoked", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "share-revoke-"));
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_REVIEW_SHARE_TOKEN", "token");
+  const fixture = await createShareFixture(root);
+  const api = new Hono();
+  const revoked: string[] = [];
+
+  const revoke = vi
+    .spyOn(ShareClient.prototype, "revoke")
+    .mockResolvedValue({});
+
+  mountSharingHost(
+    api,
+    fixture.store,
+    fixture.data,
+    new SharedReviewStore(path.join(root, "shared")),
+    { onRevoked: ({ shareId }) => revoked.push(shareId) },
+  );
+
+  try {
+    const shareId = randomUUID();
+
+    const response = await api.request("/sharing/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ shareId }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(revoked).toEqual([shareId]);
+  } finally {
+    revoke.mockRestore();
+    await fixture.data.close();
+    fixture.store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

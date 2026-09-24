@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough, Readable, Writable } from "node:stream";
 
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { runReviewAgentCli } from "./agent-cli.js";
 import * as agentClient from "./agent-client.js";
@@ -363,4 +369,62 @@ it("binds existing content through the host-advertised PR tool", async () => {
     pullRequestNumber: 310,
     pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
   });
+});
+
+it("tells the server which surface and agent harness made the call", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "agent-origin-"));
+  const instanceId = randomUUID();
+  const seen: Array<[string | undefined, string | undefined]> = [];
+
+  const server = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+
+    if (request.url === "/health") {
+      response.end(JSON.stringify({ ok: true, instanceId }));
+
+      return;
+    }
+
+    seen.push([
+      request.headers["x-review-via"]?.toString(),
+      request.headers["x-review-agent"]?.toString(),
+    ]);
+    response.end("[]");
+  });
+
+  try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const { port } = z.object({ port: z.number() }).parse(server.address());
+    await mkdir(path.join(stateDir, "review-server"), { recursive: true });
+    await writeFile(
+      path.join(stateDir, "review-server", "server.json"),
+      JSON.stringify({
+        version: 1,
+        instanceId,
+        url: `http://127.0.0.1:${port}`,
+        serverPid: process.pid,
+        token: "token",
+      }),
+    );
+
+    const discard = new Writable({
+      write(_chunk, _encoding, done) {
+        done();
+      },
+    });
+
+    expect(
+      await runReviewAgentCli({
+        argv: ["api", "tools"],
+        stdout: discard,
+        stderr: discard,
+        env: { DEV_REVIEW_SERVER_DIR: stateDir, CODEX_THREAD_ID: "thread-1" },
+      }),
+    ).toBe(0);
+    expect(seen).toEqual([["api", "codex"]]);
+  } finally {
+    server.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
 });

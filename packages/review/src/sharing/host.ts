@@ -34,7 +34,17 @@ const publishSchema = z.strictObject({
   requestId: z.uuid().optional(),
 });
 
-interface SharingHostOptions {
+/** Where the host reports sharing and sign-in outcomes, for telemetry. */
+export interface SharingHostEvents {
+  onPublished?: (event: { reviewId: string; version: number }) => void;
+  onRevoked?: (event: { shareId: string }) => void;
+  onLogin?: (
+    outcome: "started" | "succeeded" | "failed",
+    reason?: "did_not_finish" | "error",
+  ) => void;
+}
+
+interface SharingHostOptions extends SharingHostEvents {
   verifyRepository?: typeof verifyShareRepository;
   readRepository?: typeof readShareRepository;
   login?: typeof runStoreLogin;
@@ -75,6 +85,7 @@ export function mountSharingHost(
   app.post("/sharing/login", async (context) => {
     if (!login.pending) {
       login = { pending: true };
+      options.onLogin?.("started");
 
       const discard = new Writable({
         write(_chunk, _encoding, done) {
@@ -95,9 +106,14 @@ export function mountSharingHost(
           login = { pending: false };
 
           if (code) login.error = "Sign-in did not finish. Try again.";
+          options.onLogin?.(
+            code ? "failed" : "succeeded",
+            code ? "did_not_finish" : undefined,
+          );
         })
         .catch(() => {
           login = { pending: false, error: "Sign-in failed. Try again." };
+          options.onLogin?.("failed", "error");
         });
     }
 
@@ -178,7 +194,11 @@ export function mountSharingPublisher(
   data: LocalReviewData,
   options: Pick<
     SharingHostOptions,
-    "verifyRepository" | "readRepository" | "fetch"
+    | "verifyRepository"
+    | "readRepository"
+    | "fetch"
+    | "onPublished"
+    | "onRevoked"
   > = {},
 ) {
   const verifyRepository = options.verifyRepository ?? verifyShareRepository;
@@ -250,6 +270,11 @@ export function mountSharingPublisher(
       )
         url.searchParams.set("app", "preview");
 
+      options.onPublished?.({
+        reviewId: input.reviewId,
+        version: snapshot.version,
+      });
+
       return context.json({
         ...result,
         url: url.href,
@@ -288,6 +313,7 @@ export function mountSharingPublisher(
         409,
       );
     await new ShareClient(account.origin, account.token).revoke(shareId);
+    options.onRevoked?.({ shareId });
 
     return context.json({ shareId, revoked: true });
   });

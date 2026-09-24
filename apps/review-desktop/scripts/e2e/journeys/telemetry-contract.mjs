@@ -40,7 +40,11 @@ const EXPECTED_EVENTS = new Set([
   "review_review_presented",
   "review_first_review_presented",
   "review_session_ended",
+  "review_review_created",
 ]);
+
+/** Allowed but not required: they depend on timing this journey does not control. */
+const OPTIONAL_EVENTS = new Set(["review_authoring_completed"]);
 
 /** Every event printed so far by the embedded server's debug sink. */
 function sentEvents(ctx) {
@@ -71,7 +75,7 @@ function assertContract(ctx, review) {
 
   for (const event of events) {
     assert.ok(
-      EXPECTED_EVENTS.has(event.event),
+      EXPECTED_EVENTS.has(event.event) || OPTIONAL_EVENTS.has(event.event),
       `unexpected event ${event.event}`,
     );
 

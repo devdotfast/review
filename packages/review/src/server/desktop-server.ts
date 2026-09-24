@@ -74,6 +74,7 @@ import {
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
 import { createJsonReviewReporting } from "./json-review-reporting";
+import { reviewLifecycleTelemetry } from "./review-lifecycle-telemetry";
 import { ReviewOpenWatchdog } from "./review-open-watchdog";
 import { createTutorialService } from "./tutorial-service";
 import { captureSanitizedUiTelemetry } from "./ui-telemetry";
@@ -233,6 +234,10 @@ export function createGlobalReviewServer(
       },
       () => scratchpadEnabled,
       () => traceMachineEnabled(),
+      reviewLifecycleTelemetry(
+        telemetry,
+        (reviewId) => reviewStore.summary(reviewId)?.firstCreatedAt,
+      ),
     ),
   );
   app.get("/preferences/scratchpad", () =>

@@ -2,6 +2,7 @@ import type { Readable, Writable } from "node:stream";
 
 import { traceMachineEnabled } from "@dev.fast/trace-core";
 
+import { reviewSessionAgent } from "../review-telemetry.js";
 import {
   type AuthoringTool,
   connectReviewApi,
@@ -10,6 +11,7 @@ import {
 import { type ReviewApiClient, ReviewApiError } from "./client.js";
 import { callPublicTool, publicTool } from "./public-tools.js";
 import { RECOVERY } from "./recovery.js";
+import { REVIEW_AGENT_HEADER, REVIEW_VIA_HEADER } from "./request-origin.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -44,10 +46,16 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (extra.length || (mode === "mcp" && name))
       throw new Error("Unexpected arguments. Use whiteboard api --help.");
 
+    const connect = () =>
+      connectReviewApi(input.env, {
+        [REVIEW_VIA_HEADER]: mode === "mcp" ? "mcp" : "api",
+        [REVIEW_AGENT_HEADER]: reviewSessionAgent(input.env ?? process.env),
+      });
+
     if (mode === "mcp") {
       const { serveReviewMcp } = await import("./mcp.js");
       await serveReviewMcp(
-        () => connectReviewApi(input.env),
+        connect,
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
@@ -61,7 +69,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     let tools: AuthoringTool[];
 
     try {
-      client = await connectReviewApi(input.env);
+      client = await connect();
       tools = (await client.read<AuthoringTool[]>("/authoring")).map(
         publicTool,
       );

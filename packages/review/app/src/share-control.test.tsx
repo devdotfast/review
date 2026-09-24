@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { ReviewApiClient } from "../../src/review-api/client";
+import { ReviewSessionProvider } from "./host/review-session";
+import { testReviewSession } from "./review-session-test-utils";
 import { ShareControl, SharingContext } from "./share-control";
 
 let dispose: (() => void) | undefined;
@@ -27,7 +29,20 @@ function mount(options: {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const state = { ...options };
   const posts: Array<{ path: string; body: unknown }> = [];
+  const telemetry: string[] = [];
   let accountReads = 0;
+
+  const session = testReviewSession(
+    {},
+    {
+      request: async (url, init) => {
+        if (url.includes("/telemetry/event"))
+          telemetry.push(JSON.parse(String(init?.body)).name);
+
+        return Response.json({ ok: true });
+      },
+    },
+  );
 
   const client = new ReviewApiClient(
     { serverUrl: "http://localhost", token: "local" },
@@ -99,9 +114,11 @@ function mount(options: {
     );
 
     return (
-      <SharingContext.Provider value={value}>
-        <ShareControl />
-      </SharingContext.Provider>
+      <ReviewSessionProvider session={session}>
+        <SharingContext.Provider value={value}>
+          <ShareControl />
+        </SharingContext.Provider>
+      </ReviewSessionProvider>
     );
   }
 
@@ -127,6 +144,7 @@ function mount(options: {
   return {
     container,
     posts,
+    telemetry,
     state,
     render,
     click,
@@ -193,9 +211,11 @@ it("uploads on open for a signed-in user, retries after a failure, and copies th
       return true;
     },
   });
+  expect(harness.telemetry).not.toContain("review_shared");
   await harness.click("Copy link");
   expect(copied).toBe(container.querySelector("input")?.value);
   expect(container.textContent).toContain("Copied");
+  expect(harness.telemetry).toContain("review_shared");
   delete (document as Partial<Document>).execCommand;
 });
 

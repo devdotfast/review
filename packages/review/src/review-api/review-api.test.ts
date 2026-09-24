@@ -2958,3 +2958,53 @@ it("shares pending comparison work even when more than 32 reviews are opened", a
   release();
   await Promise.all([first, ...others]);
 });
+
+it("reports a created review with the origin its headers claim", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const created: unknown[] = [];
+
+  const api = createReviewApi(
+    store,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { onReviewCreated: (event) => created.push(event) },
+  );
+
+  const create = (title: string, headers: Record<string, string>) =>
+    api.request("/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(request({ type: "create", title, pins })),
+    });
+
+  expect(
+    (
+      await create("Example", {
+        "x-review-via": "mcp",
+        "x-review-agent": "codex",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await create("Other", {
+        "x-review-via": "carrier-pigeon",
+      })
+    ).status,
+  ).toBe(200);
+
+  expect(created).toEqual([
+    {
+      reviewId: expect.any(String),
+      kind: "review",
+      blocks: 0,
+      via: "mcp",
+      agentKind: "codex",
+    },
+    { reviewId: expect.any(String), kind: "review", blocks: 0, via: "other" },
+  ]);
+});

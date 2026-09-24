@@ -1,0 +1,45 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) dev.fast. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE in the repository root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body
+  .monaco-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .editor-group-watermark-wrapper
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-light.svg");
+}
+
+body
+  .monaco-workbench.vs-dark
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-dark.svg");
+}
+
+body
+  .monaco-workbench.hc-light
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-hc-light.svg");
+}
+
+body
+  .monaco-workbench.hc-black
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-hc-dark.svg");
+}

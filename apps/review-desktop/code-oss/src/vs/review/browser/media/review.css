@@ -594,47 +594,6 @@ body
   background-color: var(--review-tab-separator);
 }
 
-body
-  .monaco-workbench
-  .part.editor
-  > .content
-  .editor-group-container
-  > .editor-group-watermark-wrapper
-  .editor-group-watermark
-  .letterpress {
-  background-image: url("./review-letterpress-light.svg");
-}
-
-body
-  .monaco-workbench.vs-dark
-  .part.editor
-  > .content
-  .editor-group-container
-  .editor-group-watermark
-  .letterpress {
-  background-image: url("./review-letterpress-dark.svg");
-}
-
-body
-  .monaco-workbench.hc-light
-  .part.editor
-  > .content
-  .editor-group-container
-  .editor-group-watermark
-  .letterpress {
-  background-image: url("./review-letterpress-hc-light.svg");
-}
-
-body
-  .monaco-workbench.hc-black
-  .part.editor
-  > .content
-  .editor-group-container
-  .editor-group-watermark
-  .letterpress {
-  background-image: url("./review-letterpress-hc-dark.svg");
-}
-
 .monaco-workbench
   .part.titlebar.review-chrome-overlay
   .review-titlebar-container

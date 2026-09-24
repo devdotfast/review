@@ -306,10 +306,9 @@ export async function runLspJourney(ctx, id) {
       {
         type: "code_peek",
         source: {
-          side: "head",
           file: language.peekFile,
-          fromLine: callLine,
-          toLine: callLine,
+          start: { side: "head", line: callLine },
+          end: { side: "head", line: callLine },
         },
       },
     ],

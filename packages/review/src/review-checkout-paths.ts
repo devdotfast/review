@@ -3,7 +3,7 @@ import path from "node:path";
 import { safeStorageSegment } from "./review-home-paths";
 import { devFastGitDir } from "./software-map-paths";
 
-export type ReviewCheckoutRole = "head" | "base" | "navigator";
+export type ReviewCheckoutRole = "head" | "base";
 
 /** Root for legacy commit-owned Review checkouts. Migration removes it. */
 export function legacyReviewWorktreesDir(gitCommonDir: string): string {

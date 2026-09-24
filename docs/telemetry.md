@@ -9,7 +9,7 @@ CLI telemetry.
 For a shorter overview of all product data, including local files, coding
 agents, and bug reports, see [Privacy](privacy.md).
 
-Last checked against this repository: 2026-09-23.
+Last checked against this repository: 2026-09-24.
 
 ## The short version
 
@@ -20,10 +20,9 @@ Last checked against this repository: 2026-09-23.
 - Passive telemetry never includes your code, diffs, file paths, repository
   name, whiteboard title, refs, revision hashes, whiteboard ID, coding-agent
   session ID, whiteboard text, prompts, or model output.
-- Whiteboard uses a random installation ID. It does not use your email,
-  username, hostname, or a hardware identifier. Every event is sent to PostHog
-  with `$process_person_profile: false`, so PostHog never creates a person
-  profile for it.
+- Whiteboard uses a random installation ID, never your email, username,
+  hostname, or a hardware identifier. Signing in with GitHub links
+  installations of the same account through a one-way hash.
 - Product errors may include a cleaned error message and stack frames from
   Whiteboard's shipped program. Paths, web and email addresses, and recognizable secrets are removed
   on your machine before the event is accepted.
@@ -66,13 +65,14 @@ dialog. Bug reports do not pass through the passive telemetry system.
 
 ## What Whiteboard collects
 
-| Category        | Examples                                                  | What is not included                                       |
-| --------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
-| App usage       | A whiteboard opened, a tab viewed, a map expanded         | Whiteboard text, code, paths, or repository details        |
-| CLI usage       | Command category, success or failure, duration            | Command arguments, refs, process output, or exception text |
-| Code navigation | Feature category, language category, editor surface       | Symbols, declarations, search text, or source code         |
-| Extensions      | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data        |
-| Reliability     | Error class, cleaned message, shipped-program frames      | User paths, repository frames, secrets, or authored text   |
+| Category           | Examples                                                  | What is not included                                       |
+| ------------------ | --------------------------------------------------------- | ---------------------------------------------------------- |
+| App usage          | A whiteboard opened, a tab viewed, a map expanded         | Whiteboard text, code, paths, or repository details        |
+| CLI usage          | Command category, success or failure, duration            | Command arguments, refs, process output, or exception text |
+| Code navigation    | Feature category, language category, editor surface       | Symbols, declarations, search text, or source code         |
+| Extensions         | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data        |
+| Whiteboard outcome | Dismiss, restore, or delete                               | Whiteboard text or reviewer identity                       |
+| Reliability        | Error class, cleaned message, shipped-program frames      | User paths, repository frames, secrets, or authored text   |
 
 Every event is checked against an allowlist on your machine. Unknown events,
 unknown properties, and values outside their allowed categories are dropped.
@@ -82,10 +82,16 @@ The full event-by-event list begins at [Event reference](#event-reference).
 
 On first use, Whiteboard creates a random installation UUID and stores it at
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
-PostHog's `identify()` API, and it sends every event, including
-`review_telemetry_dropped`, with `$process_person_profile: false`, which tells
-PostHog to process it as a personless event and never create a person profile
-for that ID.
+PostHog's `identify()` API. Events carry `$process_person_profile: false`, so
+PostHog keeps no person profile.
+
+**Account alias.** The first GitHub sign-in (in the app or with
+`whiteboard login`) sends one `$create_alias` linking the installation ID to
+`gh_` plus a one-way HMAC of the account ID. The account ID, login, and email
+never leave the machine. After that, events carry
+`$process_person_profile: true`, so installations signed into the same account
+share one PostHog person. Later sign-ins to other accounts and sign-outs change
+nothing.
 
 Whiteboard Preview keeps a separate installation ID in
 `telemetry/progressive-review.preview.json`. The standalone CLI always uses the
@@ -95,7 +101,9 @@ Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
 events, retries temporary failures, and deletes events after seven days. Each
 event keeps one random `uuid` across retries, so PostHog ingests a resent event
-once, and its `timestamp` is when it happened, not when it was sent.
+once, and its `timestamp` is when it happened, not when it was sent. A
+`review_telemetry_dropped` count is queued the same way, so a resent count
+lands once too.
 Telemetry is best-effort and never blocks Whiteboard from working.
 
 Three identifiers support exact lifecycle correlation without PostHog identity
@@ -157,20 +165,23 @@ sent, so the real event still goes out on the next normal run.
 
 Every event from the Whiteboard telemetry API includes these properties:
 
-| Property         | Value                                                              |
-| ---------------- | ------------------------------------------------------------------ |
-| `cli_version`    | CLI package version (`version` repeats it for one release)         |
-| `app_version`    | Whiteboard app release version; absent for the standalone CLI      |
-| `channel`        | `stable`, `preview`, or `dev` for an unpackaged build              |
-| `environment`    | `production`, `ci`, `internal`, `e2e`, or `smoke`                  |
-| `surface`        | `desktop`, `cli`, `headless`, `mcp`, or `api`                      |
-| `node_major`     | Node major version                                                 |
-| `platform`       | Node platform enum                                                 |
-| `arch`           | Node architecture enum                                             |
-| `os_version`     | Kernel release string                                              |
-| `ci`             | Boolean                                                            |
-| `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
-| `app_session_id` | One random ID per app launch, shared by every app process          |
+| Property                  | Value                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `cli_version`             | CLI package version (`version` repeats it for one release)                                                                |
+| `app_version`             | Whiteboard app release version; absent for the standalone CLI                                                             |
+| `channel`                 | `stable`, `preview`, or `dev` for an unpackaged build                                                                     |
+| `environment`             | `production`, `ci`, `internal`, `e2e`, or `smoke`                                                                         |
+| `surface`                 | `desktop`, `cli`, `headless`, `mcp`, or `api`                                                                             |
+| `node_major`              | Node major version                                                                                                        |
+| `platform`                | Node platform enum                                                                                                        |
+| `arch`                    | Node architecture enum                                                                                                    |
+| `os_version`              | Kernel release string                                                                                                     |
+| `ci`                      | Boolean                                                                                                                   |
+| `internal`                | Boolean for a dev.fast workspace build or a stored internal marker                                                        |
+| `app_session_id`          | One UUIDv7 per app launch, shared by every app process                                                                    |
+| `install_age_days`        | Whole days since this installation ID was created (for an older installation, since the first run that recorded it)       |
+| `$session_id`             | The same ID as `app_session_id`, so PostHog groups a launch's events into one session; absent when the ID is not a UUIDv7 |
+| `$process_person_profile` | `false` until this installation is aliased to a GitHub account (see "Identity and storage"), then `true`                  |
 
 `environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
 (`CI` set), `internal`, `production`. These variables set it and `channel`:
@@ -194,29 +205,46 @@ dropped the events.
 
 ### CLI and lifecycle events
 
-| Event                           | Additional properties                                                      | When                                                |
-| ------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
-| `review_installation_created`   | None                                                                       | The first enabled Whiteboard use                    |
-| `review_command_started`        | `command_path`, `command_run_id`, `agent_kind`                             | A public CLI handler is about to run                |
-| `review_command_succeeded`      | `command_path`, `command_run_id`, `exit_code`, `duration_ms`               | A public CLI command succeeds                       |
-| `review_command_failed`         | The success properties plus `error_name` and `error_category` closed enums | A public CLI command fails                          |
-| `review_telemetry_dropped`      | `reason`, `count`                                                          | The queue drops one or more events                  |
-| `review_session_started`        | `source_kind`, `review_id`, `presentation_id`                              | A whiteboard opens in the app canvas                |
-| `review_review_presented`       | `load_ms`, `review_id`, `presentation_id`                                  | The canvas signals ready                            |
-| `review_first_review_presented` | `review_id`, `presentation_id`                                             | The first presented whiteboard on this installation |
-| `review_session_ended`          | `outcome`, `duration_ms`, `review_id`, `presentation_id`                   | The whiteboard closes; see outcomes below           |
+| Event                           | Additional properties                                                                                                                                    | When                                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `review_installation_created`   | None                                                                                                                                                     | The first enabled Whiteboard use                                                             |
+| `review_command_started`        | `command_path`, `command_run_id`, `agent_kind`                                                                                                           | A public CLI handler is about to run                                                         |
+| `review_command_succeeded`      | `command_path`, `command_run_id`, `exit_code`, `duration_ms`                                                                                             | A public CLI command succeeds                                                                |
+| `review_command_failed`         | The success properties plus `error_name` and `error_category` closed enums                                                                               | A public CLI command fails                                                                   |
+| `review_telemetry_dropped`      | `reason`, `count`                                                                                                                                        | The queue drops one or more events                                                           |
+| `review_session_started`        | `source_kind`, `review_id`, `presentation_id`                                                                                                            | A whiteboard opens in the app canvas                                                         |
+| `review_review_presented`       | `load_ms`, `review_id`, `presentation_id`                                                                                                                | The canvas signals ready                                                                     |
+| `review_first_review_presented` | `review_id`, `presentation_id`                                                                                                                           | The first presented whiteboard on this installation                                          |
+| `review_session_ended`          | `outcome`, `duration_ms`, `review_id`, `presentation_id`                                                                                                 | The whiteboard closes; see outcomes below                                                    |
+| `review_crash`                  | `process` in `renderer`, `gpu`, `utility`, `server`, `unknown`; `reason` (≤40 chars); `exit_code`; `uptime_ms`; `source` in `live`, `minidump`           | A Whiteboard process dies, or an uncovered dump is found on the next launch                  |
+| `review_hang_started`           | None                                                                                                                                                     | An app window stops responding                                                               |
+| `review_hang_ended`             | `duration_ms`                                                                                                                                            | The window responds again, its process dies, or it closes                                    |
+| `review_ui_stall`               | `duration_ms`; `process` in `renderer`, `canvas` (`canvas` is allowlisted but not sent; it shares the workbench thread); `phase` in `startup`, `running` | The main thread lags 2 seconds or more behind a timer tick; capped at 5 per session          |
+| `review_app_ready`              | `duration_ms`                                                                                                                                            | The workbench restores, timed from the startup trace; once per app launch                    |
+| `review_error_burst`            | `message_hash`, `suppressed`                                                                                                                             | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
+| `review_open_timeout`           | `elapsed_ms`, `review_id`, `presentation_id`                                                                                                             | A session starts and no presented or ended event follows within 30 seconds                   |
+| `review_review_created`         | `via` in `api`, `mcp`, `other`; `kind` in `review`, `scratchpad`; `blocks`; optional `agent_kind`                                                        | A whiteboard or the scratchpad is created; `via` is `other` for the app's own UI             |
+| `review_review_published`       | `version`                                                                                                                                                | A whiteboard is published for sharing                                                        |
+| `review_review_revoked`         | None                                                                                                                                                     | A share link is revoked                                                                      |
+| `review_authoring_completed`    | `duration_ms`; optional `agent_kind`                                                                                                                     | The first publish of a whiteboard created via `api` or `mcp`, timed from its creation        |
+| `review_mcp_tool_called`        | `tool`; `via` in `api`, `mcp`; `ok`; `duration_ms`                                                                                                       | An agent calls a Whiteboard authoring tool                                                   |
+| `review_login_started`          | None                                                                                                                                                     | GitHub sign-in in the app begins                                                             |
+| `review_login_succeeded`        | None                                                                                                                                                     | GitHub sign-in in the app finishes                                                           |
+| `review_login_failed`           | `reason` in `did_not_finish`, `error`                                                                                                                    | GitHub sign-in in the app fails                                                              |
+| `$exception`                    | Same fields as `review_client_error`, in PostHog's error-tracking shape                                                                                  | Sent alongside every `review_client_error`, for one release                                  |
+| `$create_alias`                 | `alias`, `$process_person_profile: true`                                                                                                                 | The first GitHub sign-in on this installation; see "Identity and storage"                    |
 
 `source_kind` is `worktree`, `commits`, or `scratchpad`, set by the server from
 the opened whiteboard. `agent_kind` is allowlisted for session events but not
 yet sent.
 
-| `outcome`  | Meaning                                                                                                                                              |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `closed`   | The tab closed or another whiteboard replaced it                                                                                                     |
-| `app_quit` | The app quit with the whiteboard open                                                                                                                |
-| `abnormal` | The app died with the whiteboard open. Sent by the next launch, without `duration_ms`, with the dead launch's common properties and `app_session_id` |
-
-`dismissed` and `deleted` are allowlisted outcomes that are not sent.
+| `outcome`   | Meaning                                                                                                                                              |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`    | The tab closed or another whiteboard replaced it                                                                                                     |
+| `dismissed` | The open whiteboard was dismissed while its session was active                                                                                       |
+| `deleted`   | The open whiteboard was deleted while its session was active                                                                                         |
+| `app_quit`  | The app quit, or reloaded, with the whiteboard open                                                                                                  |
+| `abnormal`  | The app died with the whiteboard open. Sent by the next launch, without `duration_ms`, with the dead launch's common properties and `app_session_id` |
 
 `command_path` is a closed enum: `help`, `version`, `app.launch`, `app.pick`,
 `info`, `connect`, `instances`, `instances.use`, `instances.clear`,
@@ -252,53 +280,63 @@ text, and only as described in "Error reports".
 The server checks all properties in this table against
 `packages/review/src/ui-telemetry-events.ts`.
 
-| Event                             | Additional properties                                                                                                                                                        | When                                         |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `review_app_opened`               | None                                                                                                                                                                         | The canvas app opens                         |
-| `review_tab_viewed`               | `tab` in review, commits, map, files, trace; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                                     | A tab dwell period ends                      |
-| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                                 | A user opens a code peek                     |
-| `review_tour_started`             | `steps`                                                                                                                                                                      | A user starts a tour                         |
-| `review_tour_step_advanced`       | `step`, `steps`                                                                                                                                                              | A user moves to the next tour step           |
-| `review_tour_abandoned`           | `step`, `steps`                                                                                                                                                              | A user closes an incomplete tour             |
-| `review_tour_completed`           | `steps`                                                                                                                                                                      | A user completes a tour                      |
-| `review_map_expanded`             | `level` in system, container, component, code                                                                                                                                | A user expands a map element                 |
-| `review_commit_expanded`          | `expanded`                                                                                                                                                                   | A user expands or collapses a commit         |
-| `review_commit_diff_opened`       | `via` in row, file, footer                                                                                                                                                   | A user opens a commit diff                   |
-| `review_source_tree_opened`       | `via` in topbar, home                                                                                                                                                        | A user opens the source tree                 |
-| `review_client_error`             | See "Error reports"                                                                                                                                                          | A part of Whiteboard reports an error        |
-| `review_update_started`           | Random `update_attempt_id`, `target_version`                                                                                                                                 | An update is downloaded and ready to install |
-| `review_update_completed`         | Start properties plus `duration_ms`                                                                                                                                          | The downloaded target launches after restart |
-| `review_update_failed`            | `phase` in check, download, install; `message_source` in electron, request, shipit, fallback; `error_name`; optional start properties and `duration_ms`; see "Error reports" | An update check, download, or install fails  |
-| `review_bug_report_dialog_opened` | None                                                                                                                                                                         | A user opens the bug report dialog           |
-| `review_bug_report_cancelled`     | None                                                                                                                                                                         | A user closes the dialog without a report    |
-| `review_bug_report_send_failed`   | Short `error_name`                                                                                                                                                           | A bug report request fails                   |
-| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, software_map_enabled, scratchpad_enabled, diffr_config; `enabled`                                                                    | A user changes a Whiteboard setting          |
-| `review_review_opened`            | `via` in home, other                                                                                                                                                         | A user opens a whiteboard                    |
-| `review_diff_layout_changed`      | `layout` in split, unified                                                                                                                                                   | A user switches the diff layout              |
-| `review_home_empty_state_viewed`  | None                                                                                                                                                                         | The empty Home state opens                   |
+| Event                             | Additional properties                                                                                                                                                          | When                                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `review_app_opened`               | None                                                                                                                                                                           | The canvas app opens                                                                                       |
+| `review_tab_viewed`               | `tab` in review, commits, map, files, trace; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                                       | A tab dwell period ends                                                                                    |
+| `review_diff_viewed`              | `duration_ms`                                                                                                                                                                  | A files tab dwell period ends; the server derives it from `review_tab_viewed`, the canvas does not send it |
+| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                                   | A user opens a code peek                                                                                   |
+| `review_peek_resolved`            | `root_kind` in range                                                                                                                                                           | A code peek the user opened resolves                                                                       |
+| `review_peek_resolve_failed`      | `root_kind` in range                                                                                                                                                           | A code peek the user opened does not resolve                                                               |
+| `review_diff_opened`              | `kind` in commit, file, structural; `via` in topbar, lens, locate                                                                                                              | A user opens a diff view                                                                                   |
+| `review_scratchpad_opened`        | None                                                                                                                                                                           | The one scratchpad document opens                                                                          |
+| `review_discord_clicked`          | `via` in topbar, dialog, docs                                                                                                                                                  | A user clicks a Discord invite                                                                             |
+| `review_discord_dialog_shown`     | None                                                                                                                                                                           | The community invite dialog opens                                                                          |
+| `review_discord_dialog_dismissed` | None                                                                                                                                                                           | The community invite dialog closes unaccepted                                                              |
+| `review_review_shared`            | None                                                                                                                                                                           | A user copies a whiteboard's share link                                                                    |
+| `review_review_deleted`           | `via` in home                                                                                                                                                                  | A user deletes a stored whiteboard from Home                                                               |
+| `review_tour_started`             | `steps`                                                                                                                                                                        | A user starts a tour                                                                                       |
+| `review_tour_step_advanced`       | `step`, `steps`                                                                                                                                                                | A user moves to the next tour step                                                                         |
+| `review_tour_abandoned`           | `step`, `steps`                                                                                                                                                                | A user closes an incomplete tour                                                                           |
+| `review_tour_completed`           | `steps`                                                                                                                                                                        | A user completes a tour                                                                                    |
+| `review_map_expanded`             | `level` in system, container, component, code                                                                                                                                  | A user expands a map element                                                                               |
+| `review_commit_expanded`          | `expanded`                                                                                                                                                                     | A user expands or collapses a commit                                                                       |
+| `review_commit_diff_opened`       | `via` in row, file, footer                                                                                                                                                     | A user opens a commit diff                                                                                 |
+| `review_source_tree_opened`       | `via` in topbar, home                                                                                                                                                          | A user opens the source tree                                                                               |
+| `review_client_error`             | See "Error reports"                                                                                                                                                            | A part of Whiteboard reports an error                                                                      |
+| `review_update_started`           | Random `update_attempt_id`, `target_version`                                                                                                                                   | An update is downloaded and ready to install                                                               |
+| `review_update_completed`         | Start properties plus `duration_ms`                                                                                                                                            | The downloaded target launches after restart                                                               |
+| `review_update_failed`            | `phase` in check, download, install; `message_source` in electron, request, shipit, fallback; `error_name`; optional start properties and `duration_ms`; see "Error reports"   | An update check, download, or install fails                                                                |
+| `review_bug_report_dialog_opened` | None                                                                                                                                                                           | A user opens the bug report dialog                                                                         |
+| `review_bug_report_cancelled`     | None                                                                                                                                                                           | A user closes the dialog without a report                                                                  |
+| `review_bug_report_send_failed`   | Short `error_name`                                                                                                                                                             | A bug report request fails                                                                                 |
+| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, software_map_enabled, scratchpad_enabled, diffr_config, structural_diff, theme; `enabled`; `value` in dark, light, system (theme only) | A user changes a Whiteboard setting                                                                        |
+| `review_review_opened`            | `via` in home, other                                                                                                                                                           | A user opens a whiteboard                                                                                  |
+| `review_diff_layout_changed`      | `layout` in split, unified                                                                                                                                                     | A user switches the diff layout                                                                            |
+| `review_home_empty_state_viewed`  | None                                                                                                                                                                           | The empty Home state opens                                                                                 |
+
+The canvas sends `review_review_dismissed`, `review_review_restored`, and
+`review_review_deleted` from Home's actions, with `via` set to `home`.
+`review_review_dismissed`'s `review_topbar` and `review_review_restored`'s
+`open` (the implicit undo, where opening a dismissed whiteboard brings it back)
+are allowlisted but not yet sent.
 
 ### Reserved events
 
-The allowlist also defines these events, but no current code sends them:
-`review_review_deleted`, `review_review_reaped`, `review_review_dismissed`, and
-`review_review_restored`. If a future change sends them, it will update this
-page in the same change.
+The allowlist also defines `review_review_reaped`, but no current code sends
+it. If a future change sends it, it will update this page in the same change.
 
-### Suspected hangs
+### Hangs and stalls
 
-A session whose app never ends it cleanly arrives as
-`review_session_ended` with `outcome: "abnormal"`: Whiteboard records open
-sessions under `${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch
-reports any its predecessor left open.
+- `review_hang_started` / `review_hang_ended`: Electron's window
+  `unresponsive` / `responsive` events.
+- `review_ui_stall`: a workbench timer that fires 2 seconds or more late.
+- `review_open_timeout`: a whiteboard that neither presents nor ends within 30
+  seconds.
 
-Operational queries also flag a start with no terminal event after five
-minutes:
-
-- a command start with no success or failure sharing `command_run_id`; or
-- a session start with no presentation sharing `presentation_id`.
-
-This observes lifecycle gaps; it does not time out or kill work. A late
-terminal or ready event removes the match automatically.
+If the app dies with a whiteboard open, the next launch sends
+`review_session_ended` with `outcome: "abnormal"`. A workbench reload ends its
+session with `outcome: "app_quit"`, the same as quitting.
 
 ### Workbench events
 
@@ -326,7 +364,13 @@ Whiteboard does not send an extension version.
 Whiteboard reports its own failures so that a defect that only happens on your
 machine can still be found and fixed. Four parts of Whiteboard report an error:
 the app window, the canvas, the background process, and a crash that happens
-before Whiteboard can start.
+before Whiteboard can start. Uncaught canvas errors are reported once, by the
+app window.
+
+Every `review_client_error` is also sent as a PostHog `$exception` with the same
+fields; `review_client_error` is removed after one release. After 5 reports of
+one `message_hash` in a session, Whiteboard sends a `review_error_burst` instead
+and drops the rest.
 
 Whiteboard sends these properties with the `review_client_error` event. A
 `review_update_failed` event uses the same server-side message cleaning and
@@ -389,6 +433,17 @@ extension is dropped whole, not shortened.
 
 The local server does this work, and the event allowlist checks every
 frame a second time. Both steps run on your machine, before anything is sent.
+
+### Crash reports
+
+A `review_crash` records the process kind, Electron's reason, and the exit code,
+with no message or stack. Electron also writes a local minidump, which can
+contain process memory, including open source text. The next launch uploads it
+to `bug.dev.fast` with the common properties and deletes it. A dump no live
+event already counted is reported as `review_crash` with `source: "minidump"`.
+Dumps older than seven days, or any dump with telemetry off, are deleted
+without upload. Uploaded dumps are kept for 30 days, and the Worker records a
+`review_crash_uploaded` event without the dump.
 
 ## User-initiated bug reports
 
@@ -465,17 +520,25 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 
 ## Code locations
 
-| Concern                    | File                                                                                           |
-| -------------------------- | ---------------------------------------------------------------------------------------------- |
-| Telemetry API and identity | `packages/review/src/review-telemetry.ts`                                                      |
-| Batch queue                | `packages/review/src/posthog-capture-client.ts`                                                |
-| Opt-out rules              | `packages/review/src/telemetry-config.ts`                                                      |
-| Developer sink             | `packages/review/src/telemetry-debug-sink.ts`                                                  |
-| UI allowlist               | `packages/review/src/ui-telemetry-events.ts`                                                   |
-| Error message and frames   | `packages/review/src/error-telemetry.ts`                                                       |
-| Message cleaner (VS Code)  | `packages/review/src/telemetry-clean-text.ts`                                                  |
-| Error reporting rules      | `apps/review-desktop/code-oss/src/vs/review/common/reviewErrorReport.ts`                       |
-| Pre-start crash note       | `apps/review-desktop/code-oss/src/vs/review/node/reviewBootstrapBreadcrumb.ts`                 |
-| Desktop setting            | `apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts`                     |
-| Settings screen            | `packages/review/app/src/settings-page.tsx`                                                    |
-| First-use notice           | `apps/review-desktop/code-oss/src/vs/review/contrib/telemetry/reviewTelemetry.contribution.ts` |
+| Concern                     | File                                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| Telemetry API and identity  | `packages/review/src/review-telemetry.ts`                                                      |
+| Batch queue                 | `packages/review/src/posthog-capture-client.ts`                                                |
+| Opt-out rules               | `packages/review/src/telemetry-config.ts`                                                      |
+| Developer sink              | `packages/review/src/telemetry-debug-sink.ts`                                                  |
+| UI allowlist                | `packages/review/src/ui-telemetry-events.ts`                                                   |
+| Error message and frames    | `packages/review/src/error-telemetry.ts`                                                       |
+| Message cleaner (VS Code)   | `packages/review/src/telemetry-clean-text.ts`                                                  |
+| Error reporting rules       | `apps/review-desktop/code-oss/src/vs/review/common/reviewErrorReport.ts`                       |
+| Pre-start crash note        | `apps/review-desktop/code-oss/src/vs/review/node/reviewBootstrapBreadcrumb.ts`                 |
+| Desktop setting             | `apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts`                     |
+| Settings screen             | `packages/review/app/src/settings-page.tsx`                                                    |
+| First-use notice            | `apps/review-desktop/code-oss/src/vs/review/contrib/telemetry/reviewTelemetry.contribution.ts` |
+| Error budget and bursts     | `packages/review/src/server/client-error-budget.ts`                                            |
+| Account alias               | `packages/review/src/server/account-alias.ts`                                                  |
+| Whiteboard lifecycle events | `packages/review/src/server/review-lifecycle-telemetry.ts`                                     |
+| Open-timeout watchdog       | `packages/review/src/server/review-open-watchdog.ts`                                           |
+| Crash dump upload           | `packages/review/src/server/crash-report.ts`                                                   |
+| Crash and hang listeners    | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashTelemetry.ts`             |
+| Crash dump reconciliation   | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashDumps.ts`                 |
+| Main-thread stall watchdog  | `apps/review-desktop/code-oss/src/vs/review/common/reviewStallWatchdog.ts`                     |

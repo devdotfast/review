@@ -659,6 +659,12 @@ abstract class ReferencesAction extends SymbolNavigationAction {
 }
 
 registerAction2(class GoToReferencesAction extends ReferencesAction {
+	override runEditorCommand(accessor: ServicesAccessor, editor: ICodeEditor, arg?: SymbolNavigationAnchor | unknown, range?: Range): Promise<void> {
+		if (editor.contextKeyService.getContextKeyValue('reviewEmbeddedEditorFocus')) {
+			return accessor.get(ICommandService).executeCommand('review.action.embeddedShowReferences', editor);
+		}
+		return super.runEditorCommand(accessor, editor, arg, range);
+	}
 
 	constructor() {
 		super({

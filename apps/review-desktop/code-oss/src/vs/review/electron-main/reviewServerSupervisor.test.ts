@@ -12,6 +12,7 @@ import {
 	applicationPath,
 	createReviewServerEnvironment,
 	type IReviewServerProcess,
+	type ReviewServerTermination,
 	ReviewServerSupervisor,
 } from './reviewServerSupervisor.js';
 
@@ -63,7 +64,7 @@ for (const protocol of ['dev-fast-review', 'dev-fast-review-preview']) {
 	});
 }
 
-test('the server inherits the app session id and channel the supervisor chose', () => {
+test('the server inherits the app session id, channel and crash dump directory the supervisor chose', () => {
 	const environment = createReviewServerEnvironment({
 		applicationEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'stale', DEV_FAST_REVIEW_CHANNEL: 'stable' },
 		resolvedEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'shell', DEV_FAST_REVIEW_CHANNEL: 'dev' },
@@ -76,10 +77,12 @@ test('the server inherits the app session id and channel the supervisor chose', 
 		telemetryEnabled: true,
 		appSessionId: 'session-1',
 		channel: 'preview',
+		crashDumpsDir: '/user-data/review-crashes',
 	});
 
 	assert.equal(environment.DEV_FAST_REVIEW_APP_SESSION_ID, 'session-1');
 	assert.equal(environment.DEV_FAST_REVIEW_CHANNEL, 'preview');
+	assert.equal(environment.DEV_FAST_REVIEW_CRASH_DUMPS_DIR, '/user-data/review-crashes');
 });
 
 class FakeServerProcess implements IReviewServerProcess {
@@ -88,7 +91,8 @@ class FakeServerProcess implements IReviewServerProcess {
 	readonly onStdout = this.stdout.event;
 	readonly onStderr = new Emitter<string>().event;
 	readonly onExit = this.exit.event;
-	readonly onCrash = new Emitter<{ readonly code: number; readonly reason: string }>().event;
+	private readonly crashed = new Emitter<{ readonly code: number; readonly reason: string }>();
+	readonly onCrash = this.crashed.event;
 	env: Record<string, string | undefined> = {};
 
 	start(configuration: { readonly env?: Record<string, string | undefined> }): boolean {
@@ -106,6 +110,12 @@ class FakeServerProcess implements IReviewServerProcess {
 	}
 	crash(): void {
 		this.exit.fire({ code: 1, signal: 'SIGKILL' });
+	}
+	electronCrash(code: number, reason: string): void {
+		this.crashed.fire({ code, reason });
+	}
+	exitWith(code: number, signal: string): void {
+		this.exit.fire({ code, signal });
 	}
 	postMessage(): void { }
 	kill(): void { }
@@ -140,10 +150,79 @@ test('a restarted server keeps the launch\'s app session id, which the connectio
 	await whenRestarted;
 	const second = processes[1];
 
-	assert.ok(first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
+	assert.match(first.env.DEV_FAST_REVIEW_APP_SESSION_ID ?? '', /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 	assert.equal(connection.appSessionId, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_APP_SESSION_ID, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_CHANNEL, 'preview');
+});
+
+test('reports a server process death to onServerTerminated, but not a deliberate stop', async (t) => {
+	const processes: FakeServerProcess[] = [];
+	const terminated: ReviewServerTermination[] = [];
+	const supervisor = (): ReviewServerSupervisor => {
+		const created = new ReviewServerSupervisor({
+			appRoot: '/app',
+			appVersion: '0.0.34',
+			isBuilt: true,
+			channel: 'stable',
+			logInfo: () => { },
+			logError: () => { },
+			createProcess: () => {
+				const serverProcess = new FakeServerProcess();
+				processes.push(serverProcess);
+				return serverProcess;
+			},
+			onServerTerminated: (detail) => terminated.push(detail),
+		});
+		t.after(() => created.dispose());
+		return created;
+	};
+
+	const crashing = supervisor();
+	crashing.start();
+	processes[0].electronCrash(139, 'crashed');
+	processes[0].exitWith(139, 'unknown');
+	assert.deepEqual(terminated, [{ code: 139, reason: 'crashed (139)' }]);
+	await crashing.stop();
+
+	const stopped = supervisor();
+	stopped.start();
+	const stopping = stopped.stop();
+	processes[1].exitWith(1, 'SIGTERM');
+	await stopping;
+	assert.equal(terminated.length, 1);
+});
+
+test('calls onServerReady for the first server and for each restarted one', async (t) => {
+	const processes: FakeServerProcess[] = [];
+	let restarted!: () => void;
+	const whenRestarted = new Promise<void>((resolve) => restarted = resolve);
+	let ready = 0;
+	const supervisor = new ReviewServerSupervisor({
+		appRoot: '/app',
+		appVersion: '0.0.34',
+		isBuilt: true,
+		channel: 'stable',
+		logInfo: () => { },
+		logError: () => { },
+		createProcess: () => {
+			const serverProcess = new FakeServerProcess();
+			processes.push(serverProcess);
+			if (processes.length === 2) queueMicrotask(restarted);
+			return serverProcess;
+		},
+		onServerReady: () => ready++,
+	});
+	t.after(() => supervisor.dispose());
+
+	supervisor.start();
+	processes[0].announceReady();
+	assert.equal(ready, 1);
+	processes[0].crash();
+	await whenRestarted;
+	assert.equal(ready, 1);
+	processes[1].announceReady();
+	assert.equal(ready, 2);
 });
 
 test('the app path names the macOS bundle, else the executable', () => {

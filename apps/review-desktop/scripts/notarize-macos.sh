@@ -8,7 +8,7 @@ PRODUCT_NAME="$(node -p "require('$CHECKOUT/product.json').nameShort")"
 PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/$PRODUCT_NAME.app"
 VERSION="$(node -p "require('$APP_DIR/package.json').version")"
 ARTIFACT_DIR="${DEV_FAST_REVIEW_ARTIFACT_DIR:-$APP_DIR/dist}"
-UPDATE_ZIP="$ARTIFACT_DIR/Whiteboard-darwin-arm64-$VERSION.zip"
+QUALITY="$(node -p "require('$CHECKOUT/product.json').quality")"
 DMG="$ARTIFACT_DIR/Whiteboard-darwin-arm64-$VERSION.dmg"
 
 if (( $# > 0 )); then
@@ -137,7 +137,7 @@ codesign --verify --deep --strict --verbose=2 "$PACKAGED_APP"
 codesign -dv --verbose=2 "$PACKAGED_APP"
 
 mkdir -p "$ARTIFACT_DIR"
-rm -f -- "$UPDATE_ZIP" "$DMG"
+rm -f -- "$ARTIFACT_DIR"/*-darwin-arm64-"$VERSION".zip "$DMG"
 
 mkdir -p "$DMG_STAGE"
 ditto "$PACKAGED_APP" "$DMG_STAGE/$PRODUCT_NAME.app"
@@ -167,9 +167,18 @@ xcrun stapler validate "$PACKAGED_APP"
 spctl -a -vv --type exec "$PACKAGED_APP"
 spctl -a -vv --type open --context context:primary-signature "$DMG"
 
-# The update zip ships the stapled app.
-ditto -c -k --keepParent "$PACKAGED_APP" "$UPDATE_ZIP"
+# One update zip per bundle folder name still installed (release-channel.mjs
+# lists them): each ships the same stapled app under that folder name, so
+# Squirrel's rename-to-the-update's-name is a no-op for every install.
+UPDATE_ZIPS=()
+while IFS=$'\t' read -r bundle artifact; do
+  staged="$TEMP_ROOT/zips/$artifact/$bundle.app"
+  mkdir -p "$(dirname "$staged")"
+  ditto "$PACKAGED_APP" "$staged"
+  zip="$ARTIFACT_DIR/$artifact-darwin-arm64-$VERSION.zip"
+  ditto -c -k --keepParent "$staged" "$zip"
+  UPDATE_ZIPS+=("$zip")
+done < <(node "$APP_DIR/scripts/release-channel.mjs" "$QUALITY")
 
-echo "Created notarized Review Desktop artifacts:"
-echo "  $UPDATE_ZIP"
-echo "  $DMG"
+echo "Created notarized Whiteboard Desktop artifacts:"
+printf '  %s\n' "${UPDATE_ZIPS[@]}" "$DMG"

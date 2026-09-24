@@ -18,13 +18,15 @@ function setup(answer: Promise<IConfirmationResult>, reviews: Array<{ kind?: "sc
 	const asked: IConfirmation[] = [];
 	const stored: Array<{ key: string; value: unknown }> = [];
 	const opened: unknown[] = [];
+	const captured: Array<[string, unknown]> = [];
 	const invite = () => new ReviewCommunityContribution(
 		{ confirm: (confirmation: IConfirmation) => { asked.push(confirmation); return answer; } } as never,
 		{ getBoolean: () => dismissed, store: (key: string, value: unknown) => { stored.push({ key, value }); dismissed = Boolean(value); } } as never,
 		{ open: async (target: unknown) => { opened.push(target); return true; } } as never,
 		catalog as never,
+		{ capture: (name: string, properties?: unknown) => { captured.push([name, properties]); } } as never,
 	);
-	return { asked, stored, opened, invite, catalog };
+	return { asked, stored, opened, invite, catalog, captured };
 }
 
 test('skips the invitation when the first-run seeding reload is pending', async () => {
@@ -39,12 +41,15 @@ test('skips the invitation when the first-run seeding reload is pending', async 
 for (const confirmed of [false, true]) {
 	test(`permanently dismisses the invitation after ${confirmed ? 'joining' : 'declining'}`, async () => {
 		setFirstRunReloadPending(false);
-		const { asked, stored, opened, invite } = setup(Promise.resolve({ confirmed }));
+		const { asked, stored, opened, invite, captured } = setup(Promise.resolve({ confirmed }));
 		invite();
 		await settle();
 		assert.equal(asked.length, 1);
 		assert.deepEqual(stored, [{ key: DISMISSED_KEY, value: true }]);
 		assert.deepEqual(opened, confirmed ? [REVIEW_DISCORD_URL] : []);
+		assert.deepEqual(captured, confirmed
+			? [['discord_dialog_shown', undefined], ['discord_clicked', { via: 'dialog' }]]
+			: [['discord_dialog_shown', undefined], ['discord_dialog_dismissed', undefined]]);
 		invite();
 		await settle();
 		assert.equal(asked.length, 1, 'subsequent launches must not ask again');

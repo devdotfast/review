@@ -8,6 +8,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import type { ReviewToolCall } from "../review-telemetry.js";
 import {
   type AuthoringTool,
   type ConnectedReview,
@@ -24,7 +25,7 @@ import { REVIEW_STATUS_TOOL } from "./status-tool.js";
 const RELOAD_TOOLS =
   "Whiteboard is running now, but this session listed Whiteboard's tools before it started, so you may see only session_get_instructions. Before authoring, reload the `whiteboard` MCP server's tools (reconnect it in your agent, or start a new agent session). If you can already see tools such as session_create, carry on.";
 
-export function mcpServerInstructions(context: {
+function mcpAuthoringGuidance(context: {
   scratchpadAvailable: boolean;
   traceEnabled: boolean;
 }): string {
@@ -53,6 +54,7 @@ export async function serveReviewMcp(
   traceEnabled = false,
   /** What whiteboard_status reports when the Desktop cannot be reached, and why. */
   offlineStatus?: (problem: string) => Promise<JsonValue>,
+  onToolCall?: (call: ReviewToolCall) => Promise<void> | void,
 ) {
   const instructionsTool = {
     ...authoringTools(false, traceEnabled).find(
@@ -65,12 +67,6 @@ export async function serveReviewMcp(
     { name: "whiteboard", version: "1.0.0" },
     {
       capabilities: { tools: { listChanged: true } },
-      // Initialize comes before Desktop can be asked; the scratchpad
-      // sentence defers to session_capabilities.
-      instructions: mcpServerInstructions({
-        scratchpadAvailable: true,
-        traceEnabled,
-      }),
     },
   );
 
@@ -123,13 +119,30 @@ export async function serveReviewMcp(
       tools: [...always, ...tools.filter((tool) => !always.includes(tool))].map(
         ({ name, description, inputSchema }) => ({
           name,
-          description,
+          // Some clients prepend server instructions to every tool. Keep shared
+          // guidance on the discovery tool instead, including before Desktop starts.
+          description:
+            name === instructionsTool.name
+              ? `${mcpAuthoringGuidance({ scratchpadAvailable: true, traceEnabled })}\n\n${description}`
+              : description,
           inputSchema,
         }),
       ),
     };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const startedAt = Date.now();
+    // The requested name is agent input; only a catalog name is reported.
+    let tool: AuthoringTool | undefined;
+
+    const report = (ok: boolean) =>
+      void onToolCall?.({
+        tool: tool?.name ?? "other",
+        via: "mcp",
+        ok,
+        durationMs: Date.now() - startedAt,
+      });
+
     try {
       let client: ReviewApiClient;
       let tools: AuthoringTool[];
@@ -162,7 +175,7 @@ export async function serveReviewMcp(
         throw error;
       }
 
-      const tool = tools.find((tool) => tool.name === request.params.name);
+      tool = tools.find((tool) => tool.name === request.params.name);
 
       if (!tool)
         throw new Error(`Unknown Whiteboard tool: ${request.params.name}`);
@@ -175,6 +188,7 @@ export async function serveReviewMcp(
       );
 
       const text = toolResultText(tool, result);
+      report(true);
 
       return {
         content: [
@@ -188,6 +202,8 @@ export async function serveReviewMcp(
         ],
       };
     } catch (error) {
+      report(false);
+
       return {
         isError: true,
         content: [

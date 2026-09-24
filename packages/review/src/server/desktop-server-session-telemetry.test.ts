@@ -12,6 +12,7 @@ import {
   createGlobalReviewServer,
   sessionStartedSourceKind,
 } from "./desktop-server";
+import type { ReviewOpenContext } from "./review-open-watchdog";
 import { clientOccurredAt } from "./ui-telemetry";
 
 it("keeps a client's occurrence time only within the recent past", () => {
@@ -171,6 +172,132 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
       context,
       expect.any(Number),
     );
+  } finally {
+    await server.close();
+    await local.data.close();
+    await local.store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("reports a session that starts and never presents, and not one that does", async () => {
+  const home = await mkdtemp(
+    path.join(os.tmpdir(), "review-session-telemetry-"),
+  );
+
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const token = "session-telemetry-test-token";
+
+  const telemetry = ReviewTelemetry.fromEnv({
+    ...process.env,
+    DEV_REVIEW_HOME: home,
+  });
+
+  const captureEvent = vi.spyOn(telemetry, "captureEvent");
+
+  const server = createGlobalReviewServer({
+    reviewStore: local.store,
+    reviewData: local.data,
+    appPid: process.pid,
+    packageRoot: home,
+    toolingRoot: home,
+    port: 0,
+    token,
+    discoveryPath: path.join(home, "review-desktop", "server.json"),
+    telemetry,
+  });
+
+  const send = (name: string, context: ReviewOpenContext) =>
+    fetch(`${server.url}/telemetry/event`, {
+      method: "POST",
+      headers: { "x-review-token": token, "content-type": "application/json" },
+      body: JSON.stringify({ name, properties: {}, context }),
+    });
+
+  try {
+    await server.listen();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+    const stuck = {
+      reviewUuid: randomUUID(),
+      presentationSessionId: randomUUID(),
+    };
+
+    const shown = {
+      reviewUuid: randomUUID(),
+      presentationSessionId: randomUUID(),
+    };
+
+    await send("session_started", stuck);
+    await send("session_started", shown);
+    await send("review_presented", shown);
+    vi.advanceTimersByTime(30_000);
+
+    const timeouts = captureEvent.mock.calls.filter(
+      ([event]) => event === "review_open_timeout",
+    );
+
+    expect(timeouts).toEqual([
+      ["review_open_timeout", { elapsed_ms: 30_000 }, stuck],
+    ]);
+  } finally {
+    vi.useRealTimers();
+    await server.close();
+    await local.data.close();
+    await local.store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("reports app_ready once per launch, however many windows or reloads send it", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "review-app-ready-"));
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const token = "app-ready-test-token";
+
+  const telemetry = ReviewTelemetry.fromEnv({
+    ...process.env,
+    DEV_REVIEW_HOME: home,
+  });
+
+  const captureUiEvent = vi.spyOn(telemetry, "captureUiEvent");
+
+  const server = createGlobalReviewServer({
+    reviewStore: local.store,
+    reviewData: local.data,
+    appPid: process.pid,
+    packageRoot: home,
+    toolingRoot: home,
+    port: 0,
+    token,
+    discoveryPath: path.join(home, "review-desktop", "server.json"),
+    telemetry,
+  });
+
+  try {
+    await server.listen();
+
+    for (const durationMs of [900, 400]) {
+      const response = await fetch(`${server.url}/telemetry/event`, {
+        method: "POST",
+        headers: {
+          "x-review-token": token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "app_ready",
+          properties: { duration_ms: durationMs },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+    }
+
+    const ready = captureUiEvent.mock.calls.filter(
+      ([event]) => event === "review_app_ready",
+    );
+
+    expect(ready).toHaveLength(1);
+    expect(ready[0][1]).toMatchObject({ duration_ms: 900 });
   } finally {
     await server.close();
     await local.data.close();

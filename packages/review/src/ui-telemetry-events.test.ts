@@ -313,3 +313,119 @@ describe("sanitizeUiTelemetryEvent", () => {
     ).toEqual({ event: "review_session_started", properties: {} });
   });
 });
+
+describe("reliability and engagement events", () => {
+  it("accepts a live renderer crash", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "crash",
+        properties: {
+          process: "renderer",
+          reason: "oom",
+          exit_code: -1,
+          uptime_ms: 1234,
+          source: "live",
+        },
+      }),
+    ).toEqual({
+      event: "review_crash",
+      properties: {
+        process: "renderer",
+        reason: "oom",
+        exit_code: -1,
+        uptime_ms: 1234,
+        source: "live",
+      },
+    });
+  });
+
+  it("drops a crash reason that is not an identifier", () => {
+    const sanitized = sanitizeUiTelemetryEvent({
+      name: "crash",
+      properties: {
+        process: "server",
+        reason: "died at /Users/alice/x",
+        exit_code: 1,
+        source: "live",
+      },
+    });
+
+    expect(sanitized?.properties).toEqual({
+      process: "server",
+      exit_code: 1,
+      source: "live",
+    });
+  });
+
+  it("accepts the new engagement events", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "peek_opened",
+        properties: { via: "call_stack_frame" },
+      })?.properties,
+    ).toEqual({ via: "call_stack_frame" });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "peek_resolve_failed",
+        properties: { root_kind: "range" },
+      })?.event,
+    ).toBe("review_peek_resolve_failed");
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "diff_opened",
+        properties: { kind: "structural", via: "lens" },
+      })?.properties,
+    ).toEqual({ kind: "structural", via: "lens" });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "discord_clicked",
+        properties: { via: "dialog" },
+      })?.event,
+    ).toBe("review_discord_clicked");
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "setting_changed",
+        properties: { setting: "theme", value: "dark" },
+      })?.properties,
+    ).toEqual({ setting: "theme", value: "dark" });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "error_burst",
+        properties: { message_hash: "0123456789abcdef", suppressed: 1 },
+      })?.event,
+    ).toBe("review_error_burst");
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "ui_stall",
+        properties: { duration_ms: 2400, process: "canvas", phase: "running" },
+      })?.event,
+    ).toBe("review_ui_stall");
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "client_error",
+        properties: {
+          error_source: "server_unexpected",
+          error_process: "server",
+        },
+      })?.properties,
+    ).toEqual({ error_source: "server_unexpected", error_process: "server" });
+    expect(
+      sanitizeUiTelemetryEvent({ name: "review_shared", properties: {} }),
+    ).toEqual({ event: "review_review_shared", properties: {} });
+  });
+
+  it("keeps setting values and diff kinds to their closed enums", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "setting_changed",
+        properties: { setting: "theme", value: "solarized" },
+      })?.properties,
+    ).toEqual({ setting: "theme" });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "diff_opened",
+        properties: { kind: "src/app.ts", via: "topbar" },
+      })?.properties,
+    ).toEqual({ via: "topbar" });
+  });
+});

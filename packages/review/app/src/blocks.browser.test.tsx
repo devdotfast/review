@@ -174,7 +174,7 @@ afterEach(async () => {
 
 async function mountFixture(
   kind: Kind,
-  resources: { trace?: null } = {},
+  options: { trace?: null; document?: Snapshot["document"] } = {},
   tutorial?: ReviewCanvasTutorialBridge,
   shippedTutorial = false,
   hostStyle?: string,
@@ -192,7 +192,7 @@ async function mountFixture(
     },
     document: shippedTutorial
       ? documentSchema.parse(tutorialDocument.document)
-      : fixtures.get(kind)!,
+      : (options.document ?? fixtures.get(kind)!),
     origin: shippedTutorial ? { tutorial: true } : undefined,
     createdAt: "2026-09-16T00:00:00.000Z",
   };
@@ -210,7 +210,7 @@ async function mountFixture(
     snapshot,
     progress: fixtureProgress,
     resources:
-      resources.trace === null
+      options.trace === null
         ? { [FIXTURE_IMAGE_ID]: image }
         : {
             [FIXTURE_IMAGE_ID]: image,
@@ -236,6 +236,7 @@ async function mountFixture(
     },
   });
 
+  const request = vi.spyOn(bridge, "request");
   const container = document.createElement("div");
 
   if (hostStyle) container.style.cssText = hostStyle;
@@ -266,10 +267,125 @@ async function mountFixture(
     });
   });
 
-  return { container, snapshot };
+  return { container, snapshot, request };
 }
 
 describe("block components", () => {
+  it.each([
+    {
+      kind: "sequence",
+      selector: ".diagram-header-title",
+      label: "sequence title",
+    },
+    {
+      kind: "flow_diagram",
+      selector: ".diagram-header-title",
+      label: "flow title",
+    },
+    {
+      kind: "database_lens",
+      selector: ".diagram-header-title",
+      label: "database title",
+    },
+    {
+      kind: "software_map",
+      selector: ".diagram-header-title",
+      label: "map title",
+    },
+    {
+      kind: "code",
+      selector: ".rendered-code-body code",
+      label: "authored code",
+    },
+    {
+      kind: "markdown",
+      selector: ".rendered-code-body code",
+      label: "fenced Markdown code",
+    },
+  ] as const)(
+    "copies selected $label text for the agent",
+    async ({ kind, selector }) => {
+      const code = 'export const status = "queued";\n  save(status);';
+
+      const documentBlocks: Snapshot["document"] | undefined =
+        kind === "code"
+          ? [
+              {
+                id: "block-1",
+                type: "code",
+                language: "ts",
+                text: code,
+                caption: "The new status",
+              },
+            ]
+          : kind === "markdown"
+            ? [
+                {
+                  id: "block-1",
+                  type: "markdown",
+                  markdown: "```ts\n" + code + "\n```",
+                },
+              ]
+            : undefined;
+
+      const { container, request } = await mountFixture(kind, {
+        document: documentBlocks,
+      });
+
+      expect(
+        await settled(() => container.querySelector(selector) !== null),
+      ).toBe(true);
+      const selected = container.querySelector(selector)!;
+
+      const quote =
+        kind === "code" || kind === "markdown" ? code : selected.textContent!;
+
+      request.mockClear();
+      request.mockResolvedValueOnce(Response.json({ text: `> ${quote}` }));
+
+      const write = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockResolvedValue();
+
+      const selection = document.getSelection()!;
+      const range = document.createRange();
+      range.selectNodeContents(selected);
+
+      try {
+        await act(async () => {
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+        });
+
+        const copy = container.querySelector<HTMLButtonElement>(
+          '[aria-label="Copy for Agent"]',
+        );
+
+        expect(copy).not.toBeNull();
+        await act(async () => copy!.click());
+        expect(request).toHaveBeenCalledWith(
+          expect.stringContaining("/copy-context"),
+          expect.objectContaining({
+            method: "POST",
+            body: expect.any(String),
+          }),
+        );
+        expect(
+          JSON.parse(request.mock.lastCall![1]!.body as string),
+        ).toMatchObject({
+          target: { kind: "text", quote },
+          title: quote.slice(0, 100),
+        });
+        expect(write).toHaveBeenCalledWith(`> ${quote}`);
+      } finally {
+        selection.removeAllRanges();
+        request.mockRestore();
+        write.mockRestore();
+      }
+    },
+  );
+
   it("keeps shipped tutorial keybindings and view buttons interactive in the JSON canvas", async () => {
     const selectKeymap = vi.fn<ReviewCanvasTutorialBridge["selectKeymap"]>(
       async () => {},

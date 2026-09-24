@@ -15,11 +15,51 @@ import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
 } from "../ui-telemetry-events";
+import { ClientErrorBudget } from "./client-error-budget";
 
 const contextSchema = z.object({
   reviewUuid: z.string().min(1).max(128).optional(),
   presentationSessionId: z.string().min(1).max(128).optional(),
 });
+
+type SanitizedUiTelemetryEvent = NonNullable<
+  ReturnType<typeof sanitizeUiTelemetryEvent>
+>;
+
+const clientErrorBudget = new ClientErrorBudget();
+
+/**
+ * Applies the per-session, per-digest error budget to a sanitized event, and
+ * returns what to send in its place: the event itself, one
+ * review_error_burst that says how many were withheld, or nothing. Every path
+ * that reports review_client_error goes through here. Other events, and errors
+ * without a session or a digest, pass unchanged.
+ */
+export function admitUiTelemetryEvent(
+  event: SanitizedUiTelemetryEvent,
+): SanitizedUiTelemetryEvent | undefined {
+  if (event.event !== "review_client_error") return event;
+  const sessionId = jsonString(event.properties.app_session_id);
+  const messageHash = jsonString(event.properties.message_hash);
+
+  if (sessionId === undefined || messageHash === undefined) return event;
+  const admission = clientErrorBudget.admit(sessionId, messageHash);
+
+  if (admission.verdict === "send") return event;
+
+  if (admission.verdict === "drop") return undefined;
+
+  return (
+    sanitizeUiTelemetryEvent({
+      name: "error_burst",
+      properties: {
+        message_hash: messageHash,
+        suppressed: admission.suppressed,
+        app_session_id: sessionId,
+      },
+    }) ?? undefined
+  );
+}
 
 const MAX_CLIENT_ERROR_SESSIONS = 100;
 
@@ -96,7 +136,8 @@ export async function captureSanitizedUiTelemetry(
   name: JsonValue,
   properties: JsonValue,
   onSanitized?: (
-    event: NonNullable<ReturnType<typeof sanitizeUiTelemetryEvent>>,
+    event: SanitizedUiTelemetryEvent,
+    context: ReviewTelemetryContext | undefined,
   ) => void,
   /**
    * The raw error envelope, which arrives beside `properties` and never inside
@@ -137,14 +178,17 @@ export async function captureSanitizedUiTelemetry(
   });
 
   if (!sanitized) return;
-  onSanitized?.(sanitized);
+  const admitted = admitUiTelemetryEvent(sanitized);
+
+  if (!admitted) return;
   const parsedContext = contextSchema.safeParse(rawContext);
   const context = parsedContext.success ? parsedContext.data : undefined;
+  onSanitized?.(admitted, context);
 
   try {
     await telemetry.captureUiEvent?.(
-      sanitized.event,
-      sanitized.properties,
+      admitted.event,
+      admitted.properties,
       context,
       occurredAt,
     );

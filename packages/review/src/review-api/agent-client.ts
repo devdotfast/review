@@ -33,13 +33,28 @@ export interface ConnectedReview {
   instance?: { key: string };
 }
 
-export async function connectReviewApi(env = process.env) {
-  return (await connectReviewInstance(env)).client;
+export async function connectReviewApi(
+  env = process.env,
+  headers: Record<string, string> = {},
+) {
+  return (await connectReviewInstance(env, headers)).client;
 }
 
 export async function connectReviewInstance(
   env = process.env,
+  headers: Record<string, string> = {},
 ): Promise<ConnectedReview> {
+  const request: ConstructorParameters<typeof ReviewApiClient>[1] = (
+    url,
+    init,
+  ) => {
+    const merged = new Headers(init?.headers);
+
+    for (const [key, value] of Object.entries(headers)) merged.set(key, value);
+
+    return fetch(url, { ...init, headers: merged });
+  };
+
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
     const server = await readReviewServerDiscovery(stateDir);
@@ -48,10 +63,10 @@ export async function connectReviewInstance(
       throw serverNotReady(stateDir);
 
     return {
-      client: new ReviewApiClient({
-        serverUrl: server.url,
-        token: server.token,
-      }),
+      client: new ReviewApiClient(
+        { serverUrl: server.url, token: server.token },
+        request,
+      ),
     };
   }
 
@@ -64,10 +79,10 @@ export async function connectReviewInstance(
     );
 
   return {
-    client: new ReviewApiClient({
-      serverUrl: discovery.url,
-      token: discovery.token,
-    }),
+    client: new ReviewApiClient(
+      { serverUrl: discovery.url, token: discovery.token },
+      request,
+    ),
     instance: { key: selection.key },
   };
 }

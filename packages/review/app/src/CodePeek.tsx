@@ -3,7 +3,7 @@ import type {
   ReviewInlineEditorHeightMode,
   ReviewInlineEditorRange,
 } from "@dev.fast/review-protocol";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   type DiffSelection,
@@ -14,7 +14,9 @@ import type { ReviewComponentProps } from "../../src/review-document-data";
 import { type FileLineRange, codePeekSource } from "../../src/source";
 import { DocumentCodeView } from "./DocumentCodeView";
 import { useReviewSession } from "./host/review-session";
+import { peekResolutionOutcome } from "./peek-telemetry";
 import { type ReviewLensView, useReviewLenses } from "./review-lenses";
+import { captureUiEvent } from "./ui-telemetry";
 
 /** The software-map inspector's peek input: a range on one diff side. */
 export interface CodePeekProps {
@@ -121,12 +123,16 @@ export function CodePeekCard({
   heightMode = "capped",
   onNativeFocus,
   lenses: lensesOverride,
+  reportOutcome = false,
 }: {
   source: DiffSelection;
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
   lenses?: ReviewLensView;
+  /** Report resolution telemetry. Only the panel the user opened sets this,
+   * so an authored document with many inline peeks sends one event, not N. */
+  reportOutcome?: boolean;
 }) {
   const session = useReviewSession();
   const contextLenses = useReviewLenses();
@@ -140,12 +146,32 @@ export function CodePeekCard({
     endLine: range.toLine,
   }));
 
+  const key = selectionKey(source);
+
+  const outcome = peekResolutionOutcome({
+    resolvedCount: ranges.length,
+    complete: Boolean(lenses?.progress?.complete),
+    unavailable: Boolean(lenses?.progress?.unavailableSelections?.[key]),
+    error: Boolean(lenses?.error),
+  });
+
+  const reportedKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!reportOutcome || outcome === "pending" || reportedKey.current === key)
+      return;
+    reportedKey.current = key;
+    captureUiEvent(
+      session,
+      outcome === "resolved" ? "peek_resolved" : "peek_resolve_failed",
+      { root_kind: "range" },
+    );
+  }, [key, outcome, reportOutcome, session]);
+
   if (!ranges.length)
     return (
       <section className="code-peek" role="status">
-        {lenses?.progress?.complete ||
-        lenses?.progress?.unavailableSelections?.[selectionKey(source)] ||
-        lenses?.error
+        {outcome === "failed"
           ? "Diff selection unavailable"
           : "Loading diff selection…"}
       </section>

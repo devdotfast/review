@@ -154,3 +154,86 @@ it("reports download and checkout preparation without starting duplicate imports
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("reports a revoke through onRevoked", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "share-revoke-"));
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  vi.stubEnv("DEV_REVIEW_SHARE_TOKEN", "token");
+  const fixture = await createShareFixture(root);
+  const api = new Hono();
+  const revoked: string[] = [];
+
+  const revoke = vi
+    .spyOn(ShareClient.prototype, "revoke")
+    .mockResolvedValue({});
+
+  mountSharingHost(
+    api,
+    fixture.store,
+    fixture.data,
+    new SharedReviewStore(path.join(root, "shared")),
+    { onRevoked: ({ shareId }) => revoked.push(shareId) },
+  );
+
+  try {
+    const shareId = randomUUID();
+
+    const response = await api.request("/sharing/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ shareId }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(revoked).toEqual([shareId]);
+  } finally {
+    revoke.mockRestore();
+    await fixture.data.close();
+    fixture.store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("reports one start and one outcome per login attempt", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "share-login-telemetry-"));
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  const fixture = await createShareFixture(root);
+  const api = new Hono();
+  const outcomes: Array<[string, string | undefined]> = [];
+  const finishes: Array<(code: number) => void> = [];
+
+  mountSharingHost(
+    api,
+    fixture.store,
+    fixture.data,
+    new SharedReviewStore(path.join(root, "shared")),
+    {
+      login: async () =>
+        new Promise<number>((resolve) => {
+          finishes.push(resolve);
+        }),
+      openUrl: async () => {},
+      onLogin: (outcome, reason) => outcomes.push([outcome, reason]),
+    },
+  );
+
+  try {
+    await api.request("/sharing/login", { method: "POST" });
+    await api.request("/sharing/login", { method: "POST" });
+    finishes[0](1);
+    await vi.waitFor(() => expect(outcomes).toHaveLength(2));
+    await api.request("/sharing/login", { method: "POST" });
+    finishes[1](0);
+    await vi.waitFor(() => expect(outcomes).toHaveLength(4));
+    expect(outcomes).toEqual([
+      ["started", undefined],
+      ["failed", "did_not_finish"],
+      ["started", undefined],
+      ["succeeded", undefined],
+    ]);
+  } finally {
+    await fixture.data.close();
+    fixture.store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

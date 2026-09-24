@@ -63,3 +63,30 @@ test('opening another review closes the current one first', () => {
 		['session_ended', 'app_quit', 'p2'],
 	]);
 });
+
+test('ends the session as dismissed or deleted when its review leaves the catalog', () => {
+	const open = [{ reviewId: 'review-a', dismissedAt: null }, { reviewId: 'review-b', dismissedAt: null }];
+	for (const [current, outcome] of [
+		[[{ reviewId: 'review-a', dismissedAt: '2026-09-23T00:00:00Z' }, open[1]], 'dismissed'],
+		[[open[1]], 'deleted'],
+	] as const) {
+		const { events, telemetry } = setup();
+		telemetry.start('review-a');
+		telemetry.catalogChanged(open, open);
+		telemetry.catalogChanged(open, [open[0]]);
+		telemetry.catalogChanged(open, current);
+		telemetry.end('closed');
+		assert.deepEqual(events.map(event => [event.name, event.properties.outcome]), [
+			['session_started', undefined],
+			['session_ended', outcome],
+		]);
+	}
+});
+
+test('a review the catalog never listed, like the tutorial, is not ended by it', () => {
+	const { events, telemetry } = setup();
+	telemetry.start('tutorial');
+	telemetry.catalogChanged([], []);
+	telemetry.catalogChanged([{ reviewId: 'review-b', dismissedAt: null }], []);
+	assert.deepEqual(events.map(event => event.name), ['session_started']);
+});

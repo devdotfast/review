@@ -8,6 +8,10 @@ import {
 } from "../desktop-discovery.js";
 import { devReviewHome } from "../review-home-paths.js";
 import {
+  type ReviewToolCall,
+  reviewSessionAgent,
+} from "../review-telemetry.js";
+import {
   type AuthoringTool,
   connectReviewApi,
   connectReviewInstance,
@@ -16,6 +20,7 @@ import {
 import { type ReviewApiClient, ReviewApiError } from "./client.js";
 import { callPublicTool, publicTool } from "./public-tools.js";
 import { RECOVERY } from "./recovery.js";
+import { REVIEW_AGENT_HEADER, REVIEW_VIA_HEADER } from "./request-origin.js";
 
 interface AgentCliInput {
   argv: string[];
@@ -23,6 +28,8 @@ interface AgentCliInput {
   stdin?: Readable;
   stdout: Writable;
   stderr: Writable;
+  /** Awaited on the api path: the process exits right after the call. */
+  onToolCall?: (call: ReviewToolCall) => Promise<void> | void;
 }
 
 export const reviewAgentCliHelp =
@@ -52,12 +59,18 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (extra.length || (mode === "mcp" && name))
       throw new Error("Unexpected arguments. Use whiteboard api --help.");
 
+    const headers = {
+      [REVIEW_VIA_HEADER]: mode === "mcp" ? "mcp" : "api",
+      [REVIEW_AGENT_HEADER]: reviewSessionAgent(env),
+    };
+
     if (mode === "mcp") {
       const { serveReviewMcp } = await import("./mcp.js");
       await serveReviewMcp(
         (key) =>
           connectReviewInstance(
             key ? { ...env, [REVIEW_INSTANCE_ENV]: key } : env,
+            headers,
           ),
         input.stdin ?? process.stdin,
         input.stdout,
@@ -79,6 +92,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
                 problem,
               };
             },
+        input.onToolCall,
       );
 
       return 0;
@@ -88,7 +102,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     let tools: AuthoringTool[];
 
     try {
-      client = await connectReviewApi(input.env);
+      client = await connectReviewApi(input.env, headers);
       tools = (await client.read<AuthoringTool[]>("/authoring")).map(
         publicTool,
       );
@@ -134,7 +148,22 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       throw new Error("Tool input must be a JSON object.");
 
     if (name === "session_get" && rest.includes("--json")) args.format = "json";
-    const result = await callPublicTool(client, tool, args);
+    const startedAt = Date.now();
+    let ok = false;
+    let result: Awaited<ReturnType<typeof callPublicTool>>;
+
+    try {
+      result = await callPublicTool(client, tool, args);
+      ok = true;
+    } finally {
+      await input.onToolCall?.({
+        tool: tool.name,
+        via: "api",
+        ok,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
     const text = toolResultText(tool, result);
     input.stdout.write(text.endsWith("\n") ? text : text + "\n");
 

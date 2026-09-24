@@ -28,7 +28,7 @@ export const lensTargetsSchema = z
   .min(1)
   .max(1000)
   .describe(
-    "Union of changed-file paths/globs ({kind:files,patterns}) and pinned source ranges ({kind:ranges,sources}). Counts and viewed actions apply only to the selected changed lines.",
+    "Select changed lines using repository-relative paths/globs or pinned source ranges. Counts and viewed actions apply only to those lines.",
   );
 
 export const lensSchema = z.strictObject({
@@ -62,10 +62,6 @@ export const lensEditSchema = z.discriminatedUnion("type", [
 ]);
 
 export type LensEdit = z.infer<typeof lensEditSchema>;
-
-/** What a document insert of the retired block says instead of a schema dump. */
-export const FILE_LENS_MOVED =
-  "file_lens is no longer a document block. Lenses live beside the document: author them one at a time with session_lens_edit (insert, update or remove).";
 
 /** Patterns are evaluated against the changed-file list, never the
  * filesystem, but must still read as repository-relative globs. */

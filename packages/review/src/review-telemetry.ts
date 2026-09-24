@@ -17,6 +17,7 @@ import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
+import { exceptionProperties } from "./exception-telemetry";
 import { readReviewPackageVersion as readReviewPackageVersionSync } from "./package-paths";
 import {
   PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
@@ -37,13 +38,16 @@ import {
   type ReviewTelemetryInstallConfig,
   type ReviewTelemetrySurface,
   createTelemetryInstallConfig,
+  installAgeDays,
   isInternalTelemetry,
   isTelemetryOptedOut,
+  isUuidV7,
   legacyAppTelemetryConfigPath,
   normalizeTelemetryInstallConfig,
   reviewTelemetryChannel,
   reviewTelemetryConfigPath,
   reviewTelemetryEnvironment,
+  telemetryInstallConfigNeedsWrite,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
 import {
@@ -54,6 +58,40 @@ import {
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
+
+/** Install config fields announceOnce guards. */
+type AnnouncedField =
+  | "installationCreatedSent"
+  | "firstReviewPresentedSent"
+  | "accountAlias";
+
+/**
+ * A fixed namespace, not the installation id: a key per install would give
+ * every install a different alias for one account and defeat the linking.
+ * The hash is one-way; the account id itself is never sent.
+ */
+const ACCOUNT_ALIAS_KEY = "dev.fast.review.telemetry.account.v1";
+
+/** `gh_` + the first 16 bytes of HMAC-SHA256(namespace, account id). */
+export function accountAlias(accountId: string): string {
+  const digest = createHmac("sha256", ACCOUNT_ALIAS_KEY)
+    .update(accountId)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+
+  return `gh_${digest}`;
+}
+
+/** A tool name is program-owned, but only an identifier is ever sent. */
+const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
+
+export interface ReviewToolCall {
+  tool: string;
+  via: "api" | "mcp";
+  ok: boolean;
+  durationMs: number;
+}
 
 export type ReviewCliCommand = "review" | "map" | "status";
 
@@ -206,6 +244,12 @@ const noopLogger: Logger = {
 
 const sharedInstallConfigs = new Map<string, ReviewTelemetryInstallConfig>();
 
+/**
+ * Announcements the debug sink printed without persisting, keyed by install
+ * config path and field, so each prints once per process.
+ */
+const printedAnnouncements = new Set<string>();
+
 export function createLogger(_scope: string): Logger {
   return noopLogger;
 }
@@ -219,6 +263,9 @@ export type ReviewCommandTelemetry = Pick<
   | "captureCommandStarted"
   | "captureCommandSucceeded"
   | "captureCommandFailed"
+  | "captureUiEvent"
+  | "captureToolCalled"
+  | "captureAccountAlias"
   | "shutdown"
 >;
 
@@ -307,13 +354,23 @@ export class ReviewTelemetry {
     }, 5_000);
   }
 
+  /**
+   * Whether events leave this machine right now: a real client, no opt-out.
+   * The debug sink prints instead of sending, so it answers false.
+   */
+  async sendsEvents(): Promise<boolean> {
+    if (this.captureClient.ignoresOptOut) return false;
+
+    return this.isEnabled();
+  }
+
   /** The common properties every event carries; bug reports embed them. */
   async envelope(): Promise<PostHogCaptureProperties> {
     return this.commonProperties(await this.loadInstallConfig());
   }
 
   async captureInstallationCreated(): Promise<void> {
-    await this.announceOnce("installationCreatedSent", async (config) => {
+    await this.announceOnce("installationCreatedSent", true, async (config) => {
       await this.captureClient.capture({
         event: "review_installation_created",
         distinctId: config.installationId,
@@ -323,14 +380,48 @@ export class ReviewTelemetry {
   }
 
   /**
-   * Sends an event exactly once per identity, guarded by a persisted flag on
-   * the install config. The flag is persisted before the send completes:
-   * under-counting an install is recoverable, announcing one machine twice
-   * is not. A printed event is not a sent event, so the debug sink leaves
-   * the flag alone (it still always sends, ignoring opt-out as today).
+   * Link this installation to a signed-in account by a one-way hash, so
+   * several installs by one person count as one; the raw account id never
+   * leaves this process. Once per installation: the first account wins. A
+   * later login to another account sends nothing, because a second alias
+   * would merge two accounts, and every later install of either, into one
+   * PostHog person. The account is looked up only when an alias would be
+   * sent, so a login with telemetry off makes no network call.
    */
-  private async announceOnce(
-    flag: "installationCreatedSent" | "firstReviewPresentedSent",
+  async captureAccountAlias(
+    lookupAccountId: () => Promise<string>,
+  ): Promise<void> {
+    if (!(await this.isEnabled()) || this.installConfig?.accountAlias) return;
+
+    const alias = accountAlias(await lookupAccountId());
+
+    await this.announceOnce("accountAlias", alias, async (config) => {
+      await this.captureClient.capture({
+        event: "$create_alias",
+        distinctId: config.installationId,
+        // PostHog merges identities only while processing persons, so the
+        // alias itself must turn processing on.
+        properties: {
+          ...(await this.commonProperties(config)),
+          alias,
+          $process_person_profile: true,
+        },
+      });
+    });
+  }
+
+  /**
+   * Sends an event exactly once per installation, guarded by a persisted
+   * install config field that `value` fills. The field is persisted before
+   * the send completes: under-counting
+   * is recoverable, announcing twice is not. A printed event is not a sent
+   * event, so the debug sink leaves the field alone (it still always sends,
+   * ignoring opt-out as today) and only remembers the announcement for the
+   * life of the process.
+   */
+  private async announceOnce<Field extends AnnouncedField>(
+    field: Field,
+    value: NonNullable<ReviewTelemetryInstallConfig[Field]>,
     send: (config: ReviewTelemetryInstallConfig) => Promise<void>,
   ): Promise<void> {
     if (!this.captureClient.enabled || this.optedOut()) return;
@@ -339,10 +430,16 @@ export class ReviewTelemetry {
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
 
-      if (this.optedOut(config) || config[flag]) return;
+      if (this.optedOut(config) || config[field]) return;
 
-      if (!this.captureClient.ignoresOptOut) {
-        config[flag] = true;
+      if (this.captureClient.ignoresOptOut) {
+        const printed = `${this.installConfigPath}\0${field}`;
+
+        if (printedAnnouncements.has(printed)) return;
+
+        printedAnnouncements.add(printed);
+      } else {
+        config[field] = value;
         this.writeInstallConfig(config);
       }
 
@@ -372,8 +469,13 @@ export class ReviewTelemetry {
     await this.captureEvent("review_command_started", properties);
   }
 
-  async captureReviewDeleted(): Promise<void> {
-    await this.captureEvent("review_review_deleted");
+  async captureToolCalled(call: ReviewToolCall): Promise<void> {
+    await this.captureEvent("review_mcp_tool_called", {
+      tool: TOOL_NAME_PATTERN.test(call.tool) ? call.tool : "other",
+      via: call.via,
+      ok: call.ok,
+      duration_ms: Math.max(0, Math.round(call.durationMs)),
+    });
   }
 
   /**
@@ -386,6 +488,10 @@ export class ReviewTelemetry {
     });
   }
 
+  /**
+   * A tab dwell period ended. Time on the files tab is also the diff dwell,
+   * so it doubles as `review_diff_viewed` without a second client beacon.
+   */
   async captureTabViewed(
     event: ReviewTabTelemetryEvent,
     context?: ReviewTelemetryContext,
@@ -396,6 +502,18 @@ export class ReviewTelemetry {
         tab: event.tab,
         duration_ms: event.durationMs,
         reason: event.reason,
+        source: "review_app",
+        app_session_id: event.appSessionId,
+      },
+      context,
+    );
+
+    if (event.tab !== "files") return;
+
+    await this.captureEvent(
+      "review_diff_viewed",
+      {
+        duration_ms: event.durationMs,
         source: "review_app",
         app_session_id: event.appSessionId,
       },
@@ -430,14 +548,19 @@ export class ReviewTelemetry {
       const appSessionId = nonEmpty(properties.app_session_id?.toString());
 
       if (appSessionId) marker.appSessionId = appSessionId;
-      await this.updateOpenSessions(async () => {
+
+      if (await this.isEnabled()) {
+        // Read before the lock: the envelope may wait on the config lock, and
+        // every Desktop on this home shares the markers lock.
         const envelope = launchEnvelope(
           await this.envelope().catch(() => ({})),
         );
 
         if (envelope) marker.envelope = envelope;
-        recordOpenSession(this.openSessionMarkersPath, marker);
-      });
+        await this.lockOpenSessions(() =>
+          recordOpenSession(this.openSessionMarkersPath, marker),
+        );
+      }
     } else if (inSession && event === "review_session_ended") {
       await this.updateOpenSessions(() =>
         clearOpenSession(this.openSessionMarkersPath, presentationSessionId),
@@ -457,6 +580,18 @@ export class ReviewTelemetry {
     if (inSession && event === "review_review_presented") {
       await this.captureFirstReviewPresented(context).catch(() => undefined);
     }
+
+    // PostHog error tracking groups on $exception; the custom event stays for
+    // one release so the existing error insights keep working.
+    if (event !== "review_client_error") return;
+    const exception = exceptionProperties(properties);
+
+    if (!exception) return;
+    await this.captureEvent(
+      "$exception",
+      { source: "review_app", ...properties, ...exception },
+      context,
+    );
   }
 
   /**
@@ -524,11 +659,11 @@ export class ReviewTelemetry {
       await this.captureClient.capture({
         event,
         distinctId: config.installationId,
-        properties: {
+        properties: withSessionId({
           ...common,
           ...properties,
           ...correlationProperties(config.installationId, context),
-        },
+        }),
         timestamp: occurredAt,
       });
     });
@@ -537,7 +672,7 @@ export class ReviewTelemetry {
   private async captureFirstReviewPresented(
     context: ReviewTelemetryContext,
   ): Promise<void> {
-    await this.announceOnce("firstReviewPresentedSent", async () => {
+    await this.announceOnce("firstReviewPresentedSent", true, async () => {
       await this.captureEvent(
         "review_first_review_presented",
         { source: "review_app" },
@@ -656,14 +791,20 @@ export class ReviewTelemetry {
     }
 
     try {
-      const config = normalizeTelemetryInstallConfig(
-        parseJsonText(await readFile(this.installConfigPath, "utf8")),
-        this.now,
+      const parsed = parseJsonText(
+        await readFile(this.installConfigPath, "utf8"),
       );
 
+      const config = normalizeTelemetryInstallConfig(parsed, this.now);
+
       if (!config) return true;
-      this.installConfig = config;
-      sharedInstallConfigs.set(this.installConfigPath, config);
+
+      // A config that still needs its one-time write is left for
+      // readOrCreateInstallConfig, which persists what it backfills.
+      if (!telemetryInstallConfigNeedsWrite(parsed, config)) {
+        this.installConfig = config;
+        sharedInstallConfigs.set(this.installConfigPath, config);
+      }
 
       return !this.optedOut(config);
     } catch {
@@ -680,7 +821,7 @@ export class ReviewTelemetry {
       const config = normalizeTelemetryInstallConfig(parsed, this.now);
 
       if (config) {
-        if (jsonObject(parsed)?.internal !== config.internal) {
+        if (telemetryInstallConfigNeedsWrite(parsed, config)) {
           try {
             this.writeInstallConfig(config);
           } catch {
@@ -758,7 +899,10 @@ export class ReviewTelemetry {
   }
 
   private async commonProperties(
-    config: Pick<ReviewTelemetryInstallConfig, "internal">,
+    config: Pick<
+      ReviewTelemetryInstallConfig,
+      "internal" | "accountAlias" | "createdAt"
+    >,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
     const appSessionId = nonEmpty(this.env[REVIEW_APP_SESSION_ID_ENV]);
@@ -776,29 +920,53 @@ export class ReviewTelemetry {
       os_version: os.release(),
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
+      install_age_days: installAgeDays(config, this.now()),
+      // Anonymous until an account is aliased; then PostHog keeps a person.
+      $process_person_profile: config.accountAlias !== undefined,
     };
 
     if (appVersion) properties.app_version = appVersion;
 
     if (appSessionId) properties.app_session_id = appSessionId;
 
-    return properties;
+    return withSessionId(properties);
   }
 
   private sessionAgent(): ReviewSessionAgent {
-    const harness = resolveAuthoringSessionRef(this.env)?.harness;
-
-    if (harness === "codex") return "codex";
-
-    if (harness === "claude-code") return "claude";
-
-    if (harness === "pi") return "pi";
-
-    return "other";
+    return reviewSessionAgent(this.env);
   }
 }
 
+/** The agent harness this process runs under, from its session environment. */
+export function reviewSessionAgent(env: NodeJS.ProcessEnv): ReviewSessionAgent {
+  const harness = resolveAuthoringSessionRef(env)?.harness;
+
+  if (harness === "codex") return "codex";
+
+  if (harness === "claude-code") return "claude";
+
+  if (harness === "pi") return "pi";
+
+  return "other";
+}
+
 export { isTelemetryOptedOut } from "./telemetry-config";
+
+/**
+ * `$session_id` always mirrors the event's final `app_session_id`, which an
+ * event may override (a recovered end carries the launch that died). An id
+ * that is not a UUIDv7, such as a canvas's own fallback id or one from a
+ * launch before v7 ids, leaves `$session_id` out.
+ */
+function withSessionId(
+  properties: PostHogCaptureProperties,
+): PostHogCaptureProperties {
+  const { $session_id: _stale, ...rest } = properties;
+
+  return isUuidV7(rest.app_session_id)
+    ? { ...rest, $session_id: rest.app_session_id }
+    : rest;
+}
 
 function correlationProperties(
   installationId: string,

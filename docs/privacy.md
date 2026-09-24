@@ -38,8 +38,11 @@ PostHog.
 ## Anonymous product telemetry
 
 Anonymous telemetry is enabled by default. Whiteboard creates a random
-installation UUID per release channel and sends `$process_person_profile:
-false` with every event, so PostHog creates no person profile.
+installation UUID per release channel, with no PostHog person profile. If you
+sign in with GitHub, Whiteboard links the installation to a one-way hash of
+your account ID, so installations signed into the same account share one
+profile. Your account ID, login, and email never leave the machine. See
+[Identity and storage](telemetry.md#identity-and-storage).
 
 Telemetry can include closed enums, booleans, counts, durations, the CLI and
 app versions, release channel, operating-system version and architecture
@@ -58,7 +61,13 @@ delivery failures and removes pending events after seven days.
 Whiteboard can automatically report failures in its own app, canvas, server,
 or background process. These reports may contain an error class, a cleaned
 message, a one-way fingerprint, and up to ten stack frames from Whiteboard's
-shipped program.
+shipped program. A repeating error is reported at most five times per session.
+
+When a Whiteboard process crashes, Whiteboard records which process died and
+its exit code. Electron also writes a local crash dump, which can contain
+process memory, including open source text. The next launch uploads it to the
+bug-report service, which keeps it for 30 days, and deletes the local copy.
+With telemetry off, dumps are deleted without upload.
 
 Update telemetry records when an update is staged, when that exact target next
 launches, or when checking, downloading, or installing fails. For a macOS

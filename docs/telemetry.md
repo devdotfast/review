@@ -86,8 +86,7 @@ Review Preview keeps its own installation id in
 `telemetry/progressive-review.preview.json`, so a preview and a stable install
 on one machine count as two installations. This applies to Review Desktop
 only: the standalone `review` CLI has no channel of its own and always uses
-the stable identity file. Every event also sends `$process_person_profile:
-false`, so PostHog creates no person profile.
+the stable identity file.
 
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000

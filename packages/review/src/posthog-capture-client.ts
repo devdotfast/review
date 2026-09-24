@@ -396,7 +396,6 @@ export class PostHogCaptureClient {
           batch: events.map((event) => ({
             event: event.event,
             properties: {
-              $process_person_profile: false,
               ...compactProperties(event.properties ?? {}),
               distinct_id: event.distinctId,
               // The installation ID is random, so every event is sent as a

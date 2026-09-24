@@ -59,6 +59,7 @@ export function buildManifest({ version, commit, payloads, now = new Date() }) {
 // executable of the same name; anything else renames the install.
 export function assertZipBundle(zip, bundle) {
   const folder = `${bundle}.app`;
+
   const roots = new Set(
     execFileSync(
       "sh",

@@ -117,12 +117,30 @@ export function hasEmptyGroup(value) {
   return false;
 }
 
-export function planProjectSettings() {
+const NON_PRODUCTION_FILTER = {
+  key: "environment",
+  type: "event",
+  operator: "is_not",
+  value: ["ci", "internal", "e2e", "smoke"],
+};
+
+const isNonProductionFilter = (filter) =>
+  filter.key === NON_PRODUCTION_FILTER.key &&
+  filter.type === NON_PRODUCTION_FILTER.type &&
+  filter.operator === NON_PRODUCTION_FILTER.operator;
+
+/**
+ * Keeps the existing test-account filters (the internal cohort among them)
+ * and adds the environment exclusion once. Excluding the non-production
+ * values rather than requiring `production` keeps pre-envelope clients, which
+ * send no `environment`, counted.
+ */
+export function planProjectSettings(currentFilters = []) {
   return {
     session_recording_opt_in: false,
-    test_account_filters: [
-      { key: "environment", type: "event", operator: "exact", value: ["production"] },
-    ],
+    test_account_filters: currentFilters.some(isNonProductionFilter)
+      ? currentFilters
+      : [...currentFilters, NON_PRODUCTION_FILTER],
   };
 }
 
@@ -234,7 +252,7 @@ async function main() {
   }
 
   const { path: settingsPath, settings: currentSettings } = await resolveSettingsRoute({ request, project });
-  const plannedSettings = planProjectSettings();
+  const plannedSettings = planProjectSettings(currentSettings.test_account_filters ?? []);
 
   const settingsCurrent =
     isDeepStrictEqual(currentSettings.session_recording_opt_in, plannedSettings.session_recording_opt_in) &&

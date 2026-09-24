@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hasEmptyGroup, stripLegacySeries } from "./apply-insights.mjs";
+import { hasEmptyGroup, planProjectSettings, stripLegacySeries } from "./apply-insights.mjs";
 
 test("drops progressive_review_* series from a trends query, including nested groups", () => {
   const query = {
@@ -100,4 +100,16 @@ test("stripping never leaves a GroupNode with no nodes", () => {
   assert.deepEqual(stripped.series[0].nodes, []);
   assert.equal(hasEmptyGroup(stripped), true, "the caller must detect and refuse this result");
   assert.equal(hasEmptyGroup(query), false, "the original query has no empty group");
+});
+
+test("adds the non-production environment filter beside the existing test-account filters, once", () => {
+  const cohort = { key: "id", type: "cohort", operator: "not_in", value: 388195 };
+  const planned = planProjectSettings([cohort]);
+
+  assert.equal(planned.session_recording_opt_in, false);
+  assert.deepEqual(planned.test_account_filters, [
+    cohort,
+    { key: "environment", type: "event", operator: "is_not", value: ["ci", "internal", "e2e", "smoke"] },
+  ]);
+  assert.deepEqual(planProjectSettings(planned.test_account_filters).test_account_filters, planned.test_account_filters);
 });

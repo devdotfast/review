@@ -34,6 +34,7 @@ export interface IReviewCanvasEditorTabsService {
 	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
 	openApiSource(selection: ReviewSourceSelection, title: string): Promise<void>;
 	openSourceEditor(editor: IUntypedEditorInput): Promise<boolean>;
+	openSourceReferences(resource: URI, position: { readonly lineNumber: number; readonly column: number }): Promise<boolean>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -110,28 +111,39 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		const diff = isResourceDiffEditorInput(editor);
 		const resources = diff ? [editor.original.resource, editor.modified.resource] : [isResourceEditorInput(editor) ? editor.resource : undefined];
 		if (!resources.every((resource): resource is URI => !!resource && [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(resource.scheme))) return false;
-		const destinations = await Promise.all(resources.map(async resource => {
-			const target = sourceLocation(resource);
-			const local = resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME;
-			const result = await this.navigatorWorkspace(target.view.reviewId, {
-				...reviewSourceQuery(target.view),
-				side: target.side,
-				file: local ? undefined : target.file,
-				empty: new URLSearchParams(resource.query).has("empty") ? "true" : undefined,
-			});
-			const filePath = local ? resource.fsPath : result.filePath;
-			if (!filePath) throw new Error("The navigator did not resolve the source file.");
-			const selection = !diff ? (editor.options as ITextEditorOptions | undefined)?.selection : undefined;
-			return {
-				workspaceUri: URI.file(result.workspacePath),
-				fileUri: URI.file(selection ? `${filePath}:${selection.startLineNumber}:${selection.startColumn ?? 1}` : filePath),
-			};
-		}));
+		const destinations = await Promise.all(resources.map(resource => this.sourceDestination(resource)));
 		await this.host.openWindow([
 			{ workspaceUri: destinations[destinations.length - 1].workspaceUri },
-			...destinations.map(({ fileUri }) => ({ fileUri })),
+			...destinations.map(({ filePath }) => {
+				const selection = !diff ? (editor.options as ITextEditorOptions | undefined)?.selection : undefined;
+				return { fileUri: URI.file(selection ? `${filePath}:${selection.startLineNumber}:${selection.startColumn ?? 1}` : filePath) };
+			}),
 		], { forceNewWindow: true, gotoLineMode: true, diffMode: diff });
 		return true;
+	}
+
+	async openSourceReferences(resource: URI, position: { readonly lineNumber: number; readonly column: number }): Promise<boolean> {
+		if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(resource.scheme)) return false;
+		const destination = await this.sourceDestination(resource);
+		await this.host.openWindow([{ workspaceUri: destination.workspaceUri }], {
+			forceNewWindow: true,
+			reviewReferencesToShow: { resource: URI.file(destination.filePath), lineNumber: position.lineNumber, column: position.column },
+		});
+		return true;
+	}
+
+	private async sourceDestination(resource: URI): Promise<{ workspaceUri: URI; filePath: string }> {
+		const target = sourceLocation(resource);
+		const local = resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME;
+		const result = await this.navigatorWorkspace(target.view.reviewId, {
+			...reviewSourceQuery(target.view),
+			side: target.side,
+			file: local ? undefined : target.file,
+			empty: new URLSearchParams(resource.query).has("empty") ? "true" : undefined,
+		});
+		const filePath = local ? resource.fsPath : result.filePath;
+		if (!filePath) throw new Error("The navigator did not resolve the source file.");
+		return { workspaceUri: URI.file(result.workspacePath), filePath };
 	}
 
 	private async navigatorWorkspace(reviewId: string, values: Record<string, string | number | undefined>): Promise<{ workspacePath: string; filePath?: string }> {

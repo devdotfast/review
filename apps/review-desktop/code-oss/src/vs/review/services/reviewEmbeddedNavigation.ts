@@ -16,6 +16,7 @@ import { EditorContextKeys } from "../../editor/common/editorContextKeys.js";
 import { Position } from "../../editor/common/core/position.js";
 import { CommandsRegistry, ICommandService } from "../../platform/commands/common/commands.js";
 import { ContextKeyExpr, RawContextKey } from "../../platform/contextkey/common/contextkey.js";
+import { INotificationService } from "../../platform/notification/common/notification.js";
 import {
   KeybindingsRegistry,
   KeybindingWeight,
@@ -26,6 +27,7 @@ import {
   EditorPaneSelectionCompareResult,
   type IEditorPaneSelection,
 } from "../../workbench/common/editor.js";
+import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 
 export const ReviewEmbeddedEditorFocus = new RawContextKey<boolean>(
   "reviewEmbeddedEditorFocus",
@@ -133,14 +135,17 @@ CommandsRegistry.registerCommand(goToDefinitionCommand, (accessor) => {
     true,
   );
 });
-CommandsRegistry.registerCommand(showReferencesCommand, (accessor) => {
-  runEmbeddedSymbolCommand(
-    accessor.get(ICodeEditorService),
-    accessor.get(IHistoryService),
-    accessor.get(ICommandService),
-    "editor.action.referenceSearch.trigger",
-    false,
-  );
+CommandsRegistry.registerCommand(showReferencesCommand, async (accessor, sourceEditor?: ICodeEditor) => {
+  const editor = sourceEditor ?? accessor.get(ICodeEditorService).getActiveCodeEditor();
+  const tabs = accessor.get(IReviewCanvasEditorTabsService);
+  const notifications = accessor.get(INotificationService);
+  if (!editor || !reviewEmbeddedEditors.has(editor) || !editor.hasModel()) return;
+  const position = editor.getPosition();
+  try {
+    await tabs.openSourceReferences(editor.getModel().uri, position);
+  } catch (error) {
+    notifications.error(error);
+  }
 });
 
 KeybindingsRegistry.registerKeybindingRule({

@@ -253,6 +253,40 @@ describe('ReviewUserConfigImport', () => {
 		assert.strictEqual(settings['editor.fontSize'], 15);
 	});
 
+	test('an empty or comment-only settings file does not block the keybindings import', () => {
+		for (const contents of ['', '\n', '// nothing here yet\n']) {
+			const fixture = createFixture();
+			writeFileSync(path.join(fixture.sourceUser, 'keybindings.json'), '[]\n');
+			writeFileSync(path.join(fixture.sourceUser, 'settings.json'), contents);
+
+			const result = importReviewUserConfig({
+				userDataPath: fixture.target,
+				env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+				homeDir: fixture.root,
+			});
+
+			assert.strictEqual(result.status, 'imported');
+			assert.strictEqual(readFileSync(path.join(fixture.target, 'User', 'keybindings.json'), 'utf8'), '[]\n');
+		}
+	});
+
+	test('imports the settings VS Code recovers from a malformed settings file', () => {
+		const fixture = createFixture();
+		writeFileSync(path.join(fixture.sourceUser, 'settings.json'), '{\n\t"editor.fontSize": 15\n\t"editor.tabSize": 2\n}\n');
+
+		const result = importReviewUserConfig({
+			userDataPath: fixture.target,
+			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			homeDir: fixture.root,
+		});
+
+		assert.strictEqual(result.status, 'imported');
+		assert.deepStrictEqual(
+			JSON.parse(readFileSync(path.join(fixture.target, 'User', 'settings.json'), 'utf8')),
+			{ 'editor.fontSize': 15, 'editor.tabSize': 2 },
+		);
+	});
+
 	test('honours the import opt-out', () => {
 		const fixture = createFixture();
 		const result = importReviewUserConfig({

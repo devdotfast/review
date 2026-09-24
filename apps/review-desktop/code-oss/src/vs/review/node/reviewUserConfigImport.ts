@@ -226,15 +226,21 @@ function filterReviewUserSettings(settings: Record<string, unknown>): Record<str
 	return Object.fromEntries(Object.entries(settings).filter(([key]) => shouldImportSetting(key)));
 }
 
-function readSettings(settingsPath: string): Record<string, unknown> | undefined {
+function readSettings(settingsPath: string, log: (message: string) => void): Record<string, unknown> | undefined {
 	if (!existsSync(settingsPath)) {
 		return undefined;
 	}
 
+	// Read settings the way VS Code does: an empty or comment-only file means no
+	// settings, and syntax errors keep whatever the parser recovered, since that
+	// is what the user's editor is actually applying.
 	const errors: ParseError[] = [];
 	const value = parse(readFileSync(settingsPath, 'utf8'), errors);
-	if (errors.length > 0 || !value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new Error(`Cannot import invalid VS Code settings from ${settingsPath}`);
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return undefined;
+	}
+	if (errors.length > 0) {
+		log(`Review user-config import found ${errors.length} JSON error(s) in ${settingsPath}; importing the settings VS Code could read.`);
 	}
 	return filterReviewUserSettings(value as Record<string, unknown>);
 }
@@ -248,7 +254,7 @@ function prepareImport(source: SourceCandidate, log: (message: string) => void):
 
 	const keymap = detectKeymap(source.extensionsDir);
 	const keybindingsPath = path.join(source.userDir, 'keybindings.json');
-	const settings = readSettings(path.join(source.userDir, 'settings.json'));
+	const settings = readSettings(path.join(source.userDir, 'settings.json'), log);
 	if (settings && keymap !== 'none') {
 		settings['review.keymap'] = keymap;
 	}

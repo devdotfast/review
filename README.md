@@ -25,7 +25,7 @@ Whiteboard plugs into the tools you already use - e.g. Claude Code, Codex, etc. 
   />
 </p>
 
-Here’s a 1 min demo video explaining more: https://youtu.be/n3bPlt2KzCA
+Here’s a 1 min demo video explaining more: https://www.youtube.com/watch?v=ChPn3ftULWE
 
 ## Quickstart
 

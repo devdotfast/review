@@ -7,7 +7,7 @@ This page is the complete public contract for Review Desktop and CLI telemetry.
 For a shorter overview of all product data, including local files, coding
 agents, and bug reports, see [Privacy](privacy.md).
 
-Last checked against this repository: 2026-09-23.
+Last checked against this repository: 2026-09-24.
 
 ## The short version
 
@@ -213,7 +213,7 @@ events.
 | `review_hang_started`             | None                                                        | A Desktop window stops responding                    |
 | `review_hang_ended`               | `duration_ms`                                               | The window responds again, its process dies, or it closes |
 | `review_ui_stall`                 | `duration_ms`; `process` in `renderer`, `canvas` (`canvas` is allowlisted but not sent — it shares the workbench thread); `phase` in `startup`, `running` | The main thread lags 2 seconds or more behind a timer tick; capped at 5 per session |
-| `review_app_ready`                | `duration_ms`                                                | The workbench restores, timed from the startup trace |
+| `review_app_ready`                | `duration_ms`                                                | The workbench restores, timed from the startup trace; once per Desktop launch |
 | `review_error_burst`              | `message_hash`, `suppressed`                                 | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
 | `review_open_timeout`             | `elapsed_ms`, `review_id`, `presentation_id`                 | A session starts and no presented or ended event follows within 30 seconds |
 | `review_review_created`           | `via` in `api`, `mcp`, `other`; `kind` in `review`, `scratchpad`; `blocks`; optional `agent_kind` | A review or scratchpad is created; `via` is `other` for Desktop's own UI |
@@ -281,6 +281,7 @@ listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
 | `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
+| `review_diff_viewed`              | `duration_ms`                                                                                                                                                  | A files tab dwell period ends; the server derives it from `review_tab_viewed`, the canvas does not send it |
 | `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                   | A user opens a code peek                     |
 | `review_peek_resolved`            | `root_kind` in range                                                                                                                                            | A code peek resolves                         |
 | `review_peek_resolve_failed`      | `root_kind` in range                                                                                                                                            | A code peek does not resolve                 |
@@ -363,12 +364,14 @@ does not send an extension version.
 Review reports its own failures so that a defect that only happens on your
 machine can still be found and fixed. Four parts of Review report an error: the
 app window, the canvas, the background process, and a crash that happens before
-Review can start.
+Review can start. The canvas shares the app window, so an uncaught error there
+is reported once, by the app window; the canvas reports only errors it catches
+itself.
 
 Every `review_client_error` also sends the same fields as a PostHog
 `$exception`, so PostHog's error tracking and the custom event agree;
-`review_client_error` keeps sending for one release, then is removed. A
-per-session budget admits at most 5 reports for one `message_hash`; past that,
+`review_client_error` keeps sending for one release, then is removed. The
+server keeps a per-session budget of 5 reports for one `message_hash`; past that,
 Review sends one `review_error_burst{message_hash, suppressed}` in its place
 and drops the rest, so one repeating error cannot count as thousands.
 

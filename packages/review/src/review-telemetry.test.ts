@@ -686,6 +686,86 @@ describe("ReviewTelemetry", () => {
     expect(JSON.parse(await readFile(markersPath, "utf8"))).toEqual([live]);
   });
 
+  it("lets two live Desktops on one home keep each other's sessions open", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `progressive-review-telemetry-desktops-${Date.now()}`,
+    );
+
+    cleanupPaths.push(rootPath);
+
+    // Two dev checkouts share a home and a channel, so they share one file.
+    const desktop = (appSessionId: string, ownerPid: number) => {
+      const events: PostHogCaptureInput[] = [];
+
+      const telemetry = new ReviewTelemetry({
+        captureClient: {
+          enabled: true,
+          capture: async (event) => {
+            events.push(event);
+          },
+        },
+        env: {
+          [DEV_REVIEW_HOME_ENV]: rootPath,
+          [REVIEW_CHANNEL_ENV]: "dev",
+          [REVIEW_APP_SESSION_ID_ENV]: appSessionId,
+        },
+        openSessionOwnerPid: ownerPid,
+      });
+
+      const sessionIds = [1, 2, 3].map(
+        (index) => `${appSessionId}-presentation-${index}`,
+      );
+
+      const start = () =>
+        Promise.all(
+          sessionIds.map((presentationSessionId) =>
+            telemetry.captureUiEvent(
+              "review_session_started",
+              { app_session_id: appSessionId },
+              { reviewUuid: `${appSessionId}-review`, presentationSessionId },
+            ),
+          ),
+        );
+
+      return { events, sessionIds, start, telemetry };
+    };
+
+    const first = desktop("app-first", process.pid);
+    const second = desktop("app-second", process.ppid);
+    const markersPath = path.join(rootPath, "telemetry", "open-sessions.json");
+
+    const openIds = async () =>
+      (
+        JSON.parse(await readFile(markersPath, "utf8")) as {
+          presentationSessionId: string;
+        }[]
+      )
+        .map((marker) => marker.presentationSessionId)
+        .sort();
+
+    await Promise.all([first.start(), second.start()]);
+    await expect(openIds()).resolves.toEqual(
+      [...first.sessionIds, ...second.sessionIds].sort(),
+    );
+
+    second.events.length = 0;
+    await second.telemetry.reconcileOpenSessions();
+    expect(second.events).toEqual([]);
+
+    await first.telemetry.captureUiEvent(
+      "review_session_ended",
+      { outcome: "closed", duration_ms: 10 },
+      {
+        reviewUuid: "app-first-review",
+        presentationSessionId: first.sessionIds[0],
+      },
+    );
+    await expect(openIds()).resolves.toEqual(
+      [...first.sessionIds.slice(1), ...second.sessionIds].sort(),
+    );
+  });
+
   it("forgets open sessions when telemetry is turned off", async () => {
     const { events, markersPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);

@@ -23,7 +23,7 @@ export async function runReviewInfo(
 ): Promise<ReviewInfoEvent> {
   if (input.all && input.reviewUuid)
     throw new Error("Review info cannot combine all and reviewUuid.");
-  const discovery = await runtime.requireHealthyReviewDesktop("review info");
+  const discovery = await runtime.requireHealthyReviewDesktop();
 
   const client = new ReviewApiClient({
     serverUrl: discovery.url,

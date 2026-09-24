@@ -52,6 +52,7 @@ export interface ReviewServerSupervisorOptions {
   readonly channel: ReviewReleaseChannel;
   readonly appVersion: string;
   readonly appUrlProtocol?: string;
+  readonly releaseChannel?: string;
   readonly isBuilt: boolean;
   readonly serverEntryOverride?: string | undefined;
   readonly readyTimeout?: number;
@@ -69,6 +70,7 @@ export function createReviewServerEnvironment(options: {
   readonly resolvedEnvironment: NodeJS.ProcessEnv;
   readonly appVersion: string;
   readonly appUrlProtocol?: string;
+  readonly releaseChannel?: string;
   readonly serverEntry: string;
   readonly port: number;
   readonly token: string;
@@ -89,6 +91,8 @@ export function createReviewServerEnvironment(options: {
     DEV_FAST_REVIEW_APP_PID: String(options.appPid),
     DEV_FAST_REVIEW_APP_VERSION: options.appVersion,
     DEV_FAST_REVIEW_APP_URL_PROTOCOL: options.appUrlProtocol,
+    DEV_FAST_REVIEW_RELEASE_CHANNEL: options.releaseChannel,
+    DEV_FAST_REVIEW_APP_PATH: applicationPath(process.execPath),
     DEV_FAST_REVIEW_DESKTOP_HOST_AUTOSTART: "1",
     DEV_FAST_REVIEW_TELEMETRY_DISABLED: options.telemetryEnabled
       ? undefined
@@ -101,6 +105,12 @@ export function createReviewServerEnvironment(options: {
     DEV_FAST_REVIEW_APP_SESSION_ID: options.appSessionId,
     DEV_FAST_REVIEW_CHANNEL: options.channel,
   };
+}
+
+/** The macOS bundle that holds the executable, else the executable itself. */
+export function applicationPath(executable: string): string {
+  const bundle = executable.match(/^(.*?\.app)\/Contents\/MacOS\//);
+  return bundle?.[1] ?? executable;
 }
 
 function executableName(): string {
@@ -355,6 +365,7 @@ export class ReviewServerSupervisor extends Disposable {
       resolvedEnvironment,
       appVersion: this.options.appVersion,
       appUrlProtocol: this.options.appUrlProtocol,
+      releaseChannel: this.options.releaseChannel,
       serverEntry,
       port: this.port,
       token: this.token,

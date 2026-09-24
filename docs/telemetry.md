@@ -208,7 +208,8 @@ reported on the next launch, without `duration_ms`). `dismissed` and `deleted`
 are reserved for later PRs.
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app.launch`, `app.pick`, `info`, `connect`, `migrate.apply`,
+`version`, `app.launch`, `app.pick`, `info`, `instances`, `instances.use`,
+`instances.clear`, `connect`, `migrate.apply`,
 `map.open`, `map.check`, `map.prune`, `map.push`, `map.fetch`, `login`,
 `logout`, `whoami`, `trace.store.create`, `trace.store.delete`,
 `trace.store.info`, `trace.install`, `trace.allow`, `trace.deny`,

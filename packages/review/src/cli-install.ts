@@ -588,12 +588,51 @@ FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DEFAULT_HOME=${shSingleQuote(devHome)}
 export DEV_REVIEW_HOME="\${DEV_REVIEW_HOME:-$DEFAULT_HOME}"
-DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
+DESKTOP="$DEV_REVIEW_HOME/review-desktop"
+
+# A record counts only while its server process is alive.
+live() {
+  [ -f "$1" ] || return 1
+  pid=$(sed -n 's/.*"serverPid"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p' "$1" | head -n 1)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# Same order as the CLI: DEV_REVIEW_INSTANCE, the machine default, the only
+# live Desktop, then stable. A stable Desktop that predates instances wrote
+# only server.json; it never stands in for any other key.
+LEGACY="$DESKTOP/server.json"
+STABLE="$DESKTOP/instances/stable.json"
+[ -f "$STABLE" ] || STABLE="$LEGACY"
+key="\${DEV_REVIEW_INSTANCE:-}"
+if [ -z "$key" ] && [ -f "$DESKTOP/default-instance" ]; then
+  key=$(head -n 1 "$DESKTOP/default-instance" | tr -d '[:space:]')
+fi
+DISCOVERY=""
+case "$key" in
+  # Keys name files; the CLI rejects anything else.
+  *[!A-Za-z0-9_.-]*) ;;
+  stable) DISCOVERY="$STABLE" ;;
+  ?*) DISCOVERY="$DESKTOP/instances/$key.json" ;;
+  *)
+    for record in "$DESKTOP"/instances/*.json "$LEGACY"; do
+      if [ "$record" = "$LEGACY" ] && [ "$STABLE" != "$LEGACY" ]; then continue; fi
+      if live "$record"; then
+        if [ -n "$DISCOVERY" ]; then DISCOVERY=""; break; fi
+        DISCOVERY="$record"
+      fi
+    done
+    [ -n "$DISCOVERY" ] || DISCOVERY="$STABLE"
+    ;;
+esac
 
 cli=""
 runtime=""
 delegated=""
-if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
+manage_instances=""
+for arg in "$@"; do
+  if [ "$arg" = "instances" ]; then manage_instances=1; break; fi
+done
+if [ -z "$manage_instances" ] && [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && live "$DISCOVERY"; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
   delegated="1"
   runtime=$(sed -n 's/.*"cliRuntimePath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)

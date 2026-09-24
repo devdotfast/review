@@ -38,12 +38,17 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
+import type { ReviewInstanceIdentity } from "../desktop-discovery";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
-import { reviewDesktopDiscoveryPath } from "../review-home-paths";
+import {
+  devReviewHome,
+  reviewInstanceDiscoveryPath,
+  reviewLegacyDiscoveryPath,
+} from "../review-home-paths";
 import {
   readScratchpadEnabled,
   writeScratchpadEnabled,
@@ -91,6 +96,7 @@ export interface GlobalReviewServerInput {
   port: number;
   token?: string;
   instanceId?: string;
+  identity?: ReviewInstanceIdentity;
   discoveryPath?: string;
   telemetry?: ReviewTelemetry;
   relay?: ReviewDesktopVerbRelay;
@@ -112,7 +118,15 @@ export function createGlobalReviewServer(
   // the bound one until listen() has resolved.
   let boundPort = input.port;
   const urlForBoundPort = () => `http://127.0.0.1:${boundPort}`;
-  const discoveryPath = input.discoveryPath ?? reviewDesktopDiscoveryPath();
+  const identity = input.identity ?? { key: "stable", channel: "stable" };
+
+  // Stable also writes the pre-instance server.json, so a CLI or shim that
+  // predates instances still finds it.
+  const discoveryPaths = input.discoveryPath
+    ? [input.discoveryPath]
+    : identity.key === "stable"
+      ? [reviewInstanceDiscoveryPath("stable"), reviewLegacyDiscoveryPath()]
+      : [reviewInstanceDiscoveryPath(identity.key)];
 
   const telemetry = input.telemetry ?? ReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
@@ -141,6 +155,7 @@ export function createGlobalReviewServer(
     serverPid: process.pid,
     token,
     startedAt: Date.now(),
+    ...identity,
   };
 
   // A source-run dev server has no built CLI to advertise.
@@ -220,6 +235,21 @@ export function createGlobalReviewServer(
       },
       () => scratchpadEnabled,
       () => traceMachineEnabled(),
+      () => {
+        const { key, channel, checkout, appVersion, cliVersion, instanceId } =
+          discovery;
+
+        return {
+          key: key ?? null,
+          channel: channel ?? null,
+          checkout: checkout ?? null,
+          appVersion: appVersion ?? null,
+          cliVersion: cliVersion ?? null,
+          instanceId,
+          url: urlForBoundPort(),
+          home: devReviewHome(),
+        };
+      },
     ),
   );
   app.get("/preferences/scratchpad", () =>
@@ -600,13 +630,16 @@ export function createGlobalReviewServer(
       scratchpadEnabled = await readScratchpadEnabled();
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
-      await writePrivateJsonAtomic(discoveryPath, discovery);
+
+      for (const discoveryPath of discoveryPaths)
+        await writePrivateJsonAtomic(discoveryPath, discovery);
     },
     close: async () => {
       if (closing) return;
       closing = true;
 
-      await removeMatchingDiscovery(discoveryPath, discovery);
+      for (const discoveryPath of discoveryPaths)
+        await removeMatchingDiscovery(discoveryPath, discovery);
       relay.close();
 
       await closeHttpServer(httpServer);

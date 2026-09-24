@@ -9,6 +9,7 @@ import test from 'node:test';
 import { Emitter } from '../../base/common/event.js';
 import { REVIEW_DESKTOP_CONNECTION_VERSION } from '../common/reviewDesktopBootstrap.js';
 import {
+	applicationPath,
 	createReviewServerEnvironment,
 	type IReviewServerProcess,
 	ReviewServerSupervisor,
@@ -143,4 +144,9 @@ test('a restarted server keeps the launch\'s app session id, which the connectio
 	assert.equal(connection.appSessionId, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_APP_SESSION_ID, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_CHANNEL, 'preview');
+});
+
+test('the app path names the macOS bundle, else the executable', () => {
+	assert.equal(applicationPath('/Applications/Review.app/Contents/MacOS/Review'), '/Applications/Review.app');
+	assert.equal(applicationPath('/usr/share/review-desktop/review-desktop'), '/usr/share/review-desktop/review-desktop');
 });

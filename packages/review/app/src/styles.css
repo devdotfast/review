@@ -1729,6 +1729,45 @@ button {
   stroke-width: 1.2;
 }
 
+.review-drawn-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.review-drawn-check path {
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+  animation: review-drawn-check 360ms ease-out both;
+}
+
+@keyframes review-drawn-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-drawn-check path {
+    animation: none;
+  }
+}
+
+.review-onboarding-step-body > .review-onboarding-step-done {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: default;
+}
+
 @container review-canvas (max-width: 980px) {
   .review-home-scroll {
     padding-right: 36px;

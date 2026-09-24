@@ -5,7 +5,7 @@
     alt="Whiteboard logo"
   />
   <h1>Whiteboard</h1>
-  <p><strong>an open-source IDE for thoughtful software design</strong></p>
+  <p><strong>an open-source canvas for thoughtful software design</strong></p>
   <p>
     <a href="https://install.dev.fast">Download for macOS</a> ·
     <a href="https://install.dev.fast/linux">Download for Fedora</a> ·

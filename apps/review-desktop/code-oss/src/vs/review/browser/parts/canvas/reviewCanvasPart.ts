@@ -311,6 +311,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		generation: number,
 	): Promise<void> {
 		await super.setInput(input, options, context, token);
+		// The new input replaces whatever review this pane showed; an api target starts its own session below.
+		this.sessionTelemetry.end("closed");
 		this.restoreEmbeddedSelection(options);
 		try {
 			await this.desktopConnection.initialize();
@@ -436,7 +438,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					assets,
 				);
 			} catch (error) {
-				if (generation === this.loadGeneration) await this.renderError(error, generation);
+				if (generation === this.loadGeneration) {
+					this.sessionTelemetry.end("closed");
+					await this.renderError(error, generation);
+				}
 			}
 			return;
 		}

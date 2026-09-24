@@ -76,7 +76,7 @@ describe("ReviewTelemetry", () => {
     );
   });
 
-  it("aliases the install to a hashed account id once, and turns person profiles on", async () => {
+  it("aliases the install to the first hashed account id only, and turns person profiles on", async () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
     await telemetry.captureCommandSucceeded({
@@ -112,10 +112,15 @@ describe("ReviewTelemetry", () => {
       accountAlias("account-12345"),
     );
 
+    // The first account wins: another login must not merge a second account
+    // into this install's person.
     await telemetry.captureAccountAlias("account-67890");
     expect(
       events.filter((event) => event.event === "$create_alias"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
   });
 
   it("records tool calls, keeping only identifier-shaped tool names", async () => {

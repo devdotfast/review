@@ -358,8 +358,11 @@ export class ReviewTelemetry {
 
   /**
    * Link this installation to a signed-in account by a one-way hash, so
-   * several installs by one person count as one. Sent once per alias value;
-   * the raw account id never leaves this process.
+   * several installs by one person count as one; the raw account id never
+   * leaves this process. Once per installation: the first account wins. A
+   * later login to another account sends nothing, because a second alias
+   * would merge two accounts, and every later install of either, into one
+   * PostHog person.
    */
   async captureAccountAlias(accountId: string): Promise<void> {
     const alias = accountAlias(accountId);
@@ -380,8 +383,9 @@ export class ReviewTelemetry {
   }
 
   /**
-   * Sends an event exactly once per value of a persisted install config
-   * field. The value is persisted before the send completes: under-counting
+   * Sends an event exactly once per installation, guarded by a persisted
+   * install config field that `value` fills. The field is persisted before
+   * the send completes: under-counting
    * is recoverable, announcing twice is not. A printed event is not a sent
    * event, so the debug sink leaves the field alone (it still always sends,
    * ignoring opt-out as today).
@@ -397,7 +401,7 @@ export class ReviewTelemetry {
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
 
-      if (this.optedOut(config) || config[field] === value) return;
+      if (this.optedOut(config) || config[field]) return;
 
       if (!this.captureClient.ignoresOptOut) {
         config[field] = value;

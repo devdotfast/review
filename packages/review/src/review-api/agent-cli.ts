@@ -22,7 +22,8 @@ interface AgentCliInput {
   stdin?: Readable;
   stdout: Writable;
   stderr: Writable;
-  onToolCall?: (call: ReviewToolCall) => void;
+  /** Awaited on the api path: the process exits right after the call. */
+  onToolCall?: (call: ReviewToolCall) => Promise<void> | void;
 }
 
 export const reviewAgentCliHelp =
@@ -128,7 +129,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       result = await callPublicTool(client, tool, args);
       ok = true;
     } finally {
-      input.onToolCall?.({
+      await input.onToolCall?.({
         tool: tool.name,
         via: "api",
         ok,

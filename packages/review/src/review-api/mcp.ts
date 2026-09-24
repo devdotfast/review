@@ -45,7 +45,7 @@ export async function serveReviewMcp(
   stdout: Writable,
   stderr: Writable = process.stderr,
   traceEnabled = false,
-  onToolCall?: (call: ReviewToolCall) => void,
+  onToolCall?: (call: ReviewToolCall) => Promise<void> | void,
 ) {
   const instructionsTool = {
     ...authoringTools(false, traceEnabled).find(
@@ -120,7 +120,7 @@ export async function serveReviewMcp(
     let tool: AuthoringTool | undefined;
 
     const report = (ok: boolean) =>
-      onToolCall?.({
+      void onToolCall?.({
         tool: tool?.name ?? "other",
         via: "mcp",
         ok,

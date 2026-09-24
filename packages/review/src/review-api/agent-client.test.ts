@@ -166,7 +166,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     stdout,
     undefined,
     false,
-    ({ tool, via, ok }) => calls.push([tool, via, ok]),
+    ({ tool, via, ok }) => void calls.push([tool, via, ok]),
   );
 
   let output = "";
@@ -291,7 +291,11 @@ it("reports each api tool call with its outcome", async () => {
       argv,
       stdout: discard,
       stderr: discard,
-      onToolCall: ({ tool, via, ok }) => calls.push([tool, via, ok]),
+      // Queued a tick late, like a real capture: the command must wait.
+      onToolCall: async ({ tool, via, ok }) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        calls.push([tool, via, ok]);
+      },
     });
 
   try {

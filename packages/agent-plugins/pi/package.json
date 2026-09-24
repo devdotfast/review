@@ -1,7 +1,7 @@
 {
   "name": "@dev.fast/pi-whiteboard",
   "version": "0.1.1",
-  "description": "Connect Pi to dev.fast Whiteboard",
+  "description": "Connect Pi or oh-my-pi to dev.fast Whiteboard",
   "keywords": [
     "pi-package"
   ],

@@ -368,6 +368,10 @@ function connectPlugins(
       label: "Install the Pi package",
       command: "pi install npm:@dev.fast/pi-whiteboard",
     },
+    omp: {
+      label: "Install the oh-my-pi package",
+      command: "omp install npm:@dev.fast/pi-whiteboard",
+    },
   };
 }
 

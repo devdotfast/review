@@ -21,6 +21,8 @@ export const FFF_INSTALL_URL =
 
 export const PI_FFF_PACKAGE = "npm:@ff-labs/pi-fff";
 
+export const PI_WHITEBOARD_PACKAGE = "npm:@dev.fast/pi-whiteboard";
+
 export function reviewMcpLaunch(hasShim: boolean): {
   command: string;
   args: string[];
@@ -44,7 +46,9 @@ function numbered(steps: string[]): string[] {
 function fffSteps(input: ConnectPromptInput, target: InstallTarget): string[] {
   if (!input.traceEnabled) return [];
 
-  if (target === "pi") return [`Run: pi install ${PI_FFF_PACKAGE}`];
+  if (target === "pi" || target === "omp") {
+    return [`Run: ${target} install ${PI_FFF_PACKAGE}`];
+  }
 
   const binary = shellQuote(input.fffBinaryPath);
   const root = shellQuote(input.fffCorpusRoot);
@@ -70,7 +74,10 @@ function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
         "Run:\n\n```sh\nopencode plugin @dev.fast/opencode-whiteboard --global\n```",
       ];
     case "pi":
-      return ["Run:\n\n```sh\npi install npm:@dev.fast/pi-whiteboard\n```"];
+    case "omp":
+      return [
+        `Run:\n\n\`\`\`sh\n${target} install ${PI_WHITEBOARD_PACKAGE}\n\`\`\``,
+      ];
   }
 }
 
@@ -94,13 +101,16 @@ export function connectPrompt(
   }
 
   const extra =
-    target === "claude" || target === "codex" || target === "pi"
+    target === "claude" ||
+    target === "codex" ||
+    target === "pi" ||
+    target === "omp"
       ? fffSteps(input, target)
       : [];
 
   const verify =
-    target === "pi"
-      ? `Ask me to run /reload in Pi, then run \`whiteboard api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
+    target === "pi" || target === "omp"
+      ? `Ask me to run ${target === "pi" ? "/reload in Pi" : "/reload-plugins in oh-my-pi"}, then run \`whiteboard api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
       : target === "opencode"
         ? "Stop and tell me to quit and reopen OpenCode: it loads plugins and MCP servers only at startup. After I reopen it, call `session_get_instructions` on the Whiteboard server to confirm the connection. Do not author anything yet."
         : "Reload your MCP tools and call `session_get_instructions` on the Whiteboard server. If a restart is needed, tell me and verify after it. Do not author anything yet.";
@@ -133,6 +143,7 @@ export function connectSetupPrompts(): Record<InstallTarget, string> {
     cursor: connectSetupPrompt("cursor"),
     opencode: connectSetupPrompt("opencode"),
     pi: connectSetupPrompt("pi"),
+    omp: connectSetupPrompt("omp"),
   };
 }
 
@@ -145,5 +156,6 @@ export function connectPrompts(
     cursor: connectPrompt("cursor", input),
     opencode: connectPrompt("opencode", input),
     pi: connectPrompt("pi", input),
+    omp: connectPrompt("omp", input),
   };
 }

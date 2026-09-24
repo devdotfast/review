@@ -16,6 +16,7 @@ import {
 } from "react";
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
+import { OptionMenu } from "./option-menu";
 import { ArchiveIcon } from "./review-corner-action";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTopbarPopover } from "./use-topbar-popover";
@@ -623,82 +624,33 @@ function TableMenu<T extends string>({
   options: { value: T; label: string }[];
   onChange(value: T): void;
 }) {
-  const [open, setOpen] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-
-  useDismissOnOutside(container, open, setOpen);
-
   return (
-    <div
+    <OptionMenu
+      ariaLabel={ariaLabel}
+      value={value}
+      options={options}
+      onChange={onChange}
       className="review-home-table-menu"
-      ref={container}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          setOpen(false);
-          trigger.current?.focus();
-        }
-      }}
+      triggerClassName="review-home-table-menu-trigger"
     >
-      <button
-        ref={trigger}
-        className="review-home-table-menu-trigger"
-        type="button"
-        aria-label={ariaLabel}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen(!open)}
+      <svg
+        className="review-home-table-menu-icon"
+        viewBox="0 0 20 20"
+        aria-hidden="true"
       >
-        <svg viewBox="0 0 20 20" aria-hidden="true">
-          <path
-            d={
-              label === "Filter"
-                ? "M3 5h14M6 10h8M8.5 15h3"
-                : "M6 4v12m0 0-3-3m3 3 3-3M14 16V4m0 0-3 3m3-3 3 3"
-            }
-          />
-        </svg>
-        <span>{label}</span>
-        <strong>
-          {options.find((option) => option.value === value)?.label ?? value}
-        </strong>
-        <svg
-          className="review-home-menu-chevron"
-          viewBox="0 0 20 20"
-          aria-hidden="true"
-        >
-          <path d={open ? "m5 12 5-5 5 5" : "m5 8 5 5 5-5"} />
-        </svg>
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          aria-label={ariaLabel}
-          className="review-home-table-menu-options"
-        >
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="menuitemradio"
-              aria-checked={option.value === value}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            >
-              <span>{option.label}</span>
-              {option.value === value ? (
-                <svg viewBox="0 0 20 20" aria-hidden="true">
-                  <path d="m5 10 3.5 3.5L15 6.5" />
-                </svg>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+        <path
+          d={
+            label === "Filter"
+              ? "M3 5h14M6 10h8M8.5 15h3"
+              : "M6 4v12m0 0-3-3m3 3 3-3M14 16V4m0 0-3 3m3-3 3 3"
+          }
+        />
+      </svg>
+      <span>{label}</span>
+      <strong>
+        {options.find((option) => option.value === value)?.label ?? value}
+      </strong>
+    </OptionMenu>
   );
 }
 

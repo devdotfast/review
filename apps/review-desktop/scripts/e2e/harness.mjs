@@ -690,7 +690,7 @@ export async function dismissModalEditor(
 /** Opens a review the way a reader does, with `review app pick --review`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", reviewId, "--json"],
+    ["app", "pick", "--session", reviewId, "--json"],
     cwd,
   );
 

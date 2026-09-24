@@ -211,6 +211,19 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("gives a preview channel its own identity instead of the legacy one", async () => {
+    const { events, legacyConfigPath, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_CHANNEL_ENV]: "preview" },
+    });
+
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(legacyConfigPath, { installId: "legacy-install" });
+
+    await telemetry.captureInstallationCreated();
+
+    expect(events.map((event) => event.distinctId)).toEqual(["install-123"]);
+  });
+
   it("marks the installation as announced before the event is queued", async () => {
     const { configPath, rootPath, telemetry } = createTelemetry({
       captureClient: {

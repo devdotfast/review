@@ -665,7 +665,11 @@ export class ReviewTelemetry {
       // Missing or invalid config gets replaced below.
     }
 
-    const legacyInstallId = await this.readLegacyInstallId();
+    // The legacy file holds the stable identity; preview counts separately.
+    const legacyInstallId =
+      reviewTelemetryChannel(this.env) === "preview"
+        ? undefined
+        : await this.readLegacyInstallId();
 
     const config = createTelemetryInstallConfig(
       legacyInstallId ?? this.idFactory(),

@@ -135,6 +135,39 @@ describe("WelcomePage", () => {
     ).toBe(false);
   });
 
+  it("replaces the install step when returning-user status arrives late", async () => {
+    await act(async () => root.render(<WelcomePage />));
+    expect(stepOpen(0)).toBe("true");
+
+    const install = content({
+      ...fresh,
+      updateNeeded: true,
+      shim: { ...fresh.shim, installed: true, profileConfigured: true },
+      legacySkills: [{ path: "/h/.agents/skills/dev-review" }],
+    });
+
+    await act(async () => root.render(<WelcomePage install={install} />));
+    expect(container.querySelectorAll(".review-onboarding-step")).toHaveLength(
+      3,
+    );
+    expect(container.textContent).not.toContain(
+      "Install the whiteboard command",
+    );
+    expect(stepOpen(0)).toBe("true");
+    expect(buttons("Remove deprecated skills")).toHaveLength(1);
+
+    await act(async () => buttons("Remove deprecated skills")[0]?.click());
+    expect(install.removeLegacySkills).toHaveBeenCalledOnce();
+    expect(container.querySelectorAll(".review-onboarding-step")).toHaveLength(
+      3,
+    );
+    expect(stepOpen(0)).toBe("true");
+    expect(stepState(0)).toBe("done");
+    expect(
+      (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
   it("opens on the connect step once the command is installed", async () => {
     await act(async () =>
       root.render(

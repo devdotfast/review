@@ -77,7 +77,13 @@ export function WelcomePage({
   const updating = (status?.updateNeeded ?? false) || showLegacyStep;
 
   if (hasLegacySkills && !showLegacyStep) setShowLegacyStep(true);
-  const [replaceInstallStep] = useState(() => installed && hasLegacySkills);
+
+  const [replaceInstallStep, setReplaceInstallStep] = useState(
+    () => installed && hasLegacySkills,
+  );
+
+  if (installed && hasLegacySkills && !replaceInstallStep)
+    setReplaceInstallStep(true);
 
   // Whiteboard cannot see agent configs, so a copied prompt or command is the
   // closest signal that an agent got connected.
@@ -247,6 +253,9 @@ export function WelcomePage({
       ? "Connect your agents"
       : steps.find((step) => !step.done)?.title,
   );
+
+  if (openStep && !steps.some((step) => step.title === openStep))
+    setOpenStep(steps.find((step) => !step.done && !step.disabled)?.title);
 
   return (
     <main className="review-home">

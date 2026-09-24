@@ -78,6 +78,17 @@ function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
   }
 }
 
+function cursorSteps(): string[] {
+  const launch = reviewMcpLaunch(true);
+  const deeplink = cursorInstallDeeplink(launch);
+  const entry = JSON.stringify({ whiteboard: launch }, null, 2);
+
+  return [
+    `Do not paste the install link in chat. Chat clients do not open cursor:// links. Open Cursor's MCP install deeplink with the OS URL handler using the command for this operating system, then stop and let me confirm the install:\n\nmacOS: open ${shellQuote(deeplink)}\nLinux: xdg-open ${shellQuote(deeplink)}\nWindows: cmd /c start "" "${deeplink}"`,
+    `After I confirm, check for a whiteboard server in ~/.cursor/mcp.json. If the deeplink did not add it, merge this entry into the file's mcpServers object without removing other servers or settings (create the file and object if missing). Do not use this fallback if I declined the install:\n\n\`\`\`json\n${entry}\n\`\`\``,
+  ];
+}
+
 export function connectPrompt(
   target: InstallTarget,
   input: ConnectPromptInput,
@@ -106,10 +117,9 @@ export function connectPrompt(
           ]
         : []),
       ...(target === "cursor"
-        ? [
-            `Show me this link and ask me to confirm the installation in Cursor:\n\n${cursorInstallDeeplink(reviewMcpLaunch(true))}`,
-          ]
-        : [...pluginSteps(target), ...extra, verify]),
+        ? cursorSteps()
+        : [...pluginSteps(target), ...extra]),
+      verify,
     ]),
   ].join("\n");
 }

@@ -99,6 +99,8 @@ describe("WelcomePage", () => {
   const stepOpen = (index: number) => step(index)?.getAttribute("data-open");
 
   it("opens on the install step until the whiteboard command is installed", async () => {
+    const onClose = vi.fn<() => void>();
+
     const setupActions = {
       load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () =>
         content({
@@ -111,9 +113,14 @@ describe("WelcomePage", () => {
 
     await act(async () =>
       root.render(
-        <WelcomePage install={content(fresh)} setupActions={setupActions} />,
+        <WelcomePage
+          install={content(fresh)}
+          setupActions={setupActions}
+          onClose={onClose}
+        />,
       ),
     );
+    expect(buttons("Close")[0]?.disabled).toBe(true);
     expect(stepOpen(0)).toBe("true");
     expect(stepState(0)).toBe("todo");
     expect(stepState(1)).toBe("todo");
@@ -128,7 +135,9 @@ describe("WelcomePage", () => {
 
     await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
     expect(setupActions.installCli).toHaveBeenCalledOnce();
+    expect(buttons("Close")[0]?.disabled).toBe(false);
     expect(stepState(0)).toBe("done");
+    expect(stepOpen(1)).toBe("true");
     expect(buttons("Install whiteboard in PATH")).toHaveLength(0);
     expect(
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
@@ -161,7 +170,8 @@ describe("WelcomePage", () => {
     expect(container.querySelectorAll(".review-onboarding-step")).toHaveLength(
       3,
     );
-    expect(stepOpen(0)).toBe("true");
+    expect(stepOpen(0)).toBe("false");
+    expect(stepOpen(1)).toBe("true");
     expect(stepState(0)).toBe("done");
     expect(
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
@@ -266,12 +276,90 @@ describe("WelcomePage", () => {
     expect(stepState(1)).toBe("todo");
     await act(async () => buttons("Copy prompt")[0]?.click());
     expect(stepState(1)).toBe("done");
+    expect(stepOpen(2)).toBe("true");
     expect(localStorage.getItem(REVIEW_CONNECT_COPIED_STORAGE_KEY)).toBe("1");
     writeText.mockRestore();
   });
 
-  it("dismisses an upgrade from empty Home after skills are gone", async () => {
-    const install = content({ ...fresh, updateNeeded: true });
+  it("advances to Dismiss after copying an upgrade prompt", async () => {
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            updateNeeded: true,
+            shim: { ...fresh.shim, installed: true, onPath: true },
+          })}
+        />,
+      ),
+    );
+    await act(async () => buttons("Copy prompt")[0]?.click());
+    expect(stepOpen(1)).toBe("false");
+    expect(stepOpen(2)).toBe("true");
+    expect(buttons("Dismiss").at(-1)?.disabled).toBe(false);
+    writeText.mockRestore();
+  });
+
+  it("requires opening the agent card even if a prompt was copied previously", async () => {
+    localStorage.setItem(REVIEW_CONNECT_COPIED_STORAGE_KEY, "1");
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          onClose={() => {}}
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, installed: true, onPath: true },
+          })}
+        />,
+      ),
+    );
+    expect(buttons("Close")[0]?.disabled).toBe(true);
+    await act(async () =>
+      (step(1)?.querySelector("button") as HTMLButtonElement).click(),
+    );
+    expect(buttons("Close")[0]?.disabled).toBe(false);
+  });
+
+  it("stays on installation when it fails or PATH remains unavailable", async () => {
+    const setupActions = {
+      load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () =>
+        content(fresh),
+      ),
+      installCli: vi.fn<() => Promise<void>>(async () => {
+        throw new Error("Installation failed");
+      }),
+    };
+
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content(fresh)}
+          setupActions={setupActions}
+          onClose={() => {}}
+        />,
+      ),
+    );
+    await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
+    expect(container.textContent).toContain("Installation failed");
+    expect(stepOpen(0)).toBe("true");
+    expect(buttons("Close")[0]?.disabled).toBe(true);
+    setupActions.installCli.mockResolvedValue(undefined);
+    await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
+    expect(stepOpen(0)).toBe("true");
+    expect(buttons("Close")[0]?.disabled).toBe(true);
+  });
+
+  it("dismisses an upgrade from empty Home with PATH ready and the agent card open", async () => {
+    const install = content({
+      ...fresh,
+      updateNeeded: true,
+      shim: { ...fresh.shim, installed: true, onPath: true },
+    });
+
     await act(async () =>
       root.render(
         <ReviewHome reviews={[]} onOpen={() => {}} install={install} />,
@@ -283,37 +371,50 @@ describe("WelcomePage", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Sessions");
   });
 
-  it("can dismiss after removing skills without installing the command or connecting an agent", async () => {
+  it("requires skill removal, PATH readiness, and opening the agent card before dismissal", async () => {
+    localStorage.setItem(REVIEW_CONNECT_COPIED_STORAGE_KEY, "1");
+
     const install = content({
       ...fresh,
       updateNeeded: true,
       legacySkills: [{ path: "/h/.agents/skills/whiteboard" }],
     });
 
+    const ready = content({
+      ...fresh,
+      updateNeeded: true,
+      shim: { ...fresh.shim, installed: true, onPath: true },
+    });
+
+    const setupActions = {
+      load: vi.fn<() => Promise<ReviewCanvasInstallContent>>(async () => ready),
+      installCli: vi.fn<() => Promise<void>>(async () => {}),
+    };
+
     const onClose = vi.fn<() => void>();
     await act(async () =>
-      root.render(<WelcomePage install={install} onClose={onClose} />),
+      root.render(
+        <WelcomePage
+          install={install}
+          setupActions={setupActions}
+          onClose={onClose}
+        />,
+      ),
     );
-
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Expand Continue shipping beautiful code"]',
-        )
-        ?.click(),
-    );
-    await act(async () => buttons("Dismiss").at(-1)?.click());
-    expect(onClose).not.toHaveBeenCalled();
+    expect(buttons("Dismiss")[0]?.disabled).toBe(true);
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Expand Continue shipping beautiful code"]',
-        )
-        ?.click(),
+    expect(stepOpen(1)).toBe("true");
+    expect(container.textContent).toContain(
+      "Deprecated skills removed successfully",
     );
-    await act(async () => buttons("Dismiss").at(-1)?.click());
-    expect(install.finishUpdate).toHaveBeenCalledOnce();
+    expect(buttons("Dismiss")[0]?.disabled).toBe(true);
+    await act(async () => buttons("Dismiss")[0]?.click());
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
+    expect(stepOpen(2)).toBe("true");
+    expect(buttons("Dismiss")[0]?.disabled).toBe(false);
+    await act(async () => buttons("Dismiss")[0]?.click());
+    expect(ready.finishUpdate).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -351,9 +452,7 @@ describe("WelcomePage", () => {
       (step(1)?.querySelector("button") as HTMLButtonElement).disabled,
     ).toBe(false);
     expect(stepState(0)).toBe("done");
-    await act(async () =>
-      (step(1)?.querySelector("button") as HTMLButtonElement)?.click(),
-    );
+    expect(stepOpen(1)).toBe("true");
     expect(stepState(1)).toBe("todo");
     await act(async () => buttons("Install whiteboard in PATH")[0]?.click());
     expect(setupActions.installCli).toHaveBeenCalledOnce();
@@ -441,7 +540,7 @@ describe("WelcomePage", () => {
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Expand Continue shipping beautiful code"]',
+          '[aria-label="Expand Continue shipping thoughtful code"]',
         )
         ?.click(),
     );
@@ -451,12 +550,10 @@ describe("WelcomePage", () => {
     await act(async () => buttons("Remove deprecated skills")[0]?.click());
     expect(install.removeLegacySkills).toHaveBeenCalledOnce();
     expect(stepState(0)).toBe("done");
-    expect(stepOpen(0)).toBe("true");
+    expect(stepOpen(0)).toBe("false");
+    expect(stepOpen(1)).toBe("true");
     expect(buttons("Remove deprecated skills")).toHaveLength(0);
 
-    await act(async () =>
-      (step(1)?.querySelector("button") as HTMLButtonElement)?.click(),
-    );
     expect(buttons("Copy prompt")).toHaveLength(1);
     expect(
       container.querySelectorAll('[aria-label="Agent"] button'),
@@ -465,7 +562,7 @@ describe("WelcomePage", () => {
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Expand Continue shipping beautiful code"]',
+          '[aria-label="Expand Continue shipping thoughtful code"]',
         )
         ?.click(),
     );

@@ -6122,6 +6122,7 @@ button.review-stack-row:disabled .review-stack-relation {
   font-weight: 600;
 }
 
+.review-onboarding-step-body > .review-welcome-dismiss,
 .review-onboarding-step-body > .review-onboarding-install {
   min-height: 30px;
   padding: 5px 12px;

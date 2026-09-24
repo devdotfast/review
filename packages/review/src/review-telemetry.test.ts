@@ -284,6 +284,25 @@ describe("ReviewTelemetry", () => {
     expect(captureClient.defaults).toMatchObject({ surface: "headless" });
   });
 
+  it("sends events only through a real client with telemetry on", async () => {
+    const enabled = createTelemetry();
+    cleanupPaths.push(enabled.rootPath);
+    await expect(enabled.telemetry.sendsEvents()).resolves.toBe(true);
+    await enabled.telemetry.setEnabled(false);
+    await expect(enabled.telemetry.sendsEvents()).resolves.toBe(false);
+
+    const printed = createTelemetry({
+      captureClient: {
+        enabled: true,
+        ignoresOptOut: true,
+        capture: async () => undefined,
+      },
+    });
+
+    cleanupPaths.push(printed.rootPath);
+    await expect(printed.telemetry.sendsEvents()).resolves.toBe(false);
+  });
+
   it("preserves the stored internal marker when the telemetry setting changes", async () => {
     const { configPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);

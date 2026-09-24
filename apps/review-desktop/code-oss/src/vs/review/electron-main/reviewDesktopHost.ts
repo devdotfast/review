@@ -5,6 +5,7 @@
 
 import { app, BrowserWindow } from "electron";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
+import { join } from "../../base/common/path.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import { IEnvironmentMainService } from "../../platform/environment/electron-main/environmentMainService.js";
 import { ILifecycleMainService } from "../../platform/lifecycle/electron-main/lifecycleMainService.js";
@@ -17,6 +18,8 @@ import { IUpdateService } from "../../platform/update/common/update.js";
 import { UtilityProcess } from "../../platform/utilityProcess/electron-main/utilityProcess.js";
 import type { ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_TELEMETRY_SETTING } from "../common/reviewConfigurationDefaults.js";
+import { REVIEW_CRASH_DUMPS_DIRNAME } from "../node/reviewCrashReporter.js";
+import { ReviewCrashDumps } from "./reviewCrashDumps.js";
 import { ReviewCrashTelemetry } from "./reviewCrashTelemetry.js";
 import { ReviewMainErrorTelemetry } from "./reviewMainErrorTelemetry.js";
 import { ReviewServerSupervisor } from "./reviewServerSupervisor.js";
@@ -56,6 +59,10 @@ export class ReviewDesktopHost extends Disposable {
     super();
     let resolvedEnvironment: Promise<NodeJS.ProcessEnv> | undefined;
     let crashTelemetry: ReviewCrashTelemetry | undefined;
+    const crashDumpsDir = join(
+      this.environmentMainService.userDataPath,
+      REVIEW_CRASH_DUMPS_DIRNAME,
+    );
     this.supervisor = this._register(
       new ReviewServerSupervisor({
         appRoot: this.environmentMainService.appRoot,
@@ -88,6 +95,7 @@ export class ReviewDesktopHost extends Disposable {
         telemetryEnabled:
           this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
           false,
+        crashDumpsDir,
         onServerTerminated: (detail) => crashTelemetry?.reportServerExit(detail),
       }),
     );
@@ -117,12 +125,25 @@ export class ReviewDesktopHost extends Disposable {
       logError: (message) => this.logService.error(message),
     });
     this._register(toDisposable(() => errorTelemetry.dispose()));
+    const crashDumps = new ReviewCrashDumps({
+      dumpsDir: crashDumpsDir,
+      whenConnected: () => this.whenConnected(),
+      isTelemetryEnabled: () =>
+        this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
+        false,
+      capture: (name, properties) => errorTelemetry.capture(name, properties),
+      logError: (message) => this.logService.error(message),
+    });
     crashTelemetry = this._register(
       new ReviewCrashTelemetry({
         app,
         windows: BrowserWindow.getAllWindows(),
         capture: (name, properties) => errorTelemetry.capture(name, properties),
+        onCrashRecorded: (at) => crashDumps.recordLiveCrash(at),
       }),
+    );
+    crashDumps.reconcile().catch((error) =>
+      this.logService.error(`[Review Desktop] crash dump reconcile failed: ${error}`),
     );
     this._register(
       new ReviewUpdateTelemetry({

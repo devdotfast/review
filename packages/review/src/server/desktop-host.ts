@@ -90,6 +90,7 @@ export async function runDesktopHost(
     reviewStore: local.store,
     reviewData: local.data,
     cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME,
+    crashDumpsDir: env.DEV_FAST_REVIEW_CRASH_DUMPS_DIR,
   });
 
   try {

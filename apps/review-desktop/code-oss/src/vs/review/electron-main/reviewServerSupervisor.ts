@@ -75,6 +75,8 @@ export interface ReviewServerSupervisorOptions {
   readonly createProcess: () => IReviewServerProcess;
   readonly telemetryEnabled?: boolean;
   readonly userExtensionsPath?: string;
+  /** Electron's Review crash dump directory; the server uploads only from it. */
+  readonly crashDumpsDir?: string;
   /** A server process that died on its own; deliberate stops never report. */
   readonly onServerTerminated?: (detail: ReviewServerTermination) => void;
 }
@@ -93,6 +95,7 @@ export function createReviewServerEnvironment(options: {
   readonly rustAnalyzerSource?: string;
   readonly appSessionId: string;
   readonly channel: ReviewReleaseChannel;
+  readonly crashDumpsDir?: string;
 }): Record<string, string | undefined> {
   return {
     ...options.applicationEnvironment,
@@ -115,6 +118,7 @@ export function createReviewServerEnvironment(options: {
     DEV_FAST_REVIEW_RUST_ANALYZER: options.rustAnalyzerSource,
     DEV_FAST_REVIEW_APP_SESSION_ID: options.appSessionId,
     DEV_FAST_REVIEW_CHANNEL: options.channel,
+    DEV_FAST_REVIEW_CRASH_DUMPS_DIR: options.crashDumpsDir,
   };
 }
 
@@ -385,6 +389,7 @@ export class ReviewServerSupervisor extends Disposable {
       rustAnalyzerSource,
       appSessionId: this.appSessionId,
       channel: this.options.channel,
+      crashDumpsDir: this.options.crashDumpsDir,
     });
     const started = serverProcess.start({
       type: REVIEW_SERVER_PROCESS_TYPE,

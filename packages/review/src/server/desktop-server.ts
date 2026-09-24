@@ -50,6 +50,7 @@ import {
 } from "../review-preferences";
 import { ReviewTelemetry } from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
+import { CrashReportRequestSchema, reportCrashDump } from "./crash-report";
 import {
   readDiffrConfig,
   saveDiffrSummarizer,
@@ -94,6 +95,8 @@ export interface GlobalReviewServerInput {
   discoveryPath?: string;
   telemetry?: ReviewTelemetry;
   relay?: ReviewDesktopVerbRelay;
+  /** Electron's Review crash dump directory; `/crash-reports` reads only inside it. */
+  crashDumpsDir?: string;
 }
 
 export interface GlobalReviewServer {
@@ -300,6 +303,25 @@ export function createGlobalReviewServer(
     }
 
     return globalJson(200, { ok: true });
+  });
+  app.post("/crash-reports", async (context) => {
+    const body = CrashReportRequestSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (!body.success)
+      throw new ReviewServerError(
+        "dump_path, crashed_at and covered are required.",
+        400,
+      );
+
+    const result = await reportCrashDump(
+      telemetry,
+      body.data,
+      input.crashDumpsDir,
+    );
+
+    return globalJson(result.status, result.body);
   });
   app.get("/tutorial/status", async () =>
     globalJson(200, await tutorial.status()),

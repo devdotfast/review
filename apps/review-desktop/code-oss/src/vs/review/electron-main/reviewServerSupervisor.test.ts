@@ -63,7 +63,7 @@ for (const protocol of ['dev-fast-review', 'dev-fast-review-preview']) {
 	});
 }
 
-test('the server inherits the app session id and channel the supervisor chose', () => {
+test('the server inherits the app session id, channel and crash dump directory the supervisor chose', () => {
 	const environment = createReviewServerEnvironment({
 		applicationEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'stale', DEV_FAST_REVIEW_CHANNEL: 'stable' },
 		resolvedEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'shell', DEV_FAST_REVIEW_CHANNEL: 'dev' },
@@ -76,10 +76,12 @@ test('the server inherits the app session id and channel the supervisor chose', 
 		telemetryEnabled: true,
 		appSessionId: 'session-1',
 		channel: 'preview',
+		crashDumpsDir: '/user-data/review-crashes',
 	});
 
 	assert.equal(environment.DEV_FAST_REVIEW_APP_SESSION_ID, 'session-1');
 	assert.equal(environment.DEV_FAST_REVIEW_CHANNEL, 'preview');
+	assert.equal(environment.DEV_FAST_REVIEW_CRASH_DUMPS_DIR, '/user-data/review-crashes');
 });
 
 class FakeServerProcess implements IReviewServerProcess {

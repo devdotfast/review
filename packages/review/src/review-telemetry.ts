@@ -304,6 +304,16 @@ export class ReviewTelemetry {
     }, 5_000);
   }
 
+  /**
+   * Whether events leave this machine right now: a real client, no opt-out.
+   * The debug sink prints instead of sending, so it answers false.
+   */
+  async sendsEvents(): Promise<boolean> {
+    if (this.captureClient.ignoresOptOut) return false;
+
+    return this.isEnabled();
+  }
+
   /** The common properties every event carries; bug reports embed them. */
   async envelope(): Promise<PostHogCaptureProperties> {
     return this.commonProperties(await this.loadInstallConfig());

@@ -23,7 +23,6 @@ import {
 } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { areSameExtensions } from '../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
-import { IMainProcessService } from '../../../platform/ipc/common/mainProcessService.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { IProgressService, ProgressLocation } from '../../../platform/progress/common/progress.js';
@@ -37,7 +36,6 @@ import {
 	type IWorkbenchContributionsRegistry
 } from '../../../workbench/common/contributions.js';
 import { REVIEW_KEYMAP_SETTING, type ReviewKeymap } from '../../common/reviewConfigurationDefaults.js';
-import { REVIEW_DESKTOP_CHANNEL } from '../../common/reviewDesktopBootstrap.js';
 import { setFirstRunReloadPending } from '../../common/reviewFirstRunReload.js';
 import type { ReviewUserConfigImportResult } from '../../node/reviewUserConfigImport.js';
 import { IReviewTelemetryService } from '../../services/reviewTelemetryService.js';
@@ -58,6 +56,8 @@ import {
  * Optional groups always show so the user can consent to their download.
  */
 const BUNDLED_EXTENSIONS: readonly { id: string; label: string }[] = [
+	{ id: 'rust-lang.rust-analyzer', label: localize('review.curated.rust', "Rust (rust-analyzer)") },
+	{ id: 'golang.go', label: localize('review.curated.go', "Go") },
 	{ id: 'ms-python.python', label: localize('review.curated.python', "Python") },
 	{ id: 'astral-sh.ty', label: localize('review.curated.ty', "Python type checking (ty)") },
 	{ id: 'charliermarsh.ruff', label: localize('review.curated.ruff', "Python lint and format (ruff)") },
@@ -66,17 +66,11 @@ const BUNDLED_EXTENSIONS: readonly { id: string; label: string }[] = [
 ];
 
 const OPTIONAL_GROUPS: readonly { group: string; label: string; detail?: string }[] = [
-	{ group: 'rust', label: localize('review.curated.rust', "Rust (rust-analyzer)") },
 	{ group: 'swift', label: localize('review.curated.swift', "Swift") },
 	{
 		group: 'csharp',
 		label: localize('review.curated.csharp', "C#"),
 		detail: localize('review.curated.csharp.requiresDotnet', "Requires a system .NET SDK. Whiteboard does not download .NET.")
-	},
-	{
-		group: 'go',
-		label: localize('review.curated.go', "Go"),
-		detail: localize('review.curated.go.installsTools', "Downloads the Go extension, which then installs gopls and vscgo with the Go toolchain on your machine (about 40 MB from proxy.golang.org).")
 	}
 ] as const;
 
@@ -235,17 +229,6 @@ function optionalExtensionLabel(extensionId: string): string {
 		: group.label;
 }
 
-async function stageRustAnalyzer(
-	mainProcessService: IMainProcessService,
-	logService: ILogService
-): Promise<void> {
-	try {
-		await mainProcessService.getChannel(REVIEW_DESKTOP_CHANNEL).call('stageRustAnalyzer');
-	} catch (error) {
-		logService.error(`[Whiteboard extensions] Could not stage rust-analyzer: ${getErrorMessage(error)}`);
-	}
-}
-
 class ManageCuratedExtensionsAction extends Action2 {
 	constructor() {
 		super({
@@ -264,8 +247,6 @@ class ManageCuratedExtensionsAction extends Action2 {
 		const dialogService = accessor.get(IDialogService);
 		const notificationService = accessor.get(INotificationService);
 		const progressService = accessor.get(IProgressService);
-		const mainProcessService = accessor.get(IMainProcessService);
-		const logService = accessor.get(ILogService);
 		const reviewTelemetryService = accessor.get(IReviewTelemetryService);
 
 		let installed = await extensionManagementService.getInstalled();
@@ -490,9 +471,6 @@ class ManageCuratedExtensionsAction extends Action2 {
 		}
 
 		installed = await extensionManagementService.getInstalled();
-		if (newInstalls.some(extension => areSameExtensions(extension.identifier, { id: 'rust-lang.rust-analyzer' }))) {
-			await stageRustAnalyzer(mainProcessService, logService);
-		}
 		let enabledIds = picked
 			.filter((item): item is CuratedQuickPickItem & { kind: 'bundled' } => item.kind === 'bundled')
 			.map(item => item.id);
@@ -678,7 +656,6 @@ class CuratedExtensionDefaults implements IWorkbenchContribution {
 class OptionalExtensionPinUpgrades implements IWorkbenchContribution {
 	constructor(
 		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
-		@IMainProcessService private readonly mainProcessService: IMainProcessService,
 		@ILogService private readonly logService: ILogService,
 		@IReviewTelemetryService private readonly reviewTelemetryService: IReviewTelemetryService
 	) {
@@ -705,7 +682,6 @@ class OptionalExtensionPinUpgrades implements IWorkbenchContribution {
 					pinned: true
 				});
 			},
-			stageRustAnalyzer: () => stageRustAnalyzer(this.mainProcessService, this.logService),
 			logError: (message, error) => {
 				this.logService.error(`[Whiteboard extensions] ${message}: ${getErrorMessage(error)}`);
 			},

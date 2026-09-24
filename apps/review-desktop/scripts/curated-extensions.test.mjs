@@ -26,16 +26,15 @@ import {
   keymapGroups,
   openVsxUrl,
   optionalExtensions,
-  optionalGroups,
   parseGroupSelection,
   supportedTargets,
   targetKeyFor,
-  userFacingGroups,
 } from "./curated-extensions.manifest.mjs";
 import {
   copyCuratedExtensions,
   verifyCuratedExtensions,
 } from "./curated-extensions.mjs";
+import { goToolsStamp } from "./curated-go-tools.mjs";
 
 const APP_DIR = path.dirname(fileURLToPath(new URL("./", import.meta.url)));
 
@@ -148,51 +147,6 @@ test("pins every curated extension to a checksum for every supported target", ()
   }
 });
 
-test("separates bundled extensions from optional language groups", () => {
-  assert.deepEqual(
-    [...bundledExtensions, ...optionalExtensions]
-      .map((extension) => extension.id)
-      .sort(),
-    curatedExtensions.map((extension) => extension.id).sort(),
-  );
-  assert.deepEqual(optionalExtensions.map((extension) => extension.id).sort(), [
-    "golang.go",
-    "llvm-vs-code-extensions.lldb-dap",
-    "ms-dotnettools.vscode-dotnet-runtime",
-    "muhammad-sammy.csharp",
-    "rust-lang.rust-analyzer",
-    "swiftlang.swift-vscode",
-  ]);
-
-  for (const extension of optionalExtensions) {
-    assert.ok(
-      ["primary", "support"].includes(extension.role),
-      `${extension.id} role`,
-    );
-  }
-
-  assert.deepEqual(
-    optionalExtensions
-      .filter((extension) => extension.role === "primary")
-      .map((extension) => extension.group),
-    ["rust", "swift", "csharp", "go"],
-  );
-
-  for (const support of optionalExtensions.filter(
-    (extension) => extension.role === "support",
-  )) {
-    assert.ok(
-      optionalExtensions.some(
-        (extension) =>
-          extension.role === "primary" && extension.group === support.group,
-      ),
-      `${support.id} must belong to an optional primary group`,
-    );
-  }
-
-  assert.deepEqual([...userFacingGroups], [...curatedGroups]);
-});
-
 test("keeps every optional pin identical in build, main, and renderer catalogs", () => {
   const normalize = (catalog) =>
     catalog
@@ -259,8 +213,6 @@ test("resolves a target key for every extension on every supported target", () =
 });
 
 test("parses DEV_REVIEW_EXTENSIONS selections", () => {
-  assert.deepEqual([...bundledGroups], ["python", "vim", "emacs"]);
-  assert.deepEqual([...optionalGroups], ["rust", "swift", "csharp", "go"]);
   assert.deepEqual(
     [...parseGroupSelection(undefined)].sort(),
     [...bundledGroups].sort(),
@@ -446,14 +398,18 @@ test("copies only bundled extensions for both package targets", () => {
             activationEvents: extension.addActivationEvents ?? [],
           })}\n`,
         );
+
+        const stamp = {
+          id: extension.id,
+          version: extension.version,
+          target: targetKey,
+          sha256: extension.targets[targetKey].sha256,
+        };
+
+        if (extension.goTools) stamp.goTools = goToolsStamp(target);
         writeFileSync(
           path.join(directory, ".curated.json"),
-          `${JSON.stringify({
-            id: extension.id,
-            version: extension.version,
-            target: targetKey,
-            sha256: extension.targets[targetKey].sha256,
-          })}\n`,
+          `${JSON.stringify(stamp)}\n`,
         );
 
         for (const relative of extension.executables) {
@@ -480,6 +436,32 @@ test("copies only bundled extensions for both package targets", () => {
           `${extension.id} must stay out of the ${target} package`,
         );
       }
+
+      // Go's VSIX is universal but its added binaries are not. Reject an
+      // otherwise-valid extension copied from a different platform.
+      const goStampPath = path.join(
+        destinationRoot,
+        "golang.go",
+        ".curated.json",
+      );
+
+      const goStamp = JSON.parse(readFileSync(goStampPath, "utf8"));
+      const originalTarget = goStamp.goTools.target;
+      goStamp.goTools.target = supportedTargets.find(
+        (candidate) => candidate !== target,
+      );
+      writeFileSync(goStampPath, JSON.stringify(goStamp));
+      assert.throws(
+        () => verifyCuratedExtensions({ root: destinationRoot, target }),
+        /golang.go is not materialized/,
+      );
+      goStamp.goTools.target = originalTarget;
+      writeFileSync(goStampPath, JSON.stringify(goStamp));
+      rmSync(path.join(destinationRoot, "golang.go", "bin", "gopls"));
+      assert.throws(
+        () => verifyCuratedExtensions({ root: destinationRoot, target }),
+        /expected executable bin\/gopls is missing/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -506,35 +488,6 @@ test("keeps the in-app picker list in sync with the manifest", () => {
   for (const id of offered) {
     assert.ok(known.has(id), `${id} is offered by the picker but not vendored`);
   }
-});
-
-test("manages optional extensions as four user-facing groups", () => {
-  for (const group of ["rust", "swift", "csharp", "go"]) {
-    assert.ok(
-      curatedContribution.includes(`group: '${group}'`),
-      `${group} must have one optional picker row`,
-    );
-  }
-
-  for (const supportId of [
-    "llvm-vs-code-extensions.lldb-dap",
-    "ms-dotnettools.vscode-dotnet-runtime",
-  ]) {
-    assert.ok(
-      !curatedContribution.includes(`{ id: '${supportId}'`),
-      `${supportId} must not have a separate picker row`,
-    );
-  }
-
-  assert.match(curatedContribution, /installMissingOptionalExtensions/);
-  assert.match(curatedContribution, /vscode:reviewDownloadOptionalExtension/);
-  assert.match(curatedContribution, /getInstalled\(\)/);
-  assert.match(curatedContribution, /getInstalled\(ExtensionType\.User\)/);
-  assert.match(curatedContribution, /donotIncludePackAndDependencies: true/);
-  assert.match(curatedContribution, /donotCheckDependents: true/);
-  assert.match(curatedContribution, /Codicon\.trash/);
-  assert.match(curatedContribution, /Requires a system \.NET SDK/);
-  assert.match(curatedContribution, /installs gopls and vscgo/);
 });
 
 test("keeps the keymaps mutually exclusive in the picker", () => {

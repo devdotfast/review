@@ -18,6 +18,8 @@
  * back on its import path.
  */
 import { localize } from '../../nls.js';
+import { FileAccess } from '../../base/common/network.js';
+import { URI } from '../../base/common/uri.js';
 import { Registry } from '../../platform/registry/common/platform.js';
 import { ConfigurationScope, Extensions, type IConfigurationRegistry } from '../../platform/configuration/common/configurationRegistry.js';
 import { REVIEW_KEYMAPS, REVIEW_KEYMAP_SETTING, REVIEW_SOFTWARE_MAP_SETTING, REVIEW_STRUCTURAL_DIFF_SETTING, REVIEW_TELEMETRY_SETTING, curatedExtensionConfigurationDefaults, reviewConfigurationDefaults } from './reviewConfigurationDefaults.js';
@@ -56,5 +58,12 @@ configurationRegistry.registerConfiguration({
 
 configurationRegistry.registerDefaultConfigurations([
 	{ overrides: reviewConfigurationDefaults },
-	{ overrides: curatedExtensionConfigurationDefaults }
+	{ overrides: {
+		...curatedExtensionConfigurationDefaults,
+		// Resolve from the running app, so development checkouts and relocated
+		// packaged apps both use the server shipped alongside the Go extension.
+		'go.alternateTools': {
+			gopls: URI.joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'golang.go', 'bin', 'gopls').fsPath,
+		},
+	} }
 ]);

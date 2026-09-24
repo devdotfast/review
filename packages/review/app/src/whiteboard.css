@@ -1123,8 +1123,12 @@ button.host-authoring-activity[data-locatable]:focus-visible {
 }
 
 .diff-lens-toggle {
-  padding: 6px 12px 6px 16px;
+  padding: 3px 4px 3px 8px;
   font-size: 12px;
+}
+
+.diff-sidebar-heading:has(+ .diff-lens-hint) {
+  padding-bottom: 2px;
 }
 
 .diff-lens-toggle:hover {

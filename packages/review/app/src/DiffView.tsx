@@ -217,6 +217,9 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
             style={{ flexBasis: `${(1 - cabinetsResize.fraction) * 100}%` }}
           >
             <div className="diff-sidebar-heading">Lenses</div>
+            <div className="diff-lens-hint">
+              Click any lens to filter the diff
+            </div>
             {rows.items.map((item) => {
               const selected = lens?.id === item.id,
                 stats = lenses.stats(item.sources),
@@ -234,13 +237,29 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                       className={`diff-lens-toggle ${selected ? "is-active" : ""} ${stats.state === "viewed" ? "is-viewed" : ""}`}
                       aria-pressed={selected}
                       disabled={!!item.unavailable}
-                      title={item.unavailable ?? item.title}
                       onClick={() =>
                         selected ? lenses.clear() : lenses.select(item.id)
                       }
                     >
-                      <LensIcon />
-                      <span className="diff-lens-name">{item.title}</span>
+                      {/* The title sits on the chip, not the toggle, so it
+                          never stacks on the counts' own tooltip. */}
+                      <span
+                        className="diff-lens-chip"
+                        title={
+                          item.unavailable ??
+                          (selected ? "Clear lens filter" : item.title)
+                        }
+                      >
+                        <FilterIcon />
+                        <span className="diff-lens-name">{item.title}</span>
+                        {selected && (
+                          <span className="diff-lens-clear" aria-hidden="true">
+                            <svg width="10" height="10" viewBox="0 0 10 10">
+                              <path d="M2 2l6 6M8 2L2 8" />
+                            </svg>
+                          </span>
+                        )}
+                      </span>
                       {item.pending ? (
                         <span
                           className="diff-counts"
@@ -298,7 +317,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                                 : file.path),
                           )?.path ?? source.file,
                       ),
-                    ).size
+                    ).size + ` of ${lenses.progress.files.length}`
                   : lenses.progress.files.length
                 : "…"}
             </div>
@@ -438,7 +457,7 @@ function useLensRows<Item extends { id: string }>(items: Item[]) {
   return { items: shown, phases };
 }
 
-function LensIcon() {
+function FilterIcon() {
   return (
     <svg
       className="diff-lens-icon"
@@ -448,9 +467,10 @@ function LensIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth="1.2"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M2 2h5l2 2h5v10H2zM2 6h12" />
+      <path d="M2.5 3h11L9.25 8v4.5l-2.5 1.25V8z" />
     </svg>
   );
 }

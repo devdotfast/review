@@ -220,10 +220,6 @@ export const CRASH_PROCESS = [
 
 export const CRASH_SOURCE = ["live", "minidump"] as const;
 
-export const STALL_PROCESS = ["renderer", "canvas"] as const;
-
-export const STALL_PHASE = ["startup", "running"] as const;
-
 export const DIFF_OPENED_VIA = ["topbar", "lens", "locate"] as const;
 
 /** Which diff opened: a commit's, or a file diff drawn plain or structural. */
@@ -524,14 +520,6 @@ export const UI_TELEMETRY_EVENTS = {
   hang_ended: {
     event: "review_hang_ended",
     properties: { duration_ms: "number" },
-  },
-  ui_stall: {
-    event: "review_ui_stall",
-    properties: {
-      duration_ms: "number",
-      process: STALL_PROCESS,
-      phase: STALL_PHASE,
-    },
   },
   app_ready: {
     event: "review_app_ready",

@@ -396,12 +396,6 @@ describe("reliability and engagement events", () => {
     ).toBe("review_error_burst");
     expect(
       sanitizeUiTelemetryEvent({
-        name: "ui_stall",
-        properties: { duration_ms: 2400, process: "canvas", phase: "running" },
-      })?.event,
-    ).toBe("review_ui_stall");
-    expect(
-      sanitizeUiTelemetryEvent({
         name: "client_error",
         properties: {
           error_source: "server_unexpected",

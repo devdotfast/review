@@ -205,34 +205,33 @@ dropped the events.
 
 ### CLI and lifecycle events
 
-| Event                           | Additional properties                                                                                                                                    | When                                                                                         |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `review_installation_created`   | None                                                                                                                                                     | The first enabled Whiteboard use                                                             |
-| `review_command_started`        | `command_path`, `command_run_id`, `agent_kind`                                                                                                           | A public CLI handler is about to run                                                         |
-| `review_command_succeeded`      | `command_path`, `command_run_id`, `exit_code`, `duration_ms`                                                                                             | A public CLI command succeeds                                                                |
-| `review_command_failed`         | The success properties plus `error_name` and `error_category` closed enums                                                                               | A public CLI command fails                                                                   |
-| `review_telemetry_dropped`      | `reason`, `count`                                                                                                                                        | The queue drops one or more events                                                           |
-| `review_session_started`        | `source_kind`, `review_id`, `presentation_id`                                                                                                            | A whiteboard opens in the app canvas                                                         |
-| `review_review_presented`       | `load_ms`, `review_id`, `presentation_id`                                                                                                                | The canvas signals ready                                                                     |
-| `review_first_review_presented` | `review_id`, `presentation_id`                                                                                                                           | The first presented whiteboard on this installation                                          |
-| `review_session_ended`          | `outcome`, `duration_ms`, `review_id`, `presentation_id`                                                                                                 | The whiteboard closes; see outcomes below                                                    |
-| `review_crash`                  | `process` in `renderer`, `gpu`, `utility`, `server`, `unknown`; `reason` (≤40 chars); `exit_code`; `uptime_ms`; `source` in `live`, `minidump`           | A Whiteboard process dies, or an uncovered dump is found on the next launch                  |
-| `review_hang_started`           | None                                                                                                                                                     | An app window stops responding                                                               |
-| `review_hang_ended`             | `duration_ms`                                                                                                                                            | The window responds again, its process dies, or it closes                                    |
-| `review_ui_stall`               | `duration_ms`; `process` in `renderer`, `canvas` (`canvas` is allowlisted but not sent; it shares the workbench thread); `phase` in `startup`, `running` | The main thread lags 2 seconds or more behind a timer tick; capped at 5 per session          |
-| `review_app_ready`              | `duration_ms`                                                                                                                                            | The workbench restores, timed from the startup trace; once per app launch                    |
-| `review_error_burst`            | `message_hash`, `suppressed`                                                                                                                             | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
-| `review_open_timeout`           | `elapsed_ms`, `review_id`, `presentation_id`                                                                                                             | A session starts and no presented or ended event follows within 30 seconds                   |
-| `review_review_created`         | `via` in `api`, `mcp`, `other`; `kind` in `review`, `scratchpad`; `blocks`; optional `agent_kind`                                                        | A whiteboard or the scratchpad is created; `via` is `other` for the app's own UI             |
-| `review_review_published`       | `version`                                                                                                                                                | A whiteboard is published for sharing                                                        |
-| `review_review_revoked`         | None                                                                                                                                                     | A share link is revoked                                                                      |
-| `review_authoring_completed`    | `duration_ms`; optional `agent_kind`                                                                                                                     | The first publish of a whiteboard created via `api` or `mcp`, timed from its creation        |
-| `review_mcp_tool_called`        | `tool`; `via` in `api`, `mcp`; `ok`; `duration_ms`                                                                                                       | An agent calls a Whiteboard authoring tool                                                   |
-| `review_login_started`          | None                                                                                                                                                     | GitHub sign-in in the app begins                                                             |
-| `review_login_succeeded`        | None                                                                                                                                                     | GitHub sign-in in the app finishes                                                           |
-| `review_login_failed`           | `reason` in `did_not_finish`, `error`                                                                                                                    | GitHub sign-in in the app fails                                                              |
-| `$exception`                    | Same fields as `review_client_error`, in PostHog's error-tracking shape                                                                                  | Sent alongside every `review_client_error`, for one release                                  |
-| `$create_alias`                 | `alias`, `$process_person_profile: true`                                                                                                                 | The first GitHub sign-in on this installation; see "Identity and storage"                    |
+| Event                           | Additional properties                                                                                                                          | When                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `review_installation_created`   | None                                                                                                                                           | The first enabled Whiteboard use                                                             |
+| `review_command_started`        | `command_path`, `command_run_id`, `agent_kind`                                                                                                 | A public CLI handler is about to run                                                         |
+| `review_command_succeeded`      | `command_path`, `command_run_id`, `exit_code`, `duration_ms`                                                                                   | A public CLI command succeeds                                                                |
+| `review_command_failed`         | The success properties plus `error_name` and `error_category` closed enums                                                                     | A public CLI command fails                                                                   |
+| `review_telemetry_dropped`      | `reason`, `count`                                                                                                                              | The queue drops one or more events                                                           |
+| `review_session_started`        | `source_kind`, `review_id`, `presentation_id`                                                                                                  | A whiteboard opens in the app canvas                                                         |
+| `review_review_presented`       | `load_ms`, `review_id`, `presentation_id`                                                                                                      | The canvas signals ready                                                                     |
+| `review_first_review_presented` | `review_id`, `presentation_id`                                                                                                                 | The first presented whiteboard on this installation                                          |
+| `review_session_ended`          | `outcome`, `duration_ms`, `review_id`, `presentation_id`                                                                                       | The whiteboard closes; see outcomes below                                                    |
+| `review_crash`                  | `process` in `renderer`, `gpu`, `utility`, `server`, `unknown`; `reason` (≤40 chars); `exit_code`; `uptime_ms`; `source` in `live`, `minidump` | A Whiteboard process dies, or an uncovered dump is found on the next launch                  |
+| `review_hang_started`           | None                                                                                                                                           | An app window stops responding                                                               |
+| `review_hang_ended`             | `duration_ms`                                                                                                                                  | The window responds again, its process dies, or it closes                                    |
+| `review_app_ready`              | `duration_ms`                                                                                                                                  | The workbench restores, timed from the startup trace; once per app launch                    |
+| `review_error_burst`            | `message_hash`, `suppressed`                                                                                                                   | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
+| `review_open_timeout`           | `elapsed_ms`, `review_id`, `presentation_id`                                                                                                   | A session starts and no presented or ended event follows within 30 seconds                   |
+| `review_review_created`         | `via` in `api`, `mcp`, `other`; `kind` in `review`, `scratchpad`; `blocks`; optional `agent_kind`                                              | A whiteboard or the scratchpad is created; `via` is `other` for the app's own UI             |
+| `review_review_published`       | `version`                                                                                                                                      | A whiteboard is published for sharing                                                        |
+| `review_review_revoked`         | None                                                                                                                                           | A share link is revoked                                                                      |
+| `review_authoring_completed`    | `duration_ms`; optional `agent_kind`                                                                                                           | The first publish of a whiteboard created via `api` or `mcp`, timed from its creation        |
+| `review_mcp_tool_called`        | `tool`; `via` in `api`, `mcp`; `ok`; `duration_ms`                                                                                             | An agent calls a Whiteboard authoring tool                                                   |
+| `review_login_started`          | None                                                                                                                                           | GitHub sign-in in the app begins                                                             |
+| `review_login_succeeded`        | None                                                                                                                                           | GitHub sign-in in the app finishes                                                           |
+| `review_login_failed`           | `reason` in `did_not_finish`, `error`                                                                                                          | GitHub sign-in in the app fails                                                              |
+| `$exception`                    | Same fields as `review_client_error`, in PostHog's error-tracking shape                                                                        | Sent alongside every `review_client_error`, for one release                                  |
+| `$create_alias`                 | `alias`, `$process_person_profile: true`                                                                                                       | The first GitHub sign-in on this installation; see "Identity and storage"                    |
 
 `source_kind` is `worktree`, `commits`, or `scratchpad`, set by the server from
 the opened whiteboard. `agent_kind` is allowlisted for session events but not
@@ -317,20 +316,20 @@ The server checks all properties in this table against
 
 The canvas sends `review_review_dismissed`, `review_review_restored`, and
 `review_review_deleted` from Home's actions, with `via` set to `home`.
-`review_review_dismissed`'s `review_topbar` and `review_review_restored`'s
-`open` (the implicit undo, where opening a dismissed whiteboard brings it back)
-are allowlisted but not yet sent.
+`review_review_dismissed` also comes from the whiteboard's top bar, with `via`
+set to `review_topbar`. `review_review_restored`'s `open` (the implicit undo,
+where opening a dismissed whiteboard brings it back) is allowlisted but not yet
+sent.
 
 ### Reserved events
 
 The allowlist also defines `review_review_reaped`, but no current code sends
 it. If a future change sends it, it will update this page in the same change.
 
-### Hangs and stalls
+### Hangs
 
 - `review_hang_started` / `review_hang_ended`: Electron's window
   `unresponsive` / `responsive` events.
-- `review_ui_stall`: a workbench timer that fires 2 seconds or more late.
 - `review_open_timeout`: a whiteboard that neither presents nor ends within 30
   seconds.
 
@@ -541,4 +540,3 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 | Crash dump upload           | `packages/review/src/server/crash-report.ts`                                                   |
 | Crash and hang listeners    | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashTelemetry.ts`             |
 | Crash dump reconciliation   | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashDumps.ts`                 |
-| Main-thread stall watchdog  | `apps/review-desktop/code-oss/src/vs/review/common/reviewStallWatchdog.ts`                     |

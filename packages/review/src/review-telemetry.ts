@@ -470,6 +470,10 @@ export class ReviewTelemetry {
     });
   }
 
+  /**
+   * A tab dwell period ended. Time on the files tab is also the diff dwell,
+   * so it doubles as `review_diff_viewed` without a second client beacon.
+   */
   async captureTabViewed(
     event: ReviewTabTelemetryEvent,
     context?: ReviewTelemetryContext,
@@ -480,6 +484,18 @@ export class ReviewTelemetry {
         tab: event.tab,
         duration_ms: event.durationMs,
         reason: event.reason,
+        source: "review_app",
+        app_session_id: event.appSessionId,
+      },
+      context,
+    );
+
+    if (event.tab !== "files") return;
+
+    await this.captureEvent(
+      "review_diff_viewed",
+      {
+        duration_ms: event.durationMs,
         source: "review_app",
         app_session_id: event.appSessionId,
       },

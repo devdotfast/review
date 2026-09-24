@@ -131,7 +131,9 @@ export function createJsonReviewReporting(
       { allowTextPlain: true },
     );
 
-    await telemetry.captureTabViewed(parseReviewTabTelemetryInput(input));
+    await telemetry.captureTabViewed(parseReviewTabTelemetryInput(input), {
+      reviewUuid: context.req.param("id"),
+    });
 
     return context.json({ ok: true });
   });

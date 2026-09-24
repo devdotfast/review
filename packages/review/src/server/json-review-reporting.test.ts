@@ -143,12 +143,15 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
       )
     ).status,
   ).toBe(200);
-  expect(telemetry.captureTabViewed).toHaveBeenCalledWith({
-    tab: "review",
-    reason: "pagehide",
-    durationMs: 500,
-    appSessionId: sessionId,
-  });
+  expect(telemetry.captureTabViewed).toHaveBeenCalledWith(
+    {
+      tab: "review",
+      reason: "pagehide",
+      durationMs: 500,
+      appSessionId: sessionId,
+    },
+    { reviewUuid: expect.any(String) },
+  );
 
   const report = {
     description: "Broken alignment",

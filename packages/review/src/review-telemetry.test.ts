@@ -343,6 +343,42 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("reports time on the files tab as a diff view of the same review", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureTabViewed(
+      {
+        tab: "review",
+        durationMs: 100,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+    await telemetry.captureTabViewed(
+      {
+        tab: "files",
+        durationMs: 4_200,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+
+    expect(events.map(({ event }) => event)).toEqual([
+      "review_tab_viewed",
+      "review_tab_viewed",
+      "review_diff_viewed",
+    ]);
+    expect(events[2].properties).toMatchObject({
+      duration_ms: 4_200,
+      app_session_id: LAUNCH_A,
+      review_id: events[1].properties?.review_id,
+    });
+    expect(events[2].properties?.review_id).toEqual(expect.any(String));
+  });
+
   it("defaults to the cli surface and the stable channel", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "0" },

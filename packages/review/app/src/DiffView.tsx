@@ -27,17 +27,29 @@ import { compactDiffCount } from "./diff-count";
 import { withErasedBlocks } from "./draw-queue";
 import { useMotionPhases } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
-import { ViewedButton, useReviewLenses } from "./review-lenses";
+import { useReviewLenses } from "./review-lenses";
 import {
   useBottomSheetResize,
   useRightPanelResize,
 } from "./side-panel-resizer";
+import { useTooltip } from "./use-tooltip";
+import { ViewedButton } from "./viewed-button";
 
 export function DiffCounts({ progress }: { progress: CoverageProgress }) {
+  const { remaining, total, folded } = progress;
+
+  const tooltip = useTooltip<HTMLSpanElement>(
+    `+${remaining.additions} −${remaining.deletions} remaining`,
+    {
+      instant: true,
+      detail: `of +${total.additions} −${total.deletions} total${folded.additions + folded.deletions ? ` · +${folded.additions} −${folded.deletions} folded` : ""}`,
+    },
+  );
+
   return (
     <span
+      ref={tooltip}
       className={`diff-counts ${progress.state === "viewed" || progress.state === "folded" ? "is-viewed" : ""}`}
-      title={`Remaining +${progress.remaining.additions} −${progress.remaining.deletions} · Total +${progress.total.additions} −${progress.total.deletions}${progress.folded.additions + progress.folded.deletions ? ` · Folded +${progress.folded.additions} −${progress.folded.deletions}` : ""}`}
     >
       {progress.state === "viewed" ? (
         "✓"
@@ -46,10 +58,10 @@ export function DiffCounts({ progress }: { progress: CoverageProgress }) {
       ) : (
         <>
           <span className="diff-count-added">
-            +{compactDiffCount(progress.remaining.additions)}
+            +{compactDiffCount(remaining.additions)}
           </span>
           <span className="diff-count-removed">
-            −{compactDiffCount(progress.remaining.deletions)}
+            −{compactDiffCount(remaining.deletions)}
           </span>
         </>
       )}
@@ -278,7 +290,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                       disabled={
                         lenses.busy || !!item.unavailable || !!item.pending
                       }
-                      label={`Mark ${item.title} viewed`}
+                      label={item.title}
                       onClick={() =>
                         void lenses.mark(
                           item.sources,

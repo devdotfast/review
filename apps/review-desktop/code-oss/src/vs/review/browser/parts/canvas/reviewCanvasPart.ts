@@ -71,6 +71,7 @@ import {
 	REVIEW_TUTORIAL_STEP_IDS
 } from "../../../common/reviewProtocol.js";
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
+import { ReviewTooltip } from "../../reviewTooltip.js";
 import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewApiSourceService } from "../../../services/reviewApiSourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
@@ -993,12 +994,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (kind === "error") this.notificationService.error(text);
 				else this.notificationService.info(text);
 			},
-			setupTooltip: (target, content) => {
+			setupTooltip: (target, content, tooltip) => {
+				if (tooltip?.instant) return new ReviewTooltip(this.hoverService, target, { label: content, detail: tooltip.detail });
 				const store = new DisposableStore();
 				const hover = store.add(new MutableDisposable<IHoverWidget>());
 				const options: IHoverOptions = {
 					target,
-					content,
+					content: tooltip?.detail ? `${content}\n${tooltip.detail}` : content,
 					position: { hoverPosition: HoverPosition.ABOVE },
 					appearance: { compact: true, showPointer: true },
 					persistence: { hideOnKeyDown: true },

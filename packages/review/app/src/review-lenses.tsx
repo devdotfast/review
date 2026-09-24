@@ -305,34 +305,3 @@ export function ReviewLensesProvider({
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
-
-export function ViewedButton({
-  progress,
-  onClick,
-  disabled,
-  label = "Mark viewed",
-}: {
-  progress: CoverageProgress;
-  onClick(): void;
-  disabled?: boolean;
-  label?: string;
-}) {
-  const done = progress.state === "viewed";
-
-  return (
-    <button
-      type="button"
-      className={`viewed-check viewed-check--${progress.state}`}
-      role="checkbox"
-      aria-checked={progress.state === "partial" ? "mixed" : done}
-      aria-label={done ? "Mark unviewed" : label}
-      title={done ? "Mark unviewed and unfold" : label}
-      disabled={
-        disabled || progress.total.additions + progress.total.deletions === 0
-      }
-      onClick={onClick}
-    >
-      {done ? "✓" : progress.state === "partial" ? "−" : ""}
-    </button>
-  );
-}

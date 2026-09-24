@@ -365,7 +365,7 @@ function connectPlugins(
     opencode: {
       label: "Install the OpenCode plugin",
       command:
-        'Add "@dev.fast/opencode-whiteboard" to "plugin" in ~/.config/opencode/opencode.json',
+        'Add "@dev.fast/opencode-whiteboard" to "plugin" in ~/.config/opencode/opencode.json,\nthen quit and reopen OpenCode to load it.',
     },
     pi: {
       label: "Install the Pi package",

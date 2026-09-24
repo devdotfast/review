@@ -56,6 +56,11 @@ export class ReviewDesktopHost extends Disposable {
     this.supervisor = this._register(
       new ReviewServerSupervisor({
         appRoot: this.environmentMainService.appRoot,
+        channel: !this.environmentMainService.isBuilt
+          ? "dev"
+          : this.productService.quality === "preview"
+            ? "preview"
+            : "stable",
         isBuilt: this.environmentMainService.isBuilt,
         userExtensionsPath: this.environmentMainService.extensionsPath,
         appVersion:

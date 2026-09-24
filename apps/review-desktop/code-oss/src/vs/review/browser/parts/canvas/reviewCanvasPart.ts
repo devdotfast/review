@@ -386,9 +386,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							...this.sharedBridge(generation, () => {
 								this.readyInput = input;
 							}),
+							appSessionId: connection.appSessionId,
 							config: this.reviewRuntimeConfig(
 								{
-									...connection,
+									serverUrl: connection.serverUrl,
+									token: connection.token,
 									reviewId: reviewId,
 								},
 								assets,
@@ -969,7 +971,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		lifecycle?: ReviewCanvasLoadLifecycle,
 	): Pick<
 		ReviewCanvasBridge,
-		| "appSessionId"
 		| "subscribe"
 		| "currentTheme"
 		| "onDidChangeTheme"
@@ -982,7 +983,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		| "reportDiagnostic"
 	> {
 		return {
-			appSessionId: this.reviewTelemetryService.appSessionId,
 			subscribe: (listener) => this.surfaceEvents.event(listener),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),

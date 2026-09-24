@@ -36,6 +36,8 @@ const REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY = "review.tutorial.autoPrepareS
 export interface ReviewServerConnection {
 	readonly serverUrl: string;
 	readonly token: string;
+	/** The launch's id, minted by the main process; canvas telemetry carries it. */
+	readonly appSessionId: string;
 }
 
 
@@ -145,7 +147,8 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 
 	async getConnection(): Promise<ReviewServerConnection> {
 		await this.initialize();
-		return { serverUrl: this.serverUrl, token: this.token };
+		const { token, appSessionId } = this.requireConnection();
+		return { serverUrl: this.serverUrl, token, appSessionId };
 	}
 
 	/**

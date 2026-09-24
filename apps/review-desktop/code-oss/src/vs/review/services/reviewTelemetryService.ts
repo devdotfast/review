@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { generateUuid } from "../../base/common/uuid.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IMainProcessService } from "../../platform/ipc/common/mainProcessService.js";
@@ -30,8 +29,6 @@ export const IReviewTelemetryService = createDecorator<IReviewTelemetryService>(
 
 export interface IReviewTelemetryService {
 	readonly _serviceBrand: undefined;
-	/** The per-window session id all workbench events carry. */
-	readonly appSessionId: string;
 	/**
 	 * Fire-and-forget. Never throws. Drops when telemetry is off.
 	 *
@@ -47,7 +44,6 @@ export interface IReviewTelemetryService {
 
 export class ReviewTelemetryService implements IReviewTelemetryService {
 	declare readonly _serviceBrand: undefined;
-	readonly appSessionId = generateUuid();
 
 	private readonly queued: QueuedReviewTelemetryEvent[] = [];
 	private readonly inFlight = new Set<Promise<void>>();
@@ -114,7 +110,7 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		request = fetch(
 			`${connection.url}/telemetry/event`,
 			reviewTelemetryEventRequest(
-				{ token: connection.token, appSessionId: this.appSessionId },
+				connection,
 				event,
 				{ keepalive: true },
 			),

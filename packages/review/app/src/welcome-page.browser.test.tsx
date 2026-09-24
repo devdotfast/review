@@ -41,6 +41,7 @@ const fresh: ReviewCliInstallStatus = {
       cursor: "cursor prompt",
       opencode: "opencode prompt",
       pi: "pi prompt",
+      omp: "omp prompt",
     },
     plugins: {
       claude: { label: "claude plugin", command: "claude command" },
@@ -48,6 +49,7 @@ const fresh: ReviewCliInstallStatus = {
       cursor: { label: "cursor plugin", url: "cursor://install" },
       opencode: { label: "opencode plugin", command: "opencode command" },
       pi: { label: "pi plugin", command: "pi command" },
+      omp: { label: "omp plugin", command: "omp command" },
     },
   },
   legacySkills: [],

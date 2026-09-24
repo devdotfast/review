@@ -2,8 +2,8 @@ import type { ReactElement } from "react";
 
 // Brand marks vendored from lobe-icons (MIT), unmodified paths:
 // https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
-// The logos remain trademarks of their owners (Anthropic, OpenAI, Anysphere)
-// and are used nominatively to label the corresponding agent integrations.
+// Pi: pi.dev logo-auto.svg (MIT). oh-my-pi: drawn after its hero image (MIT).
+// All marks are their owners' trademarks, used nominatively to label agents.
 
 export function ClaudeCodeLogo(): ReactElement {
   return (
@@ -64,14 +64,41 @@ export function PiLogo(): ReactElement {
       aria-hidden="true"
       className="review-agent-logo review-agent-logo--pi"
       focusable="false"
+      viewBox="120 120 560 560"
+    >
+      <path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z" />
+      <path
+        fill="#4D9ABF"
+        d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"
+      />
+      <path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z" />
+    </svg>
+  );
+}
+
+export function OmpLogo(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="review-agent-logo review-agent-logo--omp"
+      focusable="false"
       viewBox="0 0 24 24"
     >
+      <defs>
+        <linearGradient
+          id="review-agent-logo-omp-gradient"
+          x1="0"
+          y1="0"
+          x2="1"
+          y2="1"
+        >
+          <stop offset="0" stopColor="#E64AC8" />
+          <stop offset="1" stopColor="#5EA8F0" />
+        </linearGradient>
+      </defs>
       <path
-        d="M4 6h16M8 6v12M16 6v12"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="2.25"
+        d="M3 3h18v5h-3v13h-5V8h-2v10H6V8H3z"
+        fill="url(#review-agent-logo-omp-gradient)"
       />
     </svg>
   );
@@ -99,4 +126,5 @@ export const AGENT_LOGOS = {
   cursor: CursorLogo,
   opencode: OpenCodeLogo,
   pi: PiLogo,
+  omp: OmpLogo,
 } as const;

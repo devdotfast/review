@@ -40,6 +40,7 @@ const status: ReviewCliInstallStatus = {
       cursor: "CURSOR PROMPT",
       opencode: "OPENCODE PROMPT",
       pi: "PI PROMPT",
+      omp: "OMP PROMPT",
     },
     plugins: {
       claude: {
@@ -56,6 +57,7 @@ const status: ReviewCliInstallStatus = {
         command: "OPENCODE COMMAND",
       },
       pi: { label: "Install the Pi package", command: "PI COMMAND" },
+      omp: { label: "Install the oh-my-pi package", command: "OMP COMMAND" },
     },
   },
   legacySkills: [],
@@ -114,6 +116,12 @@ function body(container: HTMLElement) {
   return container.querySelector(".review-home-prompt-body")?.textContent;
 }
 
+function otherTrigger(container: HTMLElement) {
+  return container.querySelector<HTMLButtonElement>(
+    ".review-connect-other-trigger",
+  );
+}
+
 function copyButton(container: HTMLElement) {
   return container.querySelector<HTMLButtonElement>(".review-home-prompt-copy");
 }
@@ -145,8 +153,47 @@ describe("ConnectCard", () => {
 
     const container = await mount(<ConnectCard install={content()} />);
 
-    expect(button(container, "Pi")?.getAttribute("aria-pressed")).toBe("true");
+    expect(otherTrigger(container)?.textContent).toBe("Pi");
+    expect(otherTrigger(container)?.getAttribute("aria-pressed")).toBe("true");
     expect(body(container)).toBe("PI PROMPT");
+  });
+
+  it("swaps between the other agents from the menu", async () => {
+    const container = await mount(<ConnectCard install={content()} />);
+
+    expect(otherTrigger(container)?.textContent).toBe("Other…");
+    expect(otherTrigger(container)?.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector("[role=menu]")).toBeNull();
+
+    await act(async () => otherTrigger(container)?.click());
+    expect(
+      [...container.querySelectorAll("[role=menuitemradio]")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Pi", "oh-my-pi"]);
+
+    await act(async () => button(container, "oh-my-pi")?.click());
+    expect(container.querySelector("[role=menu]")).toBeNull();
+    expect(otherTrigger(container)?.textContent).toBe("oh-my-pi");
+    expect(otherTrigger(container)?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      otherTrigger(container)?.querySelector(".review-agent-logo--omp"),
+    ).not.toBeNull();
+    expect(button(container, "Claude Code")?.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+    expect(body(container)).toBe("OMP PROMPT");
+    expect(localStorage.getItem(REVIEW_CONNECT_TARGET_STORAGE_KEY)).toBe("omp");
+
+    await act(async () => button(container, "Install the plugin")?.click());
+    expect(body(container)).toBe("OMP COMMAND");
+    expect(copyButton(container)?.getAttribute("aria-label")).toBe(
+      "Copy install command for oh-my-pi",
+    );
+
+    await act(async () => button(container, "Codex")?.click());
+    expect(otherTrigger(container)?.textContent).toBe("Other…");
+    expect(otherTrigger(container)?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("copies whichever text is shown", async () => {
@@ -267,7 +314,10 @@ describe("ConnectCard", () => {
     const body = container.querySelector("pre");
     expect(body?.dataset.collapsed).toBe("true");
 
-    const toggle = container.querySelector("[aria-expanded]");
+    const toggle = container.querySelector(
+      ".review-connect-body-wrap [aria-expanded]",
+    );
+
     expect(toggle?.textContent).toBe("Show full prompt");
     await act(async () => (toggle as HTMLButtonElement).click());
     expect(body?.dataset.collapsed).toBe("false");
@@ -284,7 +334,9 @@ describe("ConnectCard", () => {
 
     const short = await mount(<ConnectCard install={content()} />);
     expect(short.querySelector("pre")?.dataset.collapsed).toBe("false");
-    expect(short.querySelector("[aria-expanded]")).toBeNull();
+    expect(
+      short.querySelector(".review-connect-body-wrap [aria-expanded]"),
+    ).toBeNull();
   });
 
   it("shows the setup error from the status", async () => {

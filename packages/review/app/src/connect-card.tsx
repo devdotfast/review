@@ -11,6 +11,7 @@ import { cliInstallReady } from "./cli-install-status";
 import { CopyIcon, copyText } from "./copy-text";
 import { DrawnCheckIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
+import { OptionMenu } from "./option-menu";
 
 export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
   claude: "Claude Code",
@@ -18,7 +19,15 @@ export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
   cursor: "Cursor",
   opencode: "OpenCode",
   pi: "Pi",
+  omp: "oh-my-pi",
 };
+
+/** The rest share the Other menu. */
+const TAB_TARGETS = ["claude", "codex", "cursor", "opencode"] as const;
+
+const OTHER_TARGETS = ReviewCliInstallTargetSchema.options.filter(
+  (target) => !TAB_TARGETS.some((tab) => tab === target),
+);
 
 export const REVIEW_CONNECT_TARGET_STORAGE_KEY =
   "dev.fast.review.connectTarget";
@@ -130,7 +139,7 @@ export function ConnectCard({
         role="group"
         aria-label="Agent"
       >
-        {ReviewCliInstallTargetSchema.options.map((tab) => {
+        {TAB_TARGETS.map((tab) => {
           const Logo = AGENT_LOGOS[tab];
 
           return (
@@ -146,6 +155,10 @@ export function ConnectCard({
             </button>
           );
         })}
+        <OtherAgentMenu
+          selected={OTHER_TARGETS.includes(target) ? target : undefined}
+          onSelect={selectTarget}
+        />
       </div>
       <div
         className="review-home-prompt-tabs review-connect-modes"
@@ -241,6 +254,39 @@ export function ConnectCard({
         <p className="review-connect-error">{status.error}</p>
       ) : null}
     </section>
+  );
+}
+
+function OtherAgentMenu({
+  selected,
+  onSelect,
+}: {
+  selected: ReviewCliInstallTarget | undefined;
+  onSelect(target: ReviewCliInstallTarget): void;
+}) {
+  const Logo = selected ? AGENT_LOGOS[selected] : undefined;
+
+  return (
+    <OptionMenu
+      ariaLabel="Other agent"
+      value={selected}
+      options={OTHER_TARGETS.map((other) => {
+        const OptionLogo = AGENT_LOGOS[other];
+
+        return {
+          value: other,
+          label: TARGET_LABELS[other],
+          icon: <OptionLogo />,
+        };
+      })}
+      onChange={onSelect}
+      className="review-connect-other"
+      triggerClassName={`review-connect-other-trigger${selected ? " is-active" : ""}`}
+      triggerProps={{ "aria-pressed": selected !== undefined }}
+    >
+      {Logo ? <Logo /> : null}
+      {selected ? TARGET_LABELS[selected] : "Other…"}
+    </OptionMenu>
   );
 }
 

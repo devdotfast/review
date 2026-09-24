@@ -41,7 +41,18 @@ describe("connectPrompt", () => {
       expect(enabled.includes("pi install npm:@ff-labs/pi-fff")).toBe(
         target === "pi",
       );
+      expect(enabled.includes("omp install npm:@ff-labs/pi-fff")).toBe(
+        target === "omp",
+      );
     }
+  });
+
+  it("installs the Pi package in oh-my-pi and reloads its plugins", () => {
+    const prompt = connectPrompt("omp", input);
+
+    expect(prompt).toContain("omp install npm:@dev.fast/pi-whiteboard");
+    expect(prompt).toContain("/reload-plugins");
+    expect(prompt).toContain("whiteboard api session_get_instructions '{}'");
   });
 });
 

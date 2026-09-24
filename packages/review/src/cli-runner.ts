@@ -529,6 +529,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
           "cursor",
           "opencode",
           "pi",
+          "omp",
           "all",
         ]),
       ),
@@ -1006,6 +1007,7 @@ const TARGET_LABELS: Record<InstallTarget, string> = {
   cursor: "Cursor",
   opencode: "OpenCode",
   pi: "Pi",
+  omp: "oh-my-pi",
 };
 
 function parseTargets(targets: readonly string[]): InstallTarget[] {

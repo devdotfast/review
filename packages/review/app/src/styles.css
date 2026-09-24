@@ -5871,6 +5871,19 @@ button.review-stack-row:disabled .review-stack-relation {
   height: 14px;
 }
 
+/* Other: a tab-styled trigger whose list opens under its left edge. */
+.review-connect-tabs .review-connect-other-trigger {
+  padding-right: 6px;
+}
+
+.review-connect-other .review-option-menu-options {
+  top: calc(100% + 4px);
+  right: auto;
+  left: 0;
+  min-width: 0;
+  padding: 4px;
+}
+
 .review-connect-body-wrap {
   position: relative;
 }

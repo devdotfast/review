@@ -972,7 +972,7 @@ function worktreeLabel(value: string): string {
   return parts.at(-1) ?? value;
 }
 
-function countLabel(count: number, singular: string): string {
+export function countLabel(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 

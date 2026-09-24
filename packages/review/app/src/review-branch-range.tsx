@@ -5,7 +5,8 @@ import { useTooltip } from "./use-tooltip";
 
 const fullHash = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
 
-function shortRef(ref: string): string {
+/** A branch name as is; a full commit hash cut to its first eight digits. */
+export function shortRef(ref: string): string {
   return fullHash.test(ref) ? ref.slice(0, 8) : ref;
 }
 

@@ -185,15 +185,8 @@
 .review-commits-range {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 12px;
   padding-bottom: 20px;
-}
-
-.review-commits-range > div,
-.review-commits-range-shas {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
 }
 
 .review-commits-range strong {
@@ -203,21 +196,15 @@
 }
 
 .review-commits-range span {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-muted);
-  font-size: 11px;
+  font: 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.review-commits-range-shas span {
-  color: var(--ink-faint);
-  font-size: 10px;
-}
-
-.review-commits-range code,
-.review-commit-stats code,
-.review-diff-scope-summary code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--control-bg);
+.review-diff-scope-bar code {
   color: var(--ink-muted);
   font: 10px var(--font-mono);
 }
@@ -275,16 +262,19 @@
   background: var(--surface);
 }
 
-.review-commit-card:hover,
 .review-commit-card--expanded {
   background: var(--surface-raised);
 }
 
+/* Subject over who, when and how much; the commit's actions centered at the
+   right. The toggle's hit area covers the whole header, under the actions. */
 .review-commit-card-header {
-  display: flex;
+  position: relative;
+  display: grid;
   align-items: center;
-  padding: 10px 12px 10px 8px;
-  gap: 8px;
+  padding: 10px 12px;
+  gap: 4px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .review-commit-card--expanded .review-commit-card-header {
@@ -294,24 +284,41 @@
 .review-commit-toggle {
   display: flex;
   min-width: 0;
-  flex: 1;
   align-items: center;
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
+  gap: 10px;
   text-align: left;
 }
 
-.review-commit-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
+.review-commit-toggle::after {
+  position: absolute;
+  inset: 0;
+  content: "";
 }
 
-.review-commit-copy strong {
+.review-commit-toggle:focus-visible {
+  outline: none;
+}
+
+.review-commit-card-header:has(.review-commit-toggle:focus-visible) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.review-commit-toggle .review-chevron {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+/* The whole card is the toggle's hit area, so it stays quiet on hover. */
+.review-commit-toggle:hover > .review-chevron {
+  color: var(--ink-faint);
+}
+
+.review-commit-toggle strong {
   overflow: hidden;
   color: var(--ink);
   font-size: 12px;
@@ -320,22 +327,23 @@
   white-space: nowrap;
 }
 
-.review-commit-copy > span,
-.review-commit-stats > span {
-  color: var(--ink-muted);
-  font-size: 10px;
-}
-
-.review-commit-stats {
+.review-commit-actions {
+  position: relative;
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
-  margin-left: 16px;
+  gap: 2px;
+  grid-column: 2;
+  grid-row: 1 / 3;
 }
 
-.review-commit-stats > span:first-child {
+.review-commit-sha {
+  margin-right: 6px;
   color: var(--ink-faint);
+}
+
+.review-commit-meta {
+  padding-left: 26px;
+  color: var(--ink-muted);
 }
 
 .review-commit-files {
@@ -352,7 +360,7 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   padding: 6px 12px;
   border: 0;
   background: transparent;
@@ -374,9 +382,15 @@
 }
 
 .review-commit-files-footer {
-  padding: 4px 12px;
+  padding: 6px 12px 4px 38px;
+  border: 0;
+  background: transparent;
   color: var(--ink-faint);
   font-size: 10px;
+}
+
+.review-commit-files-footer:hover {
+  color: var(--accent);
 }
 
 .review-diff-scope-bar {
@@ -384,23 +398,19 @@
   height: 30px;
   flex: 0 0 30px;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 0 12px;
   border-bottom: 1px solid var(--rule-soft);
   background: var(--surface);
 }
 
-.review-diff-scope-summary {
-  display: flex;
+.review-diff-scope-subject {
   min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.review-diff-scope-label {
-  color: var(--ink-faint);
-  font-size: 10px;
-  text-transform: uppercase;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-diff-scope-bar > button {
@@ -413,34 +423,9 @@
   font-size: 10px;
 }
 
-.commit-file-diff-body {
-  height: 100%;
-  overflow: auto;
-  background: var(--surface);
-}
-
-.commit-file-diff-body pre {
-  min-width: max-content;
-  margin: 0;
-  padding: 16px;
-  color: var(--ink-muted);
-  font: 11px/1.55 var(--font-mono);
-  tab-size: 2;
-}
-
 @media (max-width: 760px) {
   .review-commits-view {
     padding: 24px 16px;
-  }
-
-  .review-commits-range,
-  .review-commit-card-header {
-    align-items: flex-start;
-  }
-
-  .review-commit-stats span:first-child,
-  .review-commit-open {
-    display: none;
   }
 }
 

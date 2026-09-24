@@ -95,9 +95,11 @@ function Shell({
             ))}
           </div>
           {activeView === "commits" ? (
-            <button type="button" className="review-commit-open">
-              Open diff
-            </button>
+            <button
+              type="button"
+              className="review-commit-open"
+              aria-label="Open commit diff"
+            />
           ) : null}
         </section>
       </TutorialExperienceProvider>

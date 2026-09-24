@@ -381,7 +381,11 @@ function ReviewLayoutContent({
     ),
   );
 
-  const [diffScope, setDiffScope] = useState<ReviewCommitSummary | null>(null);
+  const [diffScope, setDiffScope] = useState<{
+    commit: ReviewCommitSummary;
+    file?: string;
+  } | null>(null);
+
   const selectForAgent = useAgentSelection();
   useEffect(() => {
     selectForAgent(null);
@@ -410,7 +414,7 @@ function ReviewLayoutContent({
       storedList.sessions.length > 0);
 
   const filesTabFileCount = diffScope
-    ? diffScope.fileCount
+    ? diffScope.commit.fileCount
     : diffFiles.status === "loaded"
       ? diffFiles.files.length
       : null;
@@ -744,8 +748,8 @@ function ReviewLayoutContent({
               <ReviewCommitsView
                 commits={commits}
                 range={range}
-                onOpenDiff={(commit, via) => {
-                  setDiffScope(commit);
+                onOpenDiff={(commit, via, file) => {
+                  setDiffScope({ commit, file });
                   captureUiEvent(session, "commit_diff_opened", { via });
                   applyReviewView("diff");
                 }}
@@ -764,13 +768,16 @@ function ReviewLayoutContent({
             {activeView === "diff" && diffScope !== null && (
               <div className="review-diff-view review-diff-view--scoped">
                 <CommitDiffScopeBar
-                  commit={diffScope}
+                  commit={diffScope.commit}
                   onBack={() => {
                     setDiffScope(null);
                     applyReviewView("commits");
                   }}
                 />
-                <ReviewDiffView scope={{ commit: diffScope.commit }} />
+                <ReviewDiffView
+                  scope={{ commit: diffScope.commit.commit }}
+                  revealFile={diffScope.file}
+                />
               </div>
             )}
             {activeView === "trace" && (
@@ -889,13 +896,13 @@ function CommitDiffScopeBar({
 }) {
   return (
     <div className="review-diff-scope-bar">
-      <div className="review-diff-scope-summary">
-        <span className="review-diff-scope-label">Viewing</span>
-        <code>{commit.commit.slice(0, 8)}</code>
-      </div>
       <button type="button" onClick={onBack}>
-        <span aria-hidden="true">←</span> Back to commits
+        <span aria-hidden="true">←</span> Commits
       </button>
+      <code title={commit.commit}>{commit.commit.slice(0, 8)}</code>
+      <span className="review-diff-scope-subject" title={commit.subject}>
+        {commit.subject}
+      </span>
     </div>
   );
 }

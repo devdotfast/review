@@ -2036,13 +2036,65 @@ button:focus-visible > .review-chevron {
   }
 }
 
-/* Attention: the ring is drawn on and held while the agent is on the block. */
-.api-document-node[data-motion="attention"] {
+/* The section ring: the top-level block the agent is editing wears the
+   marker hairline, outside its content so nothing shifts, and no wash. While
+   the agent writes only its color breathes; idle, it holds; when the agent
+   moves on or the lease ends, it fades. A focused block needs no ring of its
+   own: the courier stands on it. */
+.api-document-node[data-region] {
   border-radius: 8px;
-  outline: 1px solid var(--accent);
-  outline-offset: 6px;
-  background: var(--marker-tint);
-  animation: wb-attention 250ms ease-out both;
+  outline: 1px solid var(--transparent);
+  outline-offset: 12px;
+  transition: outline-color 250ms ease;
+}
+
+.api-document-node[data-region="writing"],
+.api-document-node[data-region="idle"] {
+  outline-color: var(--accent);
+}
+
+.api-document-node[data-region="writing"] {
+  animation: wb-region-pulse 1.6s ease-in-out infinite;
+}
+
+/* A section's chevron hangs 28px left of its heading, past the 12px offset,
+   so an outline would cut through it. A section wears the ring on its own
+   box instead, reaching 12px past the chevron on the left. */
+.api-document-node[data-region]:has(> .review-section) {
+  outline: none;
+  animation: none;
+}
+
+.api-document-node[data-region] > .review-section::before {
+  content: "";
+  position: absolute;
+  inset: -12px -12px -12px -40px;
+  border: 1px solid;
+  border-color: var(--transparent);
+  border-radius: 8px;
+  pointer-events: none;
+  transition: border-color 250ms ease;
+}
+
+.api-document-node:is([data-region="writing"], [data-region="idle"])
+  > .review-section::before {
+  border-color: var(--accent);
+}
+
+.api-document-node[data-region="writing"] > .review-section::before {
+  animation: wb-region-pulse-border 1.6s ease-in-out infinite;
+}
+
+@keyframes wb-region-pulse-border {
+  50% {
+    border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+}
+
+@keyframes wb-region-pulse {
+  50% {
+    outline-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
 }
 
 @keyframes wb-attention {
@@ -2286,7 +2338,8 @@ button:focus-visible > .review-chevron {
   .api-document-node[data-motion="erasing"]::before,
   .api-document-node[data-motion="retitle"] .review-section-heading h2,
   .api-document-node[data-motion="retitle"] > blockquote > strong,
-  .api-document-node[data-motion="attention"],
+  .api-document-node[data-region="writing"],
+  .api-document-node[data-region="writing"] > .review-section::before,
   .lens-flow-node[data-motion] .flow-node-shape :is(rect, polygon),
   .lens-flow-node[data-motion] .flow-node-text,
   .lens-flow-edge[data-motion],

@@ -1,5 +1,5 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { type DiffSelection } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
@@ -15,13 +15,15 @@ import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
 import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
+import { AuthoringActivityContext } from "./authoring-activity";
+import { scopeLive } from "./authoring-cursor";
 import {
   BlockErrorBoundary,
   type StoredBlock,
   renderBlock,
   stored,
 } from "./blocks";
-import { Courier } from "./courier";
+import { AuthoringCursorContext, Courier } from "./courier";
 import { withErasedBlocks } from "./draw-queue";
 import { useMotionPhase, useMotionPhases } from "./draw-queue-provider";
 import { useReviewSession } from "./host/review-session";
@@ -215,6 +217,7 @@ export function ApiDocument({
   // The scratchpad is a napkin, not a titled document: no heading, no
   // updated-ago line, just the blocks.
   const scratchpad = data.snapshot.kind === "scratchpad";
+  const region = useEditingRegion(data.snapshot.document);
 
   return (
     <>
@@ -233,10 +236,48 @@ export function ApiDocument({
         nodes={data.snapshot.document}
         data={data}
         softwareMapEnabled={softwareMapEnabled}
+        region={region}
       />
       <Courier />
     </>
   );
+}
+
+/** How long after the courier's last move the agent still counts as
+ * writing; the courier sits down at the same moment. */
+const WRITING_MS = 3000;
+
+/** The top-level block the agent is editing, the one holding the courier,
+ * while the document lease is live: writing while the courier keeps moving,
+ * idle once he sits. */
+function useEditingRegion(
+  document: Block[],
+): { id: string; writing: boolean } | null {
+  const cursor = useContext(AuthoringCursorContext);
+  const live = scopeLive(useContext(AuthoringActivityContext), "document");
+  const [quietSeq, setQuietSeq] = useState<number>();
+  const seq = cursor?.seq;
+
+  useEffect(() => {
+    if (seq === undefined) return;
+    const timer = setTimeout(() => setQuietSeq(seq), WRITING_MS);
+
+    return () => clearTimeout(timer);
+  }, [seq]);
+
+  const id = useMemo(() => {
+    if (!cursor) return undefined;
+
+    return document.find((top) =>
+      elements([top]).some(
+        (node) => node.id === cursor.blockId || node.id === cursor.targetId,
+      ),
+    )?.id;
+  }, [document, cursor]);
+
+  if (!live || !cursor || id === undefined) return null;
+
+  return { id, writing: quietSeq !== cursor.seq };
 }
 
 /** Follows a `#fragment` link to one of the document's headings, which can sit
@@ -282,10 +323,13 @@ function DocumentBlocks({
   nodes,
   data,
   softwareMapEnabled,
+  region,
 }: {
   nodes: Block[];
   data: ApiDocumentData;
   softwareMapEnabled: boolean;
+  /** Only the top level has a region: the block the agent is editing. */
+  region?: { id: string; writing: boolean } | null;
 }) {
   const phases = useMotionPhases();
   const previous = useRef(nodes);
@@ -301,6 +345,15 @@ function DocumentBlocks({
       node={node}
       data={data}
       softwareMapEnabled={softwareMapEnabled}
+      region={
+        region === undefined
+          ? undefined
+          : !region || region.id !== node.id
+            ? "off"
+            : region.writing
+              ? "writing"
+              : "idle"
+      }
     />
   ));
 }
@@ -310,10 +363,12 @@ export const DocumentNode = memo(function DocumentNode({
   node,
   data,
   softwareMapEnabled,
+  region,
 }: {
   node: Block;
   data: ApiDocumentData;
   softwareMapEnabled: boolean;
+  region?: "writing" | "idle" | "off";
 }) {
   const session = useReviewSession();
   const motion = useMotionPhase(node.id);
@@ -345,6 +400,7 @@ export const DocumentNode = memo(function DocumentNode({
       className="api-document-node"
       data-review-node-id={node.id}
       data-motion={motion}
+      data-region={region}
       data-review-copy-prose={
         node.type === "markdown" || node.type === "trace_quote" || undefined
       }

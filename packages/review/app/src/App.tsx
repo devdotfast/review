@@ -626,6 +626,7 @@ function ReviewLayoutContent({
                   <button
                     type="button"
                     className="review-open-source-tree"
+                    aria-label="Source tree ↗"
                     ref={sourceTreeTooltip}
                     onClick={() => {
                       captureUiEvent(session, "source_tree_opened", {
@@ -637,7 +638,10 @@ function ReviewLayoutContent({
                       });
                     }}
                   >
-                    Source tree ↗
+                    <span className="review-open-source-tree-label">
+                      Source tree
+                    </span>
+                    <span aria-hidden="true">↗</span>
                   </button>
                 )}
                 <AuthoringActivityBadge

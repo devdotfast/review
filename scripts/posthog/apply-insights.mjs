@@ -19,6 +19,8 @@ import { isDeepStrictEqual, parseArgs } from "node:util";
 
 import { z } from "zod";
 
+import { HEALTH_DASHBOARD_ID, insightPlan } from "./health-insights.mjs";
+
 export const LEGACY_INSIGHTS = [
   "xXKBBHnq", "ShE8BcCY", "WIAJp6cX", "uBnJREXr", "xLA0E9yO",
   "T3CDzuLb", "4AGAFhd8", "46AVU1i1", "ZV7IyoiR", "DkCcoT9c",
@@ -195,6 +197,56 @@ async function resolveSettingsRoute({ request, project }) {
   throw new Error("Neither /api/environments/<id>/ nor /api/projects/<id>/ returned session_recording_opt_in/test_account_filters.");
 }
 
+/**
+ * Diffs the live "Review Usage and Health" dashboard's saved insights
+ * against HEALTH_INSIGHTS and appends one change per create/update onto
+ * `changes`, so the existing print/apply loop in `main` covers them too.
+ */
+export async function syncHealthDashboard({ request, project }, changes) {
+  const { results } = await request("GET", projectPath(project, "/insights/?limit=500&saved=true"));
+
+  const plan = insightPlan(
+    results.map((insight) => ({
+      id: insight.id,
+      name: insight.name,
+      query: insight.query,
+      dashboards: insight.dashboards ?? [],
+    })),
+  );
+
+  console.log(`health dashboard: create ${plan.create.length}, update ${plan.update.length}, unchanged ${plan.unchanged.length}`);
+
+  for (const spec of plan.create) {
+    changes.push({
+      what: `create health insight "${spec.name}"`,
+      run: () =>
+        request("POST", projectPath(project, "/insights/"), {
+          name: spec.name,
+          description: spec.description,
+          query: spec.query,
+          dashboards: [HEALTH_DASHBOARD_ID],
+          saved: true,
+        }),
+      diff: { query: spec.query },
+    });
+  }
+
+  for (const { id, spec } of plan.update) {
+    changes.push({
+      what: `update health insight "${spec.name}" (#${id})`,
+      run: () =>
+        request("PATCH", projectPath(project, `/insights/${id}/`), {
+          description: spec.description,
+          query: spec.query,
+          dashboards: [HEALTH_DASHBOARD_ID],
+        }),
+      diff: { query: spec.query },
+    });
+  }
+
+  return plan;
+}
+
 async function main() {
   const { values } = parseArgs({ options: { apply: { type: "boolean", default: false } } });
   const { project, request } = client();
@@ -260,6 +312,8 @@ async function main() {
 
   if (settingsCurrent) console.log("skipping project settings: already current");
   else changes.push({ what: "project settings", run: () => request("PATCH", settingsPath, plannedSettings), diff: plannedSettings });
+
+  await syncHealthDashboard({ request, project }, changes);
 
   for (const change of changes) {
     console.log(`${values.apply ? "applying" : "would apply"}: ${change.what}`);

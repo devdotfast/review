@@ -58,6 +58,7 @@ interface Lenses {
   unfoldRanges: readonly FileLineRange[];
   busy: boolean;
   error: string | null;
+  structuralDiffEnabled: boolean;
 }
 
 export type ReviewLensView = Pick<Lenses, "progress" | "resolve" | "error">;
@@ -245,6 +246,7 @@ export function ReviewLensesProvider({
       unfoldRanges,
       busy,
       error,
+      structuralDiffEnabled,
       select: (id) => {
         if (lenses.some((item) => item.id === id && !item.unavailable))
           setActiveId(id);
@@ -297,6 +299,7 @@ export function ReviewLensesProvider({
       unfoldRanges,
       busy,
       error,
+      structuralDiffEnabled,
       client,
       route,
       snapshot,

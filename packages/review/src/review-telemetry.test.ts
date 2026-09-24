@@ -24,6 +24,7 @@ import {
   ReviewTelemetry,
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
+  accountAlias,
 } from "./review-telemetry";
 import { recordOpenSession } from "./session-markers";
 import {
@@ -35,6 +36,15 @@ import {
 
 // A process that has exited: the owner of a session that died with it.
 const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
+
+// Two Desktop launches' session ids, UUIDv7 as Electron main mints them.
+const LAUNCH_A = "01997a3c-8f10-7a2b-9c3d-4e5f60718293";
+
+const LAUNCH_B = "01997a3d-0000-7bcd-8ef0-123456789abc";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const COMMAND = { command: "info", commandRunId: "run-12345678" } as const;
 
 describe("ReviewTelemetry", () => {
   const cleanupPaths: string[] = [];
@@ -77,6 +87,106 @@ describe("ReviewTelemetry", () => {
     );
   });
 
+  it("aliases the install to the first hashed account id only, and turns person profiles on", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-1",
+      exitCode: 0,
+    });
+    expect(events[0].properties).toMatchObject({
+      $process_person_profile: false,
+    });
+
+    await telemetry.captureAccountAlias(async () => "account-12345");
+    await telemetry.captureAccountAlias(async () => "account-12345");
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-2",
+      exitCode: 0,
+    });
+
+    const aliases = events.filter((event) => event.event === "$create_alias");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].distinctId).toBe(events[0].distinctId);
+    expect(aliases[0].properties).toMatchObject({
+      alias: accountAlias("account-12345"),
+      $process_person_profile: true,
+    });
+    expect(accountAlias("account-12345")).toMatch(/^gh_[A-Za-z0-9_-]{22}$/);
+    expect(JSON.stringify(events)).not.toContain("account-12345");
+    expect(events.at(-1)?.properties).toMatchObject({
+      $process_person_profile: true,
+    });
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
+
+    // The first account wins: another login must not merge a second account
+    // into this install's person.
+    await telemetry.captureAccountAlias(async () => "account-67890");
+    expect(
+      events.filter((event) => event.event === "$create_alias"),
+    ).toHaveLength(1);
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
+  });
+
+  it("records tool calls, keeping only identifier-shaped tool names", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureToolCalled({
+      tool: "session_create",
+      via: "mcp",
+      ok: true,
+      durationMs: 41.6,
+    });
+    await telemetry.captureToolCalled({
+      tool: "Weird Name/../x",
+      via: "api",
+      ok: false,
+      durationMs: -1,
+    });
+
+    expect(
+      events.map(({ event, properties }) => [
+        event,
+        properties?.tool,
+        properties?.via,
+        properties?.ok,
+        properties?.duration_ms,
+      ]),
+    ).toEqual([
+      ["review_mcp_tool_called", "session_create", "mcp", true, 42],
+      ["review_mcp_tool_called", "other", "api", false, 0],
+    ]);
+  });
+
+  it("sends a $exception twin after every client error", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureUiEvent("review_client_error", {
+      error_source: "window",
+      error_process: "canvas",
+      error_name: "TypeError",
+      message_hash: "0123456789abcdef",
+    });
+
+    expect(events.map((event) => event.event)).toEqual([
+      "review_client_error",
+      "$exception",
+    ]);
+    expect(events[1].properties).toMatchObject({
+      source: "review_app",
+      error_name: "TypeError",
+      $exception_fingerprint: "0123456789abcdef",
+    });
+  });
+
   it("sends one envelope on every event", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: {
@@ -114,6 +224,159 @@ describe("ReviewTelemetry", () => {
     });
     expect(events[0].properties).not.toHaveProperty("product");
     expect(events[0].properties).not.toHaveProperty("package");
+    // PostHog accepts only a UUIDv7 as a session id.
+    expect(events[0].properties).not.toHaveProperty("$session_id");
+  });
+
+  it("sends the install's age in whole days since it was created", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 3.5 * DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 3,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+    await expect(telemetry.envelope()).resolves.toMatchObject({
+      install_age_days: 3,
+    });
+  });
+
+  it("counts an existing install's age from the first time an upgrade saw it", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, {
+      installationId: "existing-install",
+      installationCreatedSent: true,
+      enabled: true,
+    });
+
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 10 * DAY_MS;
+    await telemetry.flush();
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 10,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "existing-install",
+      createdAt: "2026-01-02T03:04:05.000Z",
+    });
+  });
+
+  it("does not let an opt-out check fix the backfilled creation time", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, { installationId: "existing-install" });
+
+    // Reads the config before anything has written the backfill.
+    await telemetry.flush();
+    clock += DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+    clock += 2 * DAY_MS;
+    await telemetry.captureCommandStarted(COMMAND);
+
+    expect(events.map((event) => event.properties?.install_age_days)).toEqual([
+      0, 2,
+    ]);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      createdAt: "2026-01-03T03:04:05.000Z",
+    });
+  });
+
+  it("mirrors a UUIDv7 app session id into $session_id, following any override", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_A },
+      surface: "desktop",
+    });
+
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureCommandStarted({
+      command: "info",
+      commandRunId: "run-12345678",
+    });
+    await telemetry.captureTabViewed({
+      tab: "map",
+      durationMs: 300,
+      reason: "tab_change",
+      appSessionId: LAUNCH_B,
+    });
+    await telemetry.captureUiEvent("review_app_opened", {
+      app_session_id: "canvas-fallback-0123456789",
+    });
+
+    expect(
+      events.map(({ properties }) => [
+        properties?.app_session_id,
+        properties?.$session_id,
+      ]),
+    ).toEqual([
+      [LAUNCH_A, LAUNCH_A],
+      [LAUNCH_B, LAUNCH_B],
+      ["canvas-fallback-0123456789", undefined],
+    ]);
+    expect(events[2].properties).not.toHaveProperty("$session_id");
+    await expect(telemetry.envelope()).resolves.toMatchObject({
+      app_session_id: LAUNCH_A,
+      $session_id: LAUNCH_A,
+    });
+  });
+
+  it("reports time on the files tab as a diff view of the same review", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+
+    cleanupPaths.push(rootPath);
+    await telemetry.captureTabViewed(
+      {
+        tab: "review",
+        durationMs: 100,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+    await telemetry.captureTabViewed(
+      {
+        tab: "files",
+        durationMs: 4_200,
+        reason: "tab_change",
+        appSessionId: LAUNCH_A,
+      },
+      { reviewUuid: "review-1" },
+    );
+
+    expect(events.map(({ event }) => event)).toEqual([
+      "review_tab_viewed",
+      "review_tab_viewed",
+      "review_diff_viewed",
+    ]);
+    expect(events[2].properties).toMatchObject({
+      duration_ms: 4_200,
+      app_session_id: LAUNCH_A,
+      review_id: events[1].properties?.review_id,
+    });
+    expect(events[2].properties?.review_id).toEqual(expect.any(String));
   });
 
   it("defaults to the cli surface and the stable channel", async () => {
@@ -264,6 +527,25 @@ describe("ReviewTelemetry", () => {
     expect(captureClient.defaults).toMatchObject({ surface: "headless" });
   });
 
+  it("sends events only through a real client with telemetry on", async () => {
+    const enabled = createTelemetry();
+    cleanupPaths.push(enabled.rootPath);
+    await expect(enabled.telemetry.sendsEvents()).resolves.toBe(true);
+    await enabled.telemetry.setEnabled(false);
+    await expect(enabled.telemetry.sendsEvents()).resolves.toBe(false);
+
+    const printed = createTelemetry({
+      captureClient: {
+        enabled: true,
+        ignoresOptOut: true,
+        capture: async () => undefined,
+      },
+    });
+
+    cleanupPaths.push(printed.rootPath);
+    await expect(printed.telemetry.sendsEvents()).resolves.toBe(false);
+  });
+
   it("preserves the stored internal marker when the telemetry setting changes", async () => {
     const { configPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -375,6 +657,24 @@ describe("ReviewTelemetry", () => {
       expect(events[0].properties).not.toHaveProperty("app_version");
     },
   );
+
+  it("does not look up the account to alias when telemetry is off", async () => {
+    const { events, rootPath, telemetry } = createTelemetry({
+      env: { DO_NOT_TRACK: "1" },
+    });
+
+    cleanupPaths.push(rootPath);
+    let lookups = 0;
+
+    await telemetry.captureAccountAlias(async () => {
+      lookups++;
+
+      return "account-12345";
+    });
+
+    expect(lookups).toBe(0);
+    expect(events).toEqual([]);
+  });
 
   it("does not write config or send events when DO_NOT_TRACK is set", async () => {
     const { configPath, events, markersPath, rootPath, telemetry } =
@@ -521,14 +821,18 @@ describe("ReviewTelemetry", () => {
       { reviewUuid, presentationSessionId },
     );
 
+    // events[2] is the client error's $exception twin, scoped the same way.
     const firstIds = first.events[0].properties!;
     const repeatedIds = first.events[1].properties!;
-    const otherEntityIds = first.events[2].properties!;
+    const twinIds = first.events[2].properties!;
+    const otherEntityIds = first.events[3].properties!;
     const otherInstallIds = second.events[0].properties!;
     expect(firstIds.review_id).toMatch(/^rv_[A-Za-z0-9_-]{22}$/);
     expect(firstIds.presentation_id).toMatch(/^pr_[A-Za-z0-9_-]{22}$/);
     expect(repeatedIds.review_id).toBe(firstIds.review_id);
     expect(repeatedIds.presentation_id).toBe(firstIds.presentation_id);
+    expect(twinIds.review_id).toBe(firstIds.review_id);
+    expect(twinIds.presentation_id).toBe(firstIds.presentation_id);
     expect(otherEntityIds.review_id).not.toBe(firstIds.review_id);
     expect(otherEntityIds.presentation_id).not.toBe(firstIds.presentation_id);
     expect(otherInstallIds.review_id).not.toBe(firstIds.review_id);
@@ -694,13 +998,13 @@ describe("ReviewTelemetry", () => {
 
     const versionA = launch({
       [REVIEW_APP_VERSION_ENV]: "1.0.0",
-      [REVIEW_APP_SESSION_ID_ENV]: "app-a",
+      [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_A,
       [REVIEW_TELEMETRY_ENV_ENV]: "e2e",
     });
 
     await versionA.telemetry.captureUiEvent(
       "review_session_started",
-      { app_session_id: "app-a" },
+      { app_session_id: LAUNCH_A },
       {
         reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
         presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
@@ -712,13 +1016,16 @@ describe("ReviewTelemetry", () => {
       envelope: JsonObject;
     }[];
 
+    expect(marker.envelope.$session_id).toBe(LAUNCH_A);
+    expect(marker.envelope.install_age_days).toBe(0);
     marker.envelope.cli_version = "0.9.0";
+    marker.envelope.install_age_days = 7;
     marker.envelope.version = "0.9.0";
     await writeFile(markersPath, JSON.stringify([marker]));
 
     const versionB = launch({
       [REVIEW_APP_VERSION_ENV]: "2.0.0",
-      [REVIEW_APP_SESSION_ID_ENV]: "app-b",
+      [REVIEW_APP_SESSION_ID_ENV]: LAUNCH_B,
     });
 
     await versionB.telemetry.reconcileOpenSessions();
@@ -726,7 +1033,9 @@ describe("ReviewTelemetry", () => {
     expect(versionB.events).toHaveLength(1);
     expect(versionB.events[0].properties).toMatchObject({
       outcome: "abnormal",
-      app_session_id: "app-a",
+      app_session_id: LAUNCH_A,
+      $session_id: LAUNCH_A,
+      install_age_days: 7,
       app_version: "1.0.0",
       cli_version: "0.9.0",
       version: "0.9.0",
@@ -822,6 +1131,60 @@ describe("ReviewTelemetry", () => {
     expect(at("review_session_started")).toBeLessThan(
       at("review_review_presented")!,
     );
+  });
+
+  it("does not hold the shared markers lock while it waits on its own config", async () => {
+    const { configPath, markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await mkdir(rootPath, { recursive: true });
+
+    const lockOptions = {
+      retryMs: 10,
+      staleMs: 30_000,
+      timeoutMs: 1_000,
+      unownedGraceMs: 1_000,
+      heartbeatMs: 5_000,
+    };
+
+    // A slow config lock (another process rewriting the telemetry config).
+    let releaseConfig = () => {};
+
+    const configHeld = withFileLock(
+      `${configPath}.lock`,
+      lockOptions,
+      () => new Promise<void>((resolve) => (releaseConfig = resolve)),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const started = telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Another Desktop on this home can still take the markers lock.
+    const other = await withFileLock(
+      `${markersPath}.lock`,
+      { ...lockOptions, timeoutMs: 50 },
+      async () => undefined,
+    );
+
+    releaseConfig();
+    await Promise.all([configHeld, started]);
+
+    expect(other.acquired).toBe(true);
+
+    const [marker] = JSON.parse(await readFile(markersPath, "utf8")) as {
+      envelope?: JsonObject;
+    }[];
+
+    expect(marker.envelope).toMatchObject({ surface: "cli" });
   });
 
   it("leaves sessions owned by a live process open", async () => {
@@ -1031,6 +1394,43 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("under the debug sink, prints each announcement once per process without persisting it", async () => {
+    const printed: string[] = [];
+
+    const captureClient: ReviewTelemetryCaptureClient = {
+      enabled: true,
+      ignoresOptOut: true,
+      capture: async (event) => void printed.push(event.event),
+    };
+
+    const { configPath, rootPath, telemetry } = createTelemetry({
+      captureClient,
+    });
+
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+
+    expect(printed).toEqual([
+      "review_installation_created",
+      "review_review_presented",
+      "review_first_review_presented",
+      "review_review_presented",
+    ]);
+    const stored = await readStoredConfig(configPath);
+
+    expect(stored.installationCreatedSent).toBeFalsy();
+    expect(stored.firstReviewPresentedSent).toBeFalsy();
+  });
+
   it("leaves global client errors unscoped", async () => {
     const { events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -1040,9 +1440,15 @@ describe("ReviewTelemetry", () => {
       error_name: "TypeError",
     });
 
-    expect(events).toHaveLength(1);
-    expect(events[0].properties).not.toHaveProperty("review_id");
-    expect(events[0].properties).not.toHaveProperty("presentation_id");
+    expect(events.map((event) => event.event)).toEqual([
+      "review_client_error",
+      "$exception",
+    ]);
+
+    for (const event of events) {
+      expect(event.properties).not.toHaveProperty("review_id");
+      expect(event.properties).not.toHaveProperty("presentation_id");
+    }
   });
 
   it("returns the stable installation id without sending telemetry", async () => {

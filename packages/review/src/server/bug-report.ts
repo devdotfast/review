@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { gzipSync } from "node:zlib";
 
+import { type JsonValue } from "@dev.fast/json";
 import {
   type ReviewBugReportMetaV2,
   type ReviewBugReportRequest,
@@ -55,7 +56,7 @@ export interface BugReportPayload {
     // missing module as a rendering bug unless the report says it dropped one.
     review_omitted_files?: string[];
     /** The telemetry envelope, so triage can tell channel, environment and surface apart. */
-    telemetry?: Record<string, string | number | boolean | null>;
+    telemetry?: Record<string, JsonValue>;
   };
 }
 
@@ -101,8 +102,7 @@ export async function submitReviewBugReport(input: {
   if (input.telemetryEnvelope) {
     payload.diagnostics.telemetry = Object.fromEntries(
       Object.entries(input.telemetryEnvelope).filter(
-        (entry): entry is [string, string | number | boolean | null] =>
-          entry[1] !== undefined,
+        (entry): entry is [string, JsonValue] => entry[1] !== undefined,
       ),
     );
   }

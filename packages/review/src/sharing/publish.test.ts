@@ -27,6 +27,7 @@ it.each([
     const registered = Promise.withResolvers<void>();
     const shareId = randomUUID();
     const requests: string[] = [];
+    const published: unknown[] = [];
     let manifest: { objects: { id: string }[] };
 
     const signed = (id: string) => ({
@@ -57,6 +58,7 @@ it.each([
         {
           readRepository: async () => fixture.repository,
           verifyRepository: () => check.promise,
+          onPublished: (event) => published.push(event),
           fetch: async (input, init) => {
             const url = new URL(String(input));
             requests.push(`${init?.method} ${url.pathname}`);
@@ -119,6 +121,10 @@ it.each([
         );
       const result = await response;
       expect(result.status).toBe(verified ? 200 : 422);
+      const version = fixture.store.read(fixture.reviewId).version;
+      expect(published).toEqual(
+        verified ? [{ reviewId: fixture.reviewId, version }] : [],
+      );
 
       expect(requests.filter((r) => r.startsWith("PUT")).length).toBe(
         verified ? manifest!.objects.length + 1 : 1,

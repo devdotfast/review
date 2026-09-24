@@ -7,7 +7,7 @@ This page is the complete public contract for Review Desktop and CLI telemetry.
 For a shorter overview of all product data, including local files, coding
 agents, and bug reports, see [Privacy](privacy.md).
 
-Last checked against this repository: 2026-09-23.
+Last checked against this repository: 2026-09-24.
 
 ## The short version
 
@@ -18,10 +18,10 @@ Last checked against this repository: 2026-09-23.
 - Passive telemetry never includes your code, diffs, file paths, repository
   name, Review title, refs, revision hashes, raw Review UUID, coding-agent
   session ID, Review text, prompts, or model output.
-- Review uses a random installation ID. It does not use your email, username,
-  hostname, or a hardware identifier. Every event is sent to PostHog with
-  `$process_person_profile: false`, so PostHog never creates a person profile
-  for it.
+- Review uses a random installation ID, never your email, username, hostname,
+  or a hardware identifier. Events carry `$process_person_profile: false`
+  until you sign in with GitHub; after that PostHog keeps a person profile
+  linking every installation signed into the same account.
 - Product errors may include a cleaned error message and Review-only stack
   frames. Paths, web and email addresses, and recognizable secrets are removed
   on your machine before the event is accepted.
@@ -66,7 +66,7 @@ dialog. Bug reports do not pass through the passive telemetry system.
 | CLI usage       | Command category, success or failure, duration            | Command arguments, refs, process output, or exception text      |
 | Code navigation | Feature category, language category, editor surface       | Symbols, declarations, search text, or source code              |
 | Extensions      | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data             |
-| Review outcome  | Dismiss or restore                                        | Review text or reviewer identity                                |
+| Review outcome  | Dismiss, restore, or delete                               | Review text or reviewer identity                                |
 | Reliability     | Error class, cleaned message, Review-only stack frames    | User paths, repository frames, secrets, or authored Review text |
 
 Every event is checked against an allowlist on your machine. Unknown events,
@@ -77,10 +77,21 @@ The full event-by-event list begins at [Event reference](#event-reference).
 
 On first use, Review creates a random installation UUID and stores it at
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
-PostHog's `identify()` API, and it sends every event, including
-`review_telemetry_dropped`, with `$process_person_profile: false`, which tells
-PostHog to process it as a personless event and never create a person profile
-for that ID.
+PostHog's `identify()` API. Every event, including `review_telemetry_dropped`,
+carries `$process_person_profile: false` — a personless event PostHog never
+attaches to a profile — until the installation is linked to a GitHub account.
+
+**Account alias.** After a successful GitHub sign-in in Review Desktop, Review
+sends one `$create_alias{alias, $process_person_profile: true}` linking the
+installation ID to `gh_` plus 16 bytes of a namespaced HMAC of the signed-in
+account id. The account id, login, and email never leave the machine, and the
+hash cannot be reversed. From then on this installation's events carry
+`$process_person_profile: true`, so PostHog keeps one person profile joining
+every installation aliased to that account. Only the first account signed
+into an installation is aliased; a later sign-in to a different account sends
+nothing, and signing out does not remove the link. `review login` from the
+CLI aliases the same way, but only Desktop sign-in sends the
+`review_login_started|succeeded|failed` funnel below.
 
 Review Desktop Preview keeps a separate installation id in
 `telemetry/progressive-review.preview.json`. The standalone CLI always uses the
@@ -90,7 +101,9 @@ Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
 events, retries temporary failures, and deletes events after seven days. Each
 event keeps one random `uuid` across retries, so PostHog ingests a resent event
-once, and its `timestamp` is when it happened, not when it was sent.
+once, and its `timestamp` is when it happened, not when it was sent. A
+`review_telemetry_dropped` count is queued the same way, so a resent count lands
+once too.
 Telemetry is best-effort and never blocks Review from working.
 
 Three identifiers support exact lifecycle correlation without PostHog identity
@@ -164,7 +177,10 @@ Every event from the Review telemetry API includes these properties:
 | `os_version`     | Kernel release string                                              |
 | `ci`             | Boolean                                                            |
 | `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
-| `app_session_id` | One random id per Desktop launch, shared by every Desktop process  |
+| `app_session_id` | One UUIDv7 per Desktop launch, shared by every Desktop process     |
+| `install_age_days` | Whole days since this installation id was created (for an install older than this field, since the first run that recorded it) |
+| `$session_id`    | The same id as `app_session_id`, so PostHog groups a launch's events into one session; absent when the id is not a UUIDv7 |
+| `$process_person_profile` | `false` until this installation is aliased to a GitHub account (see "Identity and storage"), then `true` |
 
 `environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
 (`CI` set), `internal`, `production`.
@@ -191,20 +207,36 @@ events.
 | `review_review_presented`         | `load_ms`, `review_id`, `presentation_id`                   | The canvas signals ready                            |
 | `review_first_review_presented`   | `review_id`, `presentation_id`                              | The first presented review on this installation     |
 | `review_session_ended`            | `outcome`, `duration_ms`, `review_id`, `presentation_id`    | The review closes; see outcomes below               |
-| `review_review_deleted`           | None                                                        | A user deletes a stored review                      |
 | `review_review_reaped`            | `retention_days`                                            | Retention deletes a dismissed review                |
 | `review_telemetry_dropped`        | `reason`, `count`                                           | The queue drops one or more events                  |
+| `review_crash`                    | `process` in `renderer`, `gpu`, `utility`, `server`, `unknown`; `reason` (≤40 chars); `exit_code`; `uptime_ms`; `source` in `live`, `minidump` | A Review process dies, or an uncovered dump is found on the next launch |
+| `review_hang_started`             | None                                                        | A Desktop window stops responding                    |
+| `review_hang_ended`               | `duration_ms`                                               | The window responds again, its process dies, or it closes |
+| `review_ui_stall`                 | `duration_ms`; `process` in `renderer`, `canvas` (`canvas` is allowlisted but not sent — it shares the workbench thread); `phase` in `startup`, `running` | The main thread lags 2 seconds or more behind a timer tick; capped at 5 per session |
+| `review_app_ready`                | `duration_ms`                                                | The workbench restores, timed from the startup trace; once per Desktop launch |
+| `review_error_burst`              | `message_hash`, `suppressed`                                 | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
+| `review_open_timeout`             | `elapsed_ms`, `review_id`, `presentation_id`                 | A session starts and no presented or ended event follows within 30 seconds |
+| `review_review_created`           | `via` in `api`, `mcp`, `other`; `kind` in `review`, `scratchpad`; `blocks`; optional `agent_kind` | A review or scratchpad is created; `via` is `other` for Desktop's own UI |
+| `review_review_published`         | `version`                                                    | A review is published for sharing                    |
+| `review_review_revoked`           | None                                                         | A share link is revoked                               |
+| `review_authoring_completed`      | `duration_ms`; optional `agent_kind`                         | The first publish of a review created via `api` or `mcp`, timed from its creation |
+| `review_mcp_tool_called`          | `tool`; `via` in `api`, `mcp`; `ok`; `duration_ms`           | An agent calls a Review authoring tool                |
+| `review_login_started`            | None                                                          | Desktop GitHub sign-in begins                         |
+| `review_login_succeeded`          | None                                                          | Desktop GitHub sign-in finishes                       |
+| `review_login_failed`             | `reason` in `did_not_finish`, `error`                        | Desktop GitHub sign-in fails                          |
+| `$exception`                      | Same fields as `review_client_error`, in PostHog's error-tracking shape | Sent alongside every `review_client_error`, for one release |
+| `$create_alias`                   | `alias`, `$process_person_profile: true`                     | The first GitHub sign-in on this installation; see "Identity and storage" |
 
 `review_session_started` also carries `source_kind`, which the server sets from
 the opened review. `agent_kind` is allowlisted but not yet sent.
 
-| `outcome`  | Meaning                                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `closed`   | The tab closed or another review replaced it                                                                                                |
-| `app_quit` | The Desktop quit with the review open                                                                                                       |
-| `abnormal` | The Desktop died with the review open. Sent by the next launch, without `duration_ms`, with the dead launch's envelope and `app_session_id` |
-
-`dismissed` and `deleted` are reserved.
+| `outcome`   | Meaning                                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`    | The tab closed or another review replaced it                                                                                                |
+| `dismissed` | The open review was dismissed while its session was active                                                                                  |
+| `deleted`   | The open review was deleted while its session was active                                                                                    |
+| `app_quit`  | The Desktop quit, or reloaded, with the review open                                                                                          |
+| `abnormal`  | The Desktop died with the review open. Sent by the next launch, without `duration_ms`, with the dead launch's envelope and `app_session_id` |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
 `version`, `app.launch`, `app.pick`, `info`, `instances`, `instances.use`,
@@ -249,9 +281,17 @@ listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
 | `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
+| `review_diff_viewed`              | `duration_ms`                                                                                                                                                  | A files tab dwell period ends; the server derives it from `review_tab_viewed`, the canvas does not send it |
 | `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                   | A user opens a code peek                     |
-| `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek resolves                         |
-| `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek does not resolve                 |
+| `review_peek_resolved`            | `root_kind` in range                                                                                                                                            | A code peek resolves                         |
+| `review_peek_resolve_failed`      | `root_kind` in range                                                                                                                                            | A code peek does not resolve                 |
+| `review_diff_opened`              | `kind` in commit, file, structural; `via` in topbar, lens, locate                                                                                              | A user opens a diff view                     |
+| `review_scratchpad_opened`        | None                                                                                                                                                           | The one scratchpad document opens            |
+| `review_discord_clicked`          | `via` in topbar, dialog, docs                                                                                                                                 | A user clicks a Discord invite               |
+| `review_discord_dialog_shown`     | None                                                                                                                                                           | The community invite dialog opens            |
+| `review_discord_dialog_dismissed` | None                                                                                                                                                           | The community invite dialog closes unaccepted |
+| `review_review_shared`            | None                                                                                                                                                           | A user copies a review's share link          |
+| `review_review_deleted`           | `via` in home                                                                                                                                                  | A user deletes a stored review from Home     |
 | `review_tour_started`             | `steps`                                                                                                                                                        | A user starts a tour                         |
 | `review_tour_step_advanced`       | `step`, `steps`                                                                                                                                                | A user moves to the next tour step           |
 | `review_tour_abandoned`           | `step`, `steps`                                                                                                                                                | A user closes an incomplete tour             |
@@ -267,32 +307,36 @@ listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 | `review_bug_report_dialog_opened` | None                                                                                                                                                           | A user opens the bug report dialog           |
 | `review_bug_report_cancelled`     | None                                                                                                                                                           | A user closes the dialog without a report    |
 | `review_bug_report_send_failed`   | Short `error_name`                                                                                                                                             | A bug report request fails                   |
-| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled; `enabled`                                                              | A user changes a Review setting              |
+| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled, scratchpad_enabled, diffr_config, structural_diff, theme; `enabled`; `value` in dark, light, system (theme only) | A user changes a Review setting              |
 | `review_review_opened`            | `via` in home, cli, other                                                                                                                                      | A user opens a review                        |
 | `review_home_empty_state_viewed`  | None                                                                                                                                                           | The empty Home state opens                   |
 
-The server emits `review_review_dismissed` after it stores a dismissal. Its property is `via` in
-review_topbar, home.
+The canvas emits `review_review_dismissed`, `review_review_restored`, and
+`review_review_deleted` from Home's actions. `review_review_dismissed`'s `via`
+is `home` today; `review_topbar` is allowlisted but not yet sent.
+`review_review_restored`'s `via` is `home` in the current build; `open` — the
+implicit undo, where opening a dismissed review brings it back — is
+allowlisted but not yet sent.
 
-The server emits `review_review_restored` when a dismissal ends. Its property
-is `via` in home, open. The `home` value is the Undo button. The `open` value
-is the implicit undo: a reader who opens a dismissed review brings it back.
+## Hangs and stalls
 
-## Suspected hangs
+Three explicit signals replace the old inferred gap queries:
 
-A Desktop session that never ends cleanly arrives as
+- `review_hang_started` and `review_hang_ended{duration_ms}`, from Electron's
+  window `unresponsive` and `responsive` events.
+- `review_ui_stall{duration_ms, process, phase}`, from a main-thread timer-lag
+  watchdog in the workbench, threshold 2 seconds, capped at 5 per session.
+- `review_open_timeout{elapsed_ms}`, from the server when a review session
+  starts and no `review_review_presented` or `review_session_ended` follows
+  within 30 seconds.
+
+A Desktop session that never ends cleanly still arrives as
 `review_session_ended{outcome:"abnormal"}`: Review records open sessions under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch reports any its
-predecessor left open.
-
-Operational queries also flag a start with no terminal event after five
-minutes:
-
-- a command start with no success or failure sharing `command_run_id`; or
-- a session start with no presentation sharing `presentation_id`.
-
-This observes lifecycle gaps; it does not time out or kill work. A late
-terminal or ready event removes the match automatically.
+predecessor left open. A workbench reload also ends its session with
+`outcome:"app_quit"`, the same as quitting; the health dashboard's session and
+lifecycle insights drop an `app_quit` immediately followed by a new session in
+the same `app_session_id`, so a reload is never counted as a failure.
 
 ### Workbench events
 
@@ -320,7 +364,16 @@ does not send an extension version.
 Review reports its own failures so that a defect that only happens on your
 machine can still be found and fixed. Four parts of Review report an error: the
 app window, the canvas, the background process, and a crash that happens before
-Review can start.
+Review can start. The canvas shares the app window, so an uncaught error there
+is reported once, by the app window; the canvas reports only errors it catches
+itself.
+
+Every `review_client_error` also sends the same fields as a PostHog
+`$exception`, so PostHog's error tracking and the custom event agree;
+`review_client_error` keeps sending for one release, then is removed. The
+server keeps a per-session budget of 5 reports for one `message_hash`; past that,
+Review sends one `review_error_burst{message_hash, suppressed}` in its place
+and drops the rest, so one repeating error cannot count as thousands.
 
 Review sends these properties with the `review_client_error` event. A
 `review_update_failed` event uses the same server-side message cleaning and
@@ -383,6 +436,25 @@ extension is dropped whole, not shortened.
 
 The local Review server does this work, and the event allowlist checks every
 frame a second time. Both steps run on your machine, before anything is sent.
+
+### Crash reports
+
+When a Review process dies, Review records a `review_crash` with the process
+kind, Electron's reason code, and the exit code — no message or stack.
+Electron also writes a local minidump under `<user data>/review-crashes`,
+never uploaded from Electron itself. On the next launch, an uncovered dump
+(one no live crash already reported) is counted too, as
+`review_crash{process:"unknown", source:"minidump"}`, and uploaded to the
+bug-report service (`bug.dev.fast`) with the telemetry envelope as metadata,
+then deleted; a dump older than seven days is deleted without upload. With
+telemetry off, dumps are still deleted but never uploaded, and no
+`review_crash` is reported for them. A minidump contains process memory and
+can include source text open in Review at the time of the crash. Reports are
+stored for 30 days.
+
+The Worker sends its own `review_crash_uploaded` event once a dump is stored,
+with the report ID, the report date, and the same crash and envelope fields —
+never the dump itself.
 
 ## User-initiated bug reports
 
@@ -469,3 +541,11 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 | Desktop setting            | `apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts`                     |
 | Settings screen            | `packages/review/app/src/settings-page.tsx`                                                    |
 | First-use notice           | `apps/review-desktop/code-oss/src/vs/review/contrib/telemetry/reviewTelemetry.contribution.ts` |
+| Error budget and bursts    | `packages/review/src/server/client-error-budget.ts`                                            |
+| Account alias              | `packages/review/src/server/account-alias.ts`                                                  |
+| Review lifecycle events    | `packages/review/src/server/review-lifecycle-telemetry.ts`                                     |
+| Open-timeout watchdog      | `packages/review/src/server/review-open-watchdog.ts`                                           |
+| Crash dump upload          | `packages/review/src/server/crash-report.ts`                                                   |
+| Crash and hang listeners   | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashTelemetry.ts`              |
+| Crash dump reconciliation  | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashDumps.ts`                  |
+| Main-thread stall watchdog | `apps/review-desktop/code-oss/src/vs/review/common/reviewStallWatchdog.ts`                      |

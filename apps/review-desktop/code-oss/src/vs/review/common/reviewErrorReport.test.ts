@@ -88,3 +88,14 @@ test("the limiter refuses to run inside itself", () => {
 	});
 	assert.equal(depth, 1);
 });
+
+test("the limiter sends a spaced-out repeat every time, leaving the per-error budget to the server", () => {
+	let now = 0;
+	const limiter = new ReviewErrorReportLimiter(200, () => now);
+	let sent = 0;
+	for (let i = 0; i < 8; i++) {
+		now += 5_000;
+		limiter.report(errorWithStack("same"), () => { sent++; });
+	}
+	assert.equal(sent, 8);
+});

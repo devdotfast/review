@@ -22,6 +22,7 @@ import {
   resolveReviewServerEntry,
 } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_SERVER_RESTART_DELAYS } from "../common/reviewReconnect.js";
+import { uuidV7 } from "../common/reviewUuidV7.js";
 
 /**
  * The slice of `UtilityProcess` the supervisor drives. Depending on this rather
@@ -44,6 +45,19 @@ export interface IReviewServerProcess extends IDisposable {
   kill(): void;
 }
 
+/**
+ * The server's utility process type. UtilityProcess names the Electron service
+ * `<type>-<id>`, which is the name `child-process-gone` reports.
+ */
+export const REVIEW_SERVER_PROCESS_TYPE = "review-desktop-host";
+
+/** How a server process ended, as its supervisor saw it. */
+export interface ReviewServerTermination {
+  readonly code?: number;
+  readonly signal?: string;
+  readonly reason: string;
+}
+
 /** `dev` marks an unpackaged run; packaged builds take `quality` from product.json. */
 export type ReviewReleaseChannel = "stable" | "preview" | "dev";
 
@@ -63,6 +77,12 @@ export interface ReviewServerSupervisorOptions {
   readonly createProcess: () => IReviewServerProcess;
   readonly telemetryEnabled?: boolean;
   readonly userExtensionsPath?: string;
+  /** Electron's Review crash dump directory; the server uploads only from it. */
+  readonly crashDumpsDir?: string;
+  /** A server process that died on its own; deliberate stops never report. */
+  readonly onServerTerminated?: (detail: ReviewServerTermination) => void;
+  /** Called every time a server, first or restarted, announces its endpoint. */
+  readonly onServerReady?: () => void;
 }
 
 export function createReviewServerEnvironment(options: {
@@ -80,6 +100,7 @@ export function createReviewServerEnvironment(options: {
   readonly rustAnalyzerSource?: string;
   readonly appSessionId: string;
   readonly channel: ReviewReleaseChannel;
+  readonly crashDumpsDir?: string;
 }): Record<string, string | undefined> {
   return {
     ...options.applicationEnvironment,
@@ -104,6 +125,7 @@ export function createReviewServerEnvironment(options: {
     DEV_FAST_REVIEW_RUST_ANALYZER: options.rustAnalyzerSource,
     DEV_FAST_REVIEW_APP_SESSION_ID: options.appSessionId,
     DEV_FAST_REVIEW_CHANNEL: options.channel,
+    DEV_FAST_REVIEW_CRASH_DUMPS_DIR: options.crashDumpsDir,
   };
 }
 
@@ -201,9 +223,10 @@ export class ReviewServerSupervisor extends Disposable {
   /**
    * One id per app launch. A restarted server inherits it, so the sessions it
    * left open still belong to this launch, and every renderer reads it from
-   * the connection instead of minting its own.
+   * the connection instead of minting its own. A UUIDv7, because it doubles
+   * as PostHog's `$session_id`.
    */
-  private readonly appSessionId = randomUUID();
+  readonly appSessionId = uuidV7();
 
   private readonly connected = new DeferredPromise<ReviewDesktopConnection>();
   private readonly readyTimeout: number;
@@ -311,6 +334,7 @@ export class ReviewServerSupervisor extends Disposable {
           );
           void this.connected.complete(connection);
         }
+        this.options.onServerReady?.();
       }),
     );
     this.processListeners.add(
@@ -320,15 +344,16 @@ export class ReviewServerSupervisor extends Disposable {
     );
 
     let terminated = false;
-    const onTerminated = (detail: string) => {
+    const onTerminated = (detail: ReviewServerTermination, died = true) => {
       if (terminated) return;
       terminated = true;
       this.options.logError(
-        `[Review Desktop] server host terminated: ${detail}`,
+        `[Review Desktop] server host terminated: ${detail.reason}`,
       );
       this.serverProcess = undefined;
       this.processListeners.dispose();
       if (this.stopping) return;
+      if (died) this.options.onServerTerminated?.(detail);
       if (!ready && !this.connected.isSettled) {
         this.options.logError(
           "[Review Desktop] server host exited before announcing an endpoint.",
@@ -347,14 +372,19 @@ export class ReviewServerSupervisor extends Disposable {
     };
     this.processListeners.add(
       serverProcess.onExit((event) =>
-        onTerminated(
-          `exit ${event.code ?? "unknown"} (${event.signal ?? "no signal"})`,
-        ),
+        onTerminated({
+          code: event.code,
+          signal: event.signal || undefined,
+          reason: `exit ${event.code ?? "unknown"} (${event.signal || "no signal"})`,
+        }),
       ),
     );
     this.processListeners.add(
       serverProcess.onCrash((event) =>
-        onTerminated(`${event.reason} (${event.code ?? "unknown"})`),
+        onTerminated({
+          code: event.code,
+          reason: `${event.reason} (${event.code ?? "unknown"})`,
+        }),
       ),
     );
 
@@ -375,16 +405,17 @@ export class ReviewServerSupervisor extends Disposable {
       rustAnalyzerSource,
       appSessionId: this.appSessionId,
       channel: this.options.channel,
+      crashDumpsDir: this.options.crashDumpsDir,
     });
     const started = serverProcess.start({
-      type: "review-desktop-host",
+      type: REVIEW_SERVER_PROCESS_TYPE,
       name: "Review Desktop host",
       entryPoint: "vs/review/electron-utility/reviewDesktopHostMain",
       parentLifecycleBound: appPid,
       env: environment,
     });
     if (!started) {
-      onTerminated("launch failed");
+      onTerminated({ reason: "launch failed" }, false);
       return;
     }
     if (!this.connected.isSettled) this.armReadyTimeout();

@@ -26,6 +26,7 @@ import { getUserDataPath } from './vs/platform/environment/node/userDataPath.js'
 import { importReviewUserConfig, type ReviewUserConfigImportMode } from './vs/review/node/reviewUserConfigImport.js';
 import { registerReviewOptionalExtensionInstaller } from './vs/review/node/reviewOptionalExtensionInstaller.js';
 import { writeReviewBootstrapBreadcrumb } from './vs/review/node/reviewBootstrapBreadcrumb.js';
+import { startReviewCrashReporter } from './vs/review/node/reviewCrashReporter.js';
 import * as perf from './vs/base/common/performance.js';
 import { resolveNLSConfiguration } from './vs/base/node/nls.js';
 import { getUNCHost, addUNCHostToAllowlist } from './vs/base/node/unc.js';
@@ -113,9 +114,12 @@ perf.mark('code/willStartCrashReporter');
 // * enable-crash-reporter runtime argument is set to 'true'
 // * --disable-crash-reporter command line parameter is not set
 //
-// Disable crash reporting in all other cases.
+// Review: in all other cases, unless --disable-crash-reporter is set, write
+// local dumps only; see vs/review/node/reviewCrashReporter.ts.
 if (args['crash-reporter-directory'] || (argvConfig['enable-crash-reporter'] && !args['disable-crash-reporter'])) {
 	configureCrashReporter();
+} else if (!args['disable-crash-reporter']) {
+	startReviewCrashReporter(userDataPath, product.nameShort ?? 'code-oss-dev');
 }
 perf.mark('code/didStartCrashReporter');
 

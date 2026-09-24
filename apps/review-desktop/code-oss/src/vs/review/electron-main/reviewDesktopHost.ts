@@ -3,7 +3,9 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { app, BrowserWindow } from "electron";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
+import { join } from "../../base/common/path.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import { IEnvironmentMainService } from "../../platform/environment/electron-main/environmentMainService.js";
 import { ILifecycleMainService } from "../../platform/lifecycle/electron-main/lifecycleMainService.js";
@@ -16,6 +18,9 @@ import { IUpdateService } from "../../platform/update/common/update.js";
 import { UtilityProcess } from "../../platform/utilityProcess/electron-main/utilityProcess.js";
 import type { ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_TELEMETRY_SETTING } from "../common/reviewConfigurationDefaults.js";
+import { REVIEW_CRASH_DUMPS_DIRNAME } from "../node/reviewCrashReporter.js";
+import { ReviewCrashDumps } from "./reviewCrashDumps.js";
+import { ReviewCrashTelemetry } from "./reviewCrashTelemetry.js";
 import { ReviewMainErrorTelemetry } from "./reviewMainErrorTelemetry.js";
 import { ReviewServerSupervisor } from "./reviewServerSupervisor.js";
 import {
@@ -53,6 +58,12 @@ export class ReviewDesktopHost extends Disposable {
   ) {
     super();
     let resolvedEnvironment: Promise<NodeJS.ProcessEnv> | undefined;
+    let crashTelemetry: ReviewCrashTelemetry | undefined;
+    let errorTelemetry: ReviewMainErrorTelemetry | undefined;
+    const crashDumpsDir = join(
+      this.environmentMainService.userDataPath,
+      REVIEW_CRASH_DUMPS_DIRNAME,
+    );
     this.supervisor = this._register(
       new ReviewServerSupervisor({
         appRoot: this.environmentMainService.appRoot,
@@ -86,6 +97,12 @@ export class ReviewDesktopHost extends Disposable {
         telemetryEnabled:
           this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
           false,
+        crashDumpsDir,
+        onServerTerminated: (detail) => {
+          errorTelemetry?.serverLost();
+          crashTelemetry?.reportServerExit(detail);
+        },
+        onServerReady: () => errorTelemetry?.serverReady(),
       }),
     );
     this._register(
@@ -105,7 +122,7 @@ export class ReviewDesktopHost extends Disposable {
     );
     // Main-process errors report through the embedded server, so they pass the
     // same opt-out checks and the same redaction step as every other event.
-    const errorTelemetry = new ReviewMainErrorTelemetry({
+    errorTelemetry = new ReviewMainErrorTelemetry({
       whenConnected: () => this.whenConnected(),
       isTelemetryEnabled: () =>
         this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
@@ -113,12 +130,39 @@ export class ReviewDesktopHost extends Disposable {
       userDataPath: this.environmentMainService.userDataPath,
       logError: (message) => this.logService.error(message),
     });
-    this._register(toDisposable(() => errorTelemetry.dispose()));
+    const mainTelemetry = errorTelemetry;
+    this._register(toDisposable(() => mainTelemetry.dispose()));
+    const crashDumps = new ReviewCrashDumps({
+      dumpsDir: crashDumpsDir,
+      launch: {
+        startedAt: Date.now(),
+        appSessionId: this.supervisor.appSessionId,
+        appVersion:
+          this.productService.reviewVersion ?? this.productService.version,
+      },
+      whenConnected: () => this.whenConnected(),
+      isTelemetryEnabled: () =>
+        this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
+        false,
+      logError: (message) => this.logService.error(message),
+    });
+    crashTelemetry = this._register(
+      new ReviewCrashTelemetry({
+        app,
+        windows: BrowserWindow.getAllWindows(),
+        capture: (name, properties, onDelivered) =>
+          mainTelemetry.capture(name, properties, undefined, onDelivered),
+        onCrashRecorded: (at) => crashDumps.recordLiveCrash(at),
+      }),
+    );
+    crashDumps.reconcile().catch((error) =>
+      this.logService.error(`[Review Desktop] crash dump reconcile failed: ${error}`),
+    );
     this._register(
       new ReviewUpdateTelemetry({
         updateService: this.updateService,
         storageService: this.applicationStorageMainService,
-        telemetry: errorTelemetry,
+        telemetry: mainTelemetry,
         isTelemetryEnabled: () =>
           this.configurationService.getValue<boolean>(
             REVIEW_TELEMETRY_SETTING,

@@ -56,7 +56,7 @@ export function createStructuralDiffEditors(
 	const child = lifetime.add(
 		instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
 	);
-	attachStructuralEditors(instantiation, resolvedEntries, session, lifetime);
+	attachStructuralEditors(instantiation, (original, modified) => pairs.get(original.toString() + "\n" + modified.toString()), session, lifetime);
 	return { instantiation: child, entries: resolvedEntries };
 }
 
@@ -149,14 +149,14 @@ export class StructuralDiffProvider implements IDocumentDiffProvider {
  * a band a reader reveals (its arrows, or double-click) marks its fold state
  * open, which covers both sides by construction, and the visible counts follow.
  */
-function attachStructuralEditors(
+export function attachStructuralEditors(
 	instantiation: IInstantiationService,
-	entries: readonly ReviewFilesEditorEntry[],
+	/** The compared file's path for a diff editor's resources, without fragments. */
+	pathOf: (original: URI, modified: URI) => string | undefined,
 	session: StructuralDiffSession,
 	lifetime: DisposableStore,
 ): void {
 	const editors = instantiation.invokeFunction((a) => a.get(ICodeEditorService));
-	const pairs = new Map(entries.map((e) => [e.original!.toString() + "\n" + e.modified!.toString(), e.file.path]));
 	function watch(editor: IDiffEditor) {
 		const store = lifetime.add(new DisposableStore());
 		store.add(editor.onDidDispose(() => store.dispose()));
@@ -166,7 +166,7 @@ function attachStructuralEditors(
 		store.add(
 			autorun((reader) => {
 				const model = editor.getModel();
-				const path = model && pairs.get(model.original.uri.with({ fragment: "" }).toString() + "\n" + model.modified.uri.with({ fragment: "" }).toString());
+				const path = model && pathOf(model.original.uri.with({ fragment: "" }), model.modified.uri.with({ fragment: "" }));
 				const regions = widget.unchangedRegions!.read(reader);
 				if (!path || !session.getTextDiff(path)) return;
 				const gaps = structuralContextGaps(session.getTextDiff(path)!, (id) => session.isRegionCollapsed(path, id) === true, (id) => session.isRegionCollapsed(path, id));

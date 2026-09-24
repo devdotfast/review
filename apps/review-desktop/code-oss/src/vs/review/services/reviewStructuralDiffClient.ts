@@ -8,7 +8,7 @@ export interface StructuralDiffStream {
 }
 
 export class StructuralDiffClient implements StructuralDiffStream {
-	constructor(private readonly connection: IReviewDesktopConnectionService, private readonly comparison: ReviewSourceView) { }
+	constructor(private readonly connection: Pick<IReviewDesktopConnectionService, "getConnection">, private readonly comparison: ReviewSourceView) { }
 
 	async *streamComparison(signal: AbortSignal): AsyncGenerator<StructuralEvent> {
 		const { serverUrl, token } = await this.connection.getConnection();

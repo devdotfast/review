@@ -30,6 +30,11 @@
           "scope": "window",
           "description": "The base checkout this workspace's folder is compared with. Empty when every file is new. Written by Whiteboard."
         },
+        "reviewFiles.review": {
+          "type": "object",
+          "scope": "window",
+          "description": "The Review whose structural diff from diffr the source window shows. Written by Whiteboard."
+        },
         "reviewFiles.untracked": {
           "type": "boolean",
           "default": false,

@@ -57,6 +57,8 @@ import type { ILocalizedString } from '../platform/action/common/action.js';
 import { isCodeEditor, isDiffEditor } from '../editor/browser/editorBrowser.js';
 import { IEditorService } from '../workbench/services/editor/common/editorService.js';
 import { IDecorationsService } from '../workbench/services/decorations/common/decorations.js';
+import { IDiffProviderFactoryService } from '../editor/browser/widget/diffEditor/diffProviderFactoryService.js';
+import { NavigatorDiffProviderFactoryService } from './services/navigatorStructuralDiff.js';
 
 /** Set by the built-in review-files extension once its tree has listed the compared files. */
 const REVIEW_FILES_ENABLED_CONTEXT = 'reviewFiles.enabled';
@@ -173,6 +175,7 @@ registerWorkbenchContribution2('review.navigator.reviewFiles', NavigatorReviewFi
 registerWorkbenchContribution2('review.navigator.emptySource', NavigatorEmptySourceContentProvider, WorkbenchPhase.BlockStartup);
 registerSingleton(IEditorResolverService, NavigatorDiffEditorResolverService, InstantiationType.Delayed);
 registerSingleton(IDecorationsService, NavigatorDecorationsService, InstantiationType.Delayed);
+registerSingleton(IDiffProviderFactoryService, NavigatorDiffProviderFactoryService, InstantiationType.Delayed);
 
 Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
 	ctor: CommandsQuickAccessProvider,
@@ -194,9 +197,10 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration).registerDefaultCon
 		'chat.disableAIFeatures': true,
 		'security.workspace.trust.enabled': false,
 		'workbench.startupEditor': 'none',
-		// Every source file opens as a whole-file inline diff against the base.
+		// Every source file opens as an inline diff against the base. Only
+		// diffr's collapsed regions fold; a line diff shows the whole file.
 		'diffEditor.renderSideBySide': false,
-		'diffEditor.hideUnchangedRegions.enabled': false,
+		'diffEditor.hideUnchangedRegions.enabled': true,
 		// A base file lies outside the workspace folder, so its full path would
 		// fill the breadcrumbs; the Files tree already shows where a file sits.
 		'breadcrumbs.filePath': 'last',

@@ -45,6 +45,8 @@ export class StructuralDiffSession extends Disposable {
 	constructor(private readonly client: StructuralDiffStream) { super(); }
 
 	start(): Promise<void> { return this.task ??= this.consume(); }
+	/** Whether diffr lists the file; undefined until it has listed the comparison's files. */
+	covers(path: string): boolean | undefined { return this.manifest?.has(path); }
 	getFileResult(path: string): StructuralFileResult | undefined { return this.results.get(path); }
 	getTextDiff(path: string): StructuralTextDiff | undefined {
 		const diff = this.results.get(path)?.diff;

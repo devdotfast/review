@@ -432,10 +432,20 @@ export class LocalReviewData {
 
       settings.push(["window.title", title]);
 
+      // The window asks the server for this comparison's structural diff.
       if (baseRoot !== null)
         settings.push(
           ["reviewFiles.base", baseRoot],
           ["reviewFiles.untracked", live],
+          [
+            "reviewFiles.review",
+            {
+              reviewId: snapshot.reviewId,
+              version: snapshot.version,
+              commit: source.commit,
+              pins: source.anchor,
+            },
+          ],
         );
 
       const next = {

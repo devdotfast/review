@@ -1096,6 +1096,10 @@ it("opens base and head files in one window that compares the two checkouts", as
     path.dirname(base.filePath),
   );
   expect(workspace.settings["reviewFiles.untracked"]).toBe(false);
+  expect(workspace.settings["reviewFiles.review"]).toEqual({
+    reviewId: expect.any(String),
+    version: 0,
+  });
 
   expect(
     readFileSync(
@@ -1174,6 +1178,7 @@ it("opens the head source without a comparison when the base checkout is unusabl
   expect(readFileSync(head.filePath!, "utf8")).toContain("value = 2");
   expect(workspace.settings["reviewFiles.base"]).toBeUndefined();
   expect(workspace.settings["reviewFiles.untracked"]).toBeUndefined();
+  expect(workspace.settings["reviewFiles.review"]).toBeUndefined();
   await expect(
     local.data.navigatorWorkspace(snapshot(), {
       side: "base",
@@ -1303,6 +1308,9 @@ it("names a linked worktree's source workspace after its repository", async () =
     "window.title": "Worktree source — Live source — Whiteboard",
     "reviewFiles.base": expect.any(String),
     "reviewFiles.untracked": true,
+    "reviewFiles.review": expect.objectContaining({
+      reviewId: expect.any(String),
+    }),
   });
   expect(existsSync(legacy)).toBe(true);
 

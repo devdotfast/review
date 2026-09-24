@@ -1394,6 +1394,43 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("under the debug sink, prints each announcement once per process without persisting it", async () => {
+    const printed: string[] = [];
+
+    const captureClient: ReviewTelemetryCaptureClient = {
+      enabled: true,
+      ignoresOptOut: true,
+      capture: async (event) => void printed.push(event.event),
+    };
+
+    const { configPath, rootPath, telemetry } = createTelemetry({
+      captureClient,
+    });
+
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+    await telemetry.captureUiEvent("review_review_presented", {}, context);
+
+    expect(printed).toEqual([
+      "review_installation_created",
+      "review_review_presented",
+      "review_first_review_presented",
+      "review_review_presented",
+    ]);
+    const stored = await readStoredConfig(configPath);
+
+    expect(stored.installationCreatedSent).toBeFalsy();
+    expect(stored.firstReviewPresentedSent).toBeFalsy();
+  });
+
   it("leaves global client errors unscoped", async () => {
     const { events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);

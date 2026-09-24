@@ -244,6 +244,12 @@ const noopLogger: Logger = {
 
 const sharedInstallConfigs = new Map<string, ReviewTelemetryInstallConfig>();
 
+/**
+ * Announcements the debug sink printed without persisting, keyed by install
+ * config path and field, so each prints once per process.
+ */
+const printedAnnouncements = new Set<string>();
+
 export function createLogger(_scope: string): Logger {
   return noopLogger;
 }
@@ -410,7 +416,8 @@ export class ReviewTelemetry {
    * the send completes: under-counting
    * is recoverable, announcing twice is not. A printed event is not a sent
    * event, so the debug sink leaves the field alone (it still always sends,
-   * ignoring opt-out as today).
+   * ignoring opt-out as today) and only remembers the announcement for the
+   * life of the process.
    */
   private async announceOnce<Field extends AnnouncedField>(
     field: Field,
@@ -425,7 +432,13 @@ export class ReviewTelemetry {
 
       if (this.optedOut(config) || config[field]) return;
 
-      if (!this.captureClient.ignoresOptOut) {
+      if (this.captureClient.ignoresOptOut) {
+        const printed = `${this.installConfigPath}\0${field}`;
+
+        if (printedAnnouncements.has(printed)) return;
+
+        printedAnnouncements.add(printed);
+      } else {
         config[field] = value;
         this.writeInstallConfig(config);
       }

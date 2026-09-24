@@ -67,7 +67,7 @@ The row marked `*` is the one selected. To change it, run
 `whiteboard instances use <key>` for the whole machine, or
 `export DEV_REVIEW_INSTANCE=<key>` in the shell you start your agent from.
 Reconnect the `whiteboard` MCP server afterwards, because an MCP session stays
-on the instance it first reached. If the error says the selected instance is
+on the instance key it first reached. If the error says the selected instance is
 not running, start it (`whiteboard app launch`, or `pnpm dev` in the named
 checkout) or pick one of the running instances it lists. For the full
 selection order, see the [CLI reference](cli-reference.md#several-whiteboard-desktops-on-one-machine).

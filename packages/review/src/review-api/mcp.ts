@@ -45,7 +45,7 @@ export function mcpServerInstructions(context: {
 }
 
 export async function serveReviewMcp(
-  /** Reconnects to `key` once a Desktop is latched, else selects one. */
+  /** Connects to `key` once one is latched, else selects one. */
   connect: (key?: string) => Promise<ConnectedReview>,
   stdin: Readable,
   stdout: Writable,
@@ -80,20 +80,13 @@ export async function serveReviewMcp(
   let catalog: AuthoringTool[] = [];
   let announceCatalog = false;
   let listedWhileDown = false;
-  // One session follows one Desktop; a restarted or replaced one needs a reconnect.
-  let latched: ConnectedReview["instance"];
+  // One session follows one instance key, through that Desktop's restarts;
+  // it never hops to another key once others start.
+  let latched: string | undefined;
 
   const load = async (signal?: AbortSignal) => {
-    const { client, instance } = await connect(latched?.key);
-
-    if (instance) {
-      latched ??= instance;
-
-      if (instance.instanceId !== latched.instanceId)
-        throw new Error(
-          `The Whiteboard instance this session was using (\`${latched.key}\`, pid ${latched.appPid}) exited; \`${instance.key}\` is now running as pid ${instance.appPid}. Reconnect the \`whiteboard\` MCP server to use it.`,
-        );
-    }
+    const { client, instance } = await connect(latched);
+    latched ??= instance?.key;
 
     catalog = (await client.read<AuthoringTool[]>("/authoring", signal)).map(
       publicTool,

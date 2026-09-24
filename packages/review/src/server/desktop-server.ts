@@ -47,6 +47,7 @@ import type { ReviewStore } from "../review-api/store.js";
 import {
   devReviewHome,
   reviewInstanceDiscoveryPath,
+  reviewLegacyDiscoveryPath,
 } from "../review-home-paths";
 import {
   readScratchpadEnabled,
@@ -119,8 +120,13 @@ export function createGlobalReviewServer(
   const urlForBoundPort = () => `http://127.0.0.1:${boundPort}`;
   const identity = input.identity ?? { key: "stable", channel: "stable" };
 
-  const discoveryPath =
-    input.discoveryPath ?? reviewInstanceDiscoveryPath(identity.key);
+  // Stable also writes the pre-instance server.json, so a CLI or shim that
+  // predates instances still finds it.
+  const discoveryPaths = input.discoveryPath
+    ? [input.discoveryPath]
+    : identity.key === "stable"
+      ? [reviewInstanceDiscoveryPath("stable"), reviewLegacyDiscoveryPath()]
+      : [reviewInstanceDiscoveryPath(identity.key)];
 
   const telemetry = input.telemetry ?? ReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
@@ -598,13 +604,16 @@ export function createGlobalReviewServer(
       scratchpadEnabled = await readScratchpadEnabled();
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
-      await writePrivateJsonAtomic(discoveryPath, discovery);
+
+      for (const discoveryPath of discoveryPaths)
+        await writePrivateJsonAtomic(discoveryPath, discovery);
     },
     close: async () => {
       if (closing) return;
       closing = true;
 
-      await removeMatchingDiscovery(discoveryPath, discovery);
+      for (const discoveryPath of discoveryPaths)
+        await removeMatchingDiscovery(discoveryPath, discovery);
       relay.close();
 
       await closeHttpServer(httpServer);

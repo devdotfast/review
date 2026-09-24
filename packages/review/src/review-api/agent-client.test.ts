@@ -366,9 +366,8 @@ it("binds existing content through the host-advertised PR tool", async () => {
   });
 });
 
-it("keeps an MCP session on the Desktop it first reached", async () => {
+it("keeps an MCP session on the instance key it first reached", async () => {
   const keys: (string | undefined)[] = [];
-  let instanceId = "first";
 
   const stdin = new PassThrough();
   const stdout = new PassThrough();
@@ -381,7 +380,7 @@ it("keeps an MCP session on the Desktop it first reached", async () => {
     async (key) => {
       keys.push(key);
 
-      return { client, instance: { key: "preview", instanceId, appPid: 42 } };
+      return { client, instance: { key: "preview" } };
     },
     stdin,
     stdout,
@@ -415,27 +414,16 @@ it("keeps an MCP session on the Desktop it first reached", async () => {
       clientInfo: { name: "test", version: "1" },
     });
     await reply(2, "tools/list", {});
-    instanceId = "restarted";
 
     const result = await reply(3, "tools/call", {
       name: "session_list",
       arguments: {},
     });
 
-    const status = await reply(4, "tools/call", {
-      name: "whiteboard_status",
-      arguments: {},
-    });
-
-    expect(JSON.parse(status.content?.[0]?.text ?? "")).toMatchObject({
-      desktopAvailable: false,
-      problem: expect.stringMatching(/`preview`, pid 42\) exited/),
-    });
-    expect(keys).toEqual([undefined, "preview", "preview"]);
-    expect(result.isError).toBe(true);
-    expect(result.content?.[0]?.text).toMatch(
-      /`preview`, pid 42\) exited.*Reconnect the `whiteboard` MCP server/,
-    );
+    // Every connect after the first names the latched key, so a Desktop that
+    // restarts under the same key is followed and another key is never chosen.
+    expect(keys).toEqual([undefined, "preview"]);
+    expect(result.isError).toBeFalsy();
   } finally {
     await server.close();
   }

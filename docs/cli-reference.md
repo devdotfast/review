@@ -167,9 +167,9 @@ export DEV_REVIEW_INSTANCE=dev-review-8b4e5a7fdb4a   # this shell only
 
 `whiteboard app launch` starts the selected stable or Preview app. A dev
 instance is started with `pnpm dev` in its checkout. An MCP session keeps the
-instance it first reached; if that Desktop exits, reconnect the `whiteboard` MCP
-server. Agents can call `whiteboard_status` to see which instance they are
-using. `whiteboard version --verbose` prints the selected key and its record.
+instance key it first reached, across that Desktop's restarts; to move it to
+another instance, reconnect the `whiteboard` MCP server. Agents can call
+`whiteboard_status` to see which instance they are using. `whiteboard version --verbose` prints the selected key and its record.
 
 ## Authoring
 

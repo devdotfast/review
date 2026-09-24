@@ -33,6 +33,11 @@ fi
 export BUILD_SOURCEVERSION
 npm --prefix "$CHECKOUT" run gulp -- vscode-darwin-arm64-min-prepare
 
+# Tags the bundles, so it must run before they are archived.
+if [[ -n "${REVIEW_POSTHOG_KEY:-}" ]]; then
+  node "$APP_DIR/scripts/upload-source-maps.mjs" --out "$CHECKOUT/out-vscode-min"
+fi
+
 rm -rf -- "$CURATED_EXTENSIONS_PAYLOAD"
 node "$APP_DIR/scripts/curated-extensions.mjs" \
   --target=darwin-arm64 \

@@ -185,6 +185,8 @@ jobs:
           # Embeds the PostHog project key into the review runtime build so
           # released apps ship telemetry enabled. Source builds embed nothing.
           REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_CLI_PROJECT_ID }}
         run: bash apps/review-desktop/scripts/compile-darwin-payload.sh
 
       - name: Upload darwin payload

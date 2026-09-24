@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { exceptionProperties } from "./exception-telemetry";
+import { exceptionProperties, readChunkIds } from "./exception-telemetry";
 
 describe("exceptionProperties", () => {
   it("builds a raw PostHog stack from bundle frames", () => {
@@ -83,6 +87,52 @@ describe("exceptionProperties", () => {
         value: "[message withheld] 0123456789abcdef",
       }),
     ]);
+  });
+
+  it("tags frames with chunk IDs and lets PostHog group resolvable stacks", () => {
+    const chunkId = "6f7a8e6e-deb5-57a8-8c2a-3a13a2272a32";
+
+    const properties = {
+      error_name: "Error",
+      message_hash: "0123456789abcdef",
+      frames: "vs/review/review.desktop.main.js:703:21307",
+    };
+
+    const resolved = exceptionProperties(
+      properties,
+      new Map([["vs/review/review.desktop.main.js", chunkId]]),
+    );
+
+    expect(resolved?.$exception_fingerprint).toBeUndefined();
+    expect(resolved?.$exception_list).toEqual([
+      expect.objectContaining({
+        stacktrace: {
+          type: "raw",
+          frames: [expect.objectContaining({ chunk_id: chunkId })],
+        },
+      }),
+    ]);
+    expect(exceptionProperties(properties)?.$exception_fingerprint).toBe(
+      "0123456789abcdef",
+    );
+  });
+
+  it("reads chunk IDs from the packaged app's manifest", () => {
+    const app = mkdtempSync(path.join(os.tmpdir(), "review-app-"));
+    const chunkId = "6f7a8e6e-deb5-57a8-8c2a-3a13a2272a32";
+
+    mkdirSync(path.join(app, "out"));
+    writeFileSync(
+      path.join(app, "out", "review-chunk-ids.json"),
+      JSON.stringify({ "main.js": chunkId, "cli.js": "not-a-chunk-id" }),
+    );
+
+    expect(
+      readChunkIds(
+        path.join(app, "review-runtime", "dist", "server", "desktop-host.js"),
+      ),
+    ).toEqual(new Map([["main.js", chunkId]]));
+    expect(readChunkIds(undefined)).toEqual(new Map());
   });
 
   it("returns undefined without a class name or digest", () => {

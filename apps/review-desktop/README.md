@@ -308,11 +308,19 @@ installed commit — not the target commit — when re-checking (see `UPSTREAM`)
 
 Repository secrets: `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`,
 `APPLE_KEYCHAIN_PASSWORD`, `APPLE_API_KEY_P8`, `R2_ACCESS_KEY_ID`,
-`R2_SECRET_ACCESS_KEY`. Repository variables: `APPLE_SIGN_IDENTITY`,
-`APPLE_TEAM_ID`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`,
-`R2_ENDPOINT_URL`, `R2_RELEASE_BUCKET`, `REVIEW_POSTHOG_KEY` (telemetry key
-embedded into release builds; source builds embed none), and `SKIP_NOTARIZE`
-(normally unset; set to `1` only to dry-run the workflow without signing).
+`R2_SECRET_ACCESS_KEY`, `POSTHOG_CLI_API_KEY` (a PostHog personal API key
+with the error tracking write scope). Repository variables:
+`APPLE_SIGN_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER_ID`, `R2_ENDPOINT_URL`, `R2_RELEASE_BUCKET`,
+`REVIEW_POSTHOG_KEY` (telemetry key embedded into release builds; source
+builds embed none), `POSTHOG_CLI_PROJECT_ID` (the PostHog project that
+receives the source maps), and `SKIP_NOTARIZE` (normally unset; set to `1`
+only to dry-run the workflow without signing).
+
+A build that embeds `REVIEW_POSTHOG_KEY` also uploads its source maps to
+PostHog error tracking (`scripts/upload-source-maps.mjs`), so reported stack
+traces resolve to source files and functions. That build fails when the two
+`POSTHOG_CLI_*` credentials are missing.
 
 Normal CI uses GitHub's standard Ubuntu runner. The manual release workflow
 uses the `review_big_boy` larger runner. Its `review_release` runner group

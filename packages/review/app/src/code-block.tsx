@@ -13,9 +13,8 @@ import {
   useState,
 } from "react";
 
-import { copyText } from "./copy-text";
+import { CopyButton } from "./copy-text";
 import { DiagramHeader } from "./diagram-header";
-import { CheckIcon, CopyIcon } from "./icons";
 
 export interface RenderedCodeBlockProps extends ComponentProps<"pre"> {
   code: string;
@@ -84,7 +83,9 @@ export function RenderedCodeBlock({
         kind={displayLanguage || "code"}
         title={caption}
         meta={`${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
-        action={<CopyCodeButton code={code} />}
+        action={
+          <CopyButton text={code} label="Copy" className="rendered-code-copy" />
+        }
       />
       <pre {...props} className="rendered-code-body">
         {lineNumbers && (
@@ -119,38 +120,6 @@ function countLines(code: string): number {
   return lines.length > 1 && lines.at(-1) === ""
     ? lines.length - 1
     : lines.length;
-}
-
-const COPIED_FOR_MS = 1200;
-
-function CopyCodeButton({ code }: { code: string }): ReactElement {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), COPIED_FOR_MS);
-
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  return (
-    <button
-      type="button"
-      className="rendered-code-copy"
-      aria-label="Copy"
-      title="Copy"
-      data-copied={copied ? "" : undefined}
-      onClick={() => {
-        // The workbench denies DOM clipboard requests; copyText falls back to
-        // execCommand and reports whether anything was copied.
-        void copyText(code).then((ok) => {
-          if (ok) setCopied(true);
-        });
-      }}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
-  );
 }
 
 interface HighlightedToken {

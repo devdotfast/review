@@ -221,8 +221,10 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 	private readonly progressChanged = this._register(new Emitter<void>());
 	private pendingSectionId: string | undefined;
 	private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
+	private pendingFile: string | undefined;
 	setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
 	revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
+	revealFile(path: string): void { this.pendingFile = path; this.view?.revealFile(path); }
 	private readonly _onDidScroll = this._register(new Emitter<ReviewDiffViewport>());
 	readonly onDidScroll = this._onDidScroll.event;
 	sourceOffset(source: ReviewDiffLens['ranges'][number]): number | undefined { return this.view?.sourceOffset(source); }
@@ -329,6 +331,7 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 			this.bindActiveControl(view);
 			view.setCollapsed(this.collapsed);
 			if (this.pendingSource) view.revealSource(this.pendingSource, this.pendingSectionId);
+			else if (this.pendingFile) view.revealFile(this.pendingFile);
 			if (!session) for (const entry of selected) view.fileCounts(entry.file.path, { added: entry.file.additions, removed: entry.file.deletions });
 			if (session) this.observeSession(session, selected, view, store, structuralEnabled);
 

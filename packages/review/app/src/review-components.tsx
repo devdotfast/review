@@ -403,12 +403,6 @@ export function ReviewPanelHost() {
           content={activePanel.content}
           onClose={close}
         />
-      ) : activePanel.kind === "commit-diff" ? (
-        <CommitFileDiffPanel
-          commit={activePanel.commit}
-          file={activePanel.file}
-          onClose={close}
-        />
       ) : (
         <GuidedTourPanel
           tour={activePanel.tour}
@@ -419,34 +413,6 @@ export function ReviewPanelHost() {
         />
       )}
     </>
-  );
-}
-
-function CommitFileDiffPanel({
-  commit,
-  file,
-  onClose,
-}: {
-  commit: import("@dev.fast/review-protocol").ReviewCommitSummary;
-  file: import("@dev.fast/review-protocol").ReviewDiffFileWire;
-  onClose: () => void;
-}) {
-  return (
-    <ReviewPanelFrame
-      className="side-peek commit-file-diff-panel"
-      label={`Commit ${commit.commit.slice(0, 8)}`}
-      title={file.path}
-      onClose={onClose}
-      closeLabel="Close commit diff"
-    >
-      <div className="commit-file-diff-body">
-        {file.patch ? (
-          <pre aria-label={`Diff for ${file.path}`}>{file.patch}</pre>
-        ) : (
-          <p>This file has no text patch.</p>
-        )}
-      </div>
-    </ReviewPanelFrame>
   );
 }
 

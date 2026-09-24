@@ -1178,30 +1178,13 @@ button.host-authoring-activity[data-locatable]:focus-visible {
    Commits. A timeline down the left, each commit a crisp card on the board.
    --------------------------------------------------------------------------- */
 .review-commits-range {
-  gap: 16px;
-  align-items: baseline;
   padding-bottom: 16px;
-}
-
-.review-commits-range > div:first-child {
-  min-width: 0;
 }
 
 .review-commits-range strong {
   flex-shrink: 0;
   font: 600 15px/20px var(--font-mono);
   white-space: nowrap;
-}
-
-.review-commits-range > div:first-child > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-commits-range-shas {
-  flex-shrink: 0;
 }
 
 .review-commit-date {
@@ -1218,25 +1201,8 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   box-shadow: none;
 }
 
-.review-commit-card:hover {
-  border-color: var(--rule-soft);
-}
-
 .review-commit-card--expanded {
   border-color: var(--rule-soft);
-}
-
-.review-commit-open {
-  height: 24px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 11px;
-}
-
-.review-commit-open:hover {
-  background: var(--well);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1277,7 +1243,6 @@ button:focus-visible > .review-chevron {
 }
 
 .diagram-tour-button,
-.review-commit-open,
 .database-use-case-select {
   flex: 0 0 auto;
   height: 24px;
@@ -1292,13 +1257,11 @@ button:focus-visible > .review-chevron {
 }
 
 .diagram-tour-button:hover,
-.review-commit-open:hover,
 .database-use-case-select:hover {
   background: var(--well);
 }
 
 .diagram-tour-button:focus-visible,
-.review-commit-open:focus-visible,
 .database-use-case-select:focus-visible {
   border-color: var(--accent);
   outline: none;
@@ -1356,7 +1319,8 @@ button:focus-visible > .review-chevron {
   color: var(--ghost);
 }
 
-.review-commit-stats,
+.review-commit-sha,
+.review-commit-meta,
 .review-home-card-meta,
 .review-doc-meta {
   font: 11px var(--font-mono);

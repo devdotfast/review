@@ -84,7 +84,6 @@ fi
   echo
   echo "Home: $HOME_DIR (a copy; the live review home is untouched)"
   echo "Repository for reviews whose worktree was gone: $SCRATCH"
-  echo "Test plan: $WORKSPACE/docs/superpowers/plans/2026-09-16-legacy-import-live-test-plan.md"
   echo
   echo "Launch the Desktop:"
   echo

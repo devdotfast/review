@@ -240,11 +240,22 @@ export async function smokeErrorTelemetry({
     const warmUp = "review error telemetry smoke warm-up";
     await waitFor(
       async () => {
-        await page.evaluate((message) => {
-          setTimeout(() => {
-            throw new Error(message);
-          }, 0);
-        }, warmUp);
+        try {
+          await page.evaluate((message) => {
+            setTimeout(() => {
+              throw new Error(message);
+            }, 0);
+          }, warmUp);
+        } catch (error) {
+          // CDP can connect while the workbench is still navigating. Retry
+          // this disposable warm-up once the new execution context exists.
+
+          if (!/Execution context was destroyed/.test(error.message))
+            throw error;
+
+          return false;
+        }
+
         await sleep(1200);
         const sent = await readSentEvents(logPath);
 

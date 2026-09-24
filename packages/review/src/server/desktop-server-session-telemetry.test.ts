@@ -12,6 +12,7 @@ import {
   createGlobalReviewServer,
   sessionStartedSourceKind,
 } from "./desktop-server";
+import type { ReviewOpenContext } from "./review-open-watchdog";
 
 it("derives source_kind from the review's stored target, or the scratchpad kind", async () => {
   const store = new ReviewStore(":memory:", {
@@ -157,6 +158,75 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
       context,
     );
   } finally {
+    await server.close();
+    await local.data.close();
+    await local.store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("reports a session that starts and never presents, and not one that does", async () => {
+  const home = await mkdtemp(
+    path.join(os.tmpdir(), "review-session-telemetry-"),
+  );
+
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const token = "session-telemetry-test-token";
+
+  const telemetry = ReviewTelemetry.fromEnv({
+    ...process.env,
+    DEV_REVIEW_HOME: home,
+  });
+
+  const captureEvent = vi.spyOn(telemetry, "captureEvent");
+
+  const server = createGlobalReviewServer({
+    reviewStore: local.store,
+    reviewData: local.data,
+    appPid: process.pid,
+    packageRoot: home,
+    toolingRoot: home,
+    port: 0,
+    token,
+    discoveryPath: path.join(home, "review-desktop", "server.json"),
+    telemetry,
+  });
+
+  const send = (name: string, context: ReviewOpenContext) =>
+    fetch(`${server.url}/telemetry/event`, {
+      method: "POST",
+      headers: { "x-review-token": token, "content-type": "application/json" },
+      body: JSON.stringify({ name, properties: {}, context }),
+    });
+
+  try {
+    await server.listen();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+    const stuck = {
+      reviewUuid: randomUUID(),
+      presentationSessionId: randomUUID(),
+    };
+
+    const shown = {
+      reviewUuid: randomUUID(),
+      presentationSessionId: randomUUID(),
+    };
+
+    await send("session_started", stuck);
+    await send("session_started", shown);
+    await send("review_presented", shown);
+    vi.advanceTimersByTime(30_000);
+
+    const timeouts = captureEvent.mock.calls.filter(
+      ([event]) => event === "review_open_timeout",
+    );
+
+    expect(timeouts).toEqual([
+      ["review_open_timeout", { elapsed_ms: 30_000 }, stuck],
+    ]);
+  } finally {
+    vi.useRealTimers();
     await server.close();
     await local.data.close();
     await local.store.close();

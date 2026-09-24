@@ -14,6 +14,8 @@ export interface ReviewTelemetryInstallConfig {
   firstReviewPresentedSent: boolean;
   enabled: boolean;
   internal: boolean;
+  /** `gh_` + keyed hash of the signed-in account id; absent until a login. */
+  accountAlias?: string;
 }
 
 export type ReviewTelemetryChannel = "stable" | "preview" | "dev";
@@ -144,6 +146,7 @@ const storedTelemetryInstallConfigSchema = z.looseObject({
   firstReviewPresentedSent: z.boolean().optional().catch(undefined),
   enabled: z.boolean().optional().catch(undefined),
   internal: z.boolean().optional().catch(undefined),
+  accountAlias: z.string().min(1).optional().catch(undefined),
 });
 
 export function normalizeTelemetryInstallConfig(
@@ -154,7 +157,7 @@ export function normalizeTelemetryInstallConfig(
 
   if (!stored.success) return undefined;
 
-  return {
+  const config: ReviewTelemetryInstallConfig = {
     installationId: stored.data.installationId,
     createdAt: stored.data.createdAt ?? now().toISOString(),
     installationCreatedSent: stored.data.installationCreatedSent === true,
@@ -162,6 +165,10 @@ export function normalizeTelemetryInstallConfig(
     enabled: stored.data.enabled !== false,
     internal: stored.data.internal === true,
   };
+
+  if (stored.data.accountAlias) config.accountAlias = stored.data.accountAlias;
+
+  return config;
 }
 
 export function createTelemetryInstallConfig(

@@ -65,6 +65,7 @@ import {
   reviewServerStateDir,
   serverNotReady,
 } from "./server-discovery";
+import { aliasInstallationToAccount } from "./server/account-alias";
 import { setTraceAttribute, span } from "./startup-trace";
 import type { ReviewTelemetrySurface } from "./telemetry-config";
 import {
@@ -291,6 +292,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         port,
         softwareMapEnabled: options.softwareMaps,
         signal: controller.signal,
+        telemetry,
         onReady: ({ url, serverPid }) => {
           input.stdout.write(
             options.json
@@ -609,6 +611,11 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
           stdout: input.stdout,
           stderr: input.stderr,
         });
+
+        if (state.exitCode === 0)
+          await attemptTelemetry(() =>
+            aliasInstallationToAccount(telemetry, env),
+          );
       },
     );
 
@@ -772,6 +779,8 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         ...input,
         env: authoringEnv(),
         argv: [name, ...args],
+        onToolCall: (call) =>
+          attemptTelemetry(() => telemetry.captureToolCalled(call)),
       });
     });
   }

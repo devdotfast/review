@@ -27,7 +27,21 @@ const TEXT_TOOLS = new Set([
   "session_get_instructions",
 ]);
 
-export async function connectReviewApi(env = process.env) {
+export async function connectReviewApi(
+  env = process.env,
+  headers: Record<string, string> = {},
+) {
+  const request: ConstructorParameters<typeof ReviewApiClient>[1] = (
+    url,
+    init,
+  ) => {
+    const merged = new Headers(init?.headers);
+
+    for (const [key, value] of Object.entries(headers)) merged.set(key, value);
+
+    return fetch(url, { ...init, headers: merged });
+  };
+
   if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
     const stateDir = reviewServerStateDir(env);
     const server = await readReviewServerDiscovery(stateDir);
@@ -35,7 +49,10 @@ export async function connectReviewApi(env = process.env) {
     if (!server || !(await reviewServerIsHealthy(server)))
       throw serverNotReady(stateDir);
 
-    return new ReviewApiClient({ serverUrl: server.url, token: server.token });
+    return new ReviewApiClient(
+      { serverUrl: server.url, token: server.token },
+      request,
+    );
   }
 
   const discovery = await readHealthyReviewDesktopDiscovery({
@@ -48,10 +65,10 @@ export async function connectReviewApi(env = process.env) {
       "No Whiteboard Desktop server is ready. Run whiteboard app launch, or select a running headless server with --state-dir or DEV_REVIEW_SERVER_DIR, then retry.",
     );
 
-  return new ReviewApiClient({
-    serverUrl: discovery.url,
-    token: discovery.token,
-  });
+  return new ReviewApiClient(
+    { serverUrl: discovery.url, token: discovery.token },
+    request,
+  );
 }
 
 /** Only translate the tool envelope. The host owns validation and persistence. */

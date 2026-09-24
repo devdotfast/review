@@ -23,6 +23,7 @@ import {
   ReviewTelemetry,
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
+  accountAlias,
 } from "./review-telemetry";
 import { recordOpenSession } from "./session-markers";
 import {
@@ -73,6 +74,84 @@ describe("ReviewTelemetry", () => {
     await expect(readFile(configPath, "utf8")).resolves.toContain(
       '"installationCreatedSent": true',
     );
+  });
+
+  it("aliases the install to the first hashed account id only, and turns person profiles on", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-1",
+      exitCode: 0,
+    });
+    expect(events[0].properties).toMatchObject({
+      $process_person_profile: false,
+    });
+
+    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-2",
+      exitCode: 0,
+    });
+
+    const aliases = events.filter((event) => event.event === "$create_alias");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].distinctId).toBe(events[0].distinctId);
+    expect(aliases[0].properties).toMatchObject({
+      alias: accountAlias("account-12345"),
+      $process_person_profile: true,
+    });
+    expect(accountAlias("account-12345")).toMatch(/^gh_[A-Za-z0-9_-]{22}$/);
+    expect(JSON.stringify(events)).not.toContain("account-12345");
+    expect(events.at(-1)?.properties).toMatchObject({
+      $process_person_profile: true,
+    });
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
+
+    // The first account wins: another login must not merge a second account
+    // into this install's person.
+    await telemetry.captureAccountAlias("account-67890");
+    expect(
+      events.filter((event) => event.event === "$create_alias"),
+    ).toHaveLength(1);
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
+  });
+
+  it("records tool calls, keeping only identifier-shaped tool names", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureToolCalled({
+      tool: "session_create",
+      via: "mcp",
+      ok: true,
+      durationMs: 41.6,
+    });
+    await telemetry.captureToolCalled({
+      tool: "Weird Name/../x",
+      via: "api",
+      ok: false,
+      durationMs: -1,
+    });
+
+    expect(
+      events.map(({ event, properties }) => [
+        event,
+        properties?.tool,
+        properties?.via,
+        properties?.ok,
+        properties?.duration_ms,
+      ]),
+    ).toEqual([
+      ["review_mcp_tool_called", "session_create", "mcp", true, 42],
+      ["review_mcp_tool_called", "other", "api", false, 0],
+    ]);
   });
 
   it("sends a $exception twin after every client error", async () => {

@@ -41,13 +41,15 @@ const EXPECTED_EVENTS = new Set([
   "review_first_review_presented",
   "review_session_ended",
   "review_app_ready",
+  "review_review_created",
 ]);
 
-/** Allowed, never required: a slow runner may stall or hang, a fast one never does. */
+/** Allowed, never required: they depend on timing this journey does not control. */
 const OPTIONAL_EVENTS = new Set([
   "review_ui_stall",
   "review_hang_started",
   "review_hang_ended",
+  "review_authoring_completed",
 ]);
 
 /** Every event printed so far by the embedded server's debug sink. */

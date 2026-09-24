@@ -14,7 +14,9 @@ import {
 
 import "./share-control.css";
 import { copyText } from "./copy-text";
+import { useOptionalReviewSession } from "./host/review-session";
 import { ShareIcon } from "./icons";
+import { captureUiEvent } from "./ui-telemetry";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTooltip } from "./use-tooltip";
 import { useTopbarPopover } from "./use-topbar-popover";
@@ -39,6 +41,7 @@ const linkKey = (reviewId: string, version: number) => `${reviewId}@${version}`;
 
 export function ShareControl() {
   const context = useContext(SharingContext);
+  const session = useOptionalReviewSession();
   const client = context?.client;
   const [open, setOpen] = useState(false);
   // Read once while the review is open, refreshed on focus, polled while pending.
@@ -168,8 +171,15 @@ export function ShareControl() {
   if (!context) return null;
 
   const copy = async (url: string) => {
-    if (await copyText(url)) setCopied(true);
-    else setError("Copy the link below.");
+    if (!(await copyText(url))) {
+      setError("Copy the link below.");
+
+      return;
+    }
+
+    setCopied(true);
+
+    if (session) captureUiEvent(session, "review_shared");
   };
 
   return (

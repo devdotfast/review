@@ -87,6 +87,8 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 	setMode(mode: SourceMode): void {
 		this.mode = mode;
 		this.modeContext.set(mode);
+		// The Files tree lists the side the editors show.
+		this.commands.executeCommand("reviewFiles.setMode", mode).catch(error => this.logs.warn("Could not switch the Files tree", error));
 	}
 
 	/** The head file an empty side stands for, so it can be reopened in another mode. */

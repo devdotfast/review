@@ -26,6 +26,8 @@ interface Entry {
 	status?: Status;
 	/** The base path of a renamed file. */
 	renamedFrom?: string;
+	/** The head path of a renamed file listed at its base path. */
+	renamedTo?: string;
 }
 
 const statusLabels: Record<Status, string> = { A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' };
@@ -50,13 +52,24 @@ async function git(cwd: vscode.Uri, args: string[]): Promise<string[]> {
 	return stdout.split('\0').filter(Boolean);
 }
 
+/** How the source window shows files; set by the workbench's Diff / Head / Base switch. */
+type Mode = 'diff' | 'head' | 'base';
+
+interface Listing {
+	readonly inHead: ReadonlySet<string>;
+	readonly inBase: ReadonlySet<string>;
+	readonly changes: Changes;
+}
+
 class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorationProvider {
 
 	private root: Entry;
 	private readonly entries = new Map<string, Entry>();
 	private readonly decorations = new Map<string, vscode.FileDecoration>();
 	private renames = new Map<string, string>();
+	private listing: Listing | undefined;
 	private loaded: Promise<void> | undefined;
+	private mode: Mode = 'diff';
 
 	private readonly treeChanged = new vscode.EventEmitter<void>();
 	readonly onDidChangeTreeData = this.treeChanged.event;
@@ -76,9 +89,21 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 		return this.loaded;
 	}
 
+	/** Show the files of the side the editors show, from the last listing. */
+	setMode(mode: Mode): void {
+		this.mode = mode;
+		if (this.listing) {
+			this.build();
+		}
+	}
+
 	/** The path of a file on the other side: a renamed file's base path, or its head path from the base. */
 	async counterpart(side: 'base' | 'head', path: string): Promise<string | undefined> {
 		await this.loaded?.catch(() => undefined);
+		return this.other(side, path);
+	}
+
+	private other(side: 'base' | 'head', path: string): string | undefined {
 		if (side === 'head') {
 			return this.renames.get(path);
 		}
@@ -103,21 +128,37 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 		for (const file of missing) {
 			inHead.delete(file);
 		}
-		const inBase = new Set(baseFiles);
-		const renamedFrom = new Set(changes.renames.values());
+		this.listing = { inHead, inBase: new Set(baseFiles), changes };
+		this.renames = new Map(changes.renames);
+		this.build();
+	}
 
-		this.root = this.folder('', undefined, this.head);
+	/** Lay out the head files, the base files, or for a diff every file on either side. */
+	private build(): void {
+		const { inHead, inBase, changes } = this.listing!;
+		const base = this.mode === 'base' ? this.base : undefined;
+		this.root = this.folder('', undefined, base ?? this.head);
 		this.entries.clear();
 		this.decorations.clear();
-		this.renames = new Map(changes.renames);
-		for (const file of new Set([...inHead, ...inBase])) {
-			const renamed = inHead.has(file) ? changes.renames.get(file) : undefined;
-			// A renamed file appears once, at its head path.
-			if (!inHead.has(file) && renamedFrom.has(file)) {
-				continue;
+		if (base) {
+			// A renamed file appears at its base path.
+			const renamedTo = new Map([...changes.renames].map(([head, from]) => [from, head]));
+			for (const file of inBase) {
+				const renamed = renamedTo.get(file);
+				const status: Status | undefined = renamed ? 'R' : !inHead.has(file) ? 'D' : changes.modified.has(file) ? 'M' : undefined;
+				this.add(file, base, status).renamedTo = renamed;
 			}
-			const status: Status | undefined = renamed ? 'R' : !inBase.has(file) ? 'A' : !inHead.has(file) ? 'D' : changes.modified.has(file) ? 'M' : undefined;
-			this.add(file, inHead.has(file), status).renamedFrom = renamed;
+		} else {
+			const renamedFrom = new Set(changes.renames.values());
+			for (const file of new Set([...inHead, ...(this.mode === 'diff' ? inBase : [])])) {
+				const renamed = inHead.has(file) ? changes.renames.get(file) : undefined;
+				// A renamed file appears once, at its head path.
+				if (!inHead.has(file) && renamedFrom.has(file)) {
+					continue;
+				}
+				const status: Status | undefined = renamed ? 'R' : !inBase.has(file) ? 'A' : !inHead.has(file) ? 'D' : changes.modified.has(file) ? 'M' : undefined;
+				this.add(file, inHead.has(file) || !this.base ? this.head : this.base, status).renamedFrom = renamed;
+			}
 		}
 		for (const entry of this.entries.values()) {
 			if (!entry.status) {
@@ -150,13 +191,12 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 		return { modified, renames };
 	}
 
-	private add(file: string, inHead: boolean, status: Status | undefined): Entry {
+	private add(file: string, side: vscode.Uri, status: Status | undefined): Entry {
 		const parts = file.split('/');
 		let parent = this.root;
 		for (const [index, name] of parts.entries()) {
 			const path = parts.slice(0, index + 1).join('/');
 			const last = index === parts.length - 1;
-			const side = inHead || !this.base ? this.head : this.base;
 			let entry = parent.children!.get(name);
 			if (!entry) {
 				entry = last
@@ -164,7 +204,7 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 					: this.folder(path, parent, side);
 				parent.children!.set(name, entry);
 				this.entries.set(path, entry);
-			} else if (inHead && entry.uri.fsPath !== vscode.Uri.joinPath(this.head, path).fsPath) {
+			} else if (side === this.head && entry.uri.fsPath !== vscode.Uri.joinPath(this.head, path).fsPath) {
 				// A folder first seen through a deleted file also holds head files.
 				entry.uri = vscode.Uri.joinPath(this.head, path);
 			}
@@ -180,30 +220,25 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 
 	/** The entry for a file open in an editor, from either checkout or as an empty side. */
 	find(uri: vscode.Uri): Entry | undefined {
-		if (uri.scheme === 'review-empty') {
-			return this.entries.get(uri.path.slice(1));
-		}
-		if (uri.scheme !== 'file') {
+		const within = (root: vscode.Uri | undefined) =>
+			root && uri.scheme === 'file' && uri.fsPath.startsWith(root.fsPath + '/') ? uri.fsPath.slice(root.fsPath.length + 1) : undefined;
+		const headPath = uri.scheme === 'review-empty' ? uri.path.slice(1) : within(this.head);
+		const basePath = headPath === undefined ? within(this.base) : undefined;
+		const [side, path] = headPath !== undefined ? ['head', headPath] as const : basePath !== undefined ? ['base', basePath] as const : [];
+		if (!side) {
 			return undefined;
 		}
-		if (uri.fsPath.startsWith(this.head.fsPath + '/')) {
-			return this.entries.get(uri.fsPath.slice(this.head.fsPath.length + 1));
-		}
-		if (this.base && uri.fsPath.startsWith(this.base.fsPath + '/')) {
-			// A renamed file's entry is at its head path.
-			const path = uri.fsPath.slice(this.base.fsPath.length + 1);
-			const renamed = [...this.renames].find(([, from]) => from === path)?.[0];
-			return this.entries.get(renamed ?? path);
-		}
-		return undefined;
+		// The tree lists base paths in Base mode and head paths otherwise.
+		const shown = this.mode === 'base' ? 'base' : 'head';
+		return this.entries.get(side === shown ? path : this.other(side, path) ?? path);
 	}
 
 	getTreeItem(entry: Entry): vscode.TreeItem {
 		const item = new vscode.TreeItem(entry.uri, entry.children ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
 		item.id = entry.path;
-		const label = entry.status ? `${entry.path}, ${describe(entry)}` : entry.path;
-		item.tooltip = label;
-		item.accessibilityInformation = { label };
+		// The badge's decoration adds the status to the tooltip.
+		item.tooltip = entry.path;
+		item.accessibilityInformation = { label: entry.status ? `${entry.path}, ${describe(entry)}` : entry.path };
 		if (!entry.children) {
 			item.command = { command: 'vscode.open', title: 'Open', arguments: [entry.uri] };
 		}
@@ -225,7 +260,7 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 }
 
 function describe(entry: Entry): string {
-	return entry.renamedFrom ? `Renamed from ${entry.renamedFrom}` : entry.status ? statusLabels[entry.status] : '';
+	return entry.renamedFrom ? `Renamed from ${entry.renamedFrom}` : entry.renamedTo ? `Renamed to ${entry.renamedTo}` : entry.status ? statusLabels[entry.status] : '';
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -267,6 +302,11 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('reviewFiles.refresh', load),
 		// The workbench asks which base file a head file is compared with, and back.
 		vscode.commands.registerCommand('reviewFiles.counterpart', (side: 'base' | 'head', path: string) => files.counterpart(side, path)),
+		// The workbench's Diff / Head / Base switch.
+		vscode.commands.registerCommand('reviewFiles.setMode', (mode: Mode) => {
+			files.setMode(mode);
+			reveal(vscode.window.activeTextEditor);
+		}),
 		vscode.window.onDidChangeActiveTextEditor(reveal),
 		view.onDidChangeVisibility(() => reveal(vscode.window.activeTextEditor)),
 	);

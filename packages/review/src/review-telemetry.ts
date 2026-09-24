@@ -17,7 +17,11 @@ import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
-import { exceptionProperties } from "./exception-telemetry";
+import {
+  type ChunkIds,
+  exceptionProperties,
+  readChunkIds,
+} from "./exception-telemetry";
 import { readReviewPackageVersion as readReviewPackageVersionSync } from "./package-paths";
 import {
   PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
@@ -58,6 +62,8 @@ import {
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
+
+const REVIEW_SERVER_ENTRY_ENV = "DEV_FAST_REVIEW_SERVER_ENTRY";
 
 /** Install config fields announceOnce guards. */
 type AnnouncedField =
@@ -282,6 +288,7 @@ export class ReviewTelemetry {
   private surface: ReviewTelemetrySurface;
   private readonly packageVersion: string;
   private installConfig: ReviewTelemetryInstallConfig | undefined;
+  private chunkIds: ChunkIds | undefined;
 
   constructor(options: ReviewTelemetryOptions = {}) {
     this.env = options.env ?? process.env;
@@ -584,7 +591,11 @@ export class ReviewTelemetry {
     // PostHog error tracking groups on $exception; the custom event stays for
     // one release so the existing error insights keep working.
     if (event !== "review_client_error") return;
-    const exception = exceptionProperties(properties);
+
+    const exception = exceptionProperties(
+      properties,
+      (this.chunkIds ??= readChunkIds(this.env[REVIEW_SERVER_ENTRY_ENV])),
+    );
 
     if (!exception) return;
     await this.captureEvent(

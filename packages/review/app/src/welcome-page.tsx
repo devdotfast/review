@@ -63,7 +63,11 @@ export function WelcomePage({
 
   const refreshInstall = async () => {
     if (!setupActions) return;
-    setLoadedInstall(await setupActions.load());
+    const next = await setupActions.load();
+    setLoadedInstall(next);
+
+    if (cliInstallReady(next.status) && next.status.legacySkills.length === 0)
+      setOpenStep("Connect your agents");
     setCardStatus(undefined);
   };
 
@@ -90,9 +94,14 @@ export function WelcomePage({
   // closest signal that an agent got connected.
   const [connectCopied, setConnectCopied] = useState(readConnectCopied);
   const [updateFinished, setUpdateFinished] = useState(false);
+  const [connectOpened, setConnectOpened] = useState(false);
+  const canDismiss = setupReady && connectOpened;
 
   const markConnectCopied = () => {
     setConnectCopied(true);
+    setOpenStep(
+      updating ? "Continue shipping thoughtful code" : "Take the tour",
+    );
 
     try {
       globalThis.localStorage?.setItem(REVIEW_CONNECT_COPIED_STORAGE_KEY, "1");
@@ -166,7 +175,7 @@ export function WelcomePage({
   };
 
   const dismissUpdate = () => {
-    if (!install) return;
+    if (!install || !canDismiss) return;
     void runSetup(async () => {
       setCardStatus(await install.finishUpdate());
       setUpdateFinished(true);
@@ -180,10 +189,24 @@ export function WelcomePage({
           {
             title: "Remove deprecated skills",
             done: !hasLegacySkills,
-            body: (
+            label: hasLegacySkills
+              ? undefined
+              : "Deprecated skills removed successfully",
+            body: !hasLegacySkills ? (
+              <p role="status">Deprecated skills removed successfully</p>
+            ) : (
               <LegacySkillsRow
                 install={{ ...install, status }}
-                onStatusChange={setCardStatus}
+                onStatusChange={(next) => {
+                  setCardStatus(next);
+
+                  if (next.legacySkills.length === 0)
+                    setOpenStep(
+                      cliInstallReady(next)
+                        ? "Connect your agents"
+                        : "Install the whiteboard command",
+                    );
+                }}
               />
             ),
           },
@@ -209,14 +232,14 @@ export function WelcomePage({
 
   if ((updating || showLegacyStep) && install)
     steps.push({
-      title: "Continue shipping beautiful code",
-      disabled: hasLegacySkills,
+      title: "Continue shipping thoughtful code",
+      disabled: !canDismiss,
       done: updateFinished,
       body: (
         <button
           type="button"
           className="review-welcome-dismiss review-onboarding-primary"
-          disabled={setupBusy || hasLegacySkills}
+          disabled={setupBusy || !canDismiss}
           onClick={dismissUpdate}
         >
           Dismiss
@@ -255,9 +278,7 @@ export function WelcomePage({
       },
     );
 
-  // Pick the initial step from progress, then let the reader navigate, so an
-  // action never collapses the step it happened in. Keyed by title because
-  // the step list changes as install status arrives.
+  // Keep step identity stable as status and completion labels change.
   const [openStep, setOpenStep] = useState(() =>
     updating && installed && !hasLegacySkills
       ? "Connect your agents"
@@ -266,6 +287,9 @@ export function WelcomePage({
 
   if (openStep && !steps.some((step) => step.title === openStep))
     setOpenStep(steps.find((step) => !step.done && !step.disabled)?.title);
+
+  if (openStep === "Connect your agents" && setupReady && !connectOpened)
+    setConnectOpened(true);
 
   return (
     <main className="review-home">
@@ -303,7 +327,7 @@ export function WelcomePage({
                 <button
                   type="button"
                   className="review-welcome-dismiss"
-                  disabled={setupBusy || hasLegacySkills}
+                  disabled={setupBusy || !canDismiss}
                   onClick={dismissUpdate}
                 >
                   Dismiss
@@ -312,6 +336,7 @@ export function WelcomePage({
                 <button
                   type="button"
                   className="review-welcome-dismiss"
+                  disabled={setupBusy || !canDismiss}
                   onClick={onClose}
                 >
                   Close
@@ -334,12 +359,12 @@ export function WelcomePage({
                       className="review-onboarding-step-header"
                       disabled={step.disabled}
                       aria-expanded={open}
-                      aria-label={`${open ? "Collapse" : "Expand"} ${step.title}`}
+                      aria-label={`${open ? "Collapse" : "Expand"} ${step.label ?? step.title}`}
                       onClick={() => setOpenStep(open ? undefined : step.title)}
                     >
                       <StepBadge done={step.done} label={String(index + 1)} />
                       <span className="review-onboarding-step-title">
-                        {step.title}
+                        {step.label ?? step.title}
                       </span>
                       {step.note ? (
                         <span className="review-onboarding-step-note">
@@ -391,6 +416,7 @@ function readConnectCopied(): boolean {
 
 interface WelcomeStep {
   title: string;
+  label?: string;
   done: boolean;
   disabled?: boolean;
   note?: string;

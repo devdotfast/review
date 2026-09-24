@@ -7839,6 +7839,17 @@ button.review-stack-row:disabled .review-stack-relation {
 .diff-workspace .diff-lens-toggle.is-active.is-viewed {
   opacity: 1;
 }
+/* A lens with no changes (usually Uncategorized) has nothing to filter to. */
+.diff-lens-toggle.is-empty {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.diff-lens-toggle.is-empty .diff-lens-icon {
+  color: inherit;
+}
+.diff-lens-toggle.is-empty:hover {
+  background: transparent;
+}
 
 /* The hit areas overlap adjacent panes; the visible dividers stay one pixel. */
 .diff-sidebar-cabinets,

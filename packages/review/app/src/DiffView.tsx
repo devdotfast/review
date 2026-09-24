@@ -235,7 +235,10 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
             {rows.items.map((item) => {
               const selected = lens?.id === item.id,
                 stats = lenses.stats(item.sources),
-                phase = rows.phases.get(item.id);
+                phase = rows.phases.get(item.id),
+                // Nothing to filter to, so the row greys out; a lens already
+                // selected can still be cleared.
+                empty = !item.pending && item.fileCount === 0;
 
               return (
                 <section
@@ -246,9 +249,9 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                 >
                   <div className="diff-lens-row">
                     <button
-                      className={`diff-lens-toggle ${selected ? "is-active" : ""} ${stats.state === "viewed" ? "is-viewed" : ""}`}
+                      className={`diff-lens-toggle ${selected ? "is-active" : ""} ${stats.state === "viewed" ? "is-viewed" : ""} ${empty ? "is-empty" : ""}`}
                       aria-pressed={selected}
-                      disabled={!!item.unavailable}
+                      disabled={!!item.unavailable || (empty && !selected)}
                       onClick={() =>
                         selected ? lenses.clear() : lenses.select(item.id)
                       }
@@ -279,7 +282,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
                         >
                           …
                         </span>
-                      ) : item.fileCount === 0 ? (
+                      ) : empty ? (
                         <span className="diff-counts">0 files</span>
                       ) : (
                         <DiffCounts progress={stats} />

@@ -8,24 +8,6 @@
 
 export const reviewOptionalExtensionCatalog = [
 	{
-		id: 'rust-lang.rust-analyzer',
-		role: 'primary',
-		group: 'rust',
-		version: '0.4.2990',
-		targets: {
-			'darwin-arm64': {
-				url: 'https://open-vsx.org/api/rust-lang/rust-analyzer/darwin-arm64/0.4.2990/file/rust-lang.rust-analyzer-0.4.2990@darwin-arm64.vsix',
-				sha256: 'e068ebb88f705491856b91cdbf8b7ead40c22d50f2c24df70e345c889c2b0111',
-				size: 15445156
-			},
-			'linux-x64': {
-				url: 'https://open-vsx.org/api/rust-lang/rust-analyzer/linux-x64/0.4.2990/file/rust-lang.rust-analyzer-0.4.2990@linux-x64.vsix',
-				sha256: '317cb128e8caf2495b955ef6612d828fef809187ac445242116ad8e2e32382ff',
-				size: 16313907
-			}
-		}
-	},
-	{
 		id: 'swiftlang.swift-vscode',
 		role: 'primary',
 		group: 'swift',
@@ -66,19 +48,6 @@ export const reviewOptionalExtensionCatalog = [
 				url: 'https://open-vsx.org/api/muhammad-sammy/csharp/linux-x64/2.145.21-g154a82fd27/file/muhammad-sammy.csharp-2.145.21-g154a82fd27@linux-x64.vsix',
 				sha256: '78bc006683cc998e9fd1a6f2760d8cb3da63096464a217bbd192ecfb490a5516',
 				size: 78144854
-			}
-		}
-	},
-	{
-		id: 'golang.go',
-		role: 'primary',
-		group: 'go',
-		version: '0.56.0',
-		targets: {
-			universal: {
-				url: 'https://open-vsx.org/api/golang/Go/0.56.0/file/golang.Go-0.56.0.vsix',
-				sha256: '9f5959fb17ba0a8dbd804387ddda50975fcaa9dd5267aa33eaaa89912072aacb',
-				size: 621478
 			}
 		}
 	},

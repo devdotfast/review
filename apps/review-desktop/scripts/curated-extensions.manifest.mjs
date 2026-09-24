@@ -62,7 +62,7 @@ export const curatedExtensions = Object.freeze([
   },
   {
     id: "rust-lang.rust-analyzer",
-    tier: "optional",
+    tier: "bundled",
     role: "primary",
     namespace: "rust-lang",
     name: "rust-analyzer",
@@ -244,14 +244,10 @@ export const curatedExtensions = Object.freeze([
     stripExtensionPack: false,
   },
   {
-    // Ships no server: on activation it runs `go install` for gopls and vscgo
-    // against the reader's own Go toolchain, with no prompt and no setting that
-    // stops it. There are no official gopls prebuilts to bundle, so the group is
-    // optional and the download consent covers the toolchain install too.
-    // Note the Open VSX namespace capitalises the name (`golang/Go`) while the
-    // extension identifier itself is lowercase.
+    // Open VSX ships no server. Build the pinned Go tools below into bin/.
+    // Open VSX capitalises Go; the extension identifier remains lowercase.
     id: "golang.go",
-    tier: "optional",
+    tier: "bundled",
     role: "primary",
     namespace: "golang",
     name: "Go",
@@ -266,7 +262,8 @@ export const curatedExtensions = Object.freeze([
         size: 621478,
       },
     },
-    executables: [],
+    executables: ["bin/gopls", "bin/vscgo"],
+    goTools: true,
     stripExtensionPack: false,
   },
 ]);

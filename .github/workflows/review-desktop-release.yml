@@ -306,6 +306,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
 
+      - name: Setup Go for bundled language tools
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.2'
+          cache: false
+
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -424,6 +430,12 @@ jobs:
 
       - name: Build packaged smoke dependencies
         run: pnpm --filter @dev.fast/review-protocol... build
+
+      - name: Setup Go for bundled language tools
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.2'
+          cache: false
 
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

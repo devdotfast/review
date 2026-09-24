@@ -82,11 +82,9 @@ PostHog's `identify()` API, and it sends every event, including
 PostHog to process it as a personless event and never create a person profile
 for that ID.
 
-Review Preview keeps its own installation id in
-`telemetry/progressive-review.preview.json`, so a preview and a stable install
-on one machine count as two installations. This applies to Review Desktop
-only: the standalone `review` CLI has no channel of its own and always uses
-the stable identity file.
+Review Desktop Preview keeps a separate installation id in
+`telemetry/progressive-review.preview.json`. The standalone CLI always uses the
+stable id.
 
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
@@ -163,12 +161,11 @@ Every event from the Review telemetry API includes these properties:
 | `arch`           | Node architecture enum                                             |
 | `os_version`     | Kernel release string                                              |
 | `ci`             | Boolean                                                            |
-| `internal`       | Boolean for a dev.fast workspace build or a persisted marker       |
+| `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
 | `app_session_id` | One random id per Desktop launch, shared by every Desktop process  |
 
-`environment` is decided in this order: `smoke` or `e2e` when a test harness
-says so, `ci` when `CI` is set, `internal` for a dev.fast workspace checkout or
-a persisted internal marker, else `production`.
+`environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
+(`CI` set), `internal`, `production`.
 
 UI events also include `source: review_app`.
 
@@ -177,8 +174,8 @@ specific Desktop Review session can include both `review_id` and
 `presentation_id`. Global main-process and renderer errors remain unscoped;
 Review does not guess which open Review caused them.
 
-The transport creates `review_telemetry_dropped` itself and stamps it with the
-envelope last computed in that process.
+`review_telemetry_dropped` carries the envelope of the process that dropped the
+events.
 
 ### CLI and lifecycle events
 
@@ -196,19 +193,16 @@ envelope last computed in that process.
 | `review_review_reaped`            | `retention_days`                                            | Retention deletes a dismissed review                |
 | `review_telemetry_dropped`        | `reason`, `count`                                           | The queue drops one or more events                  |
 
-`review_session_started` is also allowlisted to carry `source_kind` and
-`agent_kind`, but only one is populated today. The server fills `source_kind`
-from the review the session opened — the client cannot assert its own value —
-and drops whatever the client sent. `agent_kind` stays in the allowlist for a
-later PR; nothing sets it yet, so it never appears on the event.
+`review_session_started` also carries `source_kind`, which the server sets from
+the opened review. `agent_kind` is allowlisted but not yet sent.
 
-Session outcomes are `closed` (the tab closed or was replaced), `app_quit`,
-and `abnormal` (the previous Desktop process died with the review still open;
-reported on the next launch, without `duration_ms`, and carrying the dead
-launch's `app_session_id`, `app_version`, `cli_version`, `environment` and
-other envelope fields so an upgrade does not count the crash against the new
-version). `dismissed` and `deleted`
-are reserved for later PRs.
+| `outcome`  | Meaning                                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`   | The tab closed or another review replaced it                                                                                                |
+| `app_quit` | The Desktop quit with the review open                                                                                                       |
+| `abnormal` | The Desktop died with the review open. Sent by the next launch, without `duration_ms`, with the dead launch's envelope and `app_session_id` |
+
+`dismissed` and `deleted` are reserved.
 
 `command_path` is a closed enum for all public commands. It includes `help`,
 `version`, `app.launch`, `app.pick`, `info`, `instances`, `instances.use`,
@@ -219,8 +213,7 @@ are reserved for later PRs.
 `trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, `server.start`, and
 `invalid`. Review sends no arguments, refs, tokens, or storage credentials.
 `surface` is `headless` for `server.start`, `mcp` for `mcp`, `api` for `api`,
-and `cli` for every other command. It labels every event the command's process
-sends, including `review_installation_created`, not only command events.
+and `cli` otherwise, on every event the command's process sends.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.
@@ -247,10 +240,8 @@ text, and only as described in "Error reports".
 ### Desktop and canvas events
 
 The server checks all properties in this table against
-`packages/review/src/ui-telemetry-events.ts`. Review session lifecycle events
-(`review_session_started`, `review_review_presented`,
-`review_first_review_presented`, `review_session_ended`) are documented in
-[CLI and lifecycle events](#cli-and-lifecycle-events) above.
+`packages/review/src/ui-telemetry-events.ts`. Session lifecycle events are
+listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 
 | Event                             | Additional properties                                                                                                                                          | When                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -287,20 +278,16 @@ is the implicit undo: a reader who opens a dismissed review brings it back.
 
 ## Suspected hangs
 
-The primary signal is the explicit `review_session_ended{outcome:"abnormal"}`
-event described above: an on-disk marker records every open review session,
-and the next Desktop launch reconciles any marker its own process never
-cleared into an abnormal end. This is the floor under crash and hang counts
-even when nothing else fires, and it needs no query.
+A Desktop session that never ends cleanly arrives as
+`review_session_ended{outcome:"abnormal"}`: Review records open sessions under
+`${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch reports any its
+predecessor left open.
 
-Operational queries against a start-without-terminal-event gap remain a
-fallback for lifecycles that carry no on-disk marker, such as a CLI command. A
-lifecycle start classifies as a suspected hang after five minutes without its
-matching terminal event:
+Operational queries also flag a start with no terminal event after five
+minutes:
 
 - a command start with no success or failure sharing `command_run_id`; or
-- a session start with no presentation sharing `presentation_id`, before the
-  next launch has had a chance to reconcile it.
+- a session start with no presentation sharing `presentation_id`.
 
 This observes lifecycle gaps; it does not time out or kill work. A late
 terminal or ready event removes the match automatically.

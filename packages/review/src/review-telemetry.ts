@@ -44,7 +44,10 @@ import {
   reviewTelemetryEnvironment,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
-import { type ReviewSessionOutcome } from "./ui-telemetry-events";
+import {
+  type ReviewSessionAgent,
+  type ReviewSessionOutcome,
+} from "./ui-telemetry-events";
 
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
@@ -99,9 +102,7 @@ export type ReviewTelemetryErrorCategory =
   | "transport"
   | "internal";
 
-export type ReviewSessionAgent = "codex" | "claude" | "pi" | "other";
-
-export type { ReviewSessionOutcome };
+export type { ReviewSessionAgent, ReviewSessionOutcome };
 
 export type ReviewTelemetryTab =
   | "review"

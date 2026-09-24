@@ -135,11 +135,13 @@ export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;
 export const SESSION_SOURCE_KIND = ["worktree", "commits", "scratchpad"] as const;
 
 /**
- * Mirrors `ReviewSessionAgent` in `review-telemetry.ts`. Duplicated rather than
- * imported: this file is also bundled into the browser canvas app and must stay
- * free of Node-only dependencies.
+ * The authoring agent a review session is attributed to. This is the one
+ * definition: `review-telemetry.ts`'s `ReviewSessionAgent` type imports and
+ * derives from it instead of redeclaring the list.
  */
 export const SESSION_AGENT_KIND = ["codex", "claude", "pi", "other"] as const;
+
+export type ReviewSessionAgent = (typeof SESSION_AGENT_KIND)[number];
 
 /**
  * How a review session ends. `abnormal` is reported on the next launch for a

@@ -94,3 +94,53 @@ it("enriches session_started with source_kind on the global /telemetry/event rou
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("never trusts a client-supplied source_kind or agent_kind on session_started", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "review-session-telemetry-"));
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const token = "session-telemetry-test-token";
+
+  const telemetry = ReviewTelemetry.fromEnv({
+    ...process.env,
+    DEV_REVIEW_HOME: home,
+  });
+  const captureUiEvent = vi.spyOn(telemetry, "captureUiEvent");
+
+  const server = createGlobalReviewServer({
+    reviewStore: local.store,
+    reviewData: local.data,
+    appPid: process.pid,
+    packageRoot: home,
+    toolingRoot: home,
+    port: 0,
+    token,
+    discoveryPath: path.join(home, "review-desktop", "server.json"),
+    telemetry,
+  });
+
+  try {
+    await server.listen();
+
+    // A review this store never had (a shared review, or one deleted between
+    // open and the event arriving): sessionStartedSourceKind cannot resolve it.
+    const context = { reviewUuid: randomUUID(), presentationSessionId: randomUUID() };
+
+    const response = await fetch(`${server.url}/telemetry/event`, {
+      method: "POST",
+      headers: { "x-review-token": token, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "session_started",
+        properties: { source_kind: "commits", agent_kind: "claude" },
+        context,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(captureUiEvent).toHaveBeenCalledWith("review_session_started", {}, context);
+  } finally {
+    await server.close();
+    await local.data.close();
+    await local.store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});

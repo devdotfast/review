@@ -262,6 +262,12 @@ export function createGlobalReviewServer(
         : {};
 
       if (payload.name === "session_started") {
+        // Both are server-derived only: a client can never assert its own
+        // source_kind or agent_kind, so a review the store cannot resolve
+        // must not fall back to whatever the client sent.
+        delete eventProperties.source_kind;
+        delete eventProperties.agent_kind;
+
         const rawContext = isJsonObject(payload.context) ? payload.context : {};
         const sourceKind = sessionStartedSourceKind(
           reviewStore,

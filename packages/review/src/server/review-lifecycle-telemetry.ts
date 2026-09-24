@@ -8,10 +8,12 @@ import type { ReviewSessionAgent, ReviewTelemetry } from "../review-telemetry";
  * agent created through `review api` or `review mcp`, timed from the review's
  * creation. Which reviews an agent created is known only to this process, so
  * a server restart between create and publish loses that one completion.
+ * Sign-in reports its funnel, and a success calls `onLoggedIn`.
  */
 export function reviewLifecycleTelemetry(
   telemetry: Pick<ReviewTelemetry, "captureEvent">,
   firstCreatedAt: (reviewId: string) => string | undefined,
+  onLoggedIn: () => Promise<void>,
   now: () => number = Date.now,
 ): ReviewApiHooks {
   const reported = new Set<string>();
@@ -58,6 +60,11 @@ export function reviewLifecycleTelemetry(
         capture("review_authoring_completed", properties, reviewId);
       },
       onRevoked: () => capture("review_review_revoked"),
+      onLogin: (outcome, reason) => {
+        capture(`review_login_${outcome}`, reason ? { reason } : {});
+
+        if (outcome === "succeeded") void onLoggedIn();
+      },
     },
   };
 }

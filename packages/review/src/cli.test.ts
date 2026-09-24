@@ -301,6 +301,9 @@ describe("Review CLI", () => {
       captureToolCalled: vi.fn<ReviewTelemetry["captureToolCalled"]>(
         async () => undefined,
       ),
+      captureAccountAlias: vi.fn<ReviewTelemetry["captureAccountAlias"]>(
+        async () => undefined,
+      ),
       shutdown: vi.fn<() => Promise<undefined>>(async () => undefined),
     } satisfies ReviewCommandTelemetry;
 
@@ -497,6 +500,9 @@ describe("Review CLI", () => {
         async () => undefined,
       ),
       captureToolCalled: vi.fn<ReviewTelemetry["captureToolCalled"]>(
+        async () => undefined,
+      ),
+      captureAccountAlias: vi.fn<ReviewTelemetry["captureAccountAlias"]>(
         async () => undefined,
       ),
       shutdown: vi.fn<ReviewTelemetry["shutdown"]>(async () => undefined),

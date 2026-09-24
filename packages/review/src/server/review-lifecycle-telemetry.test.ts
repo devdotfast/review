@@ -6,6 +6,8 @@ function harness() {
   const events: Array<[string, object | undefined, object | undefined]> = [];
   let now = Date.parse("2026-09-23T10:05:00.000Z");
 
+  const aliased: string[] = [];
+
   const hooks = reviewLifecycleTelemetry(
     {
       captureEvent: async (event, properties, context) => {
@@ -13,10 +15,12 @@ function harness() {
       },
     },
     () => "2026-09-23T10:00:00.000Z",
+    async () => void aliased.push("aliased"),
     () => now,
   );
 
   return {
+    aliased,
     events,
     hooks,
     advance: (ms: number) => {
@@ -95,5 +99,21 @@ describe("reviewLifecycleTelemetry", () => {
       ["review_review_published", { version: 4 }, { reviewUuid: "agent" }],
       ["review_review_revoked", undefined, undefined],
     ]);
+  });
+
+  it("reports the login funnel and aliases the install after a success", async () => {
+    const { aliased, events, hooks } = harness();
+
+    hooks.sharing?.onLogin?.("started");
+    hooks.sharing?.onLogin?.("failed", "did_not_finish");
+    expect(aliased).toEqual([]);
+    hooks.sharing?.onLogin?.("succeeded");
+
+    expect(events).toEqual([
+      ["review_login_started", {}, undefined],
+      ["review_login_failed", { reason: "did_not_finish" }, undefined],
+      ["review_login_succeeded", {}, undefined],
+    ]);
+    expect(aliased).toEqual(["aliased"]);
   });
 });

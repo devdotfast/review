@@ -53,6 +53,7 @@ import {
   type ReviewTelemetryContext,
 } from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
+import { aliasInstallationToAccount } from "./account-alias";
 import {
   readDiffrConfig,
   saveDiffrSummarizer,
@@ -237,6 +238,7 @@ export function createGlobalReviewServer(
       reviewLifecycleTelemetry(
         telemetry,
         (reviewId) => reviewStore.summary(reviewId)?.firstCreatedAt,
+        () => aliasInstallationToAccount(telemetry),
       ),
     ),
   );

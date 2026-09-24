@@ -55,6 +55,30 @@ export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
 
+/** Install config fields announceOnce guards. */
+type AnnouncedField =
+  | "installationCreatedSent"
+  | "firstReviewPresentedSent"
+  | "accountAlias";
+
+/**
+ * A fixed namespace, not the installation id: a key per install would give
+ * every install a different alias for one account and defeat the linking.
+ * The hash is one-way; the account id itself is never sent.
+ */
+const ACCOUNT_ALIAS_KEY = "dev.fast.review.telemetry.account.v1";
+
+/** `gh_` + the first 16 bytes of HMAC-SHA256(namespace, account id). */
+export function accountAlias(accountId: string): string {
+  const digest = createHmac("sha256", ACCOUNT_ALIAS_KEY)
+    .update(accountId)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+
+  return `gh_${digest}`;
+}
+
 /** A tool name is program-owned, but only an identifier is ever sent. */
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
 
@@ -228,6 +252,7 @@ export type ReviewCommandTelemetry = Pick<
   | "captureCommandFailed"
   | "captureUiEvent"
   | "captureToolCalled"
+  | "captureAccountAlias"
   | "shutdown"
 >;
 
@@ -322,7 +347,7 @@ export class ReviewTelemetry {
   }
 
   async captureInstallationCreated(): Promise<void> {
-    await this.announceOnce("installationCreatedSent", async (config) => {
+    await this.announceOnce("installationCreatedSent", true, async (config) => {
       await this.captureClient.capture({
         event: "review_installation_created",
         distinctId: config.installationId,
@@ -332,14 +357,38 @@ export class ReviewTelemetry {
   }
 
   /**
-   * Sends an event exactly once per identity, guarded by a persisted flag on
-   * the install config. The flag is persisted before the send completes:
-   * under-counting an install is recoverable, announcing one machine twice
-   * is not. A printed event is not a sent event, so the debug sink leaves
-   * the flag alone (it still always sends, ignoring opt-out as today).
+   * Link this installation to a signed-in account by a one-way hash, so
+   * several installs by one person count as one. Sent once per alias value;
+   * the raw account id never leaves this process.
    */
-  private async announceOnce(
-    flag: "installationCreatedSent" | "firstReviewPresentedSent",
+  async captureAccountAlias(accountId: string): Promise<void> {
+    const alias = accountAlias(accountId);
+
+    await this.announceOnce("accountAlias", alias, async (config) => {
+      await this.captureClient.capture({
+        event: "$create_alias",
+        distinctId: config.installationId,
+        // PostHog merges identities only while processing persons, so the
+        // alias itself must turn processing on.
+        properties: {
+          ...(await this.commonProperties(config)),
+          alias,
+          $process_person_profile: true,
+        },
+      });
+    });
+  }
+
+  /**
+   * Sends an event exactly once per value of a persisted install config
+   * field. The value is persisted before the send completes: under-counting
+   * is recoverable, announcing twice is not. A printed event is not a sent
+   * event, so the debug sink leaves the field alone (it still always sends,
+   * ignoring opt-out as today).
+   */
+  private async announceOnce<Field extends AnnouncedField>(
+    field: Field,
+    value: NonNullable<ReviewTelemetryInstallConfig[Field]>,
     send: (config: ReviewTelemetryInstallConfig) => Promise<void>,
   ): Promise<void> {
     if (!this.captureClient.enabled || this.optedOut()) return;
@@ -348,10 +397,10 @@ export class ReviewTelemetry {
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
 
-      if (this.optedOut(config) || config[flag]) return;
+      if (this.optedOut(config) || config[field] === value) return;
 
       if (!this.captureClient.ignoresOptOut) {
-        config[flag] = true;
+        config[field] = value;
         this.writeInstallConfig(config);
       }
 
@@ -543,7 +592,7 @@ export class ReviewTelemetry {
   private async captureFirstReviewPresented(
     context: ReviewTelemetryContext,
   ): Promise<void> {
-    await this.announceOnce("firstReviewPresentedSent", async () => {
+    await this.announceOnce("firstReviewPresentedSent", true, async () => {
       await this.captureEvent(
         "review_first_review_presented",
         { source: "review_app" },
@@ -760,7 +809,7 @@ export class ReviewTelemetry {
   }
 
   private async commonProperties(
-    config: Pick<ReviewTelemetryInstallConfig, "internal">,
+    config: Pick<ReviewTelemetryInstallConfig, "internal" | "accountAlias">,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
     const appSessionId = nonEmpty(this.env[REVIEW_APP_SESSION_ID_ENV]);
@@ -778,6 +827,8 @@ export class ReviewTelemetry {
       os_version: os.release(),
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
+      // Anonymous until an account is aliased; then PostHog keeps a person.
+      $process_person_profile: config.accountAlias !== undefined,
     };
 
     if (appVersion) properties.app_version = appVersion;

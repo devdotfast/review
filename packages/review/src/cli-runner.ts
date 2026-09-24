@@ -65,6 +65,7 @@ import {
   reviewServerStateDir,
   serverNotReady,
 } from "./server-discovery";
+import { aliasInstallationToAccount } from "./server/account-alias";
 import { setTraceAttribute, span } from "./startup-trace";
 import type { ReviewTelemetrySurface } from "./telemetry-config";
 import {
@@ -610,6 +611,11 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
           stdout: input.stdout,
           stderr: input.stderr,
         });
+
+        if (state.exitCode === 0)
+          await attemptTelemetry(() =>
+            aliasInstallationToAccount(telemetry, env),
+          );
       },
     );
 

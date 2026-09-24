@@ -23,6 +23,7 @@ import {
   ReviewTelemetry,
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
+  accountAlias,
 } from "./review-telemetry";
 import { recordOpenSession } from "./session-markers";
 import {
@@ -73,6 +74,48 @@ describe("ReviewTelemetry", () => {
     await expect(readFile(configPath, "utf8")).resolves.toContain(
       '"installationCreatedSent": true',
     );
+  });
+
+  it("aliases the install to a hashed account id once, and turns person profiles on", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-1",
+      exitCode: 0,
+    });
+    expect(events[0].properties).toMatchObject({
+      $process_person_profile: false,
+    });
+
+    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureAccountAlias("account-12345");
+    await telemetry.captureCommandSucceeded({
+      command: "info",
+      commandRunId: "run-2",
+      exitCode: 0,
+    });
+
+    const aliases = events.filter((event) => event.event === "$create_alias");
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].distinctId).toBe(events[0].distinctId);
+    expect(aliases[0].properties).toMatchObject({
+      alias: accountAlias("account-12345"),
+      $process_person_profile: true,
+    });
+    expect(accountAlias("account-12345")).toMatch(/^gh_[A-Za-z0-9_-]{22}$/);
+    expect(JSON.stringify(events)).not.toContain("account-12345");
+    expect(events.at(-1)?.properties).toMatchObject({
+      $process_person_profile: true,
+    });
+    expect(JSON.parse(await readFile(configPath, "utf8")).accountAlias).toBe(
+      accountAlias("account-12345"),
+    );
+
+    await telemetry.captureAccountAlias("account-67890");
+    expect(
+      events.filter((event) => event.event === "$create_alias"),
+    ).toHaveLength(2);
   });
 
   it("records tool calls, keeping only identifier-shaped tool names", async () => {

@@ -113,9 +113,9 @@ packaging script but no distribution. Signed builds auto-update from
 SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos
 ```
 
-builds an unsigned `VSCode-darwin-arm64/Review.app` and skips
+builds an unsigned `VSCode-darwin-arm64/Whiteboard.app` and skips
 signing, notarization, and artifact creation. A full run needs the signing
-environment and produces `dist/Review-darwin-arm64-<version>.zip` (the
+environment and produces `dist/Whiteboard-darwin-arm64-<version>.zip` (the
 Squirrel update payload) and the matching `.dmg`, both notarized and stapled:
 
 - `CODESIGN_IDENTITY` — the Developer ID Application identity string.
@@ -211,14 +211,16 @@ publishing an older commit intentionally rolls preview installations back to
 that build.
 
 Install the latest preview from <https://install.dev.fast/preview>. It installs
-as `Review Preview.app`, displays as `/dev/fast Review Preview`, and uses an
+as `Whiteboard Preview.app`, displays as `/dev/fast Whiteboard Preview`, and uses an
 orange app-icon background so it stays visually distinct from stable in Finder,
 the Dock, and the app switcher.
 
 Preview uses its own bundle identifier, URL scheme, CLI name, and data folders,
 so it can run beside stable without replacing the stable app or sharing its
 settings. Preview updates continue to use the preview feed. To return to stable,
-open the existing `Review.app` or install it from <https://install.dev.fast>.
+open the existing `Whiteboard.app` or install it from <https://install.dev.fast>.
+Auto-updated Review installs keep the `Review.app` file name; reinstall from
+the disk image to get `Whiteboard.app`.
 
 Builds from before the preview identity split installed as `Review.app`.
 Reinstall once from <https://install.dev.fast/preview> after the split so the
@@ -268,26 +270,27 @@ host discrimination; the two names exist to give humans and Squirrel separate
 front doors.
 
 `GET /` is the stable install landing: it redirects to the
-`releases/latest/darwin-arm64/Review.dmg` alias, while `GET /preview` redirects
-to `releases/preview-latest/darwin-arm64/Review.dmg`. For example,
+`releases/latest/darwin-arm64/Whiteboard.dmg` alias, while `GET /preview` redirects
+to `releases/preview-latest/darwin-arm64/Whiteboard.dmg`. For example,
 `curl -fLOJ https://install.dev.fast` downloads the current disk image. It
 deliberately does not read `latest.json` — the alias is uploaded with the
 payloads, so the download keeps working while the manifest is mid-upload. The
 keys stay version-free for that reason, so the version rides on each object's
 `Content-Disposition` instead and the saved file names itself. Stable uses
-`df-review-<version>.dmg`; preview uses
-`df-review-preview-<preview-version>.dmg`. curl only honours that with `-J`; a
+`df-whiteboard-<version>.dmg`; preview uses
+`df-whiteboard-preview-<preview-version>.dmg`. curl only honours that with `-J`; a
 browser download always does.
 
 ```
 update/stable/darwin-arm64/latest.json     current-release manifest
 update/preview/darwin-arm64/latest.json    current-preview manifest
-releases/<version>/darwin-arm64/           Review-darwin-arm64-<version>.zip + .dmg
-releases/latest/darwin-arm64/Review.dmg    direct-download alias, saved as
-                                           df-review-<version>.dmg
-releases/preview-latest/darwin-arm64/Review.dmg
+releases/<version>/darwin-arm64/           Whiteboard-darwin-arm64-<version>.zip + .dmg
+releases/latest/darwin-arm64/Whiteboard.dmg
+                                           direct-download alias, saved as
+                                           df-whiteboard-<version>.dmg
+releases/preview-latest/darwin-arm64/Whiteboard.dmg
                                            preview-download alias, saved as
-                                           df-review-preview-<preview-version>.dmg
+                                           df-whiteboard-preview-<preview-version>.dmg
 ```
 
 `GET /api/update/:platform/:quality/:commit` answers 204 when the caller's

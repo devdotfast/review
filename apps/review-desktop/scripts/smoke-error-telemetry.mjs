@@ -198,6 +198,8 @@ export async function smokeErrorTelemetry({
         DEV_REVIEW_HOME: path.join(root, "home"),
         DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
         DEV_FAST_REVIEW_TELEMETRY_ENV: "smoke",
+        // A packaged app would otherwise import the developer's legacy home.
+        ...(app && { DEV_REVIEW_IMPORT_FROM: "none" }),
         // Print events instead of sending them to the vendor.
         DEV_FAST_REVIEW_TELEMETRY_DEBUG: "1",
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),

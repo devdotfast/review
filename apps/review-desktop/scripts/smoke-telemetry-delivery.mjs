@@ -126,6 +126,8 @@ export async function smokeTelemetryDelivery({
         DEV_REVIEW_HOME: reviewHome,
         DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: stateRoot,
         DEV_FAST_REVIEW_TELEMETRY_ENV: "smoke",
+        // A packaged app would otherwise import the developer's legacy home.
+        ...(app && { DEV_REVIEW_IMPORT_FROM: "none" }),
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(debugPort),
         // Send for real, but to us. Note there is deliberately NO
         // DEV_FAST_REVIEW_TELEMETRY_DEBUG here: the sink would suppress the

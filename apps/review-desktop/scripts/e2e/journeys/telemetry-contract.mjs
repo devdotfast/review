@@ -54,7 +54,9 @@ function sentEvents(ctx) {
     try {
       events.push(JSON.parse(line.slice(at + PREFIX.length).trim()));
     } catch {
-      // A partially flushed line; the next poll sees it whole.
+      // Not a whole event: a line still being written, or one that an
+      // interleaved stdout/stderr chunk split. Such an event is lost to this
+      // reader, so the journey only waits on and counts events it can parse.
     }
   }
 
@@ -124,6 +126,11 @@ export async function run(ctx) {
   );
   assert.match(started[0].properties.review_id, /^rv_/);
   assert.ok(presented[0].properties.load_ms >= 0);
+  // The server announces the first review after a file-lock round trip, so it can trail the presented event.
+  await ctx.until(
+    () => named(ctx, "review_first_review_presented")[0] ?? null,
+    "the first presented review",
+  );
   assert.equal(
     named(ctx, "review_first_review_presented").length,
     1,

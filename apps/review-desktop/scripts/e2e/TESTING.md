@@ -3,10 +3,9 @@
 A manual suite. Each journey in `journeys/` launches Review Desktop once against
 an isolated review home, profile, remote-debugging port and temp root, and drives
 it through the JSON review API, the installed `review` CLI and Playwright over
-CDP. CI runs one journey, `telemetry-contract`, through
-`pnpm --filter @dev.fast/review-desktop test:e2e:telemetry`; the rest are
-manual. `../e2e-runner.test.mjs` checks every journey exports `name`, `phase`
-and `run`.
+CDP. Run `telemetry-contract` alone with
+`pnpm --filter @dev.fast/review-desktop test:e2e:telemetry`.
+`../e2e-runner.test.mjs` checks every journey exports `name`, `phase` and `run`.
 
 ## Prerequisites
 

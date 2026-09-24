@@ -27,7 +27,12 @@ export function diffrExecutable(
   packageRoot = findReviewPackageRoot(import.meta.url),
 ): string {
   if (process.env.REVIEW_DIFFR_BINARY) return process.env.REVIEW_DIFFR_BINARY;
-  const bundled = path.join(packageRoot, "bin", "diffr");
+
+  const bundled = path.join(
+    packageRoot,
+    "bin",
+    process.platform === "win32" ? "diffr.exe" : "diffr",
+  );
 
   return existsSync(bundled) ? bundled : "diffr";
 }

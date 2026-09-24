@@ -60,7 +60,10 @@
   pointer-events: auto;
 }
 
-.monaco-workbench.linux
+/* Windows and Linux draw their window controls on the right. Without this the
+   right section packs against the left one, and the invisible Windows controls
+   placeholder sits over the first editor tabs and swallows their clicks. */
+.monaco-workbench:is(.linux, .windows)
   .part.titlebar.review-chrome-overlay
   > .review-titlebar-container
   > .titlebar-right {

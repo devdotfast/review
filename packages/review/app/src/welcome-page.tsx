@@ -145,7 +145,7 @@ export function WelcomePage({
       <>
         <p className="review-home-zero-hint">
           {installed ? (
-            "Installed at ~/.local/bin/whiteboard."
+            `Installed at ${status?.shim.path ?? "~/.local/bin/whiteboard"}.`
           ) : cliBuildMissing ? (
             <>
               CLI build missing. If you’re running from source, run{" "}
@@ -154,7 +154,7 @@ export function WelcomePage({
               Whiteboard.
             </>
           ) : status?.shim.installed ? (
-            "Add ~/.local/bin to PATH, then refresh."
+            pathHint(status.shim.path)
           ) : (
             <>
               The <code>whiteboard</code> CLI lets your agents talk to
@@ -486,4 +486,13 @@ function StepBadge({ done, label }: { done: boolean; label: string }) {
       )}
     </span>
   );
+}
+
+/** Windows has no shell profile to edit: its user PATH reaches new terminals. */
+function pathHint(shimPath: string): string {
+  if (/^[a-z]:[\\/]/i.test(shimPath) || /\.cmd$/i.test(shimPath))
+    return "Open a new terminal, then refresh.";
+  const directory = shimPath.replace(/[\\/][^\\/]*$/, "");
+
+  return `Add ${directory || "~/.local/bin"} to PATH, then refresh.`;
 }

@@ -3,7 +3,7 @@ import { Disposable, DisposableStore, type IReference } from "../../base/common/
 import { URI } from "../../base/common/uri.js";
 import { Position } from "../../editor/common/core/position.js";
 import type { Hover, LocationLink } from "../../editor/common/languages.js";
-import type { ITextModel } from "../../editor/common/model.js";
+import { EndOfLinePreference, type ITextModel } from "../../editor/common/model.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService, type IResolvedTextEditorModel } from "../../editor/common/services/resolverService.js";
@@ -184,14 +184,14 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		await this.textFiles.files.resolve(local.uri, { reload: { async: false } });
 		return withCurrentLocalContext([model, local], token, () => this.generation, async () => {
 			// The language server must see exactly the source displayed in the review.
-			if (!model.equalsTextBuffer(local.getTextBuffer())) return undefined;
+			if (!sameSource(model, local)) return undefined;
 			const result = await run(local, position, model);
 			const current = await this.environment(model, true).catch(() => undefined);
-			if (epoch === this.environments.generation && current?.rootPath === source.root.fsPath && current.identity === source.identity) return result;
+			if (epoch === this.environments.generation && isSameRoot(current?.rootPath, source.root) && current?.identity === source.identity) return result;
 			// Failed validation must also release the old workspace/watchers. Keeping
 			// them after deletion can leave the language server blind to later edits.
 			const cached = this.sources.get(model);
-			if (cached?.identity === source.identity && cached.rootPath === source.root.fsPath) {
+			if (cached?.identity === source.identity && isSameRoot(cached.rootPath, source.root)) {
 				this.uncertainRoots.add(source.root.toString());
 				this.sources.delete(model);
 				void cached.pending.then(value => value?.dispose());
@@ -248,13 +248,13 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 					try { original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel; }
 					catch { /* Dependencies and generated files may have no review counterpart. */ }
 				}
-				if (!original?.equalsTextBuffer(local.getTextBuffer())) {
+				if (!original || !sameSource(original, local)) {
 					const candidate = pinned.uri.with({ scheme: REVIEW_LANGUAGE_SOURCE_SCHEME, path: target.path });
 					original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel;
 				}
 				const destination = original;
 				const results = await withCurrentLocalContext([original, local], token, () => this.generation, async () => {
-					if (!destination.equalsTextBuffer(local.getTextBuffer())) return [];
+					if (!sameSource(destination, local)) return [];
 					return group.map(location => [location, { ...location, uri: destination.uri }] as const);
 				});
 				for (const [before, after] of results ?? []) mapped.set(before, after);
@@ -279,3 +279,14 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 }
 
 registerWorkbenchContribution2(ReviewLocalLanguageFeatures.ID, ReviewLocalLanguageFeatures, WorkbenchPhase.BlockRestore);
+
+/** Git for Windows checks the pinned tree out with CRLF (core.autocrlf), and line endings never move a position. */
+function sameSource(review: ITextModel, local: ITextModel): boolean {
+	if (review.getEOL() === local.getEOL()) return review.equalsTextBuffer(local.getTextBuffer());
+	return review.getLineCount() === local.getLineCount() && review.getValue(EndOfLinePreference.LF) === local.getValue(EndOfLinePreference.LF);
+}
+
+/** Compare as URIs: Windows fsPath lowercases the drive letter the server reported. */
+function isSameRoot(rootPath: string | null | undefined, root: URI): boolean {
+	return typeof rootPath === "string" && URI.file(rootPath).toString() === root.toString();
+}

@@ -557,6 +557,50 @@ function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
   };
 }
 
+describe("Windows command PATH", () => {
+  // A running Whiteboard keeps its startup PATH, and the registry check can
+  // disagree with the write the installer just made, so the stamp's record of
+  // that write is what readies the command.
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, "platform", platform);
+  });
+
+  async function windowsStatus(recorded: boolean) {
+    const homeDir = await temporaryHome("review-windows-path-");
+    const env = profileEnvironment(homeDir, "");
+    const shimPath = pathShimPath(homeDir);
+    await mkdir(path.dirname(shimPath), { recursive: true });
+    await writeFile(
+      shimPath,
+      "@echo off\r\nrem Managed by Whiteboard Desktop. Do not edit.\r\n",
+    );
+
+    const stamp: ReviewCliInstallStamp = {
+      consent: "granted",
+      shimPath,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (recorded) stamp.userPath = path.dirname(shimPath);
+    await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+
+    return resolveCliInstallStatus({ packageRoot, homeDir, env });
+  }
+
+  it("readies the command once the install recorded its user PATH write", async () => {
+    expect((await windowsStatus(true)).shim).toMatchObject({
+      installed: true,
+      profileConfigured: true,
+    });
+    expect((await windowsStatus(false)).shim.profileConfigured).toBe(false);
+  });
+});
+
 describe("installed launcher runtime selection", () => {
   it("refreshes a managed launcher to the selected build and profile even when the old build exists", async () => {
     const homeDir = await temporaryHome("review-refresh-shim-");

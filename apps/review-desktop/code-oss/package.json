@@ -106,6 +106,7 @@
     "@vscode/sudo-prompt": "9.3.2",
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "@vscode/vscode-languagedetection": "1.0.23",
+    "@vscode/windows-registry": "^1.2.0",
     "@xterm/addon-clipboard": "^0.3.0-beta.288",
     "@xterm/addon-image": "^0.10.0-beta.288",
     "@xterm/addon-ligatures": "^0.11.0-beta.288",
@@ -124,6 +125,7 @@
     "jschardet": "3.1.4",
     "katex": "^0.16.22",
     "minimist": "^1.2.8",
+    "native-is-elevated": "^0.9.0",
     "native-keymap": "^3.3.5",
     "node-addon-api": "^6.0.0",
     "node-pty": "^1.2.0-beta.13",
@@ -273,5 +275,8 @@
     "es5-ext": false,
     "husky": false,
     "@vscode/windows-ca-certs@0.3.4": true
+  },
+  "optionalDependencies": {
+    "@vscode/windows-mutex": "^0.5.3"
   }
 }

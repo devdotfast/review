@@ -268,6 +268,22 @@ describe("WelcomePage", () => {
     ).toBe(false);
   });
 
+  it("tells a Windows reader to open a terminal rather than edit a POSIX PATH", async () => {
+    const shimPath = "C:\\Users\\tester\\.local\\bin\\whiteboard.cmd";
+    await act(async () =>
+      root.render(
+        <WelcomePage
+          install={content({
+            ...fresh,
+            shim: { ...fresh.shim, path: shimPath, installed: true },
+          })}
+        />,
+      ),
+    );
+    expect(container.textContent).not.toContain("~/.local/bin");
+    expect(container.textContent).toContain("new terminal");
+  });
+
   it("finishes the connect step once a prompt is copied", async () => {
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")

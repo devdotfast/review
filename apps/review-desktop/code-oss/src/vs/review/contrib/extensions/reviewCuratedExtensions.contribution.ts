@@ -7,7 +7,7 @@ import { localize, localize2 } from '../../../nls.js';
 import { Codicon } from '../../../base/common/codicons.js';
 import { getErrorMessage } from '../../../base/common/errors.js';
 import { DisposableStore } from '../../../base/common/lifecycle.js';
-import { isLinux, isMacintosh } from '../../../base/common/platform.js';
+import { isLinux, isMacintosh, isWindows } from '../../../base/common/platform.js';
 import { ThemeIcon } from '../../../base/common/themables.js';
 import { URI } from '../../../base/common/uri.js';
 import { ipcRenderer } from '../../../base/parts/sandbox/electron-browser/globals.js';
@@ -210,7 +210,7 @@ function findInstalled(installed: readonly ILocalExtension[], id: string): ILoca
 }
 
 function optionalDownloadSize(group: string, installed: readonly ILocalExtension[]): number {
-	const target = isMacintosh ? 'darwin-arm64' : isLinux ? 'linux-x64' : undefined;
+	const target = isMacintosh ? 'darwin-arm64' : isLinux ? 'linux-x64' : isWindows ? 'win32-x64' : undefined;
 	return reviewOptionalExtensionCatalog
 		.filter(extension => extension.group === group && !findInstalled(installed, extension.id))
 		.reduce((total, extension) => {

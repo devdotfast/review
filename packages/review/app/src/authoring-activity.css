@@ -8,8 +8,14 @@
   margin-inline: 10px;
   color: var(--ink-muted);
   font: 11px var(--font-mono);
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+/* A long update ends in an ellipsis inside the pill; the tooltip has it all. */
+.host-authoring-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .host-authoring-courier {

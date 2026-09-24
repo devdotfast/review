@@ -107,7 +107,7 @@ export function AuthoringActivityBadge({
         ref={tooltip}
       >
         <CourierFigure className="host-authoring-courier" />
-        {text}
+        <span className="host-authoring-text">{text}</span>
       </span>
     );
 
@@ -122,7 +122,7 @@ export function AuthoringActivityBadge({
       onClick={locate}
     >
       <CourierFigure className="host-authoring-courier" />
-      <span role="status" aria-live="polite">
+      <span className="host-authoring-text" role="status" aria-live="polite">
         {text}
       </span>
     </button>

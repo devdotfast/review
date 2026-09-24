@@ -36,7 +36,7 @@ Here’s a 1 min demo video explaining more: https://www.youtube.com/watch?v=ChP
 
 ## Guidance
 
-In our experience, Whiteboard works best with models like GPT-6 Luna and Claude Opus 5.5 for their intelligence, cost, and speed tradeoff.
+In our experience, Whiteboard works best with models like GPT-6 Sol and Claude Opus 5.5 for their intelligence, cost, and speed tradeoff.
 
 Here are a few example prompts of how to use Whiteboard effectively. We are working hard to make sure the right choices are baked in by default to the system prompt - part of why this system is open source! - but in the meantime:
 

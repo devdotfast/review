@@ -147,8 +147,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@dev.fast/diffr':
-        specifier: 0.1.1
-        version: 0.1.1(zod@4.4.3)
+        specifier: 0.1.3
+        version: 0.1.3(zod@4.4.3)
       '@dev.fast/json':
         specifier: workspace:*
         version: link:../json
@@ -198,8 +198,8 @@ importers:
   packages/review-protocol:
     dependencies:
       '@dev.fast/diffr':
-        specifier: 0.1.1
-        version: 0.1.1(zod@4.4.3)
+        specifier: 0.1.3
+        version: 0.1.3(zod@4.4.3)
       '@dev.fast/json':
         specifier: workspace:*
         version: link:../json
@@ -405,8 +405,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dev.fast/diffr@0.1.1':
-    resolution: {integrity: sha512-WSL78kqOsnTea06WOo4OfZtf9KcaCdKi2V5LYg4N7qVVs12lv61QSkavkKFZ0mJh26/lVodgNUuB0gXJkKKLyA==}
+  '@dev.fast/diffr@0.1.3':
+    resolution: {integrity: sha512-dNgVdkyN3IvjM7jLfbpfWoXDQOsGXHql/gqShw1vvKTD7XAQEkWFY3jqhlx0+h0biSkiWSBMcOYz5puZ03h8kA==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -3247,7 +3247,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dev.fast/diffr@0.1.1(zod@4.4.3)':
+  '@dev.fast/diffr@0.1.3(zod@4.4.3)':
     dependencies:
       zod: 4.4.3
 

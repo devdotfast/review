@@ -89,6 +89,7 @@ export function ReviewHome({
   onOpenTutorial,
 }: ReviewHomeProps) {
   const [showDismissed, setShowDismissed] = useState(false);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [query, setQuery] = useState("");
   const [, setNow] = useState(Date.now);
 
@@ -193,9 +194,15 @@ export function ReviewHome({
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
  */
-  if (listed.length === 0 && deletions.size === 0 && !deleteError) {
+  if (
+    !onboardingDismissed &&
+    listed.length === 0 &&
+    deletions.size === 0 &&
+    !deleteError
+  ) {
     return (
       <WelcomePage
+        onDismissUpdate={() => setOnboardingDismissed(true)}
         install={install}
         setupActions={setupActions}
         onboarding={onboarding}

@@ -3,8 +3,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { JsonObject } from "@dev.fast/review-protocol";
+import type {
+  JsonObject,
+  ReviewDesktopDiscovery,
+} from "@dev.fast/review-protocol";
 import { vi } from "vitest";
+
+import {
+  type ReviewInstanceSelection,
+  isHealthyReviewDesktop,
+} from "./desktop-discovery";
 
 /**
  * One place for the filesystem scaffolding every Review test needs. Vitest runs
@@ -116,4 +124,39 @@ export async function writeLegacyDocument(
     path.join(target, "review-document.js"),
     options.code ?? DEFAULT_LEGACY_DOCUMENT_CODE,
   );
+}
+
+/** A selection over one record read; health still comes from `fetch`, as in production. */
+export function selectingDesktop(
+  read: () => Promise<ReviewDesktopDiscovery | null>,
+  fetch: typeof globalThis.fetch,
+  base: Pick<ReviewInstanceSelection, "key" | "source"> = {
+    key: "stable",
+    source: "fallback",
+  },
+): () => Promise<ReviewInstanceSelection> {
+  return async () => {
+    let discovery: ReviewDesktopDiscovery | null;
+
+    try {
+      discovery = await read();
+    } catch (error) {
+      return {
+        ...base,
+        instances: [],
+        problem: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+
+    if (!discovery) return { ...base, instances: [] };
+
+    const instance = {
+      key: base.key,
+      filePath: "",
+      discovery,
+      healthy: await isHealthyReviewDesktop(discovery, fetch),
+    };
+
+    return { ...base, instance, instances: [instance] };
+  };
 }

@@ -1,4 +1,4 @@
-/** The CLI against a broken `server.json`: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
+/** The CLI against a broken instance record: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import {
   createReview,
+  instanceRecordPath,
   orderReviewBlocks,
   pickReview,
   sleep,
@@ -23,7 +24,7 @@ const TITLE = "Order review";
 
 /** Every message a broken pointer can produce; a probe that must reach the Desktop asserts their absence. */
 const POINTER_ERRORS =
-  /Review Desktop uses protocol|discovery is unreadable|Review Desktop is not ready/;
+  /Review Desktop uses protocol|discovery is unreadable|is not running\./;
 
 /** A Desktop-side answer: a probe that must stop at the pointer may never produce one. */
 const LOOKUP_ERROR = /Not found\./;
@@ -52,7 +53,7 @@ async function installedDesktopPids(home) {
   // LaunchServices can pick a bundle anywhere, so this only has to find a Review bundle; the two filters below narrow it.
   const stdout = await listing(
     "/usr/bin/pgrep",
-    ["-f", "Review.app/Contents"],
+    ["-f", "(Review|Whiteboard)\\.app/Contents"],
     "no process matches",
   );
 
@@ -113,7 +114,7 @@ export async function run(ctx) {
     blocks: orderReviewBlocks,
   });
 
-  const pointer = path.join(ctx.home, "review-desktop/server.json");
+  const pointer = await instanceRecordPath(ctx.home);
 
   const original = await readFile(pointer, "utf8");
 
@@ -125,6 +126,9 @@ export async function run(ctx) {
   };
 
   const output = (result) => `${result.stdout}${result.stderr}`;
+
+  const NOT_RUNNING =
+    /Whiteboard `stable` is not running\. Start it with `whiteboard app launch`, or pick another instance with `whiteboard instances`\. No Whiteboard is running\./;
 
   try {
     let result = await probe(
@@ -163,7 +167,7 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop discovery is unreadable at .*review-desktop\/server\.json\./,
+      /Review Desktop discovery is unreadable at .*review-desktop\/instances\/.*\.json\./,
       `a malformed pointer was not named: ${output(result)}`,
     );
     assert.match(
@@ -190,7 +194,7 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop is not ready\. Run `review app launch`, then retry `review info`\./,
+      NOT_RUNNING,
       `an unreachable Desktop was not reported: ${output(result)}`,
     );
     assert.doesNotMatch(
@@ -229,7 +233,7 @@ export async function run(ctx) {
       /Review Desktop is already running\./,
       `app launch did not recognise the attached Desktop: ${output(result)}`,
     );
-    // `server.json` is written once on listen, so the same instanceId proves the attached Desktop answered.
+    // The instance record is written once on listen, so the same instanceId proves the attached Desktop answered.
     assert.equal(
       JSON.parse(await readFile(pointer, "utf8")).instanceId,
       ctx.discovery.instanceId,
@@ -252,12 +256,15 @@ export async function run(ctx) {
   // `app pick` would launch a Desktop if it still ignored the pointer, so it gets a home of its own.
   const probeHome = path.join(ctx.root, "pick-probe-home");
 
-  const probePointer = path.join(probeHome, "review-desktop/server.json");
+  const probePointer = path.join(
+    probeHome,
+    "review-desktop/instances/stable.json",
+  );
 
   await mkdir(path.dirname(probePointer), { recursive: true });
   await writeFile(
     probePointer,
-    JSON.stringify({ ...JSON.parse(original), version: 999 }),
+    JSON.stringify({ ...JSON.parse(original), key: "stable", version: 999 }),
   );
 
   const stray = async () => [...(await installedDesktopPids(probeHome))];

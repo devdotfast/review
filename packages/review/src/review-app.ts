@@ -6,8 +6,10 @@ import {
 } from "@dev.fast/review-protocol";
 
 import {
-  readReviewDesktopDiscovery,
-  requireHealthyReviewDesktop,
+  type ReviewInstanceSelection,
+  healthyReviewInstance,
+  reviewInstanceUnavailable,
+  selectReviewInstance,
 } from "./desktop-discovery";
 import { focusReviewDesktop, runReviewAppLaunch } from "./review-app-launcher";
 import { pickReview } from "./review-app-picker";
@@ -15,8 +17,7 @@ import { resolveReviewRoot } from "./runtime";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
-  readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
-  requireHealthyReviewDesktop: typeof requireHealthyReviewDesktop;
+  selectInstance: () => Promise<ReviewInstanceSelection>;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
   fetch: typeof globalThis.fetch;
@@ -43,33 +44,32 @@ export async function runReviewAppPick(
   input: RunReviewAppInput,
   overrides: Partial<ReviewAppRuntime> = {},
 ): Promise<ReviewAppEvent | null> {
+  const fetch = overrides.fetch ?? globalThis.fetch;
+
   const runtime = {
     launch: runReviewAppLaunch,
-    readReviewDesktopDiscovery,
-    requireHealthyReviewDesktop,
+    selectInstance: () => selectReviewInstance({ fetch }),
     resolveReviewRoot,
     pickReview,
-    fetch: globalThis.fetch,
+    fetch,
     ...overrides,
   };
 
-  // Only `review app launch` may recover a stale or incompatible pointer; the
-  // other verbs report the diagnosis rather than start a second Desktop. A null
-  // read means nothing is running, which launching does fix.
+  // Only `review app launch` may recover a stale or incompatible record; the
+  // other verbs report the diagnosis rather than start a second Desktop. No
+  // record at all means nothing is running, which launching does fix.
+  let selection = await runtime.selectInstance();
   let launched = false;
 
-  if (!(await runtime.readReviewDesktopDiscovery())) {
+  if (!selection.instance && !selection.problem) {
     await runtime.launch({ focus: input.focus });
     launched = true;
+    selection = await runtime.selectInstance();
   }
 
-  const discovery = await runtime.requireHealthyReviewDesktop(
-    "review app pick",
-    {
-      readDiscovery: runtime.readReviewDesktopDiscovery,
-      fetch: runtime.fetch,
-    },
-  );
+  const discovery = healthyReviewInstance(selection);
+
+  if (!discovery) throw reviewInstanceUnavailable(selection);
 
   const client = new ReviewApiClient(
     { serverUrl: discovery.url, token: discovery.token },

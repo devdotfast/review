@@ -6,7 +6,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createReviewServerEnvironment } from './reviewServerSupervisor.js';
+import { Emitter } from '../../base/common/event.js';
+import { REVIEW_DESKTOP_CONNECTION_VERSION } from '../common/reviewDesktopBootstrap.js';
+import {
+	applicationPath,
+	createReviewServerEnvironment,
+	type IReviewServerProcess,
+	ReviewServerSupervisor,
+} from './reviewServerSupervisor.js';
 
 test('the trusted product version overrides inherited environment values', () => {
 	const environment = createReviewServerEnvironment({
@@ -25,6 +32,8 @@ test('the trusted product version overrides inherited environment values', () =>
 		instanceId: 'instance',
 		appPid: 1234,
 		telemetryEnabled: true,
+		appSessionId: 'session',
+		channel: 'stable',
 	});
 
 	assert.equal(environment.PATH, '/login/bin');
@@ -47,7 +56,97 @@ for (const protocol of ['dev-fast-review', 'dev-fast-review-preview']) {
 			instanceId: 'instance',
 			appPid: 1234,
 			telemetryEnabled: true,
+			appSessionId: 'session',
+			channel: 'stable',
 		});
 		assert.equal(environment.DEV_FAST_REVIEW_APP_URL_PROTOCOL, protocol);
 	});
 }
+
+test('the server inherits the app session id and channel the supervisor chose', () => {
+	const environment = createReviewServerEnvironment({
+		applicationEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'stale', DEV_FAST_REVIEW_CHANNEL: 'stable' },
+		resolvedEnvironment: { DEV_FAST_REVIEW_APP_SESSION_ID: 'shell', DEV_FAST_REVIEW_CHANNEL: 'dev' },
+		appVersion: '0.0.34',
+		serverEntry: '/review/server.js',
+		port: 4321,
+		token: 'token',
+		instanceId: 'instance',
+		appPid: 1234,
+		telemetryEnabled: true,
+		appSessionId: 'session-1',
+		channel: 'preview',
+	});
+
+	assert.equal(environment.DEV_FAST_REVIEW_APP_SESSION_ID, 'session-1');
+	assert.equal(environment.DEV_FAST_REVIEW_CHANNEL, 'preview');
+});
+
+class FakeServerProcess implements IReviewServerProcess {
+	private readonly stdout = new Emitter<string>();
+	private readonly exit = new Emitter<{ readonly code: number; readonly signal: string }>();
+	readonly onStdout = this.stdout.event;
+	readonly onStderr = new Emitter<string>().event;
+	readonly onExit = this.exit.event;
+	readonly onCrash = new Emitter<{ readonly code: number; readonly reason: string }>().event;
+	env: Record<string, string | undefined> = {};
+
+	start(configuration: { readonly env?: Record<string, string | undefined> }): boolean {
+		this.env = configuration.env ?? {};
+		return true;
+	}
+	announceReady(): void {
+		this.stdout.fire(`${JSON.stringify({
+			event: 'ready',
+			version: REVIEW_DESKTOP_CONNECTION_VERSION,
+			url: 'http://127.0.0.1:4321',
+			token: this.env.DEV_FAST_REVIEW_SERVER_TOKEN,
+			instanceId: this.env.DEV_FAST_REVIEW_INSTANCE_ID,
+		})}\n`);
+	}
+	crash(): void {
+		this.exit.fire({ code: 1, signal: 'SIGKILL' });
+	}
+	postMessage(): void { }
+	kill(): void { }
+	dispose(): void { }
+}
+
+test('a restarted server keeps the launch\'s app session id, which the connection carries', async (t) => {
+	const processes: FakeServerProcess[] = [];
+	let restarted!: () => void;
+	const whenRestarted = new Promise<void>((resolve) => restarted = resolve);
+	const supervisor = new ReviewServerSupervisor({
+		appRoot: '/app',
+		appVersion: '0.0.34',
+		isBuilt: true,
+		channel: 'preview',
+		logInfo: () => { },
+		logError: () => { },
+		createProcess: () => {
+			const serverProcess = new FakeServerProcess();
+			processes.push(serverProcess);
+			if (processes.length === 2) queueMicrotask(restarted);
+			return serverProcess;
+		},
+	});
+	t.after(() => supervisor.dispose());
+
+	supervisor.start();
+	const [first] = processes;
+	first.announceReady();
+	const connection = await supervisor.whenConnected();
+	first.crash();
+	await whenRestarted;
+	const second = processes[1];
+
+	assert.ok(first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
+	assert.equal(connection.appSessionId, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
+	assert.equal(second.env.DEV_FAST_REVIEW_APP_SESSION_ID, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
+	assert.equal(second.env.DEV_FAST_REVIEW_CHANNEL, 'preview');
+});
+
+test('the app path names the macOS bundle, else the executable', () => {
+	assert.equal(applicationPath('/Applications/Review.app/Contents/MacOS/Review'), '/Applications/Review.app');
+	assert.equal(applicationPath('/usr/share/review-desktop/review-desktop'), '/usr/share/review-desktop/review-desktop');
+});

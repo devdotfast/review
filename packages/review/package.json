@@ -82,7 +82,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@dev.fast/diffr": "0.1.1",
+    "@dev.fast/diffr": "0.1.3",
     "@dev.fast/json": "workspace:*",
     "@dev.fast/local-vcs": "^0.1.0",
     "@dev.fast/review-protocol": "workspace:*",

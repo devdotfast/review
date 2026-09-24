@@ -4,13 +4,22 @@ import {
   isJsonObject,
   jsonString,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
-import type { ReviewTabTelemetryEvent } from "../telemetry";
+import type {
+  ReviewTabTelemetryEvent,
+  ReviewTelemetryContext,
+} from "../telemetry";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
 } from "../ui-telemetry-events";
+
+const contextSchema = z.object({
+  reviewUuid: z.string().min(1).max(128).optional(),
+  presentationSessionId: z.string().min(1).max(128).optional(),
+});
 
 const MAX_CLIENT_ERROR_SESSIONS = 100;
 
@@ -57,7 +66,28 @@ export interface ReviewTelemetryCapture {
   captureUiEvent?(
     event: string,
     properties: Record<string, string | number | boolean>,
+    context?: ReviewTelemetryContext,
+    occurredAt?: number,
   ): Promise<void>;
+}
+
+/** How far back a client may date its own event. */
+const MAX_CLIENT_EVENT_AGE_MS = 5 * 60 * 1_000;
+
+/**
+ * The client's occurrence time, clamped to the recent past: parallel requests
+ * can arrive out of order, but a client can never date an event ahead of now
+ * or far behind it.
+ */
+export function clientOccurredAt(
+  raw: JsonValue | undefined,
+  now: number,
+): number {
+  const parsed = z.number().safeParse(raw);
+
+  if (!parsed.success) return now;
+
+  return Math.min(now, Math.max(now - MAX_CLIENT_EVENT_AGE_MS, parsed.data));
 }
 
 export async function captureSanitizedUiTelemetry(
@@ -76,7 +106,16 @@ export async function captureSanitizedUiTelemetry(
    * all of it. Never merge this into `properties`.
    */
   rawError?: JsonValue,
+  /**
+   * Raw review and presentation ids, beside `properties` like `error`. They
+   * never reach PostHog: the telemetry API replaces them with keyed HMACs.
+   */
+  rawContext?: JsonValue,
+  /** The client's `occurredAt`, epoch ms; see {@link clientOccurredAt}. */
+  rawOccurredAt?: JsonValue,
 ): Promise<void> {
+  const occurredAt = clientOccurredAt(rawOccurredAt, Date.now());
+
   const appSessionId =
     request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
 
@@ -99,9 +138,16 @@ export async function captureSanitizedUiTelemetry(
 
   if (!sanitized) return;
   onSanitized?.(sanitized);
+  const parsedContext = contextSchema.safeParse(rawContext);
+  const context = parsedContext.success ? parsedContext.data : undefined;
 
   try {
-    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties);
+    await telemetry.captureUiEvent?.(
+      sanitized.event,
+      sanitized.properties,
+      context,
+      occurredAt,
+    );
   } catch (error) {
     console.error(error);
   }

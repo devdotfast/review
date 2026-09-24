@@ -5,6 +5,7 @@ import { fileLineRangeSchema } from "./document.js";
 import { instructionsQuerySchema } from "./instructions.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
+import { REVIEW_STATUS_TOOL } from "./status-tool.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
@@ -56,6 +57,7 @@ export function authoringTools(
   });
 
   return [
+    REVIEW_STATUS_TOOL,
     tool(
       "capabilities",
       "Discover whether Desktop is available and optional software-map generation is enabled. Read before authoring. Map uploads remain supported regardless of generation permission.",

@@ -79,6 +79,8 @@ if [[ -z "$PACKAGED_ROOT" && -z "${REVIEW_DIFFR_BINARY:-}" ]]; then
 fi
 
 rebuild_review_desktop_outputs "$MONOREPO_ROOT" "$REVIEW_PACKAGE"
+# Names this Desktop as the checkout's dev instance, packaged or not.
+export DEV_FAST_REVIEW_CHECKOUT="$MONOREPO_ROOT"
 if [[ -z "$PACKAGED_ROOT" ]]; then
   node "$APP_DIR/scripts/copy-canvas.mjs"
   export DEV_FAST_REVIEW_SERVER_ENTRY="$REVIEW_SERVER"

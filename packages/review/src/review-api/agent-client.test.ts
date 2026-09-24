@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PassThrough, Readable, Writable } from "node:stream";
 
+import type { JsonObject } from "@dev.fast/json";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 
@@ -152,7 +153,7 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
 it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const server = await serveReviewMcp(async () => client, stdin, stdout);
+  const server = await serveReviewMcp(async () => ({ client }), stdin, stdout);
   let output = "";
   stdout.on("data", (chunk) => {
     output += chunk;
@@ -363,4 +364,67 @@ it("binds existing content through the host-advertised PR tool", async () => {
     pullRequestNumber: 310,
     pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
   });
+});
+
+it("keeps an MCP session on the instance key it first reached", async () => {
+  const keys: (string | undefined)[] = [];
+
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  let output = "";
+  stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+
+  const server = await serveReviewMcp(
+    async (key) => {
+      keys.push(key);
+
+      return { client, instance: { key: "preview" } };
+    },
+    stdin,
+    stdout,
+    process.stderr,
+    false,
+    async (problem) => ({ desktopAvailable: false, problem }),
+  );
+
+  const reply = async (id: number, method: string, params: JsonObject) => {
+    stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    let found: { result: { isError?: boolean; content?: { text: string }[] } };
+    await expect
+      .poll(() => {
+        found = output
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+          .find((line) => line.id === id);
+
+        return found;
+      })
+      .toBeTruthy();
+
+    return found!.result;
+  };
+
+  try {
+    await reply(1, "initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "test", version: "1" },
+    });
+    await reply(2, "tools/list", {});
+
+    const result = await reply(3, "tools/call", {
+      name: "session_list",
+      arguments: {},
+    });
+
+    // Every connect after the first names the latched key, so a Desktop that
+    // restarts under the same key is followed and another key is never chosen.
+    expect(keys).toEqual([undefined, "preview"]);
+    expect(result.isError).toBeFalsy();
+  } finally {
+    await server.close();
+  }
 });

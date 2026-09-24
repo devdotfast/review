@@ -22,6 +22,7 @@ import { IWorkspaceContextService } from "../../platform/workspace/common/worksp
 import { REVIEW_STRUCTURAL_DIFF_SETTING } from "../common/reviewConfigurationDefaults.js";
 import { REVIEW_DESKTOP_CHANNEL, REVIEW_DESKTOP_CONNECTION_VERSION, type ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import type { ReviewSourceView } from "../common/reviewProtocol.js";
+import type { ReviewServerConnection } from "./reviewDesktopConnectionService.js";
 import { REVIEW_EMPTY_SOURCE_SCHEME } from "./navigatorDiffEditorResolverService.js";
 import { attachStructuralEditors, StructuralDiffProvider } from "./reviewStructuralDiff.js";
 import { StructuralDiffClient } from "./reviewStructuralDiffClient.js";
@@ -74,10 +75,10 @@ export class NavigatorDiffProviderFactoryService extends Disposable implements I
 		return session;
 	}
 
-	private async connection(): Promise<{ serverUrl: string; token: string }> {
+	private async connection(): Promise<ReviewServerConnection> {
 		const connection = await this.mainProcess.getChannel(REVIEW_DESKTOP_CHANNEL).call<ReviewDesktopConnection>("getConnection");
 		if (connection?.version !== REVIEW_DESKTOP_CONNECTION_VERSION) throw new Error(`Unsupported Whiteboard Desktop connection version: ${String(connection?.version)}.`);
-		return { serverUrl: connection.url, token: connection.token };
+		return { serverUrl: connection.url, token: connection.token, appSessionId: connection.appSessionId };
 	}
 
 	/** diffr names a file by its head path, or its base path when it was deleted: the path the modified side stands for. */

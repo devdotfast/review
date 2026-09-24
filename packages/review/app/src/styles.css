@@ -1729,6 +1729,45 @@ button {
   stroke-width: 1.2;
 }
 
+.review-drawn-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.review-drawn-check path {
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+  animation: review-drawn-check 360ms ease-out both;
+}
+
+@keyframes review-drawn-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-drawn-check path {
+    animation: none;
+  }
+}
+
+.review-onboarding-step-body > .review-onboarding-step-done {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: default;
+}
+
 @container review-canvas (max-width: 980px) {
   .review-home-scroll {
     padding-right: 36px;
@@ -5865,15 +5904,13 @@ button.review-stack-row:disabled .review-stack-relation {
   color: var(--ink);
 }
 
-.review-connect-hint {
-  margin: 4px 0 0;
-  color: var(--ink-muted);
-  font: 12px/18px var(--font-mono);
-}
-
 .review-connect-modes button {
   padding: 2px 8px;
   font-size: 11px;
+}
+
+.review-connect-option {
+  white-space: nowrap;
 }
 
 .review-connect a.review-home-prompt-copy {
@@ -5907,10 +5944,15 @@ button.review-stack-row:disabled .review-stack-relation {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--review-home-rule-soft);
   font-size: 12px;
+}
+
+.review-connect-legacy button {
+  margin-top: 8px;
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .review-connect-legacy p {
@@ -6007,6 +6049,33 @@ button.review-stack-row:disabled .review-stack-relation {
 /* The Welcome pane: an intro column beside the three-step rail that owns the
    whole first-run flow. Colors come from the themed --review-home-* / --ink
    vars, so light mode follows without a second block. */
+.review-welcome-page {
+  min-height: 100%;
+}
+
+.review-welcome-page .review-home-zero-hint code {
+  padding: 1px 5px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--control-bg);
+  font-family: var(--font-mono);
+}
+
+.review-welcome-feedback {
+  margin: auto 0 0;
+  padding-top: 48px;
+  color: var(--review-home-meta);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.review-welcome-feedback a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .review-onboarding-columns {
   display: flex;
   gap: 72px;
@@ -6082,6 +6151,32 @@ button.review-stack-row:disabled .review-stack-relation {
   font-size: 12px;
 }
 
+.review-onboarding-step-body > .review-onboarding-primary {
+  min-height: 42px;
+  padding: 10px 24px;
+  border-color: var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-onboarding-step-body > .review-welcome-dismiss,
+.review-onboarding-step-body > .review-onboarding-install {
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.review-onboarding-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.review-onboarding-primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 /* One accordion item per step. The header is always visible; only the open
    step renders a body, so a single step asks for attention at a time. */
 .review-onboarding-step {
@@ -6114,6 +6209,12 @@ button.review-stack-row:disabled .review-stack-relation {
   outline: 1px solid var(--accent);
   outline-offset: -2px;
   border-radius: 10px;
+}
+
+.review-welcome-dismiss:disabled,
+.review-onboarding-step-header:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* The chevron closes the row: it sits in the trailing lane, after the note. */

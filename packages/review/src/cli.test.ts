@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
@@ -13,6 +20,7 @@ import { runReviewCli } from "./cli-runner";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import {
   PostHogCaptureClient,
+  type PostHogCaptureInput,
   type PostHogCaptureProperties,
 } from "./posthog-capture-client";
 import { runReviewAppPick as runReviewAppActual } from "./review-app";
@@ -24,14 +32,63 @@ import {
 } from "./review-telemetry";
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
-describe("Review CLI", () => {
-  it("prints the connect prompt for one harness", async () => {
-    const { code, stdout } = await runConnect(["connect", "codex"]);
+describe("Whiteboard CLI", () => {
+  it("routes Cursor install instructions without connecting to Desktop", async () => {
+    const { code, stdout, stderr } = await runConnect(
+      ["connect", "cursor", "--json"],
+      installTestShim,
+    );
 
     expect(code).toBe(0);
-    expect(stdout).toContain('MCP server named "whiteboard"');
-    expect(stdout).toContain("~/.codex/AGENTS.md");
-    expect(stdout).not.toContain("## Codex");
+    expect(stderr).toBe("");
+    const result = JSON.parse(stdout);
+    expect(Object.keys(result.prompts)).toEqual(["cursor"]);
+    const link = new URL(result.prompts.cursor.match(/cursor:\/\/\S+/)[0]);
+    expect(link.hostname).toBe("anysphere.cursor-deeplink");
+    expect(
+      JSON.parse(
+        Buffer.from(link.searchParams.get("config")!, "base64").toString(),
+      ),
+    ).toEqual({
+      command: "sh",
+      args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
+    });
+  });
+
+  it("prints only scanner-owned cleanup paths", async () => {
+    let owned = "";
+    let plugin = "";
+    let unrelated = "";
+
+    const { code, stdout } = await runConnect(
+      ["connect", "--json"],
+      async (home) => {
+        await installTestShim(home);
+        owned = path.join(home, ".agents", "skills", "dev-review");
+        unrelated = path.join(home, ".agents", "skills", "review");
+        plugin = path.join(home, ".config", "opencode", "plugins", "review.ts");
+        await mkdir(owned, { recursive: true });
+        await mkdir(unrelated, { recursive: true });
+        await mkdir(path.dirname(plugin), { recursive: true });
+        await writeFile(
+          path.join(owned, "SKILL.md"),
+          '---\nmetadata:\n  review-managed-by: "Review Desktop"\n  review-generated: "Do not edit."\n  review-version: "development"\n---\n',
+        );
+        await writeFile(path.join(unrelated, "SKILL.md"), "User-owned skill");
+        await writeFile(
+          plugin,
+          "// Managed by Review Desktop (@dev.fast/review).\n",
+        );
+      },
+    );
+
+    expect(code).toBe(0);
+
+    for (const prompt of Object.values(JSON.parse(stdout).prompts)) {
+      expect(prompt).toContain(JSON.stringify(owned));
+      expect(prompt).toContain(JSON.stringify(plugin));
+      expect(prompt).not.toContain(JSON.stringify(unrelated));
+    }
   });
 
   it("prints every prompt with headings by default", async () => {
@@ -280,6 +337,7 @@ describe("Review CLI", () => {
     );
 
     const telemetry = {
+      setSurface: vi.fn<ReviewTelemetry["setSurface"]>(),
       createCommandRunId: vi.fn<ReviewTelemetry["createCommandRunId"]>(
         () => "run-12345678",
       ),
@@ -321,6 +379,46 @@ describe("Review CLI", () => {
     expect(captureCommandSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({ command }),
     );
+  });
+
+  it("labels every event of a headless server process headless", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-cli-surface-"),
+    );
+
+    const events: PostHogCaptureInput[] = [];
+
+    const telemetry = new ReviewTelemetry({
+      captureClient: {
+        enabled: true,
+        capture: async (event) => {
+          events.push(event);
+        },
+      },
+      env: {},
+      installConfigPath: path.join(rootPath, "telemetry.json"),
+      legacyInstallConfigPath: path.join(rootPath, "legacy.json"),
+    });
+
+    try {
+      await expect(
+        runReviewCli({
+          argv: ["server", "start", "--port", "99999"],
+          stdout: outputStream(),
+          stderr: outputStream(),
+          telemetry,
+        }),
+      ).resolves.toBe(1);
+
+      expect(events.map((event) => event.event)).toContain(
+        "review_installation_created",
+      );
+      expect(new Set(events.map((event) => event.properties?.surface))).toEqual(
+        new Set(["headless"]),
+      );
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
   });
 
   it("persists command start before an unresolved handler and completes the same run", async () => {
@@ -435,6 +533,7 @@ describe("Review CLI", () => {
     );
 
     const telemetry = {
+      setSurface: vi.fn<ReviewTelemetry["setSurface"]>(),
       createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
       captureInstallationCreated: vi.fn<
         ReviewTelemetry["captureInstallationCreated"]
@@ -637,8 +736,15 @@ function outputStream(): PassThrough {
   return new PassThrough();
 }
 
+async function installTestShim(home: string): Promise<void> {
+  const bin = path.join(home, ".local", "bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(path.join(bin, "whiteboard"), "# Managed by Whiteboard\n");
+}
+
 async function runConnect(
   argv: string[],
+  setup?: (homeDir: string) => Promise<void>,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), "review-connect-"));
 
@@ -652,6 +758,8 @@ async function runConnect(
   stderr.on("data", (chunk) => (stderrText += String(chunk)));
 
   try {
+    await setup?.(homeDir);
+
     const code = await runReviewCli({
       argv,
       cwd: homeDir,

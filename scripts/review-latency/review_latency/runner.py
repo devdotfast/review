@@ -45,10 +45,16 @@ def claude_project_dir(cwd: Path) -> Path:
     return CLAUDE_PROJECTS_DIR / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
 
 
+def instance_record_path(home: Path) -> Path | None:
+    directory = home / "review-desktop" / "instances"
+    names = sorted(p.name for p in directory.glob("*.json")) if directory.is_dir() else []
+    return directory / names[0] if names else None
+
+
 def read_desktop_discovery(home: Path) -> dict:
-    path = home / "review-desktop" / "server.json"
-    if not path.exists():
-        raise RuntimeError(f"Review Desktop discovery file missing at {path}.")
+    path = instance_record_path(home)
+    if path is None:
+        raise RuntimeError(f"Review Desktop discovery file missing under {home / 'review-desktop' / 'instances'}.")
     return json.loads(path.read_text())
 
 
@@ -67,7 +73,7 @@ def desktop_request(method: str, route: str, home: Path) -> dict | None:
 # Each run gets its own review app: DEV_REVIEW_HOME (reviews store + desktop
 # discovery) under the run dir, and the desktop's Electron state under a short
 # /tmp path — the user-data dir carries a unix socket capped at 103 chars.
-PACKAGED_DESKTOP = Path("/Applications/dev.fast Review.app/Contents/MacOS/Review")
+PACKAGED_DESKTOP = Path("/Applications/Whiteboard.app/Contents/MacOS/Whiteboard")
 # Development desktop from this checkout: the Code OSS shell built by
 # `pnpm --filter @dev-fast/review-desktop app:build`, serving this checkout's
 # review server, so desktop-side instrumentation is measurable. run.sh honors
@@ -116,11 +122,11 @@ def launch_desktop(home: Path, state: Path, mode: str, log) -> subprocess.Popen:
             raise RuntimeError(
                 f"isolated desktop exited with {process.returncode}; see {home / 'desktop.log'}"
             )
-        if (home / "review-desktop" / "server.json").exists():
+        if instance_record_path(home) is not None:
             try:
                 health = desktop_request("GET", "/health", home)
             except (urllib.error.URLError, ConnectionError):
-                health = None  # server.json written before the port listens
+                health = None  # instance record written before the port listens
             if health and health.get("ok") and health.get("desktopAttached"):
                 log(f"isolated {mode} desktop up at {read_desktop_discovery(home)['url']} (pid {process.pid})")
                 return process

@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 
+import type { JsonValue } from "@dev.fast/json";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -7,12 +8,17 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { type AuthoringTool, toolResultText } from "./agent-client.js";
+import {
+  type AuthoringTool,
+  type ConnectedReview,
+  toolResultText,
+} from "./agent-client.js";
 import { authoringTools } from "./authoring-tools.js";
 import type { ReviewApiClient } from "./client.js";
 import { ReviewApiError } from "./client.js";
 import { callPublicTool, publicTool } from "./public-tools.js";
 import { RECOVERY } from "./recovery.js";
+import { REVIEW_STATUS_TOOL } from "./status-tool.js";
 
 // Some hosts ignore tools/list_changed, so the agent itself has to reload.
 const RELOAD_TOOLS =
@@ -39,11 +45,14 @@ export function mcpServerInstructions(context: {
 }
 
 export async function serveReviewMcp(
-  connect: () => Promise<ReviewApiClient>,
+  /** Connects to `key` once one is latched, else selects one. */
+  connect: (key?: string) => Promise<ConnectedReview>,
   stdin: Readable,
   stdout: Writable,
   stderr: Writable = process.stderr,
   traceEnabled = false,
+  /** What whiteboard_status reports when the Desktop cannot be reached, and why. */
+  offlineStatus?: (problem: string) => Promise<JsonValue>,
 ) {
   const instructionsTool = {
     ...authoringTools(false, traceEnabled).find(
@@ -71,9 +80,14 @@ export async function serveReviewMcp(
   let catalog: AuthoringTool[] = [];
   let announceCatalog = false;
   let listedWhileDown = false;
+  // One session follows one instance key, through that Desktop's restarts;
+  // it never hops to another key once others start.
+  let latched: string | undefined;
 
   const load = async (signal?: AbortSignal) => {
-    const client = await connect();
+    const { client, instance } = await connect(latched);
+    latched ??= instance?.key;
+
     catalog = (await client.read<AuthoringTool[]>("/authoring", signal)).map(
       publicTool,
     );
@@ -100,16 +114,19 @@ export async function serveReviewMcp(
       );
     }
 
+    const always = [instructionsTool, REVIEW_STATUS_TOOL].map(
+      (fallback) =>
+        tools.find((tool) => tool.name === fallback.name) ?? fallback,
+    );
+
     return {
-      tools: [
-        tools.find((tool) => tool.name === instructionsTool.name) ??
-          instructionsTool,
-        ...tools.filter((tool) => tool.name !== instructionsTool.name),
-      ].map(({ name, description, inputSchema }) => ({
-        name,
-        description,
-        inputSchema,
-      })),
+      tools: [...always, ...tools.filter((tool) => !always.includes(tool))].map(
+        ({ name, description, inputSchema }) => ({
+          name,
+          description,
+          inputSchema,
+        }),
+      ),
     };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -127,6 +144,20 @@ export async function serveReviewMcp(
           !(error instanceof ReviewApiError)
         )
           return { content: [{ type: "text" as const, text: RECOVERY }] };
+
+        if (request.params.name === REVIEW_STATUS_TOOL.name && offlineStatus)
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  await offlineStatus(
+                    error instanceof Error ? error.message : String(error),
+                  ),
+                ),
+              },
+            ],
+          };
 
         throw error;
       }

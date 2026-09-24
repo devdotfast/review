@@ -35,7 +35,7 @@ export function buildManifest({
   return {
     version,
     commit,
-    url: `${UPDATE_URL}/releases/${version}/darwin-arm64/Review-darwin-arm64-${version}.zip`,
+    url: `${UPDATE_URL}/releases/${version}/darwin-arm64/Whiteboard-darwin-arm64-${version}.zip`,
     name: version,
     pub_date: now.toISOString(),
     timestamp: now.getTime(),
@@ -136,8 +136,8 @@ async function main() {
     `${sourceProduct.nameShort}.app`,
   );
 
-  const zip = path.join(artifactDir, `Review-darwin-arm64-${version}.zip`);
-  const dmg = path.join(artifactDir, `Review-darwin-arm64-${version}.dmg`);
+  const zip = path.join(artifactDir, `Whiteboard-darwin-arm64-${version}.zip`);
+  const dmg = path.join(artifactDir, `Whiteboard-darwin-arm64-${version}.dmg`);
 
   await assertPackagedArtifacts(app);
   assertUpdaterCompatibleApp(app);

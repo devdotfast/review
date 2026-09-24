@@ -36,9 +36,9 @@ PostHog.
 
 ## Anonymous product telemetry
 
-Anonymous telemetry is enabled by default. Review creates a random installation
-UUID and sends every event with PostHog's `$process_person_profile: false`
-flag, so PostHog does not create a person profile for it.
+Anonymous telemetry is enabled by default. Review creates a random
+installation UUID per release channel and sends `$process_person_profile:
+false` with every event, so PostHog creates no person profile.
 
 Telemetry can include closed enums, booleans, counts, durations, the Review and
 app versions, operating-system and architecture categories, feature usage,
@@ -155,7 +155,7 @@ DO_NOT_TRACK=1 review info
 ```
 
 `DNT=1` and the Review-specific variables listed in the
-[telemetry reference](telemetry.md#identity-and-control) are also supported.
+[telemetry reference](telemetry.md#identity-and-storage) are also supported.
 
 ## Inspect events during development
 
@@ -166,4 +166,5 @@ DEV_FAST_REVIEW_TELEMETRY_DEBUG=1 review app launch
 ```
 
 Review prints each event to stderr instead of sending it to PostHog. See
-[Developer sink](telemetry.md#developer-sink) for its exact behavior.
+[Inspect events during development](telemetry.md#inspect-events-during-development)
+for its exact behavior.

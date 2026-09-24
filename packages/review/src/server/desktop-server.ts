@@ -38,12 +38,17 @@ import {
   resolveCliInstallStatus,
   skipCliInstall,
 } from "../cli-install";
+import type { ReviewInstanceIdentity } from "../desktop-discovery";
 import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
-import { reviewDesktopDiscoveryPath } from "../review-home-paths";
+import {
+  devReviewHome,
+  reviewInstanceDiscoveryPath,
+  reviewLegacyDiscoveryPath,
+} from "../review-home-paths";
 import {
   readScratchpadEnabled,
   writeScratchpadEnabled,
@@ -91,6 +96,7 @@ export interface GlobalReviewServerInput {
   port: number;
   token?: string;
   instanceId?: string;
+  identity?: ReviewInstanceIdentity;
   discoveryPath?: string;
   telemetry?: ReviewTelemetry;
   relay?: ReviewDesktopVerbRelay;
@@ -112,7 +118,15 @@ export function createGlobalReviewServer(
   // the bound one until listen() has resolved.
   let boundPort = input.port;
   const urlForBoundPort = () => `http://127.0.0.1:${boundPort}`;
-  const discoveryPath = input.discoveryPath ?? reviewDesktopDiscoveryPath();
+  const identity = input.identity ?? { key: "stable", channel: "stable" };
+
+  // Stable also writes the pre-instance server.json, so a CLI or shim that
+  // predates instances still finds it.
+  const discoveryPaths = input.discoveryPath
+    ? [input.discoveryPath]
+    : identity.key === "stable"
+      ? [reviewInstanceDiscoveryPath("stable"), reviewLegacyDiscoveryPath()]
+      : [reviewInstanceDiscoveryPath(identity.key)];
 
   const telemetry = input.telemetry ?? ReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
@@ -141,6 +155,7 @@ export function createGlobalReviewServer(
     serverPid: process.pid,
     token,
     startedAt: Date.now(),
+    ...identity,
   };
 
   // A source-run dev server has no built CLI to advertise.
@@ -220,6 +235,21 @@ export function createGlobalReviewServer(
       },
       () => scratchpadEnabled,
       () => traceMachineEnabled(),
+      () => {
+        const { key, channel, checkout, appVersion, cliVersion, instanceId } =
+          discovery;
+
+        return {
+          key: key ?? null,
+          channel: channel ?? null,
+          checkout: checkout ?? null,
+          appVersion: appVersion ?? null,
+          cliVersion: cliVersion ?? null,
+          instanceId,
+          url: urlForBoundPort(),
+          home: devReviewHome(),
+        };
+      },
     ),
   );
   app.get("/preferences/scratchpad", () =>
@@ -254,11 +284,36 @@ export function createGlobalReviewServer(
       const body = await readBoundedRequestJson(context.req.raw, undefined, {});
       const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
+
+      // The workbench has no reader on the stored review; the server does, so
+      // `session_started`'s source_kind is filled in here rather than trusted
+      // from the client.
+      const eventProperties: JsonObject = isJsonObject(payload.properties)
+        ? { ...payload.properties }
+        : {};
+
+      if (payload.name === "session_started") {
+        // Both are server-derived only: a client can never assert its own
+        // source_kind or agent_kind, so a review the store cannot resolve
+        // must not fall back to whatever the client sent.
+        delete eventProperties.source_kind;
+        delete eventProperties.agent_kind;
+
+        const rawContext = isJsonObject(payload.context) ? payload.context : {};
+
+        const sourceKind = sessionStartedSourceKind(
+          reviewStore,
+          jsonString(rawContext.reviewUuid),
+        );
+
+        if (sourceKind) eventProperties.source_kind = sourceKind;
+      }
+
       await captureSanitizedUiTelemetry(
         telemetry,
         context.req.raw,
         payload.name,
-        payload.properties,
+        eventProperties,
         (event) => {
           flushBeforeOptOut =
             event.event === "review_setting_changed" &&
@@ -266,6 +321,8 @@ export function createGlobalReviewServer(
             event.properties.enabled === false;
         },
         payload.error,
+        payload.context,
+        payload.occurredAt,
       );
 
       if (flushBeforeOptOut) await telemetry.flush(500);
@@ -574,13 +631,16 @@ export function createGlobalReviewServer(
       scratchpadEnabled = await readScratchpadEnabled();
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
-      await writePrivateJsonAtomic(discoveryPath, discovery);
+
+      for (const discoveryPath of discoveryPaths)
+        await writePrivateJsonAtomic(discoveryPath, discovery);
     },
     close: async () => {
       if (closing) return;
       closing = true;
 
-      await removeMatchingDiscovery(discoveryPath, discovery);
+      for (const discoveryPath of discoveryPaths)
+        await removeMatchingDiscovery(discoveryPath, discovery);
       relay.close();
 
       await closeHttpServer(httpServer);
@@ -591,6 +651,29 @@ export function createGlobalReviewServer(
 
 function httpJsonStatus(cause: unknown): number {
   return cause instanceof HttpJsonError ? cause.statusCode : 400;
+}
+
+/**
+ * `session_started`'s `source_kind`: the opened review's target kind, or
+ * `scratchpad` for the one scratchpad. Undefined when the review is gone (a
+ * shared review this store never had, or one deleted between open and the
+ * event arriving) or was left without a target.
+ */
+export function sessionStartedSourceKind(
+  reviewStore: ReviewStore,
+  reviewUuid: string | undefined,
+): string | undefined {
+  if (!reviewUuid) return undefined;
+
+  try {
+    const snapshot = reviewStore.read(reviewUuid);
+
+    return snapshot.kind === "scratchpad"
+      ? snapshot.kind
+      : snapshot.target?.kind;
+  } catch {
+    return undefined;
+  }
 }
 
 function globalJson<T>(status: number, body: T): Response {

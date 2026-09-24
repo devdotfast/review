@@ -7,7 +7,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { AGENT_LOGOS } from "./agent-logos";
+import { cliInstallReady } from "./cli-install-status";
 import { CopyIcon, copyText } from "./copy-text";
+import { DrawnCheckIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
 
 export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
@@ -109,17 +111,20 @@ export function ConnectCard({
 
   const collapsed = collapsible && !expanded;
 
+  if (status.legacySkills.length > 0 || !cliInstallReady(status)) {
+    return (
+      <section className="review-connect" aria-label="Connect your agents">
+        <p className="review-connect-note">
+          {status.legacySkills.length > 0
+            ? "Remove deprecated skills first."
+            : "Install the whiteboard command in PATH first."}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="review-connect" aria-label="Connect your agents">
-      {/* A packaged Desktop launches agents through the shim, so nothing
-          works until it exists. From source the prompts use the bare
-          command instead. */}
-      {status.cli && !status.shim.installed ? (
-        <p className="review-connect-note">
-          Install the whiteboard command first. The prompt and the plugin both
-          launch it.
-        </p>
-      ) : null}
       <div
         className="review-home-prompt-tabs review-connect-tabs"
         role="group"
@@ -166,7 +171,15 @@ export function ConnectCard({
               className="review-home-prompt-body review-connect-body"
               data-collapsed={collapsed}
             >
-              {text}
+              {text.split(/(--[a-z][a-z-]*)/g).map((part, index) =>
+                part.startsWith("--") ? (
+                  <span className="review-connect-option" key={index}>
+                    {part}
+                  </span>
+                ) : (
+                  part
+                ),
+              )}
             </pre>
             {collapsed ? (
               <button
@@ -197,19 +210,12 @@ export function ConnectCard({
               aria-label={`${copied ? "Copied" : "Copy"} ${noun} for ${agent}`}
               onClick={() => copy(text)}
             >
-              {copied ? <CheckIcon /> : <CopyIcon />}
+              {copied ? <DrawnCheckIcon /> : <CopyIcon />}
               {copied
                 ? "Copied"
                 : `Copy ${mode === "prompt" ? "prompt" : "command"}`}
             </button>
           </div>
-          {mode === "prompt" ? (
-            <p className="review-connect-hint">
-              Your agent should reply that it reached Whiteboard&apos;s
-              instructions. If it says Whiteboard is not running, keep this app
-              open and try again.
-            </p>
-          ) : null}
         </>
       ) : plugin.url ? (
         <>
@@ -235,14 +241,6 @@ export function ConnectCard({
         <p className="review-connect-error">{status.error}</p>
       ) : null}
     </section>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M2.5 6.5 5 9l4.5-6" fill="none" />
-    </svg>
   );
 }
 
@@ -312,7 +310,7 @@ export function LegacySkillsRow({
   return (
     <section
       className="review-connect-legacy"
-      aria-label="Old Whiteboard skills"
+      aria-label="Deprecated Whiteboard skills"
     >
       {legacySkills.length > 0 ? (
         <>
@@ -332,7 +330,7 @@ export function LegacySkillsRow({
             disabled={busy}
             onClick={() => void removeSkills()}
           >
-            Remove old Whiteboard skills
+            Remove deprecated skills
           </button>
         </>
       ) : null}

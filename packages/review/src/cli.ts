@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  jsonNumber,
   jsonObject,
   jsonString,
   parseJsonText,
@@ -70,7 +71,7 @@ async function maybeDelegateToDesktopCli(
   if (
     argv.some(
       (argument) =>
-        ["api", "mcp", "server"].includes(argument) ||
+        ["api", "mcp", "server", "instances"].includes(argument) ||
         /^--state-dir(?:=|$)/.test(argument),
     ) ||
     env.DEV_REVIEW_SERVER_DIR?.trim()
@@ -89,15 +90,13 @@ async function maybeDelegateToDesktopCli(
 
   let cliPath: string;
   let runtimePath: string | undefined;
+  const discoveryFile = selectedDiscoveryFile(devHome, env);
+
+  if (!discoveryFile) return null;
 
   try {
     const discovery = jsonObject(
-      parseJsonText(
-        readFileSync(
-          path.join(devHome, "review-desktop", "server.json"),
-          "utf8",
-        ),
-      ),
+      parseJsonText(readFileSync(discoveryFile, "utf8")),
     );
 
     const discoveredCliPath = jsonString(discovery?.cliPath);
@@ -149,4 +148,75 @@ async function maybeDelegateToDesktopCli(
   }
 
   return result.status ?? 1;
+}
+
+/**
+ * The shim's selection, kept in step with it and with selectReviewInstance:
+ * DEV_REVIEW_INSTANCE, the machine default, the only live Desktop, then
+ * stable, then the pre-instance server.json.
+ */
+function selectedDiscoveryFile(devHome: string, env: NodeJS.ProcessEnv) {
+  const desktop = path.join(devHome, "review-desktop");
+  const instances = path.join(desktop, "instances");
+  let key = env.DEV_REVIEW_INSTANCE?.trim();
+
+  try {
+    key ||= readFileSync(path.join(desktop, "default-instance"), "utf8").trim();
+  } catch {
+    // No machine default.
+  }
+
+  // Keys name files; the CLI rejects anything else.
+  if (key && !/^[A-Za-z0-9_.-]+$/.test(key)) return undefined;
+
+  // A stable Desktop that predates instances wrote only server.json; it never
+  // stands in for any other key.
+  const legacy = path.join(desktop, "server.json");
+  let stable = path.join(instances, "stable.json");
+
+  if (!existsSync(stable)) stable = legacy;
+
+  let selected =
+    key === "stable" ? stable : key && path.join(instances, `${key}.json`);
+
+  if (!selected) {
+    let names: string[] = [];
+
+    try {
+      names = readdirSync(instances).filter((name) => name.endsWith(".json"));
+    } catch {
+      // No instance has started yet.
+    }
+
+    const live = [
+      ...names.map((name) => path.join(instances, name)),
+      ...(stable === legacy ? [legacy] : []),
+    ].filter(recordIsLive);
+
+    selected = live.length === 1 ? live[0]! : stable;
+  }
+
+  return recordIsLive(selected) ? selected : undefined;
+}
+
+function recordIsLive(filePath: string) {
+  try {
+    const serverPid = jsonNumber(
+      jsonObject(parseJsonText(readFileSync(filePath, "utf8")))?.serverPid,
+    );
+
+    return serverPid !== undefined && processIsAlive(serverPid);
+  } catch {
+    return false;
+  }
+}
+
+function processIsAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
 }

@@ -11,6 +11,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -286,6 +287,13 @@ async function until(run, label, timeout = 90000) {
   throw new Error(`${label} timed out: ${cause?.stack ?? "not ready"}`);
 }
 
+async function instanceRecordPath() {
+  const dir = path.join(home, "review-desktop/instances");
+  const [name] = await readdir(dir).catch(() => []);
+
+  return name && path.join(dir, name);
+}
+
 async function launch() {
   const portServer = createServer();
   await new Promise((resolve) => portServer.listen(0, "127.0.0.1", resolve));
@@ -354,7 +362,7 @@ async function launch() {
   });
   discovery = await until(async () => {
     const result = JSON.parse(
-      await readFile(path.join(home, "review-desktop/server.json"), "utf8"),
+      await readFile(await instanceRecordPath(), "utf8"),
     );
 
     const health = await (await fetch(`${result.url}/health`)).json();

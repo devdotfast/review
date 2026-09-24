@@ -557,6 +557,14 @@ jobs:
       - name: Smoke launch the packaged app
         run: node apps/review-desktop/scripts/smoke-launch-packaged.mjs
 
+      # The packaged app must still report errors, tag them as smoke traffic,
+      # and deliver them; the launch above only proves it starts.
+      - name: Smoke telemetry delivery and error reporting
+        run: |
+          APP="apps/review-desktop/VSCode-darwin-arm64/$(node -p "require('./apps/review-desktop/code-oss/product.json').nameShort").app"
+          node apps/review-desktop/scripts/smoke-telemetry-delivery.mjs --app "$APP"
+          node apps/review-desktop/scripts/smoke-error-telemetry.mjs --app "$APP"
+
       # Payloads first, manifest last: a client must never see a latest.json
       # whose zip is not yet downloadable.
       - name: Upload release to R2
@@ -572,17 +580,17 @@ jobs:
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
           # The releases/latest/ key is version-free by design, so the version
           # rides along in the filename a client saves the download as.
-          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+          DMG_DISPOSITION="attachment; filename=\"df-whiteboard-${RELEASE_VERSION}.dmg\""
 
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
             --content-type application/zip
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
-            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
-          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
-            "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Review.dmg" \
+          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Whiteboard.dmg" \
             --content-type application/x-apple-diskimage \
             --content-disposition "$DMG_DISPOSITION"
 
@@ -610,7 +618,7 @@ jobs:
           echo "install.dev.fast (expect 302 to the disk image):"
           LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
           echo "$LOCATION"
-          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Whiteboard.dmg"
 
           echo "Following it (expect 200 and a disk image):"
           curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \
@@ -623,7 +631,7 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
-            "apps/review-desktop/dist/Review-darwin-arm64-${RELEASE_VERSION}.dmg"
+            "apps/review-desktop/dist/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg"
 
       - name: Remove signing credentials
         if: always()

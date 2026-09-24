@@ -22,6 +22,8 @@ interface QueuedReviewTelemetryEvent {
 	readonly properties: ReviewTelemetryProperties | undefined;
 	readonly error?: ReviewErrorReport;
 	readonly context?: unknown;
+	/** Epoch ms at capture; parallel requests can reach the server out of order. */
+	readonly occurredAt: number;
 }
 
 export const IReviewTelemetryService = createDecorator<IReviewTelemetryService>(
@@ -81,7 +83,7 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		if (this.configurationService.getValue(REVIEW_TELEMETRY_SETTING) === false) {
 			return;
 		}
-		const event = { name, properties, ...(error ? { error } : {}), ...(context ? { context } : {}) };
+		const event = { name, properties, ...(error ? { error } : {}), ...(context ? { context } : {}), occurredAt: Date.now() };
 		if (this.connection) {
 			this.send(event);
 			return;

@@ -16,6 +16,8 @@ export interface PostHogCaptureInput {
   event: string;
   distinctId: string;
   properties?: PostHogCaptureProperties;
+  /** When the event happened, in epoch ms; defaults to the capture. */
+  timestamp?: number;
 }
 
 export interface PostHogCaptureClientOptions {
@@ -65,6 +67,12 @@ type DropReason = (typeof DROP_REASONS)[number];
 const droppedCountsSchema = z.partialRecord(z.enum(DROP_REASONS), z.number());
 
 interface QueuedPostHogEvent extends PostHogCaptureInput {
+  /**
+   * Sent as the PostHog event uuid, which PostHog dedupes on: a batch resent
+   * after a lost response or a crash before the queue was cleared lands once.
+   * Absent only on events queued before uuids were stored.
+   */
+  uuid?: string;
   createdAt: number;
   attempts: number;
   nextAttemptAt: number;
@@ -139,11 +147,14 @@ export class PostHogCaptureClient {
   async capture(input: PostHogCaptureInput): Promise<void> {
     if (!this.enabled) return;
 
+    const uuid = this.idFactory();
+
     const queued: QueuedPostHogEvent = {
+      uuid,
       event: input.event,
       distinctId: input.distinctId,
       properties: compactProperties(input.properties ?? {}),
-      createdAt: this.now(),
+      createdAt: input.timestamp ?? this.now(),
       attempts: 0,
       nextAttemptAt: 0,
     };
@@ -156,10 +167,7 @@ export class PostHogCaptureClient {
 
     try {
       writeFileAtomic(
-        path.join(
-          this.queueDir,
-          `${queued.createdAt}-${this.idFactory()}.json`,
-        ),
+        path.join(this.queueDir, `${queued.createdAt}-${uuid}.json`),
         `${JSON.stringify(queued)}\n`,
         "utf8",
       );
@@ -392,11 +400,16 @@ export class PostHogCaptureClient {
         body: JSON.stringify({
           api_key: this.apiKey,
           batch: events.map((event) => ({
+            uuid: event.uuid,
             event: event.event,
             properties: {
               $process_person_profile: false,
               ...compactProperties(event.properties ?? {}),
               distinct_id: event.distinctId,
+              // The installation ID is random, so every event is sent as a
+              // personless event. Set on the wire, after the caller's
+              // properties, so no event can opt back into a person profile.
+              $process_person_profile: false,
             },
             timestamp: new Date(event.createdAt).toISOString(),
           })),
@@ -503,6 +516,7 @@ function doneResult(nextRetryAt: number | undefined): FlushBatchResult {
 
 /** A queued event as this module wrote it to disk. */
 const QueuedPostHogEventSchema = z.object({
+  uuid: z.string().min(1).optional(),
   event: z.string(),
   distinctId: z.string(),
   properties: z.record(z.string(), jsonValueSchema).optional(),

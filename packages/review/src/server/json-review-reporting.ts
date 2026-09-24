@@ -118,6 +118,7 @@ export function createJsonReviewReporting(
       // The path id wins: the middleware above already asserted it exists,
       // so a payload trying to assert a different review id is overridden.
       { ...rawContext, reviewUuid: c.req.param("id") },
+      payload.occurredAt,
     );
 
     return c.json({ ok: true });

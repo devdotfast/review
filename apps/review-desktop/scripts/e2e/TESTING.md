@@ -53,7 +53,8 @@ A journey module exports `name` (matching its basename), `phase`, `options`
 passed to `createHarness`, and `run(ctx)`. Useful `ctx` helpers: `until` for
 polling, `api` and `apiOk` for the JSON review API, `cli` and `cliRaw` for the
 installed CLI, `appLog` for the Desktop's output so far, `check` to record
-what the journey proved, plus `knownBug`, `restartDesktop`, `createReview`,
+what the journey proved, plus `knownBug`, `restartDesktop` (`{ signal: "SIGKILL" }` for a crash),
+`quitAndRelaunchDesktop` (a real quit through the workbench), `createReview`,
 `openHome` and `pickReview`. Throw `Error("skip: ...")` when the machine cannot
 run the journey.
 

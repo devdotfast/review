@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -150,6 +151,27 @@ test("guards the active webview frame body while tracking focus", () => {
   );
 });
 
+test("allows the webview host script through its own hash-only CSP", () => {
+  // Any edit to the inline script must update this hash, or the host page never
+  // runs and every webview (Markdown preview, custom editors) stays blank.
+  const [, scriptSrc] = webviewPreloader.match(/script-src ([^;]*);/);
+
+  const scripts = [
+    ...webviewPreloader.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g),
+  ];
+
+  assert.doesNotMatch(scriptSrc, /unsafe-inline/);
+  assert.ok(scripts.length > 0);
+
+  for (const [, body] of scripts) {
+    const hash = createHash("sha256").update(body, "utf8").digest("base64");
+    assert.ok(
+      scriptSrc.includes(`'sha256-${hash}'`),
+      `script-src lacks 'sha256-${hash}'`,
+    );
+  }
+});
+
 test("configures Zod's CSP-safe mode before the canvas module evaluates", () => {
   const candidateConfig = reviewCanvasPart.indexOf(
     "canvasGlobal.__zod_globalConfig ??= {};",
@@ -167,4 +189,3 @@ test("configures Zod's CSP-safe mode before the canvas module evaluates", () => 
     /canvasGlobal\.__zod_globalConfig\.jitless = true;/,
   );
 });
-

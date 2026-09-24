@@ -1,8 +1,8 @@
 import {
-  readHealthyReviewDesktopDiscovery,
-  readReviewDesktopDiscovery,
+  healthyReviewInstance,
+  reviewInstanceUnavailable,
+  selectReviewInstance,
 } from "../desktop-discovery.js";
-import { reviewDesktopDiscoveryPath } from "../review-home-paths.js";
 import {
   readReviewServerDiscovery,
   reviewServerIsHealthy,
@@ -27,10 +27,23 @@ const TEXT_TOOLS = new Set([
   "session_get_instructions",
 ]);
 
+export interface ConnectedReview {
+  client: ReviewApiClient;
+  /** The Desktop reached; absent for a headless server. */
+  instance?: { key: string };
+}
+
 export async function connectReviewApi(
   env = process.env,
   headers: Record<string, string> = {},
 ) {
+  return (await connectReviewInstance(env, headers)).client;
+}
+
+export async function connectReviewInstance(
+  env = process.env,
+  headers: Record<string, string> = {},
+): Promise<ConnectedReview> {
   const request: ConstructorParameters<typeof ReviewApiClient>[1] = (
     url,
     init,
@@ -49,26 +62,29 @@ export async function connectReviewApi(
     if (!server || !(await reviewServerIsHealthy(server)))
       throw serverNotReady(stateDir);
 
-    return new ReviewApiClient(
-      { serverUrl: server.url, token: server.token },
-      request,
-    );
+    return {
+      client: new ReviewApiClient(
+        { serverUrl: server.url, token: server.token },
+        request,
+      ),
+    };
   }
 
-  const discovery = await readHealthyReviewDesktopDiscovery({
-    readDiscovery: () =>
-      readReviewDesktopDiscovery(reviewDesktopDiscoveryPath(env)),
-  });
+  const selection = await selectReviewInstance({ env });
+  const discovery = healthyReviewInstance(selection);
 
   if (!discovery)
     throw new Error(
-      "No Whiteboard Desktop server is ready. Run whiteboard app launch, or select a running headless server with --state-dir or DEV_REVIEW_SERVER_DIR, then retry.",
+      `${reviewInstanceUnavailable(selection).message} For headless authoring, select a running server with --state-dir or DEV_REVIEW_SERVER_DIR.`,
     );
 
-  return new ReviewApiClient(
-    { serverUrl: discovery.url, token: discovery.token },
-    request,
-  );
+  return {
+    client: new ReviewApiClient(
+      { serverUrl: discovery.url, token: discovery.token },
+      request,
+    ),
+    instance: { key: selection.key },
+  };
 }
 
 /** Only translate the tool envelope. The host owns validation and persistence. */

@@ -4,6 +4,7 @@ import {
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 import {
+  Fragment,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
@@ -27,7 +28,8 @@ interface ReviewDocumentMetaState {
 
 /**
  * Automatic document header: repository and PR identity above the title,
- * with the saved branch, commit range and diff statistics below it.
+ * with one row of facts below it: saved branch, diff statistics and the
+ * commit range, separated by dots.
  */
 export function ReviewDocumentMetaLine({
   children,
@@ -90,6 +92,74 @@ export function ReviewDocumentMetaLine({
     /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
   );
 
+  const branch = review.headBranch?.trim() ? review.headBranch : null;
+
+  const facts: { key: string; node: ReactNode }[] = [];
+
+  if (branch) {
+    facts.push({
+      key: "branch",
+      node: (
+        <span
+          className="review-doc-meta-branch"
+          title={`Head branch: ${branch}`}
+        >
+          <svg width="13" height="13" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="5" cy="4.5" r="2" />
+            <circle cx="5" cy="15.5" r="2" />
+            <circle cx="15" cy="6.5" r="2" />
+            <path d="M5 6.5v7M15 8.5c0 3-10 2-10 5" />
+          </svg>
+          <span>{branch}</span>
+        </span>
+      ),
+    });
+  }
+
+  if (diff && review.pins) {
+    facts.push({
+      key: "files",
+      node: (
+        <span>
+          {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}
+        </span>
+      ),
+    });
+    facts.push({
+      key: "changes",
+      node: (
+        <span className="review-header-stats">
+          <DiffCount additions={diff.additions} deletions={diff.deletions} />
+          {diff.additions + diff.deletions > 0 ? (
+            <span className="review-header-change-bar" aria-hidden="true">
+              {diff.additions > 0 ? (
+                <span style={{ flexGrow: diff.additions }} />
+              ) : null}
+              {diff.deletions > 0 ? (
+                <span
+                  className="is-removed"
+                  style={{ flexGrow: diff.deletions }}
+                />
+              ) : null}
+            </span>
+          ) : null}
+        </span>
+      ),
+    });
+  }
+
+  if (review.pins) {
+    facts.push({
+      key: "range",
+      node: (
+        <ReviewBranchRange
+          baseRef={review.pins.base}
+          headRef={review.pins.head}
+        />
+      ),
+    });
+  }
+
   return (
     <header className="review-document-header">
       <div className="review-header-top" data-review-copy-ignore>
@@ -142,53 +212,24 @@ export function ReviewDocumentMetaLine({
       </div>
       {children}
       <div className="review-header-details" data-review-copy-ignore>
-        {review.headBranch?.trim() ? (
-          <span
-            className="review-doc-meta-branch"
-            title={`Head branch: ${review.headBranch}`}
-          >
-            <svg width="13" height="13" viewBox="0 0 20 20" aria-hidden="true">
-              <circle cx="5" cy="4.5" r="2" />
-              <circle cx="5" cy="15.5" r="2" />
-              <circle cx="15" cy="6.5" r="2" />
-              <path d="M5 6.5v7M15 8.5c0 3-10 2-10 5" />
-            </svg>
-            <span>{review.headBranch}</span>
-          </span>
-        ) : null}
-        {diff && review.pins && (
-          <div className="review-header-stats">
-            <span>
-              {diff.fileCount === 1 ? "1 file" : `${diff.fileCount} files`}
-            </span>
-            <DiffCount additions={diff.additions} deletions={diff.deletions} />
-            {diff.additions + diff.deletions > 0 ? (
-              <span className="review-header-change-bar" aria-hidden="true">
-                {diff.additions > 0 ? (
-                  <span style={{ flexGrow: diff.additions }} />
-                ) : null}
-                {diff.deletions > 0 ? (
-                  <span
-                    className="is-removed"
-                    style={{ flexGrow: diff.deletions }}
-                  />
-                ) : null}
-              </span>
-            ) : null}
-          </div>
-        )}
+        {withFactDots(facts)}
       </div>
-      {review.pins && (
-        <div className="review-header-comparison" data-review-copy-ignore>
-          <span>Comparing</span>
-          <ReviewBranchRange
-            baseRef={review.pins.base}
-            headRef={review.pins.head}
-          />
-        </div>
-      )}
     </header>
   );
+}
+
+/** Lay out header facts with a small dot between each present pair. */
+function withFactDots(
+  facts: readonly { key: string; node: ReactNode }[],
+): ReactNode {
+  return facts.map(({ key, node }, index) => (
+    <Fragment key={key}>
+      {index > 0 ? (
+        <span className="review-header-dot" aria-hidden="true" />
+      ) : null}
+      {node}
+    </Fragment>
+  ));
 }
 
 function ReviewStackSelector({

@@ -1,8 +1,3 @@
-import type {
-  ReviewCommitSummary,
-  ReviewDiffFileWire,
-} from "@dev.fast/review-protocol";
-
 import { type DiffSelection } from "../../src/lens-selection";
 
 export type ReviewPeekContent =
@@ -55,12 +50,6 @@ export interface TourPanel {
   revealRequest: number;
 }
 
-export interface CommitDiffPanel {
-  kind: "commit-diff";
-  commit: ReviewCommitSummary;
-  file: ReviewDiffFileWire;
-}
-
-export type ReviewPanel = PeekPanel | TourPanel | CommitDiffPanel;
+export type ReviewPanel = PeekPanel | TourPanel;
 
 export type ReviewPanelMotion = "live" | "restored";

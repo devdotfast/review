@@ -1123,8 +1123,12 @@ button.host-authoring-activity[data-locatable]:focus-visible {
 }
 
 .diff-lens-toggle {
-  padding: 6px 12px 6px 16px;
+  padding: 3px 4px 3px 8px;
   font-size: 12px;
+}
+
+.diff-sidebar-heading:has(+ .diff-lens-hint) {
+  padding-bottom: 2px;
 }
 
 .diff-lens-toggle:hover {
@@ -1153,29 +1157,8 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   color: var(--change-removed);
 }
 
-.viewed-check {
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 3px;
-  background: var(--surface);
-  color: var(--surface);
-  font-size: 10px;
-}
-
-.viewed-check--viewed {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  opacity: 1;
-}
-
 .diff-workspace .is-viewed {
   opacity: 0.55;
-}
-
-.diff-workspace .is-viewed .viewed-check--viewed {
-  opacity: 1;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1195,30 +1178,13 @@ button.host-authoring-activity[data-locatable]:focus-visible {
    Commits. A timeline down the left, each commit a crisp card on the board.
    --------------------------------------------------------------------------- */
 .review-commits-range {
-  gap: 16px;
-  align-items: baseline;
   padding-bottom: 16px;
-}
-
-.review-commits-range > div:first-child {
-  min-width: 0;
 }
 
 .review-commits-range strong {
   flex-shrink: 0;
   font: 600 15px/20px var(--font-mono);
   white-space: nowrap;
-}
-
-.review-commits-range > div:first-child > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.review-commits-range-shas {
-  flex-shrink: 0;
 }
 
 .review-commit-date {
@@ -1235,25 +1201,8 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   box-shadow: none;
 }
 
-.review-commit-card:hover {
-  border-color: var(--rule-soft);
-}
-
 .review-commit-card--expanded {
   border-color: var(--rule-soft);
-}
-
-.review-commit-open {
-  height: 24px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 11px;
-}
-
-.review-commit-open:hover {
-  background: var(--well);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1294,7 +1243,6 @@ button:focus-visible > .review-chevron {
 }
 
 .diagram-tour-button,
-.review-commit-open,
 .database-use-case-select {
   flex: 0 0 auto;
   height: 24px;
@@ -1309,13 +1257,11 @@ button:focus-visible > .review-chevron {
 }
 
 .diagram-tour-button:hover,
-.review-commit-open:hover,
 .database-use-case-select:hover {
   background: var(--well);
 }
 
 .diagram-tour-button:focus-visible,
-.review-commit-open:focus-visible,
 .database-use-case-select:focus-visible {
   border-color: var(--accent);
   outline: none;
@@ -1373,7 +1319,8 @@ button:focus-visible > .review-chevron {
   color: var(--ghost);
 }
 
-.review-commit-stats,
+.review-commit-sha,
+.review-commit-meta,
 .review-home-card-meta,
 .review-doc-meta {
   font: 11px var(--font-mono);
@@ -2705,8 +2652,7 @@ button:focus-visible > .review-chevron {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-bottom: 36px;
-  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 28px;
   font: 13px/18px var(--font-mono);
   color: var(--ink-faint);
 }
@@ -2758,8 +2704,16 @@ button:focus-visible > .review-chevron {
   letter-spacing: -0.015em;
 }
 .review-header-details {
-  gap: 12px 20px;
+  gap: 8px 10px;
   padding-top: 12px;
+}
+/* Facts in the details row are divided by small ink-faint dots. */
+.review-header-dot {
+  flex: 0 0 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink-faint);
 }
 .review-document-header .review-doc-meta-branch {
   display: inline-flex;
@@ -2780,16 +2734,6 @@ button:focus-visible > .review-chevron {
 .review-doc-meta-branch > span {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.review-document-header .review-branch-range {
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.review-document-header .review-branch-ref {
-  gap: 8px;
-}
-.review-document-header .review-branch-copy {
-  padding: 0;
 }
 .review-header-stats {
   gap: 10px;
@@ -2816,20 +2760,6 @@ button:focus-visible > .review-chevron {
 .review-document:has(.review-document-header) {
   --review-prose-max-width: 760px;
   max-width: 900px;
-}
-
-.review-header-comparison {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--ink-faint);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.review-header-comparison .review-branch-name {
-  color: var(--ink-muted);
 }
 
 .review-document-header + .api-document-node .review-section-header {

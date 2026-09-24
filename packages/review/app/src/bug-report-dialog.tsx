@@ -6,7 +6,6 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
-  useId,
   useRef,
   useState,
 } from "react";
@@ -26,9 +25,6 @@ import { useTooltip } from "./use-tooltip";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
 
-const TRACE_PRIVACY_COPY =
-  "Includes the complete, uncapped authoring session trace. For forked sessions, it also includes each ancestor session up to its fork point, plus up to ten tail-capped subagent traces. Recognizable secrets are redacted, but other secrets may be included; everything is sent to /dev/fast.";
-
 export function BugReportControl({
   captureScreenshot = captureWindowScreenshot,
 }: {
@@ -41,14 +37,12 @@ export function BugReportControl({
   const [description, setDescription] = useState("");
   const [includeContext, setIncludeContext] = useState(true);
   const [includeDiff, setIncludeDiff] = useState(true);
-  const [includeTrace, setIncludeTrace] = useState(false);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [sending, setSending] = useState(false);
   const { toast, showToast: setToast } = useToast();
   const tooltip = useTooltip("Report a bug");
-  const tracePrivacyTooltipId = useId();
   const capturePending = useRef(false);
   const descriptionBytes = new TextEncoder().encode(description).byteLength;
   const canSend = descriptionBytes <= MAX_DESCRIPTION_BYTES && !sending;
@@ -57,7 +51,6 @@ export function BugReportControl({
     setDescription("");
     setIncludeContext(true);
     setIncludeDiff(true);
-    setIncludeTrace(false);
     setScreenshot(null);
     setDropActive(false);
     setSending(false);
@@ -81,7 +74,9 @@ export function BugReportControl({
         include_review: includeContext,
         include_map: includeContext,
         include_diff: includeDiff,
-        include_trace: includeTrace,
+        // No JSON-review snapshot records its authoring session yet, so
+        // there is no complete trace to attach.
+        include_trace: false,
         app_session_id: session.appSessionId,
         app_version: session.config.appVersion,
       };
@@ -112,9 +107,7 @@ export function BugReportControl({
               ? "Too many reports. Try again later."
               : response.status === 413
                 ? "The report is too large. Remove an attachment and try again."
-                : response.status === 422
-                  ? "The complete agent session trace couldn't be read. Uncheck 'Agent session trace' to send the report without it."
-                  : "The report could not be sent. Try again.",
+                : "The report could not be sent. Try again.",
         });
 
         return;
@@ -282,34 +275,6 @@ export function BugReportControl({
                   />
                   Changed-file diffs used by CodePeeks
                 </label>
-                <div className="bug-report-option">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={includeTrace}
-                      onChange={(event) =>
-                        setIncludeTrace(event.target.checked)
-                      }
-                    />
-                    Agent session trace
-                  </label>
-                  <span className="bug-report-trace-info">
-                    <button
-                      type="button"
-                      aria-label="Agent session trace privacy information"
-                      aria-describedby={tracePrivacyTooltipId}
-                    >
-                      i
-                    </button>
-                    <span
-                      id={tracePrivacyTooltipId}
-                      role="tooltip"
-                      className="bug-report-trace-tooltip"
-                    >
-                      {TRACE_PRIVACY_COPY}
-                    </span>
-                  </span>
-                </div>
                 <div className="bug-report-screenshot">
                   {screenshot ? (
                     <>

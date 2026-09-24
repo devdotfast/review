@@ -41,3 +41,14 @@ test('does nothing when declined', () => {
 		'none',
 	);
 });
+
+for (const consent of [null, 'declined', 'skipped'] as const) {
+	test(`opens the skill upgrade without granted consent (${consent})`, () => {
+		assert.equal(reviewCliInstallStartupAction({
+			...base,
+			stamp: consent ? { consent, updatedAt: 't' } : null,
+			updateNeeded: true,
+			legacySkills: [{ path: '~/.agents/skills/dev-review' }],
+		}), 'openWelcome');
+	});
+}

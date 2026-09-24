@@ -75,6 +75,63 @@ export function reviewTelemetryEnvironment(
   return "production";
 }
 
+export type ReviewTelemetryChannel = "stable" | "preview" | "dev";
+
+export type ReviewTelemetryEnvironment =
+  | "production"
+  | "ci"
+  | "internal"
+  | "e2e"
+  | "smoke";
+
+export type ReviewTelemetrySurface =
+  | "desktop"
+  | "cli"
+  | "headless"
+  | "mcp"
+  | "api";
+
+/** Set by Electron main from product.json `quality`; `dev` for an unpackaged run. */
+export const REVIEW_CHANNEL_ENV = "DEV_FAST_REVIEW_CHANNEL";
+
+/** Set by the e2e harness (`e2e`) and the packaged smoke scripts (`smoke`). */
+export const REVIEW_TELEMETRY_ENV_ENV = "DEV_FAST_REVIEW_TELEMETRY_ENV";
+
+const CHANNELS: readonly ReviewTelemetryChannel[] = [
+  "stable",
+  "preview",
+  "dev",
+];
+
+export function reviewTelemetryChannel(
+  env: NodeJS.ProcessEnv,
+): ReviewTelemetryChannel {
+  // SAFETY: the cast is provisional; CHANNELS.includes(value) below checks
+  // membership before the value is ever returned, falling back to "stable".
+  const value = env[REVIEW_CHANNEL_ENV]?.trim() as ReviewTelemetryChannel;
+
+  return CHANNELS.includes(value) ? value : "stable";
+}
+
+/**
+ * First match wins: a harness declares itself, then CI, then a dev.fast
+ * checkout or a persisted internal marker, else a real user.
+ */
+export function reviewTelemetryEnvironment(
+  env: NodeJS.ProcessEnv,
+  config?: Pick<ReviewTelemetryInstallConfig, "internal">,
+): ReviewTelemetryEnvironment {
+  const harness = env[REVIEW_TELEMETRY_ENV_ENV]?.trim();
+
+  if (harness === "e2e" || harness === "smoke") return harness;
+
+  if (env.CI) return "ci";
+
+  if (isInternalTelemetry(env, config)) return "internal";
+
+  return "production";
+}
+
 const TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
   "telemetry",
   "progressive-review.json",

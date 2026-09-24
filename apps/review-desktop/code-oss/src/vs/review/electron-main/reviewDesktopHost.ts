@@ -76,6 +76,7 @@ export class ReviewDesktopHost extends Disposable {
         appVersion:
           this.productService.reviewVersion ?? this.productService.version,
         appUrlProtocol: this.productService.urlProtocol,
+        releaseChannel: this.productService.quality,
         serverEntryOverride: process.env["DEV_FAST_REVIEW_SERVER_ENTRY"],
         resolveEnvironment: () =>
           (resolvedEnvironment ??= getResolvedShellEnv(

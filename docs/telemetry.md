@@ -19,8 +19,9 @@ Last checked against this repository: 2026-09-23.
   name, Review title, refs, revision hashes, raw Review UUID, coding-agent
   session ID, Review text, prompts, or model output.
 - Review uses a random installation ID. It does not use your email, username,
-  hostname, or a hardware identifier, and it does not create a PostHog person
-  profile.
+  hostname, or a hardware identifier. Every event is sent to PostHog with
+  `$process_person_profile: false`, so PostHog never creates a person profile
+  for it.
 - Product errors may include a cleaned error message and Review-only stack
   frames. Paths, web and email addresses, and recognizable secrets are removed
   on your machine before the event is accepted.
@@ -76,18 +77,20 @@ The full event-by-event list begins at [Event reference](#event-reference).
 
 On first use, Review creates a random installation UUID and stores it at
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
-PostHog's `identify()` API or associate that ID with a person profile.
+PostHog's `identify()` API, and it sends every event, including
+`review_telemetry_dropped`, with `$process_person_profile: false`, which tells
+PostHog to process it as a personless event and never create a person profile
+for that ID.
 
-Review Preview keeps its own installation id in
-`telemetry/progressive-review.preview.json`, so a preview and a stable install
-on one machine count as two installations. This applies to Review Desktop
-only: the standalone `review` CLI has no channel of its own and always uses
-the stable identity file. Every event also sends `$process_person_profile:
-false`, so PostHog creates no person profile.
+Review Desktop Preview keeps a separate installation id in
+`telemetry/progressive-review.preview.json`. The standalone CLI always uses the
+stable id.
 
 Pending events are kept in a local queue under
 `${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
-events, retries temporary failures, and deletes events after seven days.
+events, retries temporary failures, and deletes events after seven days. Each
+event keeps one random `uuid` across retries, so PostHog ingests a resent event
+once, and its `timestamp` is when it happened, not when it was sent.
 Telemetry is best-effort and never blocks Review from working.
 
 Three identifiers support exact lifecycle correlation without PostHog identity
@@ -160,12 +163,11 @@ Every event from the Review telemetry API includes these properties:
 | `arch`           | Node architecture enum                                             |
 | `os_version`     | Kernel release string                                              |
 | `ci`             | Boolean                                                            |
-| `internal`       | Boolean for a dev.fast workspace build or a persisted marker       |
+| `internal`       | Boolean for a dev.fast workspace build or a stored internal marker |
 | `app_session_id` | One random id per Desktop launch, shared by every Desktop process  |
 
-`environment` is decided in this order: `smoke` or `e2e` when a test harness
-says so, `ci` when `CI` is set, `internal` for a dev.fast workspace checkout or
-a persisted internal marker, else `production`.
+`environment` is the first that applies: `smoke` or `e2e` (test harness), `ci`
+(`CI` set), `internal`, `production`.
 
 UI events also include `source: review_app`.
 
@@ -174,8 +176,8 @@ specific Desktop Review session can include both `review_id` and
 `presentation_id`. Global main-process and renderer errors remain unscoped;
 Review does not guess which open Review caused them.
 
-The transport creates `review_telemetry_dropped` itself and stamps it with the
-envelope last computed in that process.
+`review_telemetry_dropped` carries the envelope of the process that dropped the
+events.
 
 ### CLI and lifecycle events
 
@@ -193,27 +195,27 @@ envelope last computed in that process.
 | `review_review_reaped`            | `retention_days`                                            | Retention deletes a dismissed review                |
 | `review_telemetry_dropped`        | `reason`, `count`                                           | The queue drops one or more events                  |
 
-`review_session_started` is also allowlisted to carry `source_kind` and
-`agent_kind`, but only one is populated today. The server fills `source_kind`
-from the review the session opened — the client cannot assert its own value —
-and drops whatever the client sent. `agent_kind` stays in the allowlist for a
-later PR; nothing sets it yet, so it never appears on the event.
+`review_session_started` also carries `source_kind`, which the server sets from
+the opened review. `agent_kind` is allowlisted but not yet sent.
 
-Session outcomes are `closed` (the tab closed or was replaced), `app_quit`,
-and `abnormal` (the previous Desktop process died with the review still open;
-reported on the next launch, without `duration_ms`). `dismissed` and `deleted`
-are reserved for later PRs.
+| `outcome`  | Meaning                                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `closed`   | The tab closed or another review replaced it                                                                                                |
+| `app_quit` | The Desktop quit with the review open                                                                                                       |
+| `abnormal` | The Desktop died with the review open. Sent by the next launch, without `duration_ms`, with the dead launch's envelope and `app_session_id` |
+
+`dismissed` and `deleted` are reserved.
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app.launch`, `app.pick`, `info`, `connect`, `migrate.apply`,
+`version`, `app.launch`, `app.pick`, `info`, `instances`, `instances.use`,
+`instances.clear`, `connect`, `migrate.apply`,
 `map.open`, `map.check`, `map.prune`, `map.push`, `map.fetch`, `login`,
 `logout`, `whoami`, `trace.store.create`, `trace.store.delete`,
 `trace.store.info`, `trace.install`, `trace.allow`, `trace.deny`,
 `trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, `server.start`, and
 `invalid`. Review sends no arguments, refs, tokens, or storage credentials.
 `surface` is `headless` for `server.start`, `mcp` for `mcp`, `api` for `api`,
-and `cli` for every other command. It labels every event the command's process
-sends, including `review_installation_created`, not only command events.
+and `cli` otherwise, on every event the command's process sends.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.
@@ -240,16 +242,14 @@ text, and only as described in "Error reports".
 ### Desktop and canvas events
 
 The server checks all properties in this table against
-`packages/review/src/ui-telemetry-events.ts`. Review session lifecycle events
-(`review_session_started`, `review_review_presented`,
-`review_first_review_presented`, `review_session_ended`) are documented in
-[CLI and lifecycle events](#cli-and-lifecycle-events) above.
+`packages/review/src/ui-telemetry-events.ts`. Session lifecycle events are
+listed under [CLI and lifecycle events](#cli-and-lifecycle-events).
 
 | Event                             | Additional properties                                                                                                                                          | When                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
 | `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
-| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens                                                                                                                     | A user opens a code peek                     |
+| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens, call_stack_frame                                                                                                   | A user opens a code peek                     |
 | `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek resolves                         |
 | `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek does not resolve                 |
 | `review_tour_started`             | `steps`                                                                                                                                                        | A user starts a tour                         |
@@ -280,20 +280,16 @@ is the implicit undo: a reader who opens a dismissed review brings it back.
 
 ## Suspected hangs
 
-The primary signal is the explicit `review_session_ended{outcome:"abnormal"}`
-event described above: an on-disk marker records every open review session,
-and the next Desktop launch reconciles any marker its own process never
-cleared into an abnormal end. This is the floor under crash and hang counts
-even when nothing else fires, and it needs no query.
+A Desktop session that never ends cleanly arrives as
+`review_session_ended{outcome:"abnormal"}`: Review records open sessions under
+`${DEV_REVIEW_HOME:-~/.dev}/telemetry`, and the next launch reports any its
+predecessor left open.
 
-Operational queries against a start-without-terminal-event gap remain a
-fallback for lifecycles that carry no on-disk marker, such as a CLI command. A
-lifecycle start classifies as a suspected hang after five minutes without its
-matching terminal event:
+Operational queries also flag a start with no terminal event after five
+minutes:
 
 - a command start with no success or failure sharing `command_run_id`; or
-- a session start with no presentation sharing `presentation_id`, before the
-  next launch has had a chance to reconcile it.
+- a session start with no presentation sharing `presentation_id`.
 
 This observes lifecycle gaps; it does not time out or kill work. A late
 terminal or ready event removes the match automatically.
@@ -397,9 +393,8 @@ changed-file diffs. Both controls are on by default. Review also captures a
 screenshot before the dialog opens and attaches it by default. The dialog shows
 a removable preview and accepts a replacement image by paste or drag.
 
-**Agent traces require separate, explicit consent for every report.** The
-**Agent session trace** control is off by default. Review does not attach any
-agent trace unless the user turns on this control before selecting **Send**.
+**Agent session trace attachment is not available yet.** The dialog has no
+trace control, and reports never include agent traces.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -423,17 +418,12 @@ The report payload contains these fields:
 | `diff.files[].additions`           | Added line count                                                                    |
 | `diff.files[].deletions`           | Deleted line count                                                                  |
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
-| `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
-| `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
-| `trace.omitted_files`              | Ancestor or subagent trace names omitted because of limits or read failures         |
-| `trace.truncated`                  | Whether any trace record, ancestor, or subagent trace was dropped or tail-capped    |
 | `diagnostics.app_version`          | Review Desktop product version                                                      |
 | `diagnostics.cli_version`          | `@dev.fast/review` package version                                                  |
 | `diagnostics.platform`             | Node platform enum                                                                  |
 | `diagnostics.app_session_id`       | Random identifier for the canvas window                                             |
 | `diagnostics.client_error_names`   | Last 20 sanitized JavaScript error class names from that canvas session             |
-| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`, or `too_large` for a trace  |
+| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`                              |
 | `diagnostics.review_omitted_files` | Names of review source files the report did not send                                |
 
 The `review` field holds a file map. It contains the current review document and
@@ -448,28 +438,12 @@ The report never sends these review files:
 - the compiled document in `.bundle/`, and the build output in `.build/`
 - `review.db`, a local database that earlier versions kept beside the review
 
-Trace attachment consent is independent of passive telemetry and trace sync.
-Neither setting enables trace attachment for a bug report. If the user opts in,
-the report includes the complete authoring-session trace and available ancestor
-history through each fork point. It can also include up to ten of the most
-recently modified subagent trace tails. Review drops a record the harness has
-not finished writing, an ancestor it cannot read, and, when the compressed
-report would exceed the upload cap, the whole trace; each case is recorded in
-the payload rather than failing the report.
-
-The trace can contain prompts, model output, source code, file paths, URLs, and
-email addresses. Review replaces recognizable Google API keys, JWTs, Slack
-tokens, GitHub tokens, and Microsoft Entra tokens with labelled markers. Other
-credentials or secrets may remain.
-
 The Worker stores reports in a private Cloudflare R2 bucket. Only credentialed
 dev.fast operators can read the bucket. Reports are deleted after 90 days.
 
 After storage completes, the Worker sends a `review_bug_report` PostHog event
 with the report ID, date, app version, platform, sizes, attachment presence, and
-truncation flags. For an explicitly included trace, it also sends the harness
-type and trace sizes. The event does not contain the description, attachments,
-or trace session identifiers.
+truncation flags. The event does not contain the description or attachments.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

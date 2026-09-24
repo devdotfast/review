@@ -9,6 +9,7 @@ import test from 'node:test';
 import { Emitter } from '../../base/common/event.js';
 import { REVIEW_DESKTOP_CONNECTION_VERSION } from '../common/reviewDesktopBootstrap.js';
 import {
+	applicationPath,
 	createReviewServerEnvironment,
 	type IReviewServerProcess,
 	type ReviewServerTermination,
@@ -190,4 +191,9 @@ test('reports a server process death to onServerTerminated, but not a deliberate
 	processes[1].exitWith(1, 'SIGTERM');
 	await stopping;
 	assert.equal(terminated.length, 1);
+});
+
+test('the app path names the macOS bundle, else the executable', () => {
+	assert.equal(applicationPath('/Applications/Review.app/Contents/MacOS/Review'), '/Applications/Review.app');
+	assert.equal(applicationPath('/usr/share/review-desktop/review-desktop'), '/usr/share/review-desktop/review-desktop');
 });

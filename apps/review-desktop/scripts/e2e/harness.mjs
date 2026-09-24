@@ -33,6 +33,14 @@ const require = createRequire(path.join(appRoot, "code-oss/package.json"));
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The one record a home's single Desktop wrote; undefined before it starts. */
+export async function instanceRecordPath(home) {
+  const dir = path.join(home, "review-desktop/instances");
+  const [name] = await readdir(dir).catch(() => []);
+
+  return name && path.join(dir, name);
+}
+
 /** Pages `watchPage` has instrumented; attaching twice doubles every page error and races two dialog handlers. */
 const watchedPages = new WeakSet();
 
@@ -287,7 +295,7 @@ export async function createHarness({
   async function attach() {
     discovery = await until(async () => {
       const value = JSON.parse(
-        await readFile(path.join(home, "review-desktop/server.json"), "utf8"),
+        await readFile(await instanceRecordPath(home), "utf8"),
       );
 
       const health = await (await fetch(`${value.url}/health`)).json();
@@ -506,22 +514,40 @@ export async function createHarness({
   async function waitForExit(label, timeout = 30000) {
     const deadline = Date.now() + timeout;
 
-    while (app.exitCode === null && Date.now() < deadline) await sleep(100);
+    // A signal death leaves exitCode null and sets signalCode instead.
+    const running = () => app.exitCode === null && app.signalCode === null;
 
-    if (app.exitCode === null) throw new Error(`Timed out waiting for ${label}`);
+    while (running() && Date.now() < deadline) await sleep(100);
+
+    if (running())
+      throw new Error(`Timed out waiting for ${label}`);
   }
 
-  async function restartDesktop() {
-    killGroup("SIGTERM");
+  /** `signal: "SIGKILL"` stops the Desktop without letting it run any shutdown handler. */
+  async function restartDesktop({ signal = "SIGTERM" } = {}) {
+    lifecycle(`Restarting with ${signal}`);
+    killGroup(signal);
 
     try {
       await waitForExit("Desktop shutdown");
     } catch {
-      // A respawn while the old instance still holds the CDP port and server.json would attach to the dying Desktop.
+      // A respawn while the old instance still holds the CDP port and its instance record would attach to the dying Desktop.
       killGroup("SIGKILL");
       await waitForExit("Desktop shutdown after SIGKILL");
     }
 
+    await relaunch();
+  }
+
+  /** Quits the way a reader does, through `workbench.action.quit` (Cmd/Ctrl+Q), then relaunches. */
+  async function quitAndRelaunchDesktop() {
+    lifecycle("Quitting through workbench.action.quit");
+    await page.keyboard.press("ControlOrMeta+KeyQ");
+    await waitForExit("Desktop quit");
+    await relaunch();
+  }
+
+  async function relaunch() {
     await browser?.close();
     spawnDesktop();
     await attach();
@@ -583,6 +609,7 @@ export async function createHarness({
     check: (...names) => report.checks.push(...names),
     knownBug,
     restartDesktop,
+    quitAndRelaunchDesktop,
     close,
   });
 }
@@ -618,7 +645,11 @@ export async function createReview(ctx, spec) {
   });
 
   for (const content of spec.blocks)
-    await command({ type: "edit", reviewId, edit: { type: "insert", content } });
+    await command({
+      type: "edit",
+      reviewId,
+      edit: { type: "insert", content },
+    });
 
   const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
 

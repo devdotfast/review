@@ -13,6 +13,19 @@ import {
   sessionStartedSourceKind,
 } from "./desktop-server";
 import type { ReviewOpenContext } from "./review-open-watchdog";
+import { clientOccurredAt } from "./ui-telemetry";
+
+it("keeps a client's occurrence time only within the recent past", () => {
+  const now = Date.parse("2026-09-23T12:00:00.000Z");
+
+  expect(clientOccurredAt(now - 11, now)).toBe(now - 11);
+  expect(clientOccurredAt(now + 60_000, now)).toBe(now);
+  expect(clientOccurredAt(now - 24 * 60 * 60 * 1_000, now)).toBe(
+    now - 5 * 60 * 1_000,
+  );
+  expect(clientOccurredAt("yesterday", now)).toBe(now);
+  expect(clientOccurredAt(undefined, now)).toBe(now);
+});
 
 it("derives source_kind from the review's stored target, or the scratchpad kind", async () => {
   const store = new ReviewStore(":memory:", {
@@ -95,6 +108,7 @@ it("enriches session_started with source_kind on the global /telemetry/event rou
       "review_session_started",
       { source_kind: "scratchpad" },
       context,
+      expect.any(Number),
     );
   } finally {
     await server.close();
@@ -156,6 +170,7 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
       "review_session_started",
       {},
       context,
+      expect.any(Number),
     );
   } finally {
     await server.close();

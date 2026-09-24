@@ -248,6 +248,19 @@ export function CopyIcon(): ReactElement {
   );
 }
 
+export function CodeIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="m9 7-5 5 5 5m6-10 5 5-5 5" />
+    </svg>
+  );
+}
+
 export function CheckIcon(): ReactElement {
   return (
     <svg

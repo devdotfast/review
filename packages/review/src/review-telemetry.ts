@@ -29,6 +29,7 @@ import {
 import {
   type OpenSessionMarker,
   clearOpenSession,
+  launchEnvelope,
   openSessionMarkersPath,
   recordOpenSession,
   takeOpenSessions,
@@ -98,6 +99,9 @@ export type ReviewCliCommandPath =
   | "app.pick"
   | "info"
   | "connect"
+  | "instances"
+  | "instances.use"
+  | "instances.clear"
   | "migrate.apply"
   | "map.open"
   | "map.check"
@@ -490,6 +494,7 @@ export class ReviewTelemetry {
     event: string,
     properties: Record<string, string | number | boolean>,
     context?: ReviewTelemetryContext,
+    occurredAt = this.now().getTime(),
   ): Promise<void> {
     const reviewUuid = context?.reviewUuid;
     const presentationSessionId = context?.presentationSessionId;
@@ -506,9 +511,14 @@ export class ReviewTelemetry {
       const appSessionId = nonEmpty(properties.app_session_id?.toString());
 
       if (appSessionId) marker.appSessionId = appSessionId;
-      await this.updateOpenSessions(() =>
-        recordOpenSession(this.openSessionMarkersPath, marker),
-      );
+      await this.updateOpenSessions(async () => {
+        const envelope = launchEnvelope(
+          await this.envelope().catch(() => ({})),
+        );
+
+        if (envelope) marker.envelope = envelope;
+        recordOpenSession(this.openSessionMarkersPath, marker);
+      });
     } else if (inSession && event === "review_session_ended") {
       await this.updateOpenSessions(() =>
         clearOpenSession(this.openSessionMarkersPath, presentationSessionId),
@@ -522,6 +532,7 @@ export class ReviewTelemetry {
         ...properties,
       },
       context,
+      occurredAt,
     );
 
     if (inSession && event === "review_review_presented") {
@@ -568,9 +579,16 @@ export class ReviewTelemetry {
     for (const marker of ended) {
       const outcome: ReviewSessionOutcome = "abnormal";
 
-      // Overrides the envelope's app session: the session belonged to an
-      // earlier launch, and an unknown one is dropped rather than misattributed.
+      // Overrides the envelope with the launch the session belonged to. An
+      // unknown app session is dropped rather than misattributed; a legacy
+      // marker without a stored envelope keeps the current one.
+      const launch = marker.envelope && {
+        app_version: undefined,
+        ...marker.envelope,
+      };
+
       const properties: PostHogCaptureProperties = {
+        ...launch,
         source: "review_app",
         outcome,
         app_session_id: marker.appSessionId,
@@ -583,10 +601,15 @@ export class ReviewTelemetry {
     }
   }
 
+  /**
+   * `occurredAt` defaults to the call, before any await: config and marker
+   * locks must not reorder events that happened in order.
+   */
   async captureEvent(
     event: string,
     properties: PostHogCaptureProperties = {},
     context?: ReviewTelemetryContext,
+    occurredAt = this.now().getTime(),
   ): Promise<void> {
     await this.withTelemetry(async (config) => {
       const common = await this.commonProperties(config);
@@ -599,6 +622,7 @@ export class ReviewTelemetry {
           ...properties,
           ...correlationProperties(config.installationId, context),
         },
+        timestamp: occurredAt,
       });
     });
   }
@@ -619,12 +643,16 @@ export class ReviewTelemetry {
    * Marker I/O is best effort, skipped entirely when telemetry is off, and
    * locked because concurrent Desktops share the file.
    */
-  private async updateOpenSessions(update: () => void): Promise<void> {
+  private async updateOpenSessions(
+    update: () => void | Promise<void>,
+  ): Promise<void> {
     if (!(await this.isEnabled())) return;
     await this.lockOpenSessions(update);
   }
 
-  private async lockOpenSessions(update: () => void): Promise<void> {
+  private async lockOpenSessions(
+    update: () => void | Promise<void>,
+  ): Promise<void> {
     try {
       await withFileLock(
         `${this.openSessionMarkersPath}.lock`,

@@ -9,6 +9,7 @@ import {
   isJsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { withFileLock } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { findReviewPackageRoot } from "./package-paths";
@@ -28,6 +29,7 @@ import {
 import { recordOpenSession } from "./session-markers";
 import {
   REVIEW_CHANNEL_ENV,
+  REVIEW_TELEMETRY_ENV_ENV,
   type ReviewTelemetryInstallConfig,
   normalizeTelemetryInstallConfig,
 } from "./telemetry-config";
@@ -784,6 +786,168 @@ describe("ReviewTelemetry", () => {
     expect(events[0].properties?.app_session_id).not.toBe("app-current");
   });
 
+  it("attributes an abnormal end to the launch that opened the session", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `progressive-review-telemetry-upgrade-${Date.now()}`,
+    );
+
+    cleanupPaths.push(rootPath);
+
+    const markersPath = path.join(rootPath, "open-sessions.json");
+
+    const launch = (env: NodeJS.ProcessEnv) => {
+      const events: PostHogCaptureInput[] = [];
+
+      const telemetry = new ReviewTelemetry({
+        captureClient: {
+          enabled: true,
+          capture: async (event) => {
+            events.push(event);
+          },
+        },
+        env,
+        installConfigPath: path.join(rootPath, "telemetry.json"),
+        openSessionMarkersPath: markersPath,
+        openSessionOwnerPid: deadPid,
+        surface: "desktop",
+      });
+
+      return { events, telemetry };
+    };
+
+    const versionA = launch({
+      [REVIEW_APP_VERSION_ENV]: "1.0.0",
+      [REVIEW_APP_SESSION_ID_ENV]: "app-a",
+      [REVIEW_TELEMETRY_ENV_ENV]: "e2e",
+    });
+
+    await versionA.telemetry.captureUiEvent(
+      "review_session_started",
+      { app_session_id: "app-a" },
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
+
+    // Version A shipped an older CLI package than the one under test.
+    const [marker] = JSON.parse(await readFile(markersPath, "utf8")) as {
+      envelope: JsonObject;
+    }[];
+
+    marker.envelope.cli_version = "0.9.0";
+    marker.envelope.version = "0.9.0";
+    await writeFile(markersPath, JSON.stringify([marker]));
+
+    const versionB = launch({
+      [REVIEW_APP_VERSION_ENV]: "2.0.0",
+      [REVIEW_APP_SESSION_ID_ENV]: "app-b",
+    });
+
+    await versionB.telemetry.reconcileOpenSessions();
+
+    expect(versionB.events).toHaveLength(1);
+    expect(versionB.events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      app_session_id: "app-a",
+      app_version: "1.0.0",
+      cli_version: "0.9.0",
+      version: "0.9.0",
+      environment: "e2e",
+      surface: "desktop",
+    });
+  });
+
+  it("reconciles a marker written before launches stored their envelope", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_APP_VERSION_ENV]: "2.0.0" },
+    });
+
+    cleanupPaths.push(rootPath);
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(
+      markersPath,
+      JSON.stringify([
+        {
+          presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+          reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+          startedAt: 1,
+          appSessionId: "app-a",
+        },
+      ]),
+    );
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      app_session_id: "app-a",
+      app_version: "2.0.0",
+    });
+  });
+
+  it("stamps a session start before it waits for the marker lock", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    // Another Desktop holds the shared marker file while this session starts.
+    let release = () => {};
+
+    const held = withFileLock(
+      `${markersPath}.lock`,
+      {
+        retryMs: 10,
+        staleMs: 30_000,
+        timeoutMs: 1_000,
+        unownedGraceMs: 1_000,
+        heartbeatMs: 5_000,
+      },
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const started = telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      context,
+    );
+
+    clock += 5;
+    await telemetry.captureUiEvent(
+      "review_review_presented",
+      { load_ms: 5 },
+      context,
+    );
+    release();
+    await Promise.all([held, started]);
+
+    const at = (name: string) =>
+      events.find((event) => event.event === name)?.timestamp;
+
+    // Delivered out of order, stamped in order.
+    expect(
+      events
+        .map((event) => event.event)
+        .filter((name) => name !== "review_first_review_presented"),
+    ).toEqual(["review_review_presented", "review_session_started"]);
+    expect(at("review_session_started")).toBeLessThan(
+      at("review_review_presented")!,
+    );
+  });
+
   it("leaves sessions owned by a live process open", async () => {
     const { events, markersPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -808,6 +972,86 @@ describe("ReviewTelemetry", () => {
     expect(events).toHaveLength(1);
     expect(events[0].properties).toMatchObject({ outcome: "abnormal" });
     expect(JSON.parse(await readFile(markersPath, "utf8"))).toEqual([live]);
+  });
+
+  it("lets two live Desktops on one home keep each other's sessions open", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `progressive-review-telemetry-desktops-${Date.now()}`,
+    );
+
+    cleanupPaths.push(rootPath);
+
+    // Two dev checkouts share a home and a channel, so they share one file.
+    const desktop = (appSessionId: string, ownerPid: number) => {
+      const events: PostHogCaptureInput[] = [];
+
+      const telemetry = new ReviewTelemetry({
+        captureClient: {
+          enabled: true,
+          capture: async (event) => {
+            events.push(event);
+          },
+        },
+        env: {
+          [DEV_REVIEW_HOME_ENV]: rootPath,
+          [REVIEW_CHANNEL_ENV]: "dev",
+          [REVIEW_APP_SESSION_ID_ENV]: appSessionId,
+        },
+        openSessionOwnerPid: ownerPid,
+      });
+
+      const sessionIds = [1, 2, 3].map(
+        (index) => `${appSessionId}-presentation-${index}`,
+      );
+
+      const start = () =>
+        Promise.all(
+          sessionIds.map((presentationSessionId) =>
+            telemetry.captureUiEvent(
+              "review_session_started",
+              { app_session_id: appSessionId },
+              { reviewUuid: `${appSessionId}-review`, presentationSessionId },
+            ),
+          ),
+        );
+
+      return { events, sessionIds, start, telemetry };
+    };
+
+    const first = desktop("app-first", process.pid);
+    const second = desktop("app-second", process.ppid);
+    const markersPath = path.join(rootPath, "telemetry", "open-sessions.json");
+
+    const openIds = async () =>
+      (
+        JSON.parse(await readFile(markersPath, "utf8")) as {
+          presentationSessionId: string;
+        }[]
+      )
+        .map((marker) => marker.presentationSessionId)
+        .sort();
+
+    await Promise.all([first.start(), second.start()]);
+    await expect(openIds()).resolves.toEqual(
+      [...first.sessionIds, ...second.sessionIds].sort(),
+    );
+
+    second.events.length = 0;
+    await second.telemetry.reconcileOpenSessions();
+    expect(second.events).toEqual([]);
+
+    await first.telemetry.captureUiEvent(
+      "review_session_ended",
+      { outcome: "closed", duration_ms: 10 },
+      {
+        reviewUuid: "app-first-review",
+        presentationSessionId: first.sessionIds[0],
+      },
+    );
+    await expect(openIds()).resolves.toEqual(
+      [...first.sessionIds.slice(1), ...second.sessionIds].sort(),
+    );
   });
 
   it("forgets open sessions when telemetry is turned off", async () => {
@@ -965,6 +1209,7 @@ function createTelemetry(input?: {
   surface?: ReviewTelemetryOptions["surface"];
   captureClient?: ReviewTelemetryCaptureClient;
   ownerPid?: number;
+  now?: () => Date;
 }) {
   const rootPath = path.join(
     os.tmpdir(),
@@ -1000,7 +1245,7 @@ function createTelemetry(input?: {
     openSessionMarkersPath: markersPath,
     openSessionOwnerPid: input?.ownerPid ?? deadPid,
     idFactory: () => input?.installationId ?? "install-123",
-    now: () => new Date("2026-01-02T03:04:05.000Z"),
+    now: input?.now ?? (() => new Date("2026-01-02T03:04:05.000Z")),
     surface: input?.surface,
   };
 

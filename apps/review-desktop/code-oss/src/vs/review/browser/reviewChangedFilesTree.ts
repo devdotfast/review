@@ -22,10 +22,12 @@ import { Emitter, type Event } from "../../base/common/event.js";
 import { Disposable } from "../../base/common/lifecycle.js";
 import { ThemeIcon } from "../../base/common/themables.js";
 import { localize } from "../../nls.js";
+import { IHoverService } from "../../platform/hover/browser/hover.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { WorkbenchCompressibleObjectTree } from "../../platform/list/browser/listService.js";
 import { registerColor } from "../../platform/theme/common/colorRegistry.js";
 import type { ReviewDiffFileWire, ReviewDiffProgressFile, StructuralLineCounts } from "../common/reviewProtocol.js";
+import { REVIEW_COUNTS_PENDING_TOOLTIP, reviewCountsTooltip, ReviewTooltip, type ReviewTooltipHoverService } from "./reviewTooltip.js";
 
 registerColor(
   "gitDecoration.addedResourceForeground",
@@ -75,6 +77,7 @@ interface ChangedFilesTreeTemplate {
   readonly icon: HTMLElement;
   readonly label: HTMLElement;
 	readonly counts: HTMLElement;
+	readonly countsTooltip: ReviewTooltip;
 }
 
 class ChangedFilesTreeDelegate
@@ -100,7 +103,7 @@ export class ChangedFilesTreeRenderer
   static readonly TEMPLATE_ID = "review.changedFiles.entry";
   readonly templateId = ChangedFilesTreeRenderer.TEMPLATE_ID;
 
-	constructor(private readonly counts: Map<string, StructuralLineCounts>, private readonly progress: Map<string, ReviewDiffProgressFile>, private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) { }
+	constructor(private readonly counts: Map<string, StructuralLineCounts>, private readonly progress: Map<string, ReviewDiffProgressFile>, private readonly states: Map<string, { status: "loading" | "error"; message?: string }>, private readonly hoverService: ReviewTooltipHoverService) { }
 
   renderTemplate(container: HTMLElement): ChangedFilesTreeTemplate {
     const row = append(container, $(".review-changed-files-row"));
@@ -108,7 +111,7 @@ export class ChangedFilesTreeRenderer
     icon.setAttribute("aria-hidden", "true");
     const label = append(row, $("span.review-changed-files-label"));
 		const counts = append(row, $("span.review-tree-counts"));
-		return { row, icon, label, counts };
+		return { row, icon, label, counts, countsTooltip: new ReviewTooltip(this.hoverService, counts) };
   }
 
   renderElement(
@@ -127,7 +130,9 @@ export class ChangedFilesTreeRenderer
     this.renderElements(node.element.elements, template);
   }
 
-  disposeTemplate(_template: ChangedFilesTreeTemplate): void {}
+	disposeTemplate(template: ChangedFilesTreeTemplate): void {
+		template.countsTooltip.dispose();
+	}
 
   private renderElements(
     elements: readonly ChangedTreeElement[],
@@ -147,7 +152,7 @@ export class ChangedFilesTreeRenderer
       : "review-changed-files-icon";
 		template.counts.hidden = !isFile;
 		template.counts.replaceChildren();
-		template.counts.removeAttribute("title");
+		template.countsTooltip.content = undefined;
 		if (isFile) {
 			const progress = this.progress.get(element.file.path);
 			const compact = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n).toLowerCase();
@@ -160,7 +165,14 @@ export class ChangedFilesTreeRenderer
 				const added = append(template.counts, $('span.review-tree-added')); added.textContent = `+${compact(additions)}`;
 				const removed = append(template.counts, $('span.review-tree-removed')); removed.textContent = `−${compact(deletions)}`;
 			}
-			template.counts.title = additions === undefined ? "Waiting for structural coverage" : element.file.status === "unchanged" ? "Referenced context; no changed lines" : progress?.state === "folded" ? `Folded by default; counted as done · Total +${progress.total.additions} −${progress.total.deletions}` : `Remaining +${additions} −${deletions} · Total +${progress?.total.additions ?? this.counts.get(element.file.path)?.added} −${progress?.total.deletions ?? this.counts.get(element.file.path)?.removed}`;
+			const total = progress?.total ?? { additions: this.counts.get(element.file.path)?.added ?? 0, deletions: this.counts.get(element.file.path)?.removed ?? 0 };
+			template.countsTooltip.content = element.file.status === "unchanged"
+				? { label: "Referenced context; no changed lines" }
+				: additions === undefined || deletions === undefined
+					? REVIEW_COUNTS_PENDING_TOOLTIP
+					: progress?.state === "folded"
+						? { label: "Folded by default; counted as done", detail: `+${total.additions} −${total.deletions} total` }
+						: reviewCountsTooltip({ remaining: { additions, deletions }, total });
 		}
 		const state = isFile ? this.states.get(element.file.path) : undefined;
 		if (state) template.icon.className = `review-changed-files-icon codicon codicon-${state.status === "loading" ? "loading codicon-modifier-spin" : "error"}`;
@@ -220,6 +232,7 @@ export class ReviewChangedFilesTree extends Disposable {
   constructor(
     container: HTMLElement,
     @IInstantiationService instantiationService: IInstantiationService,
+    @IHoverService hoverService: IHoverService,
   ) {
     super();
     container.classList.add("review-changed-files");
@@ -227,7 +240,7 @@ export class ReviewChangedFilesTree extends Disposable {
       container,
       $(".review-changed-files-tree"),
     );
-		const renderer = new ChangedFilesTreeRenderer(this.counts, this.progress, this.states);
+		const renderer = new ChangedFilesTreeRenderer(this.counts, this.progress, this.states, hoverService);
     this.tree = this._register(
       instantiationService.createInstance(
         WorkbenchCompressibleObjectTree<ChangedTreeElement, void>,

@@ -58,7 +58,11 @@ if [[ "${REVIEW_DESKTOP_COMPILE_ONLY:-0}" != "1" ]]; then
     PRODUCT_APP="$(node -p "require('./product.json').applicationName")"
     EXPECTED_BINARY="$CHECKOUT/.build/electron/$PRODUCT_APP"
   fi
-  if [[ ! -x "$EXPECTED_BINARY" ]]; then
+  # A cache restored from an older key can hold a stale Electron; preLaunch
+  # would then re-download it at launch and drop the CI sandbox setup.
+  ELECTRON_TARGET="$(sed -n 's/^target="\(.*\)"$/\1/p' .npmrc)"
+  ELECTRON_INSTALLED="$(cat .build/electron/version 2>/dev/null || true)"
+  if [[ ! -x "$EXPECTED_BINARY" || "${ELECTRON_INSTALLED#v}" != "$ELECTRON_TARGET" ]]; then
     npm run electron
   fi
   if [[ "$OSTYPE" == "darwin"* && "$DEV_FAST_ACTIVE" != "1" ]]; then

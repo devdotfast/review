@@ -1,7 +1,7 @@
 /** Every event the Desktop sends carries one envelope, and a review's lifecycle is start, presented, ended. */
 import assert from "node:assert/strict";
 
-import { createReview, orderReviewBlocks } from "../harness.mjs";
+import { createReview, orderReviewBlocks, pickReview } from "../harness.mjs";
 
 export const name = "telemetry-contract";
 
@@ -141,6 +141,10 @@ export async function run(ctx) {
     started[0].properties.presentation_id,
     presented[0].properties.presentation_id,
   );
+  assert.ok(
+    started[0].timestamp <= presented[0].timestamp,
+    "the session starts no later than it is presented",
+  );
   assert.match(started[0].properties.review_id, /^rv_/);
   assert.ok(presented[0].properties.load_ms >= 0);
   // The server announces the first review after a file-lock round trip, so it can trail the presented event.
@@ -168,26 +172,70 @@ export async function run(ctx) {
   assert.ok([...appSessions][0], "the app session id is set");
   ctx.check("every event carries the envelope and no raw review id");
 
-  // A restart is a SIGTERM quit. The renderer reports app_quit on the way out,
-  // or the next launch reconciles the marker as abnormal. Either way: one end.
-  // The debug sink never persists the install flag, so the relaunch announces
+  // The debug sink never persists the install flag, so each relaunch announces
   // the install again; that is not asserted here.
-  await ctx.restartDesktop();
-  await ctx.until(
-    () => named(ctx, "review_session_ended")[0] ?? null,
-    "the session end",
-  );
-  const ended = named(ctx, "review_session_ended");
+  const firstId = started[0].properties.presentation_id;
 
-  assert.equal(ended.length, 1, "exactly one session end");
-  assert.ok(
-    ["app_quit", "abnormal"].includes(ended[0].properties.outcome),
-    ended[0].properties.outcome,
+  await ctx.quitAndRelaunchDesktop();
+  await ctx.until(
+    () => endsOf(ctx, firstId)[0] ?? null,
+    "the quit session's end",
   );
-  assert.equal(
-    ended[0].properties.presentation_id,
-    started[0].properties.presentation_id,
+  assert.deepEqual(
+    endsOf(ctx, firstId).map((e) => e.properties.outcome),
+    ["app_quit"],
+    "a clean quit ends the session once, as app_quit",
   );
   assertContract(ctx, review);
-  ctx.check("a quit ends the session exactly once");
+  ctx.check("a clean quit ends the session exactly once, as app_quit");
+
+  // The relaunch reopens the review or the reader picks it again. A workbench
+  // reload can end that session and start another, so kill whichever is open.
+  if (!(await openSession(ctx, 15000))) await pickReview(ctx, review.reviewId);
+  const secondId = await openSession(ctx);
+
+  await ctx.restartDesktop({ signal: "SIGKILL" });
+  await ctx.until(
+    () => endsOf(ctx, secondId)[0] ?? null,
+    "the killed session's abnormal end",
+  );
+  assert.deepEqual(
+    endsOf(ctx, secondId).map((e) => e.properties.outcome),
+    ["abnormal"],
+    "a killed session ends once, as abnormal, on the next launch",
+  );
+  // Two relaunches have reconciled by now; the quit session stays ended once.
+  assert.equal(endsOf(ctx, firstId).length, 1, "no abnormal end after a quit");
+  assertContract(ctx, review);
+  ctx.check("a killed Desktop's session ends exactly once, as abnormal");
+}
+
+const endsOf = (ctx, presentationId) =>
+  named(ctx, "review_session_ended").filter(
+    (e) => e.properties.presentation_id === presentationId,
+  );
+
+/** The one presented session with no end yet, waited for up to `timeout`. */
+async function openSession(ctx, timeout) {
+  const open = () => {
+    const ended = new Set(
+      named(ctx, "review_session_ended").map((e) => e.properties.presentation_id),
+    );
+
+    const ids = named(ctx, "review_review_presented")
+      .map((e) => e.properties.presentation_id)
+      .filter((id) => !ended.has(id));
+
+    assert.ok(ids.length <= 1, `one open session, not ${ids.length}`);
+
+    return ids[0] ?? null;
+  };
+
+  try {
+    return await ctx.until(open, "an open session", timeout);
+  } catch (error) {
+    if (timeout === undefined) throw error;
+
+    return null;
+  }
 }

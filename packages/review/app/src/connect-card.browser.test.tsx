@@ -223,23 +223,26 @@ describe("ConnectCard", () => {
 
     await act(async () => button(bare, "Install the plugin")?.click());
     expect(bare.querySelector("a")).toBeNull();
-    expect(body(bare)).toContain("Install in Cursor");
-    expect(body(bare)).toContain("Install the whiteboard command first.");
-    expect(bare.querySelector(".review-connect-note")).toBeNull();
+    expect(bare.querySelector("button")).toBeNull();
   });
 
-  it("notes the missing whiteboard command without disabling copy", async () => {
-    const container = await mount(
-      <ConnectCard
-        install={content({ shim: { ...status.shim, installed: false } })}
-      />,
-    );
+  it.each([
+    { legacySkills: [{ path: "~/.claude/skills/dev-review" }] },
+    { cli: null, shim: { ...status.shim, installed: false } },
+    { shim: { ...status.shim, installed: false } },
+    { shim: { ...status.shim, onPath: false, profileConfigured: false } },
+  ])(
+    "blocks setup actions until prerequisites are complete: %j",
+    async (overrides) => {
+      const container = await mount(
+        <ConnectCard install={content(overrides)} />,
+      );
 
-    expect(container.querySelector(".review-connect-note")?.textContent).toBe(
-      "Install the whiteboard command first. The prompt and the plugin both launch it.",
-    );
-    expect(copyButton(container)?.disabled).toBe(false);
-  });
+      expect(container.querySelector("button")).toBeNull();
+      expect(container.querySelector("a")).toBeNull();
+      expect(container.querySelector("pre")).toBeNull();
+    },
+  );
 
   it("collapses a long prompt until the reader expands it, and copies all of it", async () => {
     const long = Array.from({ length: 8 }, (_, i) => `line ${i + 1}`).join(
@@ -311,7 +314,7 @@ describe("LegacySkillsRow", () => {
     expect(container.textContent).toContain("/h/.claude/skills/review");
 
     const button = [...container.querySelectorAll("button")].find(
-      (b) => b.textContent === "Remove old Whiteboard skills",
+      (b) => b.textContent === "Remove deprecated skills",
     );
 
     await act(async () => button?.click());

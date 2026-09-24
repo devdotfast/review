@@ -107,6 +107,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     "review_app_opened",
     { app_session_id: sessionId },
     { reviewUuid: reviewId },
+    expect.any(Number),
   );
   expect(
     (
@@ -126,6 +127,7 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
       reviewUuid: reviewId,
       presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
     },
+    expect.any(Number),
   );
   expect(
     (

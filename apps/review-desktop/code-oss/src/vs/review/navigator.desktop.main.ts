@@ -9,6 +9,7 @@
 import './editor.common.main.js';
 import './editor.desktop.main.js';
 import { reviewConfigurationDefaults } from './common/reviewConfigurationDefaults.js';
+import { FileAccess } from '../base/common/network.js';
 import '../workbench/browser/workbench.zenMode.contribution.js';
 import '../workbench/browser/actions/layoutActions.js';
 import '../workbench/browser/parts/editor/editorParts.js';
@@ -106,6 +107,11 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration).registerDefaultCon
 		'telemetry.telemetryLevel': 'off',
 		'chat.disableAIFeatures': true,
 		'security.workspace.trust.enabled': false,
+		// Source windows run their own workbench entry point, so they need the
+		// bundled Go tool path as well as the Review window.
+		'go.alternateTools': {
+			gopls: URI.joinPath(FileAccess.asFileUri(''), '..', 'extensions', 'golang.go', 'bin', 'gopls').fsPath,
+		},
 		'workbench.startupEditor': 'none',
 		'window.autoDetectColorScheme': reviewConfigurationDefaults['window.autoDetectColorScheme'],
 		'workbench.colorTheme': reviewConfigurationDefaults['workbench.colorTheme'],

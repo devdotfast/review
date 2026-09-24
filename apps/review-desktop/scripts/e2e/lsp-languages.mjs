@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { createReview, dismissModalEditor } from "./harness.mjs";
+import { createReview } from "./harness.mjs";
 
 const exec = promisify(execFile);
 
@@ -73,6 +73,7 @@ export const LANGUAGES = {
   },
   go: {
     extensions: "go",
+    settings: { "go.showWelcome": false },
     peekFile: "orders.go",
     symbol: "SaveOrder",
     definitionFile: "storage.go",
@@ -135,9 +136,9 @@ function rustupHome() {
 
 /** The harness options for a language's journey. */
 export function lspOptions(id) {
-  const { extensions, env, beforeLaunch } = LANGUAGES[id];
+  const { extensions, settings, env, beforeLaunch } = LANGUAGES[id];
 
-  return { extensions, env, beforeLaunch };
+  return { extensions, settings, env, beforeLaunch };
 }
 
 /** Skips the journey when `tool` is missing or cannot answer under the isolated HOME. */
@@ -304,7 +305,7 @@ export async function runLspJourney(ctx, id) {
   }
 }
 
-/** The reader's half: from the open review to the modal editor Go to Definition opens. */
+/** The reader's half: from the open review to the Source window Go to Definition opens. */
 async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const page = canvas.page();
 
@@ -371,21 +372,42 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   await token.click({ position: await aim() });
   await page.keyboard.press("F12");
 
-  // Go to Definition opens the file in the modal editor, whose header carries the resolved label: the cross-file evidence.
-  const modalTitle = page
-    .locator(".monaco-modal-editor-block .modal-editor-title")
-    .first();
-
-  // The label is the file name, not its path in the repository.
+  // Go to Definition opens a separate Source window at the resolved file.
   const definitionName = path.basename(language.definitionFile);
 
-  await ctx.until(
-    async () =>
-      (await modalTitle.innerText().catch(() => "")).includes(definitionName),
-    `${id} Go to Definition to open ${language.definitionFile} in the modal editor`,
+  const sourceWindow = await ctx.until(
+    async () => {
+      for (const candidate of ctx.browser.contexts().flatMap((context) => context.pages())) {
+        if (candidate === page || candidate.isClosed()) continue;
+
+        const title = candidate.getByText(definitionName, { exact: true }).first();
+        const definition = candidate.locator(".monaco-editor .view-line").filter({ hasText: language.symbol }).first();
+
+        if (await title.isVisible().catch(() => false) && await definition.isVisible().catch(() => false))
+          return candidate;
+      }
+
+      return null;
+    },
+    `${id} Go to Definition to open ${language.definitionFile} in the Source window`,
     60000,
   );
+
+  await ctx.watchPage(sourceWindow);
   ctx.check(`${id}: go to definition crosses files`);
 
-  await dismissModalEditor(ctx, page);
+  if (id === "go") {
+    const sourceLine = sourceWindow.locator(".monaco-editor .view-line").filter({ hasText: `func ${language.symbol}` }).first();
+    const sourceToken = sourceLine.locator("span", { hasText: language.symbol }).last();
+    const sourceHover = sourceWindow.locator(".monaco-hover-content:visible").first();
+
+    await ctx.until(async () => {
+      await sourceLine.hover({ position: { x: 1, y: 2 } });
+      await sourceToken.hover();
+      await sourceWindow.waitForTimeout(700);
+
+      return language.hoverText.test(await sourceHover.innerText().catch(() => ""));
+    }, "Go hover in the Source window using bundled gopls", 120000);
+    ctx.check("go: bundled language server works in the Source window");
+  }
 }

@@ -18,6 +18,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { assertRuntimeContents } from "../stage-review-runtime.mjs";
+import { packagedBinary } from "../smoke-launch-packaged.mjs";
 
 const exec = promisify(execFile);
 
@@ -262,6 +263,8 @@ export async function createHarness({
 
   env.DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT = String(port);
 
+  const packagedCommand = packagedApp && (await packagedBinary(packagedApp));
+
   function spawnDesktop() {
     const launchArgs = packagedApp
       ? [
@@ -274,7 +277,7 @@ export async function createHarness({
       : [path.join(appRoot, "scripts/run.sh")];
 
     app = spawn(
-      packagedApp ? path.join(packagedApp, "Contents/MacOS/Review") : "bash",
+      packagedCommand || "bash",
       launchArgs,
       { cwd: appRoot, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
     );

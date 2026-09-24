@@ -19,6 +19,7 @@
 import {
   type JsonObject,
   REVIEW_DIFF_LAYOUTS,
+  REVIEW_THEME_CHOICES,
   isJsonObject,
   jsonBoolean,
   jsonNumber,
@@ -56,7 +57,15 @@ export interface UiTelemetryEventSpec {
   readonly properties: Readonly<Record<string, UiTelemetryPropertySpec>>;
 }
 
-const PEEK_VIA = ["prose_link", "diagram", "map", "db_lens"] as const;
+const PEEK_VIA = [
+  "prose_link",
+  "diagram",
+  "map",
+  "db_lens",
+  "call_stack_frame",
+] as const;
+
+export const PEEK_ROOT_KIND = ["range"] as const;
 
 export const LSP_FEATURE = [
   "hover",
@@ -127,6 +136,8 @@ export const SETTING_NAME = [
   "software_map_enabled",
   "scratchpad_enabled",
   "diffr_config",
+  "structural_diff",
+  "theme",
 ] as const;
 
 export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;
@@ -194,7 +205,33 @@ export const CLIENT_ERROR_SOURCE = [
   "bootstrap",
   // A workbench setting write the app requested failed.
   "settings",
+  // The server utility process's own uncaught errors.
+  "server_unexpected",
 ] as const;
+
+/** Which process died. "unknown" is a minidump the live listeners did not see. */
+export const CRASH_PROCESS = [
+  "renderer",
+  "gpu",
+  "utility",
+  "server",
+  "unknown",
+] as const;
+
+export const CRASH_SOURCE = ["live", "minidump"] as const;
+
+export const STALL_PROCESS = ["renderer", "canvas"] as const;
+
+export const STALL_PHASE = ["startup", "running"] as const;
+
+export const DIFF_OPENED_VIA = ["topbar", "lens", "locate"] as const;
+
+/** Which diff opened: a commit's, or a file diff drawn plain or structural. */
+export const DIFF_OPENED_KIND = ["commit", "file", "structural"] as const;
+
+export const DISCORD_VIA = ["topbar", "dialog", "docs"] as const;
+
+const REVIEW_DELETED_VIA = ["home"] as const;
 
 export const ERROR_PROCESS = ["main", "renderer", "canvas", "server"] as const;
 
@@ -441,7 +478,12 @@ export const UI_TELEMETRY_EVENTS = {
   },
   setting_changed: {
     event: "review_setting_changed",
-    properties: { setting: SETTING_NAME, enabled: "boolean" },
+    // value carries the chosen option for the one multi-valued setting, theme.
+    properties: {
+      setting: SETTING_NAME,
+      enabled: "boolean",
+      value: REVIEW_THEME_CHOICES,
+    },
   },
   review_opened: {
     event: "review_review_opened",
@@ -466,6 +508,70 @@ export const UI_TELEMETRY_EVENTS = {
     event: "review_home_empty_state_viewed",
     properties: {},
   },
+  crash: {
+    event: "review_crash",
+    // reason is Electron's closed reason string (oom, crashed, abnormal-exit…)
+    // or a signal name from the server supervisor; never a message.
+    properties: {
+      process: CRASH_PROCESS,
+      reason: "enum_free_short",
+      exit_code: "number",
+      uptime_ms: "number",
+      source: CRASH_SOURCE,
+    },
+  },
+  hang_started: { event: "review_hang_started", properties: {} },
+  hang_ended: {
+    event: "review_hang_ended",
+    properties: { duration_ms: "number" },
+  },
+  ui_stall: {
+    event: "review_ui_stall",
+    properties: {
+      duration_ms: "number",
+      process: STALL_PROCESS,
+      phase: STALL_PHASE,
+    },
+  },
+  app_ready: {
+    event: "review_app_ready",
+    properties: { duration_ms: "number" },
+  },
+  error_burst: {
+    event: "review_error_burst",
+    properties: { message_hash: "hash_hex", suppressed: "number" },
+  },
+  diff_opened: {
+    event: "review_diff_opened",
+    properties: { kind: DIFF_OPENED_KIND, via: DIFF_OPENED_VIA },
+  },
+  scratchpad_opened: { event: "review_scratchpad_opened", properties: {} },
+  discord_clicked: {
+    event: "review_discord_clicked",
+    properties: { via: DISCORD_VIA },
+  },
+  discord_dialog_shown: {
+    event: "review_discord_dialog_shown",
+    properties: {},
+  },
+  discord_dialog_dismissed: {
+    event: "review_discord_dialog_dismissed",
+    properties: {},
+  },
+  peek_resolved: {
+    event: "review_peek_resolved",
+    properties: { root_kind: PEEK_ROOT_KIND },
+  },
+  peek_resolve_failed: {
+    event: "review_peek_resolve_failed",
+    properties: { root_kind: PEEK_ROOT_KIND },
+  },
+  review_deleted: {
+    event: "review_review_deleted",
+    properties: { via: REVIEW_DELETED_VIA },
+  },
+  // The reader copied the review's share link.
+  review_shared: { event: "review_review_shared", properties: {} },
 } as const satisfies Record<
   string,
   { event: string; properties: Record<string, UiTelemetryPropertySpec> }

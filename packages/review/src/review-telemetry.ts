@@ -368,10 +368,6 @@ export class ReviewTelemetry {
     await this.captureEvent("review_command_started", properties);
   }
 
-  async captureReviewDeleted(): Promise<void> {
-    await this.captureEvent("review_review_deleted");
-  }
-
   /**
    * The reaper deleted a dismissed review. No reader is present, so this is a
    * server event rather than a UI one.

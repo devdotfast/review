@@ -22,7 +22,6 @@ import '../workbench/contrib/search/browser/search.contribution.js';
 import '../workbench/contrib/searchEditor/browser/searchEditor.contribution.js';
 import '../workbench/services/notebook/common/notebookDocumentService.js';
 import '../workbench/services/aiRelatedInformation/common/aiRelatedInformationService.js';
-import { registerAction2 } from '../platform/actions/common/actions.js';
 import { Extensions as QuickAccessExtensions, IQuickAccessRegistry } from '../platform/quickinput/common/quickAccess.js';
 import { CommandsQuickAccessProvider, ShowAllCommandsAction } from '../workbench/contrib/quickaccess/browser/commandsQuickAccess.js';
 import { ChatAgentService, IChatAgentService } from '../workbench/contrib/chat/common/participants/chatAgents.js';
@@ -47,7 +46,16 @@ import { Extensions as ViewExtensions, IViewsRegistry, type IViewDescriptor, typ
 import { IContextKeyService } from '../platform/contextkey/common/contextkey.js';
 import { VIEW_ID as EXPLORER_FOLDERS_VIEW_ID } from '../workbench/contrib/files/common/files.js';
 import './browser/reviewDecorationColors.js';
-import { NavigatorDecorationsService, NavigatorDiffEditorResolverService, NavigatorEmptySourceContentProvider, reviewFilesBase } from './services/navigatorDiffEditorResolverService.js';
+import { NavigatorDecorationsService, NavigatorDiffEditorResolverService, NavigatorEmptySourceContentProvider, reviewFilesBase, SOURCE_MODE_CONTEXT, type SourceMode } from './services/navigatorDiffEditorResolverService.js';
+import { localize, localize2 } from '../nls.js';
+import { Action2, MenuId, MenuRegistry, registerAction2 } from '../platform/actions/common/actions.js';
+import { ContextKeyExpr } from '../platform/contextkey/common/contextkey.js';
+import type { ServicesAccessor } from '../platform/instantiation/common/instantiation.js';
+import { Codicon } from '../base/common/codicons.js';
+import type { ThemeIcon } from '../base/common/themables.js';
+import type { ILocalizedString } from '../platform/action/common/action.js';
+import { isCodeEditor, isDiffEditor } from '../editor/browser/editorBrowser.js';
+import { IEditorService } from '../workbench/services/editor/common/editorService.js';
 import { IDecorationsService } from '../workbench/services/decorations/common/decorations.js';
 
 /** Set by the built-in review-files extension once its tree has listed the compared files. */
@@ -105,6 +113,62 @@ class NavigatorReviewFiles extends Disposable {
 	}
 }
 
+const SOURCE_MODE_MENU = new MenuId('ReviewSourceMode');
+const sourceModes = [
+	{ mode: 'diff', icon: Codicon.diff, title: localize2('review.sourceMode.diff', "Show Diff") },
+	{ mode: 'head', icon: Codicon.file, title: localize2('review.sourceMode.head', "Show Head") },
+	{ mode: 'base', icon: Codicon.history, title: localize2('review.sourceMode.base', "Show Base") },
+] satisfies { mode: SourceMode; icon: ThemeIcon; title: ILocalizedString }[];
+// The source window names a base only when it has one to compare with.
+const hasBase = ContextKeyExpr.has('config.reviewFiles.base');
+
+for (const [order, { mode, icon, title }] of sourceModes.entries()) {
+	// The title bar button shows the current mode.
+	MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
+		submenu: SOURCE_MODE_MENU,
+		title: localize('review.sourceMode', "Show Diff, Head or Base"),
+		icon,
+		group: 'navigation',
+		order: -1,
+		when: ContextKeyExpr.and(hasBase, ContextKeyExpr.equals(SOURCE_MODE_CONTEXT, mode)),
+	});
+	registerAction2(class extends Action2 {
+		constructor() {
+			super({
+				id: `reviewFiles.show.${mode}`,
+				title,
+				category: localize2('review.sourceMode.category', "Review Files"),
+				f1: true,
+				precondition: hasBase,
+				toggled: ContextKeyExpr.equals(SOURCE_MODE_CONTEXT, mode),
+				menu: { id: SOURCE_MODE_MENU, order },
+			});
+		}
+
+		async run(accessor: ServicesAccessor): Promise<void> {
+			const resolver = accessor.get(IEditorResolverService);
+			const editors = accessor.get(IEditorService);
+			if (!(resolver instanceof NavigatorDiffEditorResolverService)) {
+				return;
+			}
+			resolver.setMode(mode);
+
+			// Reopen the active file in the new mode, at the same line.
+			const pane = editors.activeEditorPane;
+			const control = editors.activeTextEditorControl;
+			const code = isDiffEditor(control) ? control.getModifiedEditor() : isCodeEditor(control) ? control : undefined;
+			const resource = code?.getModel()?.uri;
+			if (!pane || !resource) {
+				return;
+			}
+			const position = code.getPosition();
+			const source = resolver.sourceOf(resource);
+			const selection = position && source === resource ? { startLineNumber: position.lineNumber, startColumn: position.column } : undefined;
+			await editors.replaceEditors([{ editor: pane.input, replacement: { resource: source, options: { selection, pinned: true } } }], pane.group);
+		}
+	});
+}
+
 registerWorkbenchContribution2('review.navigator.reviewFiles', NavigatorReviewFiles, WorkbenchPhase.BlockStartup);
 registerWorkbenchContribution2('review.navigator.emptySource', NavigatorEmptySourceContentProvider, WorkbenchPhase.BlockStartup);
 registerSingleton(IEditorResolverService, NavigatorDiffEditorResolverService, InstantiationType.Delayed);
@@ -133,6 +197,9 @@ Registry.as<IConfigurationRegistry>(Extensions.Configuration).registerDefaultCon
 		// Every source file opens as a whole-file inline diff against the base.
 		'diffEditor.renderSideBySide': false,
 		'diffEditor.hideUnchangedRegions.enabled': false,
+		// A base file lies outside the workspace folder, so its full path would
+		// fill the breadcrumbs; the Files tree already shows where a file sits.
+		'breadcrumbs.filePath': 'last',
 		'window.autoDetectColorScheme': reviewConfigurationDefaults['window.autoDetectColorScheme'],
 		'workbench.colorTheme': reviewConfigurationDefaults['workbench.colorTheme'],
 		'workbench.preferredDarkColorTheme': reviewConfigurationDefaults['workbench.preferredDarkColorTheme'],

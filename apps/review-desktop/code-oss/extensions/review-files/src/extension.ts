@@ -178,12 +178,22 @@ class ReviewFiles implements vscode.TreeDataProvider<Entry>, vscode.FileDecorati
 		return { name: path.split('/').pop()!, path, parent, children: new Map(), uri: vscode.Uri.joinPath(side, path) };
 	}
 
-	/** The entry for a file open in an editor, from either checkout. */
+	/** The entry for a file open in an editor, from either checkout or as an empty side. */
 	find(uri: vscode.Uri): Entry | undefined {
-		for (const root of [this.head, this.base]) {
-			if (root && uri.scheme === 'file' && uri.fsPath.startsWith(root.fsPath + '/')) {
-				return this.entries.get(uri.fsPath.slice(root.fsPath.length + 1));
-			}
+		if (uri.scheme === 'review-empty') {
+			return this.entries.get(uri.path.slice(1));
+		}
+		if (uri.scheme !== 'file') {
+			return undefined;
+		}
+		if (uri.fsPath.startsWith(this.head.fsPath + '/')) {
+			return this.entries.get(uri.fsPath.slice(this.head.fsPath.length + 1));
+		}
+		if (this.base && uri.fsPath.startsWith(this.base.fsPath + '/')) {
+			// A renamed file's entry is at its head path.
+			const path = uri.fsPath.slice(this.base.fsPath.length + 1);
+			const renamed = [...this.renames].find(([, from]) => from === path)?.[0];
+			return this.entries.get(renamed ?? path);
 		}
 		return undefined;
 	}

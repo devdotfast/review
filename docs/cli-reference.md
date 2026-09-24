@@ -2,7 +2,7 @@
 
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
--> Maps -> Agent connection and migration.
+-> Agent connection and migration.
 -->
 
 The `review` command is the control surface shared by Whiteboard Desktop and coding
@@ -18,9 +18,6 @@ Review is in beta. Before 1.0, command syntax and JSON event fields may change
 between releases. Whiteboard Desktop installs an app-managed CLI that matches the
 running app; use that copy instead of relying on compatibility between
 different CLI and Desktop versions.
-
-The `whiteboard map` command group is experimental. Its verbs, Git-notes storage
-model, and JSON events may change without a migration period before 1.0.
 
 The `whiteboard trace` command group and trace capture are experimental and off
 by default. `whiteboard trace storage use s3` configures S3/R2 capture and
@@ -55,7 +52,6 @@ Commands that expose `--json` accept it after the complete command path:
 ```sh
 whiteboard info --json
 whiteboard app pick --json
-review map check --json
 review version --json
 ```
 
@@ -83,7 +79,6 @@ $ review version --json
 | `whiteboard mcp`           | Serve the same authoring tools over stdio MCP.                    |
 | `whiteboard server start`  | Run the foreground authoring server without Desktop.              |
 | `whiteboard server status` | Check readiness of the selected headless server.                  |
-| `whiteboard map`           | Author, validate, and share experimental software maps.           |
 | `whiteboard connect`       | Print the prompt that connects a coding agent to Review.          |
 | `whiteboard migrate apply` | Migrate supported legacy Review data.                             |
 | `whiteboard version`       | Print the Review package version.                                 |
@@ -201,28 +196,6 @@ diff base, titled from the PR. The pins stay fixed; a later create for the same
 PR returns the review with `headMoved` when the PR has moved on.
 See [live and pinned worktrees](how-review-works.md#live-and-pinned-worktrees)
 for how each target runs language services.
-
-## Software maps
-
-```sh
-review map open <rev>
-review map open <rev> --force
-review map check [<rev>] [--review <uuid>]
-review map prune
-review map push
-review map fetch
-```
-
-Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
-
-- `open` hydrates an editable scratch map for one revision. `--force` discards
-  unflushed scratch edits.
-- `check` validates the scratch map and saves it to the revision's note.
-- `prune` removes unreachable notes and fully flushed scratch buffers.
-- `push` and `fetch` share map notes through `origin`.
-
-Every map verb accepts `--json`. Run `whiteboard map --help` for the storage model
-and exact verb syntax.
 
 ## Trace storage
 

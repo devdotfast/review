@@ -53,7 +53,7 @@ async function installedDesktopPids(home) {
   // LaunchServices can pick a bundle anywhere, so this only has to find a Review bundle; the two filters below narrow it.
   const stdout = await listing(
     "/usr/bin/pgrep",
-    ["-f", "Review.app/Contents"],
+    ["-f", "(Review|Whiteboard)\\.app/Contents"],
     "no process matches",
   );
 

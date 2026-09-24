@@ -40,6 +40,14 @@ const EXPECTED_EVENTS = new Set([
   "review_review_presented",
   "review_first_review_presented",
   "review_session_ended",
+  "review_app_ready",
+]);
+
+/** Allowed, never required: a slow runner may stall or hang, a fast one never does. */
+const OPTIONAL_EVENTS = new Set([
+  "review_ui_stall",
+  "review_hang_started",
+  "review_hang_ended",
 ]);
 
 /** Every event printed so far by the embedded server's debug sink. */
@@ -63,15 +71,14 @@ function sentEvents(ctx) {
   return events;
 }
 
-const named = (ctx, event) =>
-  sentEvents(ctx).filter((e) => e.event === event);
+const named = (ctx, event) => sentEvents(ctx).filter((e) => e.event === event);
 
 function assertContract(ctx, review) {
   const events = sentEvents(ctx);
 
   for (const event of events) {
     assert.ok(
-      EXPECTED_EVENTS.has(event.event),
+      EXPECTED_EVENTS.has(event.event) || OPTIONAL_EVENTS.has(event.event),
       `unexpected event ${event.event}`,
     );
 
@@ -105,6 +112,14 @@ export async function run(ctx) {
     () => named(ctx, "review_installation_created").length === 1 || null,
     "the installation event",
   );
+
+  const ready = await ctx.until(
+    () => named(ctx, "review_app_ready")[0] ?? null,
+    "the app ready event",
+  );
+
+  assert.ok(ready.properties.duration_ms > 0, "app ready carries a duration");
+  ctx.check("the workbench reports its ready time");
 
   const review = await createReview(ctx, {
     title: "Telemetry contract",

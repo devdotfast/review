@@ -14,6 +14,7 @@ import { onUnexpectedError, setUnexpectedErrorHandler } from '../../base/common/
 import { ReviewErrorReportLimiter } from '../common/reviewErrorReport.js';
 import { IReviewTelemetryService } from '../services/reviewTelemetryService.js';
 import { startStallWatchdog } from '../common/reviewStallWatchdog.js';
+import { ITimerService } from '../../workbench/services/timer/browser/timerService.js';
 import { isLinux, isMacintosh, isNative, isWeb, isWindows } from '../../base/common/platform.js';
 import { IPartVisibilityChangeEvent, IWorkbenchLayoutService, MULTI_WINDOW_PARTS, PanelAlignment, Parts, Position, SINGLE_WINDOW_PARTS } from '../../workbench/services/layout/browser/layoutService.js';
 import { ILayoutOffsetInfo } from '../../platform/layout/browser/layoutService.js';
@@ -439,6 +440,20 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 				error_process: 'renderer',
 			}, report);
 		});
+	}
+
+	/** Report the startup trace's workbench time once the timer service has it. */
+	private reportAppReady(): void {
+		try {
+			const timerService = this.workbenchInstantiationService?.invokeFunction(accessor => accessor.get(ITimerService));
+			timerService?.whenReady().then(() => {
+				this.reviewTelemetryService ??= this.workbenchInstantiationService?.invokeFunction(accessor => accessor.get(IReviewTelemetryService));
+				this.reviewTelemetryService?.capture('app_ready', { duration_ms: Math.round(timerService.startupMetrics.ellapsed) });
+			}, onUnexpectedError);
+		} catch (error) {
+			// Telemetry must never keep the workbench from restoring.
+			onUnexpectedError(error);
+		}
 	}
 
 	/**
@@ -935,6 +950,8 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		// Mark as restored
 		this.setRestored();
+
+		this.reportAppReady();
 
 		// Set lifecycle phase to `Eventually` after a short delay and when idle (min 2.5sec, max 5sec)
 		const eventuallyPhaseScheduler = this._register(new RunOnceScheduler(() => {

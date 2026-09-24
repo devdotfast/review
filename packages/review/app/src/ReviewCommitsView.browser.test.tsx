@@ -1,4 +1,5 @@
 import type {
+  ReviewCanvasBridge,
   ReviewCommitSummary,
   ReviewDiffFileWire,
   ReviewDiffViewHandle,
@@ -39,7 +40,7 @@ const file: ReviewDiffFileWire = {
 
 async function mount(
   element: React.ReactElement,
-  diffView: Parameters<typeof testReviewSession>[1]["diffView"],
+  diffView: ReviewCanvasBridge["diffView"],
 ) {
   const container = document.createElement("div");
   document.body.append(container);

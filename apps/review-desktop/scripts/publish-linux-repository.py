@@ -75,6 +75,15 @@ def publish(directory, bucket, base_url, channel=None):
             or current.get("version") != identity[0] or current.get("commit") != identity[1]
             or not re.fullmatch(r"[A-F0-9]{40}", current.get("keyFingerprint", ""))):
         raise ValueError("Invalid repository pointer")
+    if current.get("deb") is True:
+        if fetch_json(base_url + "/repos/apt/health") != {"schemaVersion": 1, "format": "deb"}:
+            raise RuntimeError("Deploy the Ubuntu repository Worker before publishing")
+        required = [
+            f"{prefix}/snapshots/{current['generation']}/apt/dists/{channel}/{name}"
+            for name in ["InRelease", "Release", "Release.gpg", "main/binary-amd64/Packages", "main/binary-amd64/Packages.gz"]
+        ]
+        if any(name not in files for name in required):
+            raise ValueError("Incomplete APT publication")
     # Compare-and-swap prevents concurrent or stale workflow reruns from moving
     # the repository backwards after a newer release has already won.
     with tempfile.TemporaryDirectory(prefix="review-current-") as temporary:

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Validate a sealed Fedora publication in clean, pinned Fedora containers.
+# Validate a sealed Linux publication in clean, pinned Fedora and Ubuntu containers.
 set -euo pipefail
-PUBLICATION="$(cd "${1:?usage: verify-repository.sh publication-directory [43|44|all]}" && pwd -P)"
+PUBLICATION="$(cd "${1:?usage: verify-repository.sh publication-directory [43|44|ubuntu|all]}" && pwd -P)"
 TARGET="${2:-all}"
-case "$TARGET" in all|43|44) ;; *) echo "Unknown Fedora test target: $TARGET" >&2; exit 2 ;; esac
+case "$TARGET" in all|43|44|ubuntu) ;; *) echo "Unknown Linux test target: $TARGET" >&2; exit 2 ;; esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # A publication carries exactly one channel: stable under repos/, preview under repos/preview/.
 if [[ -f "$PUBLICATION/repos/preview/current.json" ]]; then PREFIX=repos/preview; PACKAGE=dev-fast-review-preview; APP=review-preview
@@ -25,3 +25,18 @@ for VERSION in 43 44; do
     "$IMAGE" bash /test/verify-fedora-container.sh
   echo "Fedora $VERSION ($PACKAGE): install, upgrade, retention, package/metadata tamper and untrusted-key rejection passed"
 done
+
+if [[ "$TARGET" == all || "$TARGET" == ubuntu ]]; then
+  CHANNEL=stable
+  if [[ "$APP" == review-preview ]]; then CHANNEL=preview; fi
+  # Docker's default seccomp policy blocks namespace creation by Chromium.
+  # The app still runs as a normal user with its own sandbox enabled.
+  docker run --rm --platform linux/amd64 --shm-size=1g --security-opt seccomp=unconfined \
+    -v "$PUBLICATION:/publication:ro" -v "$SCRIPT_DIR:/test:ro" \
+    -e GENERATION="$GENERATION" -e FINGERPRINT="$FINGERPRINT" \
+    -e PREFIX="$PREFIX" -e PACKAGE="$PACKAGE" -e APP="$APP" -e CHANNEL="$CHANNEL" \
+    -e DO_NOT_TRACK=1 \
+    ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3 \
+    bash /test/verify-ubuntu-container.sh
+  echo "Ubuntu 24.04 ($PACKAGE): install, sandboxed launch, upgrade, retention and rejected tampering passed"
+fi

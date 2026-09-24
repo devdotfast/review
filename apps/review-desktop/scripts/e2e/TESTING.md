@@ -32,7 +32,9 @@ node apps/review-desktop/scripts/e2e/run.mjs --runtime "$REVIEW_E2E_RUNTIME"
 
 `--journey a,b` selects journeys by name, `--list` prints them without launching
 anything, `--keep` keeps the temp root of a journey that passed, and
-`--app /path/Review.app` runs a packaged build. Each journey writes
+`--app` runs a packaged build: a macOS `.app`, or the installed executable on
+Linux and Windows (pair it with `--runtime` pointing at that install's
+`resources/app/review-runtime`). Each journey writes
 `report.json`, `app.log` and, on failure, `failure.png` and `failure-dom.txt`
 under `/tmp/review-e2e-<journey>-*` on macOS or `$TMPDIR/...` elsewhere. The run
 prints a JSON summary on stdout, one entry per journey, `ok | failed | skipped`.

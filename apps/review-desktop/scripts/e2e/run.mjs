@@ -1,6 +1,7 @@
 /** Runs each journeys/*.mjs against its own Desktop and temp home; see TESTING.md. */
 import { readdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 const journeysDir = path.join(import.meta.dirname, "journeys");
@@ -20,7 +21,7 @@ const journeys = [];
 for (const file of (await readdir(journeysDir))
   .filter((f) => f.endsWith(".mjs"))
   .sort())
-  journeys.push(await import(path.join(journeysDir, file)));
+  journeys.push(await import(pathToFileURL(path.join(journeysDir, file)).href));
 
 if (values.list) {
   console.log(

@@ -46,7 +46,6 @@ echo "Starting from $FOLDER.app ($BEFORE); the feed offers $EXPECTED"
 
 mkdir -p "$SHIPIT"; touch "$SHIPIT/ShipIt_stderr.log"
 LOG_START="$(wc -l < "$SHIPIT/ShipIt_stderr.log")"
-TARGET_URL="file://$APP/"
 
 DEV_REVIEW_HOME="$WORK/home" DEV_REVIEW_IMPORT_FROM=none ELECTRON_ENABLE_LOGGING=1 \
   "$APP/Contents/MacOS/$EXECUTABLE" \
@@ -54,21 +53,23 @@ DEV_REVIEW_HOME="$WORK/home" DEV_REVIEW_IMPORT_FROM=none ELECTRON_ENABLE_LOGGING
   >"$WORK/app.stdout" 2>"$WORK/app.stderr" &
 PID=$!
 
-# Squirrel writes its install request once the download is verified. The
-# first check runs 30 s after launch; the zip is a few hundred megabytes.
+# The updater's first check runs 30 s after launch; "ready" means Squirrel
+# has verified the download and handed ShipIt the install request.
+MAIN_LOG=""
 for _ in $(seq 1 90); do
-  if plutil -p "$SHIPIT/ShipItState.plist" 2>/dev/null | grep -qF "$(printf %s "$TARGET_URL" | sed 's/ /%20/g')"; then
-    break
-  fi
+  MAIN_LOG="$(find "$WORK/state/user-data/logs" -name main.log 2>/dev/null | head -1)"
+  [[ -n "$MAIN_LOG" ]] && grep -q "update#setState ready" "$MAIN_LOG" && break
   kill -0 "$PID" 2>/dev/null || { echo "app exited early"; tail -20 "$WORK/app.stderr"; exit 1; }
   sleep 5
 done
-if ! plutil -p "$SHIPIT/ShipItState.plist" 2>/dev/null | grep -qF "$(printf %s "$TARGET_URL" | sed 's/ /%20/g')"; then
-  echo "Squirrel never staged an update for $APP" >&2
-  grep -h -i "update" "$WORK"/state/user-data/logs/*/main.log 2>/dev/null | tail -30 >&2
+if [[ -z "$MAIN_LOG" ]] || ! grep -q "update#setState ready" "$MAIN_LOG"; then
+  echo "the app never reached the ready state" >&2
+  [[ -n "$MAIN_LOG" ]] && grep -i "update" "$MAIN_LOG" | tail -30 >&2
   exit 1
 fi
-echo "Squirrel staged:"; plutil -p "$SHIPIT/ShipItState.plist" | grep -E "BundleURL|useUpdateBundleName" | sed 's/^/  /'
+grep -E "update#setState|Update downloaded" "$MAIN_LOG" | sed 's/^/  /'
+echo "Squirrel cache:"; find "$SHIPIT" -mindepth 1 -maxdepth 1 -exec basename {} \; | sed 's/^/  /'
+[[ -f "$SHIPIT/ShipItState.plist" ]] && plutil -p "$SHIPIT/ShipItState.plist" | grep -E "BundleURL|useUpdateBundleName" | sed 's/^/  /'
 
 # Squirrel installs when the app exits, however it exits.
 kill -TERM "$PID"; sleep 15; kill -KILL "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true

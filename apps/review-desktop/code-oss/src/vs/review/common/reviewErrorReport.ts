@@ -61,8 +61,9 @@ export function packReviewError(error: unknown): ReviewErrorReport | undefined {
 
 /**
  * Keeps error reporting from becoming its own incident: it removes bursts of
- * one repeating error, bounds the total per session, and refuses to run inside
- * itself when reporting an error throws another one.
+ * one repeating error, caps each error key per session so one loop cannot spend
+ * the whole budget, bounds the total, and refuses to run inside itself when
+ * reporting an error throws another one.
  */
 export class ReviewErrorReportLimiter {
 	private static readonly REPEAT_WINDOW_MS = 1000;
@@ -71,9 +72,11 @@ export class ReviewErrorReportLimiter {
 	private previousTime = 0;
 	private reported = 0;
 	private reporting = false;
+	private readonly perKey = new Map<string, number>();
 
 	constructor(
-		private readonly maxPerSession = 30,
+		private readonly maxPerSession = 200,
+		private readonly maxPerKey = 5,
 		private readonly now: () => number = () => Date.now(),
 	) { }
 
@@ -93,9 +96,18 @@ export class ReviewErrorReportLimiter {
 				return;
 			}
 			const packed = packReviewError(error);
-			if (!packed || this.isRepeat(packed)) {
+			if (!packed) {
 				return;
 			}
+			const key = ReviewErrorReportLimiter.keyOf(packed);
+			if (this.isRepeat(key)) {
+				return;
+			}
+			const seen = this.perKey.get(key) ?? 0;
+			if (seen >= this.maxPerKey) {
+				return;
+			}
+			this.perKey.set(key, seen + 1);
 			this.reported++;
 			send(packed);
 		} catch {
@@ -105,8 +117,12 @@ export class ReviewErrorReportLimiter {
 		}
 	}
 
-	private isRepeat(report: ReviewErrorReport): boolean {
-		const key = `${report.name}\n${report.stack.split('\n', 2).join('\n')}`;
+	/** Name plus the first two stack lines: the same error from the same place. */
+	private static keyOf(report: ReviewErrorReport): string {
+		return `${report.name}\n${report.stack.split('\n', 2).join('\n')}`;
+	}
+
+	private isRepeat(key: string): boolean {
 		const time = this.now();
 		const repeat = key === this.previousKey && time - this.previousTime <= ReviewErrorReportLimiter.REPEAT_WINDOW_MS;
 		this.previousKey = key;

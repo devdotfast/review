@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 
 import {
@@ -284,8 +285,8 @@ export class ReviewTelemetry {
       await this.captureClient.discard?.().catch(() => undefined);
       // Sessions opened before the opt-out must not end as abnormal when
       // telemetry comes back weeks later.
-      await rm(this.openSessionMarkersPath, { force: true }).catch(
-        () => undefined,
+      await this.lockOpenSessions(() =>
+        rmSync(this.openSessionMarkersPath, { force: true }),
       );
     }
   }
@@ -529,7 +530,10 @@ export class ReviewTelemetry {
    */
   private async updateOpenSessions(update: () => void): Promise<void> {
     if (!(await this.isEnabled())) return;
+    await this.lockOpenSessions(update);
+  }
 
+  private async lockOpenSessions(update: () => void): Promise<void> {
     try {
       await withFileLock(
         `${this.openSessionMarkersPath}.lock`,

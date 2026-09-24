@@ -6,6 +6,7 @@ import { writeFileAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { devReviewHome } from "./review-home-paths";
+import { reviewTelemetryChannel } from "./telemetry-config";
 
 /**
  * A review session the Desktop opened and has not yet reported as ended. The
@@ -35,8 +36,15 @@ const markersSchema = z.array(
   }),
 );
 
+/** Per channel, like the telemetry config: each channel has its own identity. */
 export function openSessionMarkersPath(env: NodeJS.ProcessEnv): string {
-  return path.join(devReviewHome(env), "telemetry", "open-sessions.json");
+  return path.join(
+    devReviewHome(env),
+    "telemetry",
+    reviewTelemetryChannel(env) === "preview"
+      ? "open-sessions.preview.json"
+      : "open-sessions.json",
+  );
 }
 
 function readMarkers(file: string): OpenSessionMarker[] {

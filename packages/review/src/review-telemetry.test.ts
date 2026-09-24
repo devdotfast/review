@@ -23,6 +23,7 @@ import {
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
 } from "./review-telemetry";
+import { DEV_REVIEW_HOME_ENV } from "./review-home-paths";
 import { recordOpenSession } from "./session-markers";
 import {
   REVIEW_CHANNEL_ENV,
@@ -702,6 +703,55 @@ describe("ReviewTelemetry", () => {
 
     expect(existsSync(markersPath)).toBe(false);
     expect(events).toEqual([]);
+  });
+
+  it("keeps each channel's open sessions to itself", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `progressive-review-telemetry-channels-${Date.now()}`,
+    );
+
+    cleanupPaths.push(rootPath);
+
+    const channel = (name: "stable" | "preview") => {
+      const events: PostHogCaptureInput[] = [];
+
+      const telemetry = new ReviewTelemetry({
+        captureClient: {
+          enabled: true,
+          capture: async (event) => {
+            events.push(event);
+          },
+        },
+        env: { [DEV_REVIEW_HOME_ENV]: rootPath, [REVIEW_CHANNEL_ENV]: name },
+        openSessionOwnerPid: deadPid,
+      });
+
+      return { events, telemetry };
+    };
+
+    const stable = channel("stable");
+    const preview = channel("preview");
+
+    await stable.telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
+    await preview.telemetry.reconcileOpenSessions();
+    await preview.telemetry.setEnabled(false);
+    stable.events.length = 0;
+    await stable.telemetry.reconcileOpenSessions();
+
+    expect(preview.events.map((event) => event.event)).not.toContain(
+      "review_session_ended",
+    );
+    expect(stable.events.map((event) => event.event)).toEqual([
+      "review_session_ended",
+    ]);
   });
 
   it("announces the first presented review once per installation", async () => {

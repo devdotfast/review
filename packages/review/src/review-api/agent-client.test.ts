@@ -158,7 +158,17 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
 it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const server = await serveReviewMcp(async () => client, stdin, stdout);
+  const calls: Array<[string, string, boolean]> = [];
+
+  const server = await serveReviewMcp(
+    async () => client,
+    stdin,
+    stdout,
+    undefined,
+    false,
+    ({ tool, via, ok }) => calls.push([tool, via, ok]),
+  );
+
   let output = "";
   stdout.on("data", (chunk) => {
     output += chunk;
@@ -248,8 +258,54 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
       sessionId: created.reviewId,
       document: [],
     });
+
+    await request(7, "tools/call", { name: "my private notes", arguments: {} });
+
+    expect(calls).toEqual([
+      ["session_get", "mcp", false],
+      ["session_list", "mcp", true],
+      ["session_get", "mcp", true],
+      ["session_get", "mcp", true],
+      ["other", "mcp", false],
+    ]);
   } finally {
     await server.close();
+  }
+});
+
+it("reports each api tool call with its outcome", async () => {
+  const connection = vi
+    .spyOn(agentClient, "connectReviewApi")
+    .mockResolvedValue(client);
+
+  const calls: Array<[string, string, boolean]> = [];
+
+  const discard = new Writable({
+    write(_chunk, _encoding, done) {
+      done();
+    },
+  });
+
+  const run = (argv: string[]) =>
+    runReviewAgentCli({
+      argv,
+      stdout: discard,
+      stderr: discard,
+      onToolCall: ({ tool, via, ok }) => calls.push([tool, via, ok]),
+    });
+
+  try {
+    expect(await run(["api", "session_list"])).toBe(0);
+    expect(await run(["api", "session_get", '{"sessionId":"missing"}'])).toBe(
+      1,
+    );
+    expect(await run(["api", "no_such_tool"])).toBe(1);
+    expect(calls).toEqual([
+      ["session_list", "api", true],
+      ["session_get", "api", false],
+    ]);
+  } finally {
+    connection.mockRestore();
   }
 });
 

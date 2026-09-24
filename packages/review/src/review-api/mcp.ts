@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import type { ReviewToolCall } from "../review-telemetry.js";
 import { type AuthoringTool, toolResultText } from "./agent-client.js";
 import { authoringTools } from "./authoring-tools.js";
 import type { ReviewApiClient } from "./client.js";
@@ -44,6 +45,7 @@ export async function serveReviewMcp(
   stdout: Writable,
   stderr: Writable = process.stderr,
   traceEnabled = false,
+  onToolCall?: (call: ReviewToolCall) => void,
 ) {
   const instructionsTool = {
     ...authoringTools(false, traceEnabled).find(
@@ -113,6 +115,18 @@ export async function serveReviewMcp(
     };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const startedAt = Date.now();
+    // The requested name is agent input; only a catalog name is reported.
+    let tool: AuthoringTool | undefined;
+
+    const report = (ok: boolean) =>
+      onToolCall?.({
+        tool: tool?.name ?? "other",
+        via: "mcp",
+        ok,
+        durationMs: Date.now() - startedAt,
+      });
+
     try {
       let client: ReviewApiClient;
       let tools: AuthoringTool[];
@@ -131,7 +145,7 @@ export async function serveReviewMcp(
         throw error;
       }
 
-      const tool = tools.find((tool) => tool.name === request.params.name);
+      tool = tools.find((tool) => tool.name === request.params.name);
 
       if (!tool)
         throw new Error(`Unknown Whiteboard tool: ${request.params.name}`);
@@ -144,6 +158,7 @@ export async function serveReviewMcp(
       );
 
       const text = toolResultText(tool, result);
+      report(true);
 
       return {
         content: [
@@ -157,6 +172,8 @@ export async function serveReviewMcp(
         ],
       };
     } catch (error) {
+      report(false);
+
       return {
         isError: true,
         content: [

@@ -55,6 +55,16 @@ export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
 
+/** A tool name is program-owned, but only an identifier is ever sent. */
+const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
+
+export interface ReviewToolCall {
+  tool: string;
+  via: "api" | "mcp";
+  ok: boolean;
+  durationMs: number;
+}
+
 export type ReviewCliCommand = "review" | "map" | "status";
 
 export type ReviewCliCommandPath =
@@ -217,6 +227,7 @@ export type ReviewCommandTelemetry = Pick<
   | "captureCommandSucceeded"
   | "captureCommandFailed"
   | "captureUiEvent"
+  | "captureToolCalled"
   | "shutdown"
 >;
 
@@ -368,6 +379,15 @@ export class ReviewTelemetry {
     };
 
     await this.captureEvent("review_command_started", properties);
+  }
+
+  async captureToolCalled(call: ReviewToolCall): Promise<void> {
+    await this.captureEvent("review_mcp_tool_called", {
+      tool: TOOL_NAME_PATTERN.test(call.tool) ? call.tool : "other",
+      via: call.via,
+      ok: call.ok,
+      duration_ms: Math.max(0, Math.round(call.durationMs)),
+    });
   }
 
   /**

@@ -2,7 +2,10 @@ import type { Readable, Writable } from "node:stream";
 
 import { traceMachineEnabled } from "@dev.fast/trace-core";
 
-import { reviewSessionAgent } from "../review-telemetry.js";
+import {
+  type ReviewToolCall,
+  reviewSessionAgent,
+} from "../review-telemetry.js";
 import {
   type AuthoringTool,
   connectReviewApi,
@@ -19,6 +22,7 @@ interface AgentCliInput {
   stdin?: Readable;
   stdout: Writable;
   stderr: Writable;
+  onToolCall?: (call: ReviewToolCall) => void;
 }
 
 export const reviewAgentCliHelp =
@@ -60,6 +64,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
         input.stdout,
         input.stderr,
         await traceMachineEnabled({ env: input.env }),
+        input.onToolCall,
       );
 
       return 0;
@@ -115,7 +120,22 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
       throw new Error("Tool input must be a JSON object.");
 
     if (name === "session_get" && rest.includes("--json")) args.format = "json";
-    const result = await callPublicTool(client, tool, args);
+    const startedAt = Date.now();
+    let ok = false;
+    let result: Awaited<ReturnType<typeof callPublicTool>>;
+
+    try {
+      result = await callPublicTool(client, tool, args);
+      ok = true;
+    } finally {
+      input.onToolCall?.({
+        tool: tool.name,
+        via: "api",
+        ok,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
     const text = toolResultText(tool, result);
     input.stdout.write(text.endsWith("\n") ? text : text + "\n");
 

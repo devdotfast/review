@@ -773,6 +773,8 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         ...input,
         env: authoringEnv(),
         argv: [name, ...args],
+        onToolCall: (call) =>
+          void attemptTelemetry(() => telemetry.captureToolCalled(call)),
       });
     });
   }

@@ -75,6 +75,37 @@ describe("ReviewTelemetry", () => {
     );
   });
 
+  it("records tool calls, keeping only identifier-shaped tool names", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureToolCalled({
+      tool: "session_create",
+      via: "mcp",
+      ok: true,
+      durationMs: 41.6,
+    });
+    await telemetry.captureToolCalled({
+      tool: "Weird Name/../x",
+      via: "api",
+      ok: false,
+      durationMs: -1,
+    });
+
+    expect(
+      events.map(({ event, properties }) => [
+        event,
+        properties?.tool,
+        properties?.via,
+        properties?.ok,
+        properties?.duration_ms,
+      ]),
+    ).toEqual([
+      ["review_mcp_tool_called", "session_create", "mcp", true, 42],
+      ["review_mcp_tool_called", "other", "api", false, 0],
+    ]);
+  });
+
   it("sends a $exception twin after every client error", async () => {
     const { events, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);

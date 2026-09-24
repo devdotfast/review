@@ -75,6 +75,28 @@ describe("ReviewTelemetry", () => {
     );
   });
 
+  it("sends a $exception twin after every client error", async () => {
+    const { events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+
+    await telemetry.captureUiEvent("review_client_error", {
+      error_source: "window",
+      error_process: "canvas",
+      error_name: "TypeError",
+      message_hash: "0123456789abcdef",
+    });
+
+    expect(events.map((event) => event.event)).toEqual([
+      "review_client_error",
+      "$exception",
+    ]);
+    expect(events[1].properties).toMatchObject({
+      source: "review_app",
+      error_name: "TypeError",
+      $exception_fingerprint: "0123456789abcdef",
+    });
+  });
+
   it("sends one envelope on every event", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: {
@@ -519,14 +541,18 @@ describe("ReviewTelemetry", () => {
       { reviewUuid, presentationSessionId },
     );
 
+    // events[2] is the client error's $exception twin, scoped the same way.
     const firstIds = first.events[0].properties!;
     const repeatedIds = first.events[1].properties!;
-    const otherEntityIds = first.events[2].properties!;
+    const twinIds = first.events[2].properties!;
+    const otherEntityIds = first.events[3].properties!;
     const otherInstallIds = second.events[0].properties!;
     expect(firstIds.review_id).toMatch(/^rv_[A-Za-z0-9_-]{22}$/);
     expect(firstIds.presentation_id).toMatch(/^pr_[A-Za-z0-9_-]{22}$/);
     expect(repeatedIds.review_id).toBe(firstIds.review_id);
     expect(repeatedIds.presentation_id).toBe(firstIds.presentation_id);
+    expect(twinIds.review_id).toBe(firstIds.review_id);
+    expect(twinIds.presentation_id).toBe(firstIds.presentation_id);
     expect(otherEntityIds.review_id).not.toBe(firstIds.review_id);
     expect(otherEntityIds.presentation_id).not.toBe(firstIds.presentation_id);
     expect(otherInstallIds.review_id).not.toBe(firstIds.review_id);
@@ -796,9 +822,15 @@ describe("ReviewTelemetry", () => {
       error_name: "TypeError",
     });
 
-    expect(events).toHaveLength(1);
-    expect(events[0].properties).not.toHaveProperty("review_id");
-    expect(events[0].properties).not.toHaveProperty("presentation_id");
+    expect(events.map((event) => event.event)).toEqual([
+      "review_client_error",
+      "$exception",
+    ]);
+
+    for (const event of events) {
+      expect(event.properties).not.toHaveProperty("review_id");
+      expect(event.properties).not.toHaveProperty("presentation_id");
+    }
   });
 
   it("returns the stable installation id without sending telemetry", async () => {

@@ -17,6 +17,7 @@ import { valid as validSemver } from "semver";
 
 import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
+import { exceptionProperties } from "./exception-telemetry";
 import { readReviewPackageVersion as readReviewPackageVersionSync } from "./package-paths";
 import {
   PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
@@ -442,6 +443,18 @@ export class ReviewTelemetry {
     if (inSession && event === "review_review_presented") {
       await this.captureFirstReviewPresented(context).catch(() => undefined);
     }
+
+    // PostHog error tracking groups on $exception; the custom event stays for
+    // one release so the existing error insights keep working.
+    if (event !== "review_client_error") return;
+    const exception = exceptionProperties(properties);
+
+    if (!exception) return;
+    await this.captureEvent(
+      "$exception",
+      { source: "review_app", ...properties, ...exception },
+      context,
+    );
   }
 
   /**

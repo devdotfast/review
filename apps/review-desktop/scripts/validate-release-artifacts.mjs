@@ -54,11 +54,11 @@ export function buildManifest({ version, commit, payloads, now = new Date() }) {
   };
 }
 
-// Squirrel installs the zip's top-level folder under that name, so a zip whose
-// folder does not match the bundle it is served to would rename the install.
-export function assertZipFolder(zip, folder) {
-  // The full listing runs past execFileSync's default buffer, so reduce it
-  // to the distinct top-level names before it crosses the pipe.
+// Squirrel renames an install to the update's CFBundleExecutable, so a zip
+// served to <bundle>.app installs must carry exactly that bundle with an
+// executable of the same name; anything else renames the install.
+export function assertZipBundle(zip, bundle) {
+  const folder = `${bundle}.app`;
   const roots = new Set(
     execFileSync(
       "sh",
@@ -72,6 +72,24 @@ export function assertZipFolder(zip, folder) {
   if (roots.size !== 1 || !roots.has(folder)) {
     throw new Error(
       `${zip} must contain only ${folder}/, found ${[...roots].join(", ") || "nothing"}`,
+    );
+  }
+
+  const executable = execFileSync(
+    "sh",
+    [
+      "-c",
+      'unzip -p "$1" "$2/Contents/Info.plist" | plutil -extract CFBundleExecutable raw -o - -',
+      "sh",
+      zip,
+      folder,
+    ],
+    { encoding: "utf8" },
+  ).trim();
+
+  if (executable !== bundle) {
+    throw new Error(
+      `${zip}: ${folder} runs ${JSON.stringify(executable)}, so Squirrel would rename installs to ${executable}.app; expected ${bundle}`,
     );
   }
 }
@@ -198,7 +216,7 @@ async function main() {
   run("xcrun", ["stapler", "validate", dmg]);
 
   for (const { bundle, file } of zips) {
-    assertZipFolder(file, `${bundle}.app`);
+    assertZipBundle(file, bundle);
   }
 
   const payloads = zips.map((zip) => ({ ...zip, sha256: sha256(zip.file) }));

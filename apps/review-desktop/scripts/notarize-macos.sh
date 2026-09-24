@@ -167,15 +167,29 @@ xcrun stapler validate "$PACKAGED_APP"
 spctl -a -vv --type exec "$PACKAGED_APP"
 spctl -a -vv --type open --context context:primary-signature "$DMG"
 
-# One update zip per bundle folder name still installed (release-channel.mjs
-# lists them): each ships the same stapled app under that folder name, so
-# Squirrel's rename-to-the-update's-name is a no-op for every install.
+# One update zip per bundle name still installed (release-channel.mjs lists
+# them). Squirrel renames an install to the update's CFBundleExecutable, so a
+# zip meant for Review.app installs must carry an executable named Review:
+# copy the stapled app, rename the executable, re-sign the outer bundle (the
+# nested code keeps its signatures) and notarize that copy on its own.
 UPDATE_ZIPS=()
 while IFS=$'\t' read -r bundle artifact; do
   staged="$TEMP_ROOT/zips/$artifact/$bundle.app"
   mkdir -p "$(dirname "$staged")"
   ditto "$PACKAGED_APP" "$staged"
   zip="$ARTIFACT_DIR/$artifact-darwin-arm64-$VERSION.zip"
+  if [[ "$bundle" != "$PRODUCT_NAME" ]]; then
+    mv "$staged/Contents/MacOS/$PRODUCT_NAME" "$staged/Contents/MacOS/$bundle"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $bundle" "$staged/Contents/Info.plist"
+    codesign "${CODESIGN_DMG_ARGS[@]}" --options runtime \
+      --entitlements "$CHECKOUT/build/darwin/entitlements/app.plist" "$staged"
+    codesign --verify --deep --strict --verbose=2 "$staged"
+    ditto -c -k --keepParent "$staged" "$TEMP_ROOT/zips/$artifact-notarize.zip"
+    submit_notarization "$TEMP_ROOT/zips/$artifact-notarize.zip" "$artifact"
+    xcrun stapler staple "$staged"
+    xcrun stapler validate "$staged"
+    spctl -a -vv --type exec "$staged"
+  fi
   ditto -c -k --keepParent "$staged" "$zip"
   UPDATE_ZIPS+=("$zip")
 done < <(node "$APP_DIR/scripts/release-channel.mjs" "$QUALITY")

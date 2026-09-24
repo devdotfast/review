@@ -220,9 +220,11 @@ Preview uses its own bundle identifier, URL scheme, CLI name, and data folders,
 so it can run beside stable without replacing the stable app or sharing its
 settings. Preview updates continue to use the preview feed. To return to stable,
 open the existing `Whiteboard.app` or install it from <https://install.dev.fast>.
-Squirrel renames an install to the update zip's folder name, so the client
-sends its own folder name (`?bundle=`) and the feed answers with the matching
-zip: `Review.app` installs stay `Review.app`, fresh installs are `Whiteboard.app`.
+Squirrel renames an install to the update's executable name, so the client
+sends its own bundle name (`?bundle=`) and the feed answers with a zip whose
+bundle and executable carry that name (the Review copy is re-signed and
+notarized on its own): `Review.app` installs stay `Review.app`, fresh installs
+are `Whiteboard.app`.
 
 Builds from before the preview identity split installed as `Review.app`.
 Reinstall once from <https://install.dev.fast/preview> after the split so the

@@ -1191,12 +1191,20 @@ try {
 
     return true;
   }, "inline native diff source mounted");
-  assert.equal(
-    await headNavigator.page
-      .locator(".monaco-diff-editor:visible .editor.original:visible")
-      .count(),
-    0,
-    "the source window renders diffs inline",
+
+  // Inline mode keeps only a narrow original gutter beside the head editor.
+  const [originalBox, modifiedBox] = await Promise.all(
+    ["original", "modified"].map((side) =>
+      headNavigator.page
+        .locator(`.monaco-diff-editor:visible .editor.${side}`)
+        .first()
+        .boundingBox(),
+    ),
+  );
+
+  assert.ok(
+    originalBox && modifiedBox && originalBox.width < modifiedBox.width / 4,
+    `the source window renders diffs inline: ${JSON.stringify({ originalBox, modifiedBox })}`,
   );
   await probe({ command: "editor.action.showHover" }, headNavigator.page);
   await headNavigator.page

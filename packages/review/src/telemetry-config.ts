@@ -38,7 +38,11 @@ export const REVIEW_CHANNEL_ENV = "DEV_FAST_REVIEW_CHANNEL";
 /** Set by the e2e harness (`e2e`) and the packaged smoke scripts (`smoke`). */
 export const REVIEW_TELEMETRY_ENV_ENV = "DEV_FAST_REVIEW_TELEMETRY_ENV";
 
-const CHANNELS: readonly ReviewTelemetryChannel[] = ["stable", "preview", "dev"];
+const CHANNELS: readonly ReviewTelemetryChannel[] = [
+  "stable",
+  "preview",
+  "dev",
+];
 
 export function reviewTelemetryChannel(
   env: NodeJS.ProcessEnv,

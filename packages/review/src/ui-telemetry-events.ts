@@ -132,7 +132,11 @@ export const SETTING_NAME = [
 export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;
 
 /** Where a review's source comes from: its target's kind, or the one scratchpad. */
-export const SESSION_SOURCE_KIND = ["worktree", "commits", "scratchpad"] as const;
+export const SESSION_SOURCE_KIND = [
+  "worktree",
+  "commits",
+  "scratchpad",
+] as const;
 
 /**
  * The authoring agent a review session is attributed to. This is the one

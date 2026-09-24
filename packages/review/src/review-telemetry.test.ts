@@ -357,9 +357,10 @@ describe("ReviewTelemetry", () => {
   );
 
   it("does not write config or send events when DO_NOT_TRACK is set", async () => {
-    const { configPath, events, markersPath, rootPath, telemetry } = createTelemetry({
-      env: { DO_NOT_TRACK: "1" },
-    });
+    const { configPath, events, markersPath, rootPath, telemetry } =
+      createTelemetry({
+        env: { DO_NOT_TRACK: "1" },
+      });
 
     cleanupPaths.push(rootPath);
 
@@ -489,7 +490,10 @@ describe("ReviewTelemetry", () => {
     await first.telemetry.captureUiEvent(
       "review_session_started",
       {},
-      { reviewUuid: otherReviewUuid, presentationSessionId: otherPresentationSessionId },
+      {
+        reviewUuid: otherReviewUuid,
+        presentationSessionId: otherPresentationSessionId,
+      },
     );
     await second.telemetry.captureUiEvent(
       "review_session_started",
@@ -526,12 +530,24 @@ describe("ReviewTelemetry", () => {
       presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
     };
 
-    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-1" }, context);
+    await telemetry.captureUiEvent(
+      "review_session_started",
+      { app_session_id: "app-1" },
+      context,
+    );
     expect(JSON.parse(await readFile(markersPath, "utf8"))).toMatchObject([
-      { presentationSessionId: context.presentationSessionId, reviewUuid: context.reviewUuid, appSessionId: "app-1" },
+      {
+        presentationSessionId: context.presentationSessionId,
+        reviewUuid: context.reviewUuid,
+        appSessionId: "app-1",
+      },
     ]);
 
-    await telemetry.captureUiEvent("review_session_ended", { outcome: "closed", duration_ms: 10 }, context);
+    await telemetry.captureUiEvent(
+      "review_session_ended",
+      { outcome: "closed", duration_ms: 10 },
+      context,
+    );
     expect(JSON.parse(await readFile(markersPath, "utf8"))).toEqual([]);
   });
 
@@ -551,7 +567,10 @@ describe("ReviewTelemetry", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].event).toBe("review_session_ended");
-    expect(events[0].properties).toMatchObject({ outcome: "abnormal", source: "review_app" });
+    expect(events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      source: "review_app",
+    });
     expect(events[0].properties?.review_id).toMatch(/^rv_/);
     expect(events[0].properties?.presentation_id).toMatch(/^pr_/);
     expect(JSON.stringify(events)).not.toContain(context.reviewUuid);
@@ -560,7 +579,9 @@ describe("ReviewTelemetry", () => {
 
   it("leaves sessions of the current app launch open across a server restart", async () => {
     const env = { [REVIEW_APP_SESSION_ID_ENV]: "app-current" };
-    const { events, markersPath, rootPath, telemetry } = createTelemetry({ env });
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      env,
+    });
     cleanupPaths.push(rootPath);
 
     const live = {
@@ -573,8 +594,16 @@ describe("ReviewTelemetry", () => {
       presentationSessionId: "512810fb-dd2a-4f56-9da3-bb5c3e3a5bcf",
     };
 
-    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-current" }, live);
-    await telemetry.captureUiEvent("review_session_started", { app_session_id: "app-previous" }, stale);
+    await telemetry.captureUiEvent(
+      "review_session_started",
+      { app_session_id: "app-current" },
+      live,
+    );
+    await telemetry.captureUiEvent(
+      "review_session_started",
+      { app_session_id: "app-previous" },
+      stale,
+    );
     events.length = 0;
 
     await telemetry.reconcileOpenSessions();
@@ -585,7 +614,10 @@ describe("ReviewTelemetry", () => {
       app_session_id: "app-previous",
     });
     expect(JSON.parse(await readFile(markersPath, "utf8"))).toMatchObject([
-      { presentationSessionId: live.presentationSessionId, appSessionId: "app-current" },
+      {
+        presentationSessionId: live.presentationSessionId,
+        appSessionId: "app-current",
+      },
     ]);
   });
 
@@ -637,10 +669,14 @@ describe("ReviewTelemetry", () => {
   it("forgets open sessions when telemetry is turned off", async () => {
     const { events, markersPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
-    await telemetry.captureUiEvent("review_session_started", {}, {
-      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
-      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
-    });
+    await telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
 
     await telemetry.setEnabled(false);
     await telemetry.setEnabled(true);
@@ -660,8 +696,16 @@ describe("ReviewTelemetry", () => {
       presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
     };
 
-    await telemetry.captureUiEvent("review_review_presented", { load_ms: 120 }, context);
-    await telemetry.captureUiEvent("review_review_presented", { load_ms: 80 }, context);
+    await telemetry.captureUiEvent(
+      "review_review_presented",
+      { load_ms: 120 },
+      context,
+    );
+    await telemetry.captureUiEvent(
+      "review_review_presented",
+      { load_ms: 80 },
+      context,
+    );
 
     expect(events.map((event) => event.event)).toEqual([
       "review_review_presented",
@@ -703,9 +747,15 @@ describe("ReviewTelemetry", () => {
     const { rootPath, telemetry, captureClient } = createTelemetry();
     cleanupPaths.push(rootPath);
 
-    await telemetry.captureCommandStarted({ command: "info", commandRunId: "run-12345678" });
+    await telemetry.captureCommandStarted({
+      command: "info",
+      commandRunId: "run-12345678",
+    });
 
-    expect(captureClient.defaults).toMatchObject({ surface: "cli", channel: "stable" });
+    expect(captureClient.defaults).toMatchObject({
+      surface: "cli",
+      channel: "stable",
+    });
   });
 });
 
@@ -760,7 +810,15 @@ function createTelemetry(input?: {
   if (commandRunId) options.randomUUID = () => commandRunId;
   const telemetry = new ReviewTelemetry(options);
 
-  return { captureClient, configPath, events, legacyConfigPath, markersPath, rootPath, telemetry };
+  return {
+    captureClient,
+    configPath,
+    events,
+    legacyConfigPath,
+    markersPath,
+    rootPath,
+    telemetry,
+  };
 }
 
 function storedConfig(

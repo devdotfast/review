@@ -113,14 +113,19 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
       await post("event", {
         name: "review_presented",
         properties: { load_ms: 240 },
-        context: { presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef" },
+        context: {
+          presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+        },
       })
     ).status,
   ).toBe(200);
   expect(telemetry.captureUiEvent).toHaveBeenLastCalledWith(
     "review_review_presented",
     { load_ms: 240 },
-    { reviewUuid: reviewId, presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef" },
+    {
+      reviewUuid: reviewId,
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    },
   );
   expect(
     (

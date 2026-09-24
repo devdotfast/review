@@ -8,7 +8,10 @@ import { expect, it, vi } from "vitest";
 import { openLocalReviewStore } from "../review-api/local-data";
 import { SCRATCHPAD_ID, ReviewStore } from "../review-api/store";
 import { ReviewTelemetry } from "../review-telemetry";
-import { createGlobalReviewServer, sessionStartedSourceKind } from "./desktop-server";
+import {
+  createGlobalReviewServer,
+  sessionStartedSourceKind,
+} from "./desktop-server";
 
 it("derives source_kind from the review's stored target, or the scratchpad kind", async () => {
   const store = new ReviewStore(":memory:", {
@@ -40,7 +43,9 @@ it("derives source_kind from the review's stored target, or the scratchpad kind"
 });
 
 it("enriches session_started with source_kind on the global /telemetry/event route", async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "review-session-telemetry-"));
+  const home = await mkdtemp(
+    path.join(os.tmpdir(), "review-session-telemetry-"),
+  );
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
   const token = "session-telemetry-test-token";
 
@@ -96,7 +101,9 @@ it("enriches session_started with source_kind on the global /telemetry/event rou
 });
 
 it("never trusts a client-supplied source_kind or agent_kind on session_started", async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "review-session-telemetry-"));
+  const home = await mkdtemp(
+    path.join(os.tmpdir(), "review-session-telemetry-"),
+  );
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
   const token = "session-telemetry-test-token";
 
@@ -123,7 +130,10 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
 
     // A review this store never had (a shared review, or one deleted between
     // open and the event arriving): sessionStartedSourceKind cannot resolve it.
-    const context = { reviewUuid: randomUUID(), presentationSessionId: randomUUID() };
+    const context = {
+      reviewUuid: randomUUID(),
+      presentationSessionId: randomUUID(),
+    };
 
     const response = await fetch(`${server.url}/telemetry/event`, {
       method: "POST",
@@ -136,7 +146,11 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
     });
 
     expect(response.status).toBe(200);
-    expect(captureUiEvent).toHaveBeenCalledWith("review_session_started", {}, context);
+    expect(captureUiEvent).toHaveBeenCalledWith(
+      "review_session_started",
+      {},
+      context,
+    );
   } finally {
     await server.close();
     await local.data.close();

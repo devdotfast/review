@@ -34,7 +34,10 @@ describe("reviewTelemetryEnvironment", () => {
       ),
     ).toBe("e2e");
     expect(
-      reviewTelemetryEnvironment({ ...home, [REVIEW_TELEMETRY_ENV_ENV]: "smoke" }),
+      reviewTelemetryEnvironment({
+        ...home,
+        [REVIEW_TELEMETRY_ENV_ENV]: "smoke",
+      }),
     ).toBe("smoke");
   });
 
@@ -49,7 +52,9 @@ describe("reviewTelemetryEnvironment", () => {
   });
 
   it("ranks ci above internal above production", () => {
-    expect(reviewTelemetryEnvironment({ ...home, CI: "true" }, { internal: true })).toBe("ci");
+    expect(
+      reviewTelemetryEnvironment({ ...home, CI: "true" }, { internal: true }),
+    ).toBe("ci");
     expect(
       reviewTelemetryEnvironment(
         { ...home, PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
@@ -75,7 +80,11 @@ describe("reviewTelemetryConfigPath", () => {
     expect(
       reviewTelemetryConfigPath({ ...env, [REVIEW_CHANNEL_ENV]: "preview" }),
     ).toBe(
-      path.join("/tmp/review-home", "telemetry", "progressive-review.preview.json"),
+      path.join(
+        "/tmp/review-home",
+        "telemetry",
+        "progressive-review.preview.json",
+      ),
     );
   });
 });
@@ -84,7 +93,9 @@ describe("install config", () => {
   it("defaults firstReviewPresentedSent to false and normalizes a stored true", () => {
     const now = () => new Date("2026-01-02T03:04:05.000Z");
 
-    expect(createTelemetryInstallConfig("id", now).firstReviewPresentedSent).toBe(false);
+    expect(
+      createTelemetryInstallConfig("id", now).firstReviewPresentedSent,
+    ).toBe(false);
     expect(
       normalizeTelemetryInstallConfig(
         { installationId: "id", firstReviewPresentedSent: true },

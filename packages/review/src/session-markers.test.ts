@@ -15,7 +15,8 @@ describe("session markers", () => {
   const roots: string[] = [];
 
   afterEach(async () => {
-    for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+    for (const root of roots.splice(0))
+      await rm(root, { recursive: true, force: true });
   });
 
   async function tempRoot(): Promise<string> {
@@ -28,8 +29,16 @@ describe("session markers", () => {
   it("records, clears and takes markers", async () => {
     const file = path.join(await tempRoot(), "telemetry", "open-sessions.json");
 
-    recordOpenSession(file, { presentationSessionId: "p1", reviewUuid: "r1", startedAt: 1 });
-    recordOpenSession(file, { presentationSessionId: "p2", reviewUuid: "r2", startedAt: 2 });
+    recordOpenSession(file, {
+      presentationSessionId: "p1",
+      reviewUuid: "r1",
+      startedAt: 1,
+    });
+    recordOpenSession(file, {
+      presentationSessionId: "p2",
+      reviewUuid: "r2",
+      startedAt: 2,
+    });
     clearOpenSession(file, "p1");
 
     expect(takeOpenSessions(file)).toEqual([

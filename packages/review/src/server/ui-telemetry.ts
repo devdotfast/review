@@ -7,7 +7,10 @@ import {
 import { z } from "zod";
 
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
-import type { ReviewTabTelemetryEvent, ReviewTelemetryContext } from "../telemetry";
+import type {
+  ReviewTabTelemetryEvent,
+  ReviewTelemetryContext,
+} from "../telemetry";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
@@ -115,7 +118,11 @@ export async function captureSanitizedUiTelemetry(
   const context = parsedContext.success ? parsedContext.data : undefined;
 
   try {
-    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties, context);
+    await telemetry.captureUiEvent?.(
+      sanitized.event,
+      sanitized.properties,
+      context,
+    );
   } catch (error) {
     console.error(error);
   }

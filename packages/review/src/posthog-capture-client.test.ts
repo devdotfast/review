@@ -155,9 +155,15 @@ describe("PostHogCaptureClient", () => {
     await client.flush();
 
     const sent = fetchMock.mock.calls.flatMap(
-      ([, init]) => JSON.parse(String(init?.body)).batch as Array<{ event: string; properties: Record<string, unknown> }>,
+      ([, init]) =>
+        JSON.parse(String(init?.body)).batch as Array<{
+          event: string;
+          properties: Record<string, unknown>;
+        }>,
     );
-    const dropped = sent.find((event) => event.event === "review_telemetry_dropped");
+    const dropped = sent.find(
+      (event) => event.event === "review_telemetry_dropped",
+    );
     expect(dropped?.properties).toMatchObject({
       reason: "expired",
       count: 1,
@@ -203,9 +209,15 @@ describe("PostHogCaptureClient", () => {
     await expect(reader.flush()).resolves.toBeUndefined();
 
     const sent = fetchMock.mock.calls.flatMap(
-      ([, init]) => JSON.parse(String(init?.body)).batch as Array<{ event: string; properties: Record<string, unknown> }>,
+      ([, init]) =>
+        JSON.parse(String(init?.body)).batch as Array<{
+          event: string;
+          properties: Record<string, unknown>;
+        }>,
     );
-    const dropped = sent.find((event) => event.event === "review_telemetry_dropped");
+    const dropped = sent.find(
+      (event) => event.event === "review_telemetry_dropped",
+    );
     expect(dropped?.properties).toMatchObject({
       reason: "expired",
       count: 1,

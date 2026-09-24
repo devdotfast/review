@@ -632,7 +632,9 @@ export function sessionStartedSourceKind(
   try {
     const snapshot = reviewStore.read(reviewUuid);
 
-    return snapshot.kind === "scratchpad" ? snapshot.kind : snapshot.target?.kind;
+    return snapshot.kind === "scratchpad"
+      ? snapshot.kind
+      : snapshot.target?.kind;
   } catch {
     return undefined;
   }

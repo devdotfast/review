@@ -268,7 +268,11 @@ describe("sanitizeUiTelemetryEvent", () => {
     expect(
       sanitizeUiTelemetryEvent({
         name: "session_ended",
-        properties: { outcome: "app_quit", duration_ms: 1500, reviewUuid: "leak" },
+        properties: {
+          outcome: "app_quit",
+          duration_ms: 1500,
+          reviewUuid: "leak",
+        },
       }),
     ).toEqual({
       event: "review_session_ended",
@@ -285,7 +289,10 @@ describe("sanitizeUiTelemetryEvent", () => {
         name: "review_presented",
         properties: { load_ms: 240 },
       }),
-    ).toEqual({ event: "review_review_presented", properties: { load_ms: 240 } });
+    ).toEqual({
+      event: "review_review_presented",
+      properties: { load_ms: 240 },
+    });
   });
 
   it("allowlists source_kind and agent_kind on session_started, dropping invalid values", () => {

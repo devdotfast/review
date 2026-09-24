@@ -38,7 +38,16 @@ PostHog.
 
 Anonymous telemetry is enabled by default. Review creates a random
 installation UUID per release channel and sends `$process_person_profile:
-false` with every event, so PostHog creates no person profile.
+false` with every event — a personless event PostHog never attaches to a
+profile — until you sign in with GitHub in Review Desktop. A successful
+sign-in links the installation to `gh_` plus a one-way keyed hash of your
+account id; the account id, login, and email never leave the machine, and the
+hash cannot be reversed. From then on this installation's events carry
+`$process_person_profile: true`, so PostHog keeps one person profile joining
+every installation signed into the same account. Only the first account
+signed into an installation is linked, and signing out does not remove the
+link. See [Identity and storage](telemetry.md#identity-and-storage) for the
+exact mechanics.
 
 Telemetry can include closed enums, booleans, counts, durations, the Review and
 app versions, operating-system and architecture categories, feature usage,
@@ -57,6 +66,19 @@ delivery failures and removes pending events after seven days.
 Review can automatically report failures in its own app, canvas, server, or
 background process. These reports may contain an error class, a cleaned message,
 a one-way fingerprint, and up to ten stack frames from Review's own program.
+Errors also count toward reliability metrics: an error class name and its
+fingerprint are the only content in a crash count, and a repeating error stops
+being reported individually after 5 reports in one session.
+
+When a Review process dies, Review counts it and records the process kind,
+exit reason, and exit code — no message or stack. Electron separately writes
+a local crash dump (a minidump, which can contain process memory and open
+source text) under a Review-owned folder. On the next launch, an unreported
+dump is uploaded to the bug-report service with the same version, platform,
+and identifier fields every telemetry event carries, then deleted; a dump
+older than seven days is deleted without upload. With telemetry off, dumps
+are still deleted but never uploaded or counted. The service retains crash
+reports for 30 days.
 
 Update telemetry records when an update is staged, when that exact target next
 launches, or when checking, downloading, or installing fails. For a macOS

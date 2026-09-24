@@ -1079,6 +1079,60 @@ describe("ReviewTelemetry", () => {
     );
   });
 
+  it("does not hold the shared markers lock while it waits on its own config", async () => {
+    const { configPath, markersPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await mkdir(rootPath, { recursive: true });
+
+    const lockOptions = {
+      retryMs: 10,
+      staleMs: 30_000,
+      timeoutMs: 1_000,
+      unownedGraceMs: 1_000,
+      heartbeatMs: 5_000,
+    };
+
+    // A slow config lock (another process rewriting the telemetry config).
+    let releaseConfig = () => {};
+
+    const configHeld = withFileLock(
+      `${configPath}.lock`,
+      lockOptions,
+      () => new Promise<void>((resolve) => (releaseConfig = resolve)),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const started = telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Another Desktop on this home can still take the markers lock.
+    const other = await withFileLock(
+      `${markersPath}.lock`,
+      { ...lockOptions, timeoutMs: 50 },
+      async () => undefined,
+    );
+
+    releaseConfig();
+    await Promise.all([configHeld, started]);
+
+    expect(other.acquired).toBe(true);
+
+    const [marker] = JSON.parse(await readFile(markersPath, "utf8")) as {
+      envelope?: JsonObject;
+    }[];
+
+    expect(marker.envelope).toMatchObject({ surface: "cli" });
+  });
+
   it("leaves sessions owned by a live process open", async () => {
     const { events, markersPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);

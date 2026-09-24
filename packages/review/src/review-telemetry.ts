@@ -514,14 +514,19 @@ export class ReviewTelemetry {
       const appSessionId = nonEmpty(properties.app_session_id?.toString());
 
       if (appSessionId) marker.appSessionId = appSessionId;
-      await this.updateOpenSessions(async () => {
+
+      if (await this.isEnabled()) {
+        // Read before the lock: the envelope may wait on the config lock, and
+        // every Desktop on this home shares the markers lock.
         const envelope = launchEnvelope(
           await this.envelope().catch(() => ({})),
         );
 
         if (envelope) marker.envelope = envelope;
-        recordOpenSession(this.openSessionMarkersPath, marker);
-      });
+        await this.lockOpenSessions(() =>
+          recordOpenSession(this.openSessionMarkersPath, marker),
+        );
+      }
     } else if (inSession && event === "review_session_ended") {
       await this.updateOpenSessions(() =>
         clearOpenSession(this.openSessionMarkersPath, presentationSessionId),

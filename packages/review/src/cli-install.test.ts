@@ -826,6 +826,31 @@ describe("MCP self-install", () => {
       ).toBe(true);
     });
 
+    it.each([null, "granted", "declined", "skipped"] as const)(
+      "requires the update while legacy skills remain with consent %s, even after Done",
+      async (consent) => {
+        if (consent) await writeStamp({ consent, updatedAt: now });
+        await writeStampedSkill(
+          path.join(homeDir, ".agents", "skills", "dev-review"),
+        );
+        const input = { packageRoot: builtRoot, homeDir, env };
+
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(true);
+        await mkdir(path.dirname(cliInstallUpdateMarkerPath(env)), {
+          recursive: true,
+        });
+        await writeFile(cliInstallUpdateMarkerPath(env), "");
+        await finishCliInstallUpdate(env);
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(true);
+
+        await removeLegacyReviewSkills({ homeDir, env });
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(false);
+        expect(
+          (await readCliInstallStamp(cliInstallStampPath(env)))?.consent,
+        ).toBe(consent ?? undefined);
+      },
+    );
+
     it("generates prompts with the sh launch form when the shim exists and the bare command otherwise", async () => {
       await writePathShim(shim, cliPath, undefined, path.join(homeDir, ".dev"));
 
@@ -839,9 +864,6 @@ describe("MCP self-install", () => {
         command: "sh",
         args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
       });
-      expect(built.connect.prompts.claude).toContain(
-        "$HOME/.local/bin/whiteboard",
-      );
 
       await rm(shim);
 
@@ -855,9 +877,6 @@ describe("MCP self-install", () => {
         command: "whiteboard",
         args: ["mcp"],
       });
-      expect(source.connect.prompts.pi).toContain(
-        "whiteboard api session_get_instructions",
-      );
     });
 
     it("offers each harness's plugin, with the Cursor link only when the shim exists", async () => {

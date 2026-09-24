@@ -59,11 +59,11 @@ function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
   switch (target) {
     case "claude":
       return [
-        "Run:\n\n```sh\nclaude plugin marketplace add devdotfast/review\nclaude plugin install whiteboard@devfast --scope user\nclaude mcp remove -s user whiteboard # old manual registration, if any\n```",
+        "Run:\n\n```sh\nclaude plugin marketplace add devdotfast/whiteboard\nclaude plugin install whiteboard@devfast --scope user\nclaude mcp remove -s user whiteboard # old manual registration, if any\n```",
       ];
     case "codex":
       return [
-        "Run:\n\n```sh\ncodex plugin marketplace add devdotfast/review\ncodex plugin add whiteboard@devfast\ncodex mcp remove whiteboard # old manual registration, if any\n```",
+        "Run:\n\n```sh\ncodex plugin marketplace add devdotfast/whiteboard\ncodex plugin add whiteboard@devfast\ncodex mcp remove whiteboard # old manual registration, if any\n```",
       ];
     case "opencode":
       return [

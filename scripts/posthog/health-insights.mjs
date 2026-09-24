@@ -26,11 +26,19 @@ const trends = (series, extra = {}) => ({
   },
 });
 
-const funnel = (events) => ({
+// A step is either an event name, or { event, properties } to filter that
+// step alone (e.g. the lifecycle funnel's terminal step below).
+const funnel = (steps) => ({
   kind: "InsightVizNode",
   source: {
     kind: "FunnelsQuery",
-    series: events.map((event) => ({ kind: "EventsNode", event })),
+    series: steps.map((step) => {
+      const node = { kind: "EventsNode", event: step.event ?? step };
+
+      if (step.properties) node.properties = step.properties;
+
+      return node;
+    }),
     properties: production,
     dateRange: { date_from: "-30d" },
     funnelsFilter: { funnelWindowInterval: 7, funnelWindowIntervalUnit: "day" },
@@ -104,6 +112,51 @@ LIMIT 100
   },
 );
 
+// A workbench reload reports as review_session_ended{outcome:"app_quit"}
+// followed by a new review_session_started in the SAME app_session_id, so it
+// is not a real ending. `reloads` finds those pairs (an app_quit followed
+// within 60 s, the accepted reload window, by a session_started sharing
+// app_session_id); the outer query then drops them via a LEFT JOIN anti-join,
+// leaving genuine endings — including real app_quit closes with no reload.
+const SESSION_ENDINGS_RELOADS_EXCLUDED_QUERY = hogql(`
+WITH quits AS (
+    SELECT properties.app_session_id AS app_session_id,
+           properties.outcome AS outcome,
+           timestamp AS end_time
+    FROM events
+    WHERE event = 'review_session_ended'
+      AND properties.environment = 'production'
+      AND timestamp >= now() - INTERVAL 30 DAY
+),
+reloads AS (
+    SELECT DISTINCT q.app_session_id AS app_session_id, q.end_time AS end_time
+    FROM quits AS q
+    INNER JOIN events AS s
+      ON s.properties.app_session_id = q.app_session_id
+     AND s.event = 'review_session_started'
+     AND s.properties.environment = 'production'
+     AND s.timestamp > q.end_time
+     AND s.timestamp <= q.end_time + INTERVAL 60 SECOND
+    WHERE q.outcome = 'app_quit'
+)
+SELECT toStartOfDay(quits.end_time) AS day,
+       quits.outcome AS outcome,
+       count() AS endings
+FROM quits
+LEFT JOIN reloads ON reloads.app_session_id = quits.app_session_id AND reloads.end_time = quits.end_time
+WHERE reloads.app_session_id IS NULL
+GROUP BY day, outcome
+ORDER BY day, outcome`);
+
+// The lifecycle funnel's terminal step, shared with the reload-excluded
+// ending query's exclusion intent: an app_quit-flavoured ending never counts
+// as the funnel completing, since a reload is one and a real quit is not a
+// meaningful "finished reviewing" signal either.
+const LIFECYCLE_ENDED_STEP = {
+  event: "review_session_ended",
+  properties: [{ key: "outcome", value: ["app_quit"], operator: "is_not", type: "event" }],
+};
+
 export const HEALTH_INSIGHTS = [
   { name: "Health: crash rate per session", description: "review_crash over review_session_started, daily.", query: rate("review_crash", "review_session_started") },
   { name: "Health: hang rate per session", description: "review_hang_started over review_session_started, daily.", query: rate("review_hang_started", "review_session_started") },
@@ -114,10 +167,11 @@ export const HEALTH_INSIGHTS = [
   { name: "Health: UI stalls", description: "review_ui_stall by process.", query: trends([{ kind: "EventsNode", event: "review_ui_stall", math: "total" }], { breakdownFilter: { breakdown: "process", breakdown_type: "event" } }) },
   { name: "Health: update failures", description: "review_update_failed by error_name.", query: trends([{ kind: "EventsNode", event: "review_update_failed", math: "dau" }], { breakdownFilter: { breakdown: "error_name", breakdown_type: "event" } }) },
   { name: "Funnel: activation", description: "Install to first presented review.", query: funnel(["review_installation_created", "review_first_review_presented"]) },
-  { name: "Funnel: review lifecycle", description: "Created, presented, ended.", query: funnel(["review_review_created", "review_review_presented", "review_session_ended"]) },
+  { name: "Funnel: review lifecycle", description: "Created, presented, ended; the terminal step excludes outcome=app_quit (a reload reports as app_quit then a new session, not a real ending — see 'Health: session endings by outcome (reloads excluded)').", query: funnel(["review_review_created", "review_review_presented", LIFECYCLE_ENDED_STEP]) },
   { name: "Community: Discord and login", description: "Discord clicks and successful logins.", query: trends([{ kind: "EventsNode", event: "review_discord_clicked", math: "total" }, { kind: "EventsNode", event: "review_login_succeeded", math: "total" }]) },
   { name: "Suspected hangs", description: "Count of review_hang_started and review_open_timeout in the last 7 days.", query: SUSPECTED_HANGS_QUERY },
   { name: "Recent suspected hangs", description: "The last 100 review_hang_started/review_open_timeout events.", query: RECENT_SUSPECTED_HANGS_QUERY },
+  { name: "Health: session endings by outcome (reloads excluded)", description: "review_session_ended by outcome, daily; an app_quit immediately followed (within 60s) by a review_session_started in the same app_session_id is a workbench reload, not a real ending, and is dropped.", query: SESSION_ENDINGS_RELOADS_EXCLUDED_QUERY },
 ];
 
 // PostHog normalises a stored query (default fields filled in, key order

@@ -329,6 +329,7 @@ describe("Review CLI", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-cli-surface-"),
     );
+
     const events: PostHogCaptureInput[] = [];
 
     const telemetry = new ReviewTelemetry({

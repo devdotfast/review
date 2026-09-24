@@ -131,6 +131,9 @@ export function buildGoTools(destination, target) {
         fs.mkdirSync(path.dirname(to), { recursive: true });
 
         if (!fs.existsSync(to)) fs.copyFileSync(from, to);
+        // Go's module cache is read-only; packaged files must be writable so
+        // the macOS updater can replace them.
+        fs.chmodSync(to, 0o644);
       }
     }
   }

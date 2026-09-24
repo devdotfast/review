@@ -61,18 +61,23 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 		@INotificationService notifications: INotificationService,
 		@IStorageService storage: IStorageService,
 		@IExtensionService extensions: IExtensionService,
-		@ILogService log: ILogService,
+		@ILogService private readonly logs: ILogService,
 		@IWorkspaceContextService private readonly workspace: IWorkspaceContextService,
 		@IFileService private readonly files: IFileService,
 		@ITextModelService private readonly textModels: ITextModelService,
 		@IEditorWorkerService private readonly editorWorker: IEditorWorkerService,
 		@ICommandService private readonly commands: ICommandService,
 	) {
-		super(groups, services, configuration, quickInput, notifications, storage, extensions, log);
+		super(groups, services, configuration, quickInput, notifications, storage, extensions, logs);
 	}
 
 	override async resolveEditor(editor: IUntypedEditorInput, group: PreferredGroup | undefined): Promise<ResolvedEditor> {
-		return super.resolveEditor((await this.compare(editor)) ?? editor, group);
+		// A comparison that cannot be built opens the file itself.
+		const compared = await this.compare(editor).catch(error => {
+			this.logs.warn("Could not compare the source file with its base", error);
+			return undefined;
+		});
+		return super.resolveEditor(compared ?? editor, group);
 	}
 
 	private async compare(editor: IUntypedEditorInput): Promise<IResourceDiffEditorInput | undefined> {
@@ -81,6 +86,7 @@ export class NavigatorDiffEditorResolverService extends EditorResolverService {
 		const headRoot = this.workspace.getWorkspace().folders[0]?.uri;
 		if (base === undefined || !headRoot) return undefined;
 		const baseRoot = base ? URI.file(base) : undefined;
+		if (baseRoot && !(await this.files.exists(baseRoot))) return undefined;
 
 		const fromBase = !extUri.isEqualOrParent(editor.resource, headRoot);
 		const relative = extUri.relativePath(fromBase && baseRoot ? baseRoot : headRoot, editor.resource);

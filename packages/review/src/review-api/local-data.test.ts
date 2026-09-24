@@ -1151,6 +1151,37 @@ it("opens base and head files in one window that compares the two checkouts", as
   ).toBe(400);
 });
 
+it("opens the head source without a comparison when the base checkout is unusable", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Navigator fallback", pins }),
+  );
+
+  const snapshot = () => local.store.read(reviewId);
+
+  const compared = await local.data.navigatorWorkspace(snapshot(), {
+    side: "base",
+    file: source.file,
+  });
+
+  writeFileSync(compared.filePath!, "local edit\n");
+
+  const head = await local.data.navigatorWorkspace(snapshot(), {
+    file: source.file,
+  });
+
+  const workspace = JSON.parse(readFileSync(head.workspacePath, "utf8"));
+  expect(head.workspacePath).toBe(compared.workspacePath);
+  expect(readFileSync(head.filePath!, "utf8")).toContain("value = 2");
+  expect(workspace.settings["reviewFiles.base"]).toBeUndefined();
+  expect(workspace.settings["reviewFiles.untracked"]).toBeUndefined();
+  await expect(
+    local.data.navigatorWorkspace(snapshot(), {
+      side: "base",
+      file: source.file,
+    }),
+  ).rejects.toThrow("File is unavailable at the selected revision.");
+});
+
 it("keeps a live navigator attached to the live checkout without preparing it", async () => {
   const { reviewId } = await local.store.execute(
     command({

@@ -366,13 +366,15 @@ export class LocalReviewData {
       return rootPath;
     };
 
+    // Without a base checkout the window still opens the head source, just
+    // without the comparison. An empty base compares every file as added.
     const [headRoot, baseRoot, context] = await Promise.all([
       live ? realpath(repository) : checkout("head"),
-      pins.base === EMPTY_SOURCE ? undefined : checkout("base"),
+      pins.base === EMPTY_SOURCE ? "" : checkout("base").catch(() => null),
       resolveRepoContext(repository),
     ]);
 
-    if (!headRoot || baseRoot === null || !context)
+    if (!headRoot || !context)
       throw new ReviewInputError(
         "Could not open the selected source checkout.",
         409,
@@ -424,14 +426,21 @@ export class LocalReviewData {
       };
 
       // The review-files extension compares the folder with this base.
+      const settings = Object.fromEntries(
+        Object.entries(workspace.settings).filter(
+          ([key]) => !key.startsWith("reviewFiles."),
+        ),
+      );
+
       const next = {
         ...workspace,
         folders: [{ path: headRoot, name }, ...workspace.folders.slice(1)],
         settings: {
-          ...workspace.settings,
+          ...settings,
           "window.title": title,
-          "reviewFiles.base": baseRoot ?? "",
-          "reviewFiles.untracked": live,
+          ...(baseRoot === null
+            ? {}
+            : { "reviewFiles.base": baseRoot, "reviewFiles.untracked": live }),
         },
       };
 
@@ -445,7 +454,7 @@ export class LocalReviewData {
       // An added or deleted file exists only on the other side. The window
       // compares it with an empty file either way.
       const base = (source.side === "base") !== !!source.empty;
-      const root = base ? baseRoot : headRoot;
+      const root = base ? baseRoot || null : headRoot;
 
       const unavailable = () =>
         new ReviewInputError(

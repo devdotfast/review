@@ -231,13 +231,15 @@ export function activate(context: vscode.ExtensionContext): void {
 	const files = new ReviewFiles(head, base ? vscode.Uri.file(base) : undefined, untracked);
 	const view = vscode.window.createTreeView('reviewFiles.tree', { treeDataProvider: files, showCollapseAll: true });
 
+	// The tree shows only once it has listed both checkouts; otherwise the
+	// workbench keeps its Folders view on the head source.
 	const load = async () => {
 		try {
 			await files.load();
-			view.message = undefined;
+			await vscode.commands.executeCommand('setContext', 'reviewFiles.enabled', true);
 		} catch (error) {
-			const detail = error instanceof Error ? error.message : String(error);
-			view.message = `Could not list the source files: ${detail.split('\n')[0]}`;
+			console.error('Review Files could not list the source files', error);
+			await vscode.commands.executeCommand('setContext', 'reviewFiles.enabled', false);
 		}
 	};
 
@@ -270,6 +272,5 @@ export function activate(context: vscode.ExtensionContext): void {
 		context.subscriptions.push(watcher, watcher.onDidCreate(schedule), watcher.onDidChange(schedule), watcher.onDidDelete(schedule), { dispose: () => clearTimeout(timer) });
 	}
 
-	void vscode.commands.executeCommand('setContext', 'reviewFiles.enabled', true);
 	void load().then(() => reveal(vscode.window.activeTextEditor));
 }

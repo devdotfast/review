@@ -43,14 +43,15 @@ import { registerWorkbenchContribution2, WorkbenchPhase } from '../workbench/com
 import { IEditorResolverService } from '../workbench/services/editor/common/editorResolverService.js';
 import { IConfigurationService } from '../platform/configuration/common/configuration.js';
 import { Disposable } from '../base/common/lifecycle.js';
-import { Extensions as ViewExtensions, IViewsRegistry } from '../workbench/common/views.js';
+import { Extensions as ViewExtensions, IViewsRegistry, type IViewDescriptor, type ViewContainer } from '../workbench/common/views.js';
+import { IContextKeyService } from '../platform/contextkey/common/contextkey.js';
 import { VIEW_ID as EXPLORER_FOLDERS_VIEW_ID } from '../workbench/contrib/files/common/files.js';
 import './browser/reviewDecorationColors.js';
 import { NavigatorDecorationsService, NavigatorDiffEditorResolverService, NavigatorEmptySourceContentProvider, reviewFilesBase } from './services/navigatorDiffEditorResolverService.js';
 import { IDecorationsService } from '../workbench/services/decorations/common/decorations.js';
 
-/** Contributed by the built-in review-files extension. */
-const REVIEW_FILES_VIEW_ID = 'reviewFiles.tree';
+/** Set by the built-in review-files extension once its tree has listed the compared files. */
+const REVIEW_FILES_ENABLED_CONTEXT = 'reviewFiles.enabled';
 
 class NavigatorDefaults {
 	constructor(@IStorageService storage: IStorageService) {
@@ -65,26 +66,42 @@ class NavigatorDefaults {
 registerWorkbenchContribution2('review.navigator.defaults', NavigatorDefaults, WorkbenchPhase.BlockStartup);
 
 /**
- * The review-files tree replaces the Folders view when the folder is compared
- * with a base. Folders stays until the tree registers, so the Explorer is never
- * empty while the window restores its sidebar.
+ * The review-files tree replaces the Folders view once it has listed the
+ * compared files. Folders comes back if the tree cannot list them, so the
+ * window always shows the head source. Folders also keeps the Explorer
+ * populated while the window restores its sidebar.
  */
 class NavigatorReviewFiles extends Disposable {
-	constructor(@IConfigurationService configuration: IConfigurationService) {
+	constructor(
+		@IConfigurationService configuration: IConfigurationService,
+		@IContextKeyService contextKeys: IContextKeyService,
+	) {
 		super();
 		if (reviewFilesBase(configuration) === undefined) {
 			return;
 		}
 		const views = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
-		const replace = () => {
+		let replaced: { folders: IViewDescriptor; container: ViewContainer } | undefined;
+		const update = () => {
 			const folders = views.getView(EXPLORER_FOLDERS_VIEW_ID);
 			const container = views.getViewContainer(EXPLORER_FOLDERS_VIEW_ID);
-			if (folders && container && views.getView(REVIEW_FILES_VIEW_ID)) {
-				views.deregisterViews([folders], container);
+			if (contextKeys.getContextKeyValue<boolean>(REVIEW_FILES_ENABLED_CONTEXT) === true) {
+				if (folders && container) {
+					replaced = { folders, container };
+					views.deregisterViews([folders], container);
+				}
+			} else if (replaced && !folders) {
+				const { folders: restored, container: restoredContainer } = replaced;
+				replaced = undefined;
+				views.registerViews([restored], restoredContainer);
 			}
 		};
-		replace();
-		this._register(views.onViewsRegistered(replace));
+		this._register(views.onViewsRegistered(update));
+		this._register(contextKeys.onDidChangeContext(event => {
+			if (event.affectsSome(new Set([REVIEW_FILES_ENABLED_CONTEXT]))) {
+				update();
+			}
+		}));
 	}
 }
 

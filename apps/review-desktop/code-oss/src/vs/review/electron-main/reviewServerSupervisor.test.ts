@@ -11,6 +11,7 @@ import { REVIEW_DESKTOP_CONNECTION_VERSION } from '../common/reviewDesktopBootst
 import {
 	createReviewServerEnvironment,
 	type IReviewServerProcess,
+	type ReviewServerTermination,
 	ReviewServerSupervisor,
 } from './reviewServerSupervisor.js';
 
@@ -87,7 +88,8 @@ class FakeServerProcess implements IReviewServerProcess {
 	readonly onStdout = this.stdout.event;
 	readonly onStderr = new Emitter<string>().event;
 	readonly onExit = this.exit.event;
-	readonly onCrash = new Emitter<{ readonly code: number; readonly reason: string }>().event;
+	private readonly crashed = new Emitter<{ readonly code: number; readonly reason: string }>();
+	readonly onCrash = this.crashed.event;
 	env: Record<string, string | undefined> = {};
 
 	start(configuration: { readonly env?: Record<string, string | undefined> }): boolean {
@@ -105,6 +107,12 @@ class FakeServerProcess implements IReviewServerProcess {
 	}
 	crash(): void {
 		this.exit.fire({ code: 1, signal: 'SIGKILL' });
+	}
+	electronCrash(code: number, reason: string): void {
+		this.crashed.fire({ code, reason });
+	}
+	exitWith(code: number, signal: string): void {
+		this.exit.fire({ code, signal });
 	}
 	postMessage(): void { }
 	kill(): void { }
@@ -143,4 +151,41 @@ test('a restarted server keeps the launch\'s app session id, which the connectio
 	assert.equal(connection.appSessionId, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_APP_SESSION_ID, first.env.DEV_FAST_REVIEW_APP_SESSION_ID);
 	assert.equal(second.env.DEV_FAST_REVIEW_CHANNEL, 'preview');
+});
+
+test('reports a server process death to onServerTerminated, but not a deliberate stop', async (t) => {
+	const processes: FakeServerProcess[] = [];
+	const terminated: ReviewServerTermination[] = [];
+	const supervisor = (): ReviewServerSupervisor => {
+		const created = new ReviewServerSupervisor({
+			appRoot: '/app',
+			appVersion: '0.0.34',
+			isBuilt: true,
+			channel: 'stable',
+			logInfo: () => { },
+			logError: () => { },
+			createProcess: () => {
+				const serverProcess = new FakeServerProcess();
+				processes.push(serverProcess);
+				return serverProcess;
+			},
+			onServerTerminated: (detail) => terminated.push(detail),
+		});
+		t.after(() => created.dispose());
+		return created;
+	};
+
+	const crashing = supervisor();
+	crashing.start();
+	processes[0].electronCrash(139, 'crashed');
+	processes[0].exitWith(139, 'unknown');
+	assert.deepEqual(terminated, [{ code: 139, reason: 'crashed (139)' }]);
+	await crashing.stop();
+
+	const stopped = supervisor();
+	stopped.start();
+	const stopping = stopped.stop();
+	processes[1].exitWith(1, 'SIGTERM');
+	await stopping;
+	assert.equal(terminated.length, 1);
 });

@@ -51,3 +51,36 @@ test("posts named main-process telemetry through the embedded server", async () 
   });
   telemetry.dispose();
 });
+
+test("queues an event captured before the server connects and posts it once", async () => {
+  let connect!: () => void;
+  const connected = new Promise<void>((resolve) => (connect = resolve));
+  const requests: RequestInit[] = [];
+  const telemetry = new ReviewMainErrorTelemetry({
+    whenConnected: async () => {
+      await connected;
+      return {
+        version: 3,
+        url: "http://127.0.0.1:1234/__progressive-review",
+        token: "secret",
+        instanceId: "instance",
+        appSessionId: "launch-1",
+      };
+    },
+    isTelemetryEnabled: () => true,
+    fetchImpl: async (_input, init) => {
+      requests.push(init ?? {});
+      return new Response(null, { status: 204 });
+    },
+  });
+  telemetry.capture("crash", { process: "renderer", reason: "oom", exit_code: -1, uptime_ms: 1, source: "live" });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 0);
+
+  connect();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(requests.length, 1);
+  assert.equal(JSON.parse(String(requests[0].body)).name, "crash");
+  telemetry.dispose();
+});

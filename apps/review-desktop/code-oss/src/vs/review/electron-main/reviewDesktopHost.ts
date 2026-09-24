@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { app, BrowserWindow } from "electron";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
 import { IEnvironmentMainService } from "../../platform/environment/electron-main/environmentMainService.js";
@@ -16,6 +17,7 @@ import { IUpdateService } from "../../platform/update/common/update.js";
 import { UtilityProcess } from "../../platform/utilityProcess/electron-main/utilityProcess.js";
 import type { ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_TELEMETRY_SETTING } from "../common/reviewConfigurationDefaults.js";
+import { ReviewCrashTelemetry } from "./reviewCrashTelemetry.js";
 import { ReviewMainErrorTelemetry } from "./reviewMainErrorTelemetry.js";
 import { ReviewServerSupervisor } from "./reviewServerSupervisor.js";
 import {
@@ -53,6 +55,7 @@ export class ReviewDesktopHost extends Disposable {
   ) {
     super();
     let resolvedEnvironment: Promise<NodeJS.ProcessEnv> | undefined;
+    let crashTelemetry: ReviewCrashTelemetry | undefined;
     this.supervisor = this._register(
       new ReviewServerSupervisor({
         appRoot: this.environmentMainService.appRoot,
@@ -85,6 +88,7 @@ export class ReviewDesktopHost extends Disposable {
         telemetryEnabled:
           this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
           false,
+        onServerTerminated: (detail) => crashTelemetry?.reportServerExit(detail),
       }),
     );
     this._register(
@@ -113,6 +117,13 @@ export class ReviewDesktopHost extends Disposable {
       logError: (message) => this.logService.error(message),
     });
     this._register(toDisposable(() => errorTelemetry.dispose()));
+    crashTelemetry = this._register(
+      new ReviewCrashTelemetry({
+        app,
+        windows: BrowserWindow.getAllWindows(),
+        capture: (name, properties) => errorTelemetry.capture(name, properties),
+      }),
+    );
     this._register(
       new ReviewUpdateTelemetry({
         updateService: this.updateService,

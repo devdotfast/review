@@ -44,6 +44,19 @@ export interface IReviewServerProcess extends IDisposable {
   kill(): void;
 }
 
+/**
+ * The server's utility process type. UtilityProcess names the Electron service
+ * `<type>-<id>`, which is the name `child-process-gone` reports.
+ */
+export const REVIEW_SERVER_PROCESS_TYPE = "review-desktop-host";
+
+/** How a server process ended, as its supervisor saw it. */
+export interface ReviewServerTermination {
+  readonly code?: number;
+  readonly signal?: string;
+  readonly reason: string;
+}
+
 /** `dev` marks an unpackaged run; packaged builds take `quality` from product.json. */
 export type ReviewReleaseChannel = "stable" | "preview" | "dev";
 
@@ -62,6 +75,8 @@ export interface ReviewServerSupervisorOptions {
   readonly createProcess: () => IReviewServerProcess;
   readonly telemetryEnabled?: boolean;
   readonly userExtensionsPath?: string;
+  /** A server process that died on its own; deliberate stops never report. */
+  readonly onServerTerminated?: (detail: ReviewServerTermination) => void;
 }
 
 export function createReviewServerEnvironment(options: {
@@ -310,15 +325,16 @@ export class ReviewServerSupervisor extends Disposable {
     );
 
     let terminated = false;
-    const onTerminated = (detail: string) => {
+    const onTerminated = (detail: ReviewServerTermination, died = true) => {
       if (terminated) return;
       terminated = true;
       this.options.logError(
-        `[Review Desktop] server host terminated: ${detail}`,
+        `[Review Desktop] server host terminated: ${detail.reason}`,
       );
       this.serverProcess = undefined;
       this.processListeners.dispose();
       if (this.stopping) return;
+      if (died) this.options.onServerTerminated?.(detail);
       if (!ready && !this.connected.isSettled) {
         this.options.logError(
           "[Review Desktop] server host exited before announcing an endpoint.",
@@ -337,14 +353,19 @@ export class ReviewServerSupervisor extends Disposable {
     };
     this.processListeners.add(
       serverProcess.onExit((event) =>
-        onTerminated(
-          `exit ${event.code ?? "unknown"} (${event.signal ?? "no signal"})`,
-        ),
+        onTerminated({
+          code: event.code,
+          signal: event.signal || undefined,
+          reason: `exit ${event.code ?? "unknown"} (${event.signal || "no signal"})`,
+        }),
       ),
     );
     this.processListeners.add(
       serverProcess.onCrash((event) =>
-        onTerminated(`${event.reason} (${event.code ?? "unknown"})`),
+        onTerminated({
+          code: event.code,
+          reason: `${event.reason} (${event.code ?? "unknown"})`,
+        }),
       ),
     );
 
@@ -366,14 +387,14 @@ export class ReviewServerSupervisor extends Disposable {
       channel: this.options.channel,
     });
     const started = serverProcess.start({
-      type: "review-desktop-host",
+      type: REVIEW_SERVER_PROCESS_TYPE,
       name: "Review Desktop host",
       entryPoint: "vs/review/electron-utility/reviewDesktopHostMain",
       parentLifecycleBound: appPid,
       env: environment,
     });
     if (!started) {
-      onTerminated("launch failed");
+      onTerminated({ reason: "launch failed" }, false);
       return;
     }
     if (!this.connected.isSettled) this.armReadyTimeout();

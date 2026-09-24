@@ -17,6 +17,8 @@
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual, parseArgs } from "node:util";
 
+import { z } from "zod";
+
 export const LEGACY_INSIGHTS = [
   "xXKBBHnq", "ShE8BcCY", "WIAJp6cX", "uBnJREXr", "xLA0E9yO",
   "T3CDzuLb", "4AGAFhd8", "46AVU1i1", "ZV7IyoiR", "DkCcoT9c",
@@ -34,9 +36,37 @@ export const DEAD_DASHBOARDS = [1819313];
 
 const LEGACY_PREFIX = "progressive_review_";
 
-const isLegacyEventsNode = (node, keepNames) =>
-  node && typeof node === "object" && node.kind === "EventsNode" &&
-  typeof node.event === "string" && node.event.startsWith(LEGACY_PREFIX) && !keepNames.has(node.event);
+// The HogQL/insight query tree PostHog returns has no fixed shape in this
+// script; every node is parsed into one of these domain values instead of
+// probed with `typeof`. `jsonLeafSchema` covers anything that is never a
+// container to recurse into, `undefined` included since JSON.parse never
+// produces it but a missing property read might.
+const jsonLeafSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.undefined(),
+]);
+
+const isJsonLeaf = (value) => jsonLeafSchema.safeParse(value).success;
+
+const isJsonString = (value) => z.string().safeParse(value).success;
+
+const eventsNodeSchema = z.looseObject({
+  kind: z.literal("EventsNode"),
+  event: z.string(),
+});
+
+const isLegacyEventsNode = (node, keepNames) => {
+  const parsed = eventsNodeSchema.safeParse(node);
+
+  return (
+    parsed.success &&
+    parsed.data.event.startsWith(LEGACY_PREFIX) &&
+    !keepNames.has(parsed.data.event)
+  );
+};
 
 const stripHogql = (sql, keepNames) => {
   const shouldStrip = (name) => !keepNames.has(name);
@@ -55,11 +85,11 @@ export function stripLegacySeries(query, keepNames = new Set()) {
   if (Array.isArray(query))
     return query.filter((n) => !isLegacyEventsNode(n, keepNames)).map((n) => stripLegacySeries(n, keepNames));
 
-  if (query && typeof query === "object") {
+  if (!isJsonLeaf(query)) {
     const out = {};
 
     for (const [key, value] of Object.entries(query))
-      out[key] = key === "query" && typeof value === "string" ? stripHogql(value, keepNames) : stripLegacySeries(value, keepNames);
+      out[key] = key === "query" && isJsonString(value) ? stripHogql(value, keepNames) : stripLegacySeries(value, keepNames);
 
     return out;
   }
@@ -67,12 +97,19 @@ export function stripLegacySeries(query, keepNames = new Set()) {
   return query;
 }
 
+const groupNodeSchema = z.looseObject({
+  kind: z.literal("GroupNode"),
+  nodes: z.array(z.unknown()),
+});
+
 /** True if any GroupNode in `value` was left with no nodes — a query PostHog would reject. */
 export function hasEmptyGroup(value) {
   if (Array.isArray(value)) return value.some(hasEmptyGroup);
 
-  if (value && typeof value === "object") {
-    if (value.kind === "GroupNode" && Array.isArray(value.nodes) && value.nodes.length === 0) return true;
+  if (!isJsonLeaf(value)) {
+    const group = groupNodeSchema.safeParse(value);
+
+    if (group.success && group.data.nodes.length === 0) return true;
 
     return Object.values(value).some(hasEmptyGroup);
   }

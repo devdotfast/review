@@ -385,9 +385,9 @@ describe("reliability and engagement events", () => {
     expect(
       sanitizeUiTelemetryEvent({
         name: "setting_changed",
-        properties: { setting: "theme", enabled: true, value: "dark" },
+        properties: { setting: "theme", value: "dark" },
       })?.properties,
-    ).toEqual({ setting: "theme", enabled: true, value: "dark" });
+    ).toEqual({ setting: "theme", value: "dark" });
     expect(
       sanitizeUiTelemetryEvent({
         name: "error_burst",

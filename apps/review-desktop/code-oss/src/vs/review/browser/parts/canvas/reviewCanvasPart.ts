@@ -749,7 +749,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			setTheme: async (choice) => {
 				this.reviewTelemetryService.capture("setting_changed", {
 					setting: "theme",
-					enabled: true,
 					value: choice,
 				});
 				await applyReviewThemeChoice(this.configurationService, choice);

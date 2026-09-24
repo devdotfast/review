@@ -204,7 +204,10 @@ later PR; nothing sets it yet, so it never appears on the event.
 
 Session outcomes are `closed` (the tab closed or was replaced), `app_quit`,
 and `abnormal` (the previous Desktop process died with the review still open;
-reported on the next launch, without `duration_ms`). `dismissed` and `deleted`
+reported on the next launch, without `duration_ms`, and carrying the dead
+launch's `app_session_id`, `app_version`, `cli_version`, `environment` and
+other envelope fields so an upgrade does not count the crash against the new
+version). `dismissed` and `deleted`
 are reserved for later PRs.
 
 `command_path` is a closed enum for all public commands. It includes `help`,

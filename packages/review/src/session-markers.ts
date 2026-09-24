@@ -5,8 +5,37 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { writeFileAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
+import type { PostHogCaptureProperties } from "./posthog-capture-client";
 import { devReviewHome } from "./review-home-paths";
 import { reviewTelemetryChannel } from "./telemetry-config";
+
+/**
+ * The envelope fields of the launch that opened a session which a later
+ * launch may not share. An abnormal end carries them so it counts against
+ * the launch that died, not the one that reported it. Closed values only.
+ */
+const launchEnvelopeSchema = z.object({
+  app_version: z.string().min(1).optional(),
+  cli_version: z.string().min(1),
+  version: z.string().min(1),
+  channel: z.enum(["stable", "preview", "dev"]),
+  environment: z.enum(["production", "ci", "internal", "e2e", "smoke"]),
+  surface: z.enum(["desktop", "cli", "headless", "mcp", "api"]),
+  node_major: z.number().int(),
+  arch: z.string().min(1),
+  os_version: z.string().min(1),
+  ci: z.boolean(),
+  internal: z.boolean(),
+});
+
+export type LaunchEnvelope = z.infer<typeof launchEnvelopeSchema>;
+
+/** Picks the launch fields out of an event envelope; undefined if malformed. */
+export function launchEnvelope(
+  properties: PostHogCaptureProperties,
+): LaunchEnvelope | undefined {
+  return launchEnvelopeSchema.safeParse(properties).data;
+}
 
 /**
  * A review session the Desktop opened and has not yet reported as ended. The
@@ -24,6 +53,8 @@ export interface OpenSessionMarker {
    * reconciles.
    */
   ownerPid?: number;
+  /** Absent on markers written before launches recorded their envelope. */
+  envelope?: LaunchEnvelope;
 }
 
 const markersSchema = z.array(
@@ -33,6 +64,8 @@ const markersSchema = z.array(
     startedAt: z.number(),
     appSessionId: z.string().min(1).optional(),
     ownerPid: z.number().int().positive().optional(),
+    // A malformed envelope degrades to a legacy marker, not a lost one.
+    envelope: launchEnvelopeSchema.optional().catch(undefined),
   }),
 );
 

@@ -27,6 +27,7 @@ import {
 import { recordOpenSession } from "./session-markers";
 import {
   REVIEW_CHANNEL_ENV,
+  REVIEW_TELEMETRY_ENV_ENV,
   type ReviewTelemetryInstallConfig,
   normalizeTelemetryInstallConfig,
 } from "./telemetry-config";
@@ -658,6 +659,108 @@ describe("ReviewTelemetry", () => {
     expect(events).toHaveLength(1);
     expect(events[0].properties).toMatchObject({ outcome: "abnormal" });
     expect(events[0].properties?.app_session_id).not.toBe("app-current");
+  });
+
+  it("attributes an abnormal end to the launch that opened the session", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `progressive-review-telemetry-upgrade-${Date.now()}`,
+    );
+
+    cleanupPaths.push(rootPath);
+
+    const markersPath = path.join(rootPath, "open-sessions.json");
+
+    const launch = (env: NodeJS.ProcessEnv) => {
+      const events: PostHogCaptureInput[] = [];
+
+      const telemetry = new ReviewTelemetry({
+        captureClient: {
+          enabled: true,
+          capture: async (event) => {
+            events.push(event);
+          },
+        },
+        env,
+        installConfigPath: path.join(rootPath, "telemetry.json"),
+        openSessionMarkersPath: markersPath,
+        openSessionOwnerPid: deadPid,
+        surface: "desktop",
+      });
+
+      return { events, telemetry };
+    };
+
+    const versionA = launch({
+      [REVIEW_APP_VERSION_ENV]: "1.0.0",
+      [REVIEW_APP_SESSION_ID_ENV]: "app-a",
+      [REVIEW_TELEMETRY_ENV_ENV]: "e2e",
+    });
+
+    await versionA.telemetry.captureUiEvent(
+      "review_session_started",
+      { app_session_id: "app-a" },
+      {
+        reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+        presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+      },
+    );
+
+    // Version A shipped an older CLI package than the one under test.
+    const [marker] = JSON.parse(await readFile(markersPath, "utf8")) as {
+      envelope: JsonObject;
+    }[];
+
+    marker.envelope.cli_version = "0.9.0";
+    marker.envelope.version = "0.9.0";
+    await writeFile(markersPath, JSON.stringify([marker]));
+
+    const versionB = launch({
+      [REVIEW_APP_VERSION_ENV]: "2.0.0",
+      [REVIEW_APP_SESSION_ID_ENV]: "app-b",
+    });
+
+    await versionB.telemetry.reconcileOpenSessions();
+
+    expect(versionB.events).toHaveLength(1);
+    expect(versionB.events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      app_session_id: "app-a",
+      app_version: "1.0.0",
+      cli_version: "0.9.0",
+      version: "0.9.0",
+      environment: "e2e",
+      surface: "desktop",
+    });
+  });
+
+  it("reconciles a marker written before launches stored their envelope", async () => {
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      env: { [REVIEW_APP_VERSION_ENV]: "2.0.0" },
+    });
+
+    cleanupPaths.push(rootPath);
+    await mkdir(rootPath, { recursive: true });
+    await writeFile(
+      markersPath,
+      JSON.stringify([
+        {
+          presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+          reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+          startedAt: 1,
+          appSessionId: "app-a",
+        },
+      ]),
+    );
+
+    await telemetry.reconcileOpenSessions();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({
+      outcome: "abnormal",
+      app_session_id: "app-a",
+      app_version: "2.0.0",
+    });
   });
 
   it("leaves sessions owned by a live process open", async () => {

@@ -47,6 +47,24 @@ describe("session markers", () => {
     expect(takeOpenSessions(file)).toEqual([]);
   });
 
+  it("keeps a marker whose stored envelope is malformed, without it", async () => {
+    const root = await tempRoot();
+    const file = path.join(root, "open-sessions.json");
+
+    const marker = {
+      presentationSessionId: "p1",
+      reviewUuid: "r1",
+      startedAt: 1,
+    };
+
+    writeFileSync(
+      file,
+      JSON.stringify([{ ...marker, envelope: { surface: { nested: true } } }]),
+    );
+
+    expect(takeOpenSessions(file)).toEqual([marker]);
+  });
+
   it("treats a corrupt file as empty", async () => {
     const root = await tempRoot();
     const file = path.join(root, "open-sessions.json");

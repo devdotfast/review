@@ -119,6 +119,7 @@ export interface OptionalExtensionPinUpgradeTransaction extends OptionalExtensio
 	readonly installed: readonly InstalledOptionalExtensionPin[];
 	readonly download: (extensionId: string) => Promise<string>;
 	readonly install: (extensionId: string, vsixPath: string) => Promise<void>;
+	readonly stageRustAnalyzer: () => Promise<void>;
 	readonly logError: (message: string, error: unknown) => void;
 }
 
@@ -156,6 +157,9 @@ export async function upgradeOptionalExtensionPins(
 				installed.set(extension.id, extension.version);
 				changed.push(extension.id);
 				transaction.onInstalled?.(extension.id, trigger, Date.now() - startedAt);
+				if (extension.id === 'rust-lang.rust-analyzer') {
+					await transaction.stageRustAnalyzer();
+				}
 			} catch (error) {
 				transaction.onInstallFailed?.(extension.id, trigger, 'install');
 				transaction.logError(`Could not update optional extension ${extension.id}`, error);

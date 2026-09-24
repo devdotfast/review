@@ -34,7 +34,6 @@ import {
   copyCuratedExtensions,
   verifyCuratedExtensions,
 } from "./curated-extensions.mjs";
-import { goToolsStamp } from "./curated-go-tools.mjs";
 
 const APP_DIR = path.dirname(fileURLToPath(new URL("./", import.meta.url)));
 
@@ -398,18 +397,14 @@ test("copies only bundled extensions for both package targets", () => {
             activationEvents: extension.addActivationEvents ?? [],
           })}\n`,
         );
-
-        const stamp = {
-          id: extension.id,
-          version: extension.version,
-          target: targetKey,
-          sha256: extension.targets[targetKey].sha256,
-        };
-
-        if (extension.goTools) stamp.goTools = goToolsStamp(target);
         writeFileSync(
           path.join(directory, ".curated.json"),
-          `${JSON.stringify(stamp)}\n`,
+          `${JSON.stringify({
+            id: extension.id,
+            version: extension.version,
+            target: targetKey,
+            sha256: extension.targets[targetKey].sha256,
+          })}\n`,
         );
 
         for (const relative of extension.executables) {
@@ -436,32 +431,6 @@ test("copies only bundled extensions for both package targets", () => {
           `${extension.id} must stay out of the ${target} package`,
         );
       }
-
-      // Go's VSIX is universal but its added binaries are not. Reject an
-      // otherwise-valid extension copied from a different platform.
-      const goStampPath = path.join(
-        destinationRoot,
-        "golang.go",
-        ".curated.json",
-      );
-
-      const goStamp = JSON.parse(readFileSync(goStampPath, "utf8"));
-      const originalTarget = goStamp.goTools.target;
-      goStamp.goTools.target = supportedTargets.find(
-        (candidate) => candidate !== target,
-      );
-      writeFileSync(goStampPath, JSON.stringify(goStamp));
-      assert.throws(
-        () => verifyCuratedExtensions({ root: destinationRoot, target }),
-        /golang.go is not materialized/,
-      );
-      goStamp.goTools.target = originalTarget;
-      writeFileSync(goStampPath, JSON.stringify(goStamp));
-      rmSync(path.join(destinationRoot, "golang.go", "bin", "gopls"));
-      assert.throws(
-        () => verifyCuratedExtensions({ root: destinationRoot, target }),
-        /expected executable bin\/gopls is missing/,
-      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

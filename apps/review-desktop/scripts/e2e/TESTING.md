@@ -41,10 +41,8 @@ prints a JSON summary on stdout, one entry per journey, `ok | failed | skipped`.
 ## Phases
 
 Phase 1 runs offline, after a one-time network fetch of the curated VSIX cache
-that `lsp-python` triggers. Phase 2 (`lsp-go`, `lsp-rust`) requires local
-toolchains. Both use bundled language servers; Go blocks module downloads to
-verify that no server installation is needed. Rust uses a cold Cargo cache and
-runs only with `REVIEW_E2E_NETWORK=1`. In development mode each journey
+that `lsp-python` triggers. Phase 2 (`lsp-go`, `lsp-rust`) downloads toolchains
+and runs only with `REVIEW_E2E_NETWORK=1`. In development mode each journey
 re-materializes its extension group through `run.sh`, so this checkout's
 `code-oss/extensions` holds the last journey's selection afterwards;
 `node scripts/curated-extensions.mjs --only=all` restores it.

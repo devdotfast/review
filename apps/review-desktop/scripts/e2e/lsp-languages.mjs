@@ -15,7 +15,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { createReview, dismissModalEditor } from "./harness.mjs";
+import {
+  createReview,
+  dismissModalEditor,
+  installExtensionGroup,
+} from "./harness.mjs";
 
 const exec = promisify(execFile);
 
@@ -72,13 +76,15 @@ export const LANGUAGES = {
     hoverText: /save_order\(order: OrderRecord\)/,
   },
   go: {
-    extensions: "go",
+    // Not a DEV_REVIEW_EXTENSIONS group: the Go extension installs gopls on activation, so it is downloaded only after consent.
+    extensions: "none",
     peekFile: "orders.go",
     symbol: "SaveOrder",
     definitionFile: "storage.go",
     hoverText: /func SaveOrder\(order OrderRecord\) OrderRecord/,
     needsToolchain: "go",
-    hoverTimeout: 120000,
+    installsTool: "gopls",
+    hoverTimeout: 300000, // gopls is built from source under a fresh HOME, so the caches start empty.
     // Unset, every Go install and cache path sits under the temp $HOME; an empty value is a deletion.
     env: {
       GOPATH: "",
@@ -87,17 +93,19 @@ export const LANGUAGES = {
       GOCACHE: "",
       GOFLAGS: "",
       GOENV: "",
-      GOPROXY: "off",
-      GOTOOLCHAIN: "local",
     },
-    // No system gopls and no module downloads: language features must use the bundled server.
+    optionalExtension: {
+      label: "Go",
+      extensionId: "golang.go",
+    },
+    // The Go extension provisions gopls only when PATH has none, which is the reader this journey stands in for.
     beforeLaunch: async (ctx) => {
       ctx.env.PATH = await hideToolFromPath(ctx, "gopls", "go");
     },
   },
   rust: {
-    extensions: "rust",
-    needsNetwork: true,
+    // Not a DEV_REVIEW_EXTENSIONS group: rust-analyzer is tier "optional", downloaded only after consent in the picker.
+    extensions: "none",
     peekFile: "src/lib.rs",
     symbol: "save_order",
     definitionFile: "src/storage.rs",
@@ -110,6 +118,10 @@ export const LANGUAGES = {
       activated: "Starting language client",
       started: "Using server binary at",
       failed: "Bootstrap error", // A server that could not be unpacked logs this instead: a different bug.
+    },
+    optionalExtension: {
+      label: "Rust (rust-analyzer)",
+      extensionId: "rust-lang.rust-analyzer",
     },
     // rust-analyzer needs the real RUSTUP_HOME to find a toolchain; an empty value is a deletion, so a machine without rustup skips.
     env: { RUSTUP_HOME: process.env.RUSTUP_HOME ?? rustupHome() },
@@ -202,11 +214,7 @@ async function serverNeverStarted(
 
 /** The same review, in the window a restart left behind. */
 async function reopenReview(ctx, review) {
-  const opened = await ctx.api(
-    `/reviews-api/${review.reviewId}/open`,
-    "POST",
-    {},
-  );
+  const opened = await ctx.api(`/reviews-api/${review.reviewId}/open`, "POST", {});
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 
@@ -215,15 +223,57 @@ async function reopenReview(ctx, review) {
   return page.locator(".review-canvas-root [data-review-api]");
 }
 
+/** `go install` writes to GOPATH/bin, and GOPATH defaults to $HOME/go inside the temp root. */
+const goToolPath = (ctx, tool) => path.join(ctx.home, "go/bin", tool);
+
+/** Nothing the Go extension downloads may exist before the reader consents to its group. */
+async function assertNothingInstalledYet(ctx, tool) {
+  assert.equal(
+    await access(goToolPath(ctx, tool)).then(() => true, () => false),
+    false,
+    `${tool} was installed before the Go group was consented to`,
+  );
+  assert.deepEqual(
+    (
+      await readdir(path.join(ctx.userData, "logs"), {
+        recursive: true,
+      }).catch(() => [])
+    ).filter((entry) => entry.includes(path.join("exthost", "golang.go"))),
+    [],
+    "the Go extension activated before its group was consented to",
+  );
+}
+
+/** Waits for the consented-to Go extension to provision `tool` into the journey's GOPATH. */
+async function provisionLanguageServer(ctx, tool) {
+  await ctx.until(
+    () => access(goToolPath(ctx, tool)).then(() => true, () => false),
+    `${tool} to be installed into the journey's GOPATH`,
+    300000,
+  );
+  ctx.check(`go: ${tool} is installed only after the Go group is consented to`);
+}
+
 /** Commits the fixture, creates a review whose code_peek covers the call site, hovers the call and presses F12. */
 export async function runLspJourney(ctx, id) {
   const language = LANGUAGES[id];
 
-  if (language.needsNetwork && process.env.REVIEW_E2E_NETWORK !== "1")
+  // Covers an explicit `--journey lsp-go` on a machine that never opted into the network.
+  if (
+    (language.needsToolchain || language.optionalExtension) &&
+    process.env.REVIEW_E2E_NETWORK !== "1"
+  )
     throw new Error(`skip: ${id} needs REVIEW_E2E_NETWORK=1`);
 
   if (language.needsToolchain)
     await requireToolchain(ctx, language.needsToolchain);
+
+  // Before the review exists: the picker ends in a window reload that would take the open review with it.
+  if (language.optionalExtension) {
+    if (language.installsTool)
+      await assertNothingInstalledYet(ctx, language.installsTool);
+    await installExtensionGroup(ctx, language.optionalExtension);
+  }
 
   await cp(path.join(import.meta.dirname, "fixtures/lsp", id), ctx.repo, {
     recursive: true,
@@ -271,21 +321,6 @@ export async function runLspJourney(ctx, id) {
     try {
       await hoverAndJump(ctx, id, language, canvas, lines, callLine);
 
-      if (id === "go") {
-        for (const tool of ["gopls", "vscgo"]) {
-          assert.equal(
-            await access(path.join(ctx.home, "go/bin", tool)).then(
-              () => true,
-              () => false,
-            ),
-            false,
-            `${tool} should come from the app, not a runtime installation`,
-          );
-        }
-
-        ctx.check("go: bundled language tools work without module downloads");
-      }
-
       return;
     } catch (error) {
       if (
@@ -315,6 +350,10 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
     .first();
 
   await editor.locator(".view-line").first().waitFor({ timeout: 60000 });
+
+  // The peek opens the language's first document, so the extension activates only once it is on screen.
+  if (language.installsTool)
+    await provisionLanguageServer(ctx, language.installsTool);
 
   const callRow = editor
     .locator(".view-line")
@@ -380,8 +419,7 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const definitionName = path.basename(language.definitionFile);
 
   await ctx.until(
-    async () =>
-      (await modalTitle.innerText().catch(() => "")).includes(definitionName),
+    async () => (await modalTitle.innerText().catch(() => "")).includes(definitionName),
     `${id} Go to Definition to open ${language.definitionFile} in the modal editor`,
     60000,
   );

@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough, Readable, Writable } from "node:stream";
 
 import type { JsonObject } from "@dev.fast/json";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { runReviewAgentCli } from "./agent-cli.js";
 import * as agentClient from "./agent-client.js";
@@ -153,7 +159,18 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
 it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const server = await serveReviewMcp(async () => ({ client }), stdin, stdout);
+  const calls: Array<[string, string, boolean]> = [];
+
+  const server = await serveReviewMcp(
+    async () => ({ client }),
+    stdin,
+    stdout,
+    undefined,
+    false,
+    undefined,
+    ({ tool, via, ok }) => void calls.push([tool, via, ok]),
+  );
+
   let output = "";
   stdout.on("data", (chunk) => {
     output += chunk;
@@ -243,8 +260,58 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
       sessionId: created.reviewId,
       document: [],
     });
+
+    await request(7, "tools/call", { name: "my private notes", arguments: {} });
+
+    expect(calls).toEqual([
+      ["session_get", "mcp", false],
+      ["session_list", "mcp", true],
+      ["session_get", "mcp", true],
+      ["session_get", "mcp", true],
+      ["other", "mcp", false],
+    ]);
   } finally {
     await server.close();
+  }
+});
+
+it("reports each api tool call with its outcome", async () => {
+  const connection = vi
+    .spyOn(agentClient, "connectReviewApi")
+    .mockResolvedValue(client);
+
+  const calls: Array<[string, string, boolean]> = [];
+
+  const discard = new Writable({
+    write(_chunk, _encoding, done) {
+      done();
+    },
+  });
+
+  const run = (argv: string[]) =>
+    runReviewAgentCli({
+      argv,
+      stdout: discard,
+      stderr: discard,
+      // Queued a tick late, like a real capture: the command must wait.
+      onToolCall: async ({ tool, via, ok }) => {
+        await new Promise((resolve) => setImmediate(resolve));
+        calls.push([tool, via, ok]);
+      },
+    });
+
+  try {
+    expect(await run(["api", "session_list"])).toBe(0);
+    expect(await run(["api", "session_get", '{"sessionId":"missing"}'])).toBe(
+      1,
+    );
+    expect(await run(["api", "no_such_tool"])).toBe(1);
+    expect(calls).toEqual([
+      ["session_list", "api", true],
+      ["session_get", "api", false],
+    ]);
+  } finally {
+    connection.mockRestore();
   }
 });
 
@@ -364,6 +431,64 @@ it("binds existing content through the host-advertised PR tool", async () => {
     pullRequestNumber: 310,
     pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
   });
+});
+
+it("tells the server which surface and agent harness made the call", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "agent-origin-"));
+  const instanceId = randomUUID();
+  const seen: Array<[string | undefined, string | undefined]> = [];
+
+  const server = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+
+    if (request.url === "/health") {
+      response.end(JSON.stringify({ ok: true, instanceId }));
+
+      return;
+    }
+
+    seen.push([
+      request.headers["x-review-via"]?.toString(),
+      request.headers["x-review-agent"]?.toString(),
+    ]);
+    response.end("[]");
+  });
+
+  try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const { port } = z.object({ port: z.number() }).parse(server.address());
+    await mkdir(path.join(stateDir, "review-server"), { recursive: true });
+    await writeFile(
+      path.join(stateDir, "review-server", "server.json"),
+      JSON.stringify({
+        version: 1,
+        instanceId,
+        url: `http://127.0.0.1:${port}`,
+        serverPid: process.pid,
+        token: "token",
+      }),
+    );
+
+    const discard = new Writable({
+      write(_chunk, _encoding, done) {
+        done();
+      },
+    });
+
+    expect(
+      await runReviewAgentCli({
+        argv: ["api", "tools"],
+        stdout: discard,
+        stderr: discard,
+        env: { DEV_REVIEW_SERVER_DIR: stateDir, CODEX_THREAD_ID: "thread-1" },
+      }),
+    ).toBe(0);
+    expect(seen).toEqual([["api", "codex"]]);
+  } finally {
+    server.close();
+    await rm(stateDir, { recursive: true, force: true });
+  }
 });
 
 it("keeps an MCP session on the instance key it first reached", async () => {

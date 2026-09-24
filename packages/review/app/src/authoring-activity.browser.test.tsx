@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import {
+  AuthoringActivityBadge,
   AuthoringActivityContext,
   ReviewSurfaceLabel,
 } from "./authoring-activity";
@@ -91,4 +92,39 @@ it("treats a finished review as read at mount and an empty one as never ready", 
   await show({ activity: working, version: 0, hasContent: false });
   await show({ activity: idle, version: 0, hasContent: false });
   expect(unread()).toBe(false);
+});
+
+const longDescription =
+  "Reviewing copy selection and publishing stack · Group selection tests and Copy for Agent implementation";
+
+const longUpdate: ActivitySnapshot = {
+  ...working,
+  focuses: [{ description: longDescription }],
+};
+
+it("keeps a long update inside the badge and puts the whole of it in the tooltip", async () => {
+  container.style.display = "flex";
+  container.style.width = "900px";
+  await act(async () =>
+    root.render(
+      <AuthoringActivityContext.Provider value={longUpdate}>
+        <AuthoringActivityBadge />
+      </AuthoringActivityContext.Provider>,
+    ),
+  );
+
+  const badge = container.querySelector<HTMLElement>(
+    ".host-authoring-activity",
+  )!;
+
+  const text = badge.querySelector<HTMLElement>(".host-authoring-text")!;
+
+  // The text is cut short rather than running past the badge's edge.
+  expect(text.scrollWidth).toBeGreaterThan(text.clientWidth);
+  expect(text.getBoundingClientRect().right).toBeLessThanOrEqual(
+    badge.getBoundingClientRect().right,
+  );
+
+  // Without a Desktop host the tooltip falls back to a native title.
+  expect(badge.title).toContain(longDescription);
 });

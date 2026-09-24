@@ -83,7 +83,7 @@ import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-abse
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
-import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
 import { useTooltip } from "./use-tooltip";
 import { useTraceList } from "./use-trace-list";
@@ -111,7 +111,6 @@ export function App({
   commits: readonly ReviewCommitSummary[];
   findHost?: ReviewFindHost;
 }): ReactElement {
-  useWindowErrorTelemetry();
   const resolved = useResolvedReviewDocument(documentState);
 
   return (
@@ -205,17 +204,15 @@ function useResolvedReviewDocument(
   }, [documentState, session]);
 }
 
-function useWindowErrorTelemetry(): void {
-  const session = useReviewSession();
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      captureClientError(session, "window", event.error);
-    };
+/** A commit-scoped diff stays "commit"; otherwise it follows the reader's
+ * structural-diff setting. */
+function diffOpenedKind(
+  diffScope: { commit: ReviewCommitSummary } | null,
+  structuralDiffEnabled: boolean,
+): "commit" | "file" | "structural" {
+  if (diffScope) return "commit";
 
-    window.addEventListener("error", handleError);
-
-    return () => window.removeEventListener("error", handleError);
-  }, [session]);
+  return structuralDiffEnabled ? "structural" : "file";
 }
 
 function ReviewLayout({
@@ -346,6 +343,9 @@ function ReviewLayoutContent({
   // The scratchpad is a document and nothing else: no source tree to browse,
   // nothing to share, nothing to dismiss.
   const scratchpad = session.review?.kind === "scratchpad";
+  useEffect(() => {
+    if (scratchpad) captureUiEvent(session, "scratchpad_opened");
+  }, [scratchpad, session]);
   const discordTooltip = useTooltip("Join our Discord community");
   const sourceTreeTooltip = useTooltip("Open full read-only source");
   const panelStore = useReviewPanelStore();
@@ -430,9 +430,13 @@ function ReviewLayoutContent({
   useEffect(() => {
     if (lenses?.active) {
       setDiffScope(null);
+      captureUiEvent(session, "diff_opened", {
+        kind: diffOpenedKind(null, Boolean(lenses.structuralDiffEnabled)),
+        via: "lens",
+      });
       setActiveView("diff");
     }
-  }, [lenses?.active]);
+  }, [lenses?.active, lenses?.structuralDiffEnabled, session]);
 
   const reviewViewsRef = useRef(reviewViews);
   reviewViewsRef.current = reviewViews;
@@ -577,7 +581,17 @@ function ReviewLayoutContent({
                         ? "review-segment review-segment--active"
                         : "review-segment"
                     }
-                    onClick={() => applyReviewView(view)}
+                    onClick={() => {
+                      if (view === "diff")
+                        captureUiEvent(session, "diff_opened", {
+                          kind: diffOpenedKind(
+                            diffScope,
+                            Boolean(lenses?.structuralDiffEnabled),
+                          ),
+                          via: "topbar",
+                        });
+                      applyReviewView(view);
+                    }}
                   >
                     {view === "review" ? (
                       <ReviewSurfaceLabel
@@ -627,7 +641,17 @@ function ReviewLayoutContent({
                   </button>
                 )}
                 <AuthoringActivityBadge
-                  onLocate={(view) => applyReviewView(view)}
+                  onLocate={(view) => {
+                    if (view === "diff")
+                      captureUiEvent(session, "diff_opened", {
+                        kind: diffOpenedKind(
+                          diffScope,
+                          Boolean(lenses?.structuralDiffEnabled),
+                        ),
+                        via: "locate",
+                      });
+                    applyReviewView(view);
+                  }}
                 />
               </div>
               {!scratchpad && <ShareControl />}
@@ -636,9 +660,12 @@ function ReviewLayoutContent({
                 className="review-topbar-icon-button"
                 ref={discordTooltip}
                 aria-label="Join our Discord community"
-                onClick={() =>
-                  session.surface.post({ name: "joinDiscord", args: {} })
-                }
+                onClick={() => {
+                  captureUiEvent(session, "discord_clicked", {
+                    via: "topbar",
+                  });
+                  session.surface.post({ name: "joinDiscord", args: {} });
+                }}
               >
                 <DiscordIcon />
               </button>

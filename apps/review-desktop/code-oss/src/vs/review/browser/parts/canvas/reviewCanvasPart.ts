@@ -191,6 +191,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// A clean quit ends the open session before the server would reconcile it as abnormal.
 		this._register(lifecycleService.onWillShutdown(() => this.sessionTelemetry.end("app_quit")));
 		this._register(toDisposable(() => this.sessionTelemetry.end("closed")));
+		let catalog = this.apiCatalog.reviews;
+		this._register(this.apiCatalog.onDidChange(() => {
+			const previous = catalog;
+			catalog = this.apiCatalog.reviews;
+			this.sessionTelemetry.catalogChanged(previous, catalog);
+		}));
 		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewEmbeddedEditors));
 		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
@@ -481,9 +487,18 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						kind: "home",
 						reviews,
 						openReview: (uuid) => void openReview(uuid),
-						deleteReview: (uuid) => this.apiCatalog.deleteReview(uuid),
-						dismissReview: (uuid) => this.apiCatalog.attention(uuid, "dismiss"),
-						restoreReview: (uuid) => this.apiCatalog.attention(uuid, "restore"),
+						deleteReview: (uuid) => {
+							this.reviewTelemetryService.capture("review_deleted", { via: "home" });
+							return this.apiCatalog.deleteReview(uuid);
+						},
+						dismissReview: (uuid) => {
+							this.reviewTelemetryService.capture("review_dismissed", { via: "home" });
+							return this.apiCatalog.attention(uuid, "dismiss");
+						},
+						restoreReview: (uuid) => {
+							this.reviewTelemetryService.capture("review_restored", { via: "home" });
+							return this.apiCatalog.attention(uuid, "restore");
+						},
 						openSourceTree: (uuid) => {
 							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
 							if (api) {
@@ -732,6 +747,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			},
 			theme: currentReviewThemeChoice(this.configurationService, this.reviewThemeService),
 			setTheme: async (choice) => {
+				this.reviewTelemetryService.capture("setting_changed", {
+					setting: "theme",
+					value: choice,
+				});
 				await applyReviewThemeChoice(this.configurationService, choice);
 				return currentReviewThemeChoice(this.configurationService, this.reviewThemeService);
 			},
@@ -763,6 +782,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			},
 			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 			setStructuralDiffEnabled: async (enabled) => {
+				this.reviewTelemetryService.capture("setting_changed", {
+					setting: "structural_diff",
+					enabled,
+				});
 				await this.configurationService.updateValue(
 					REVIEW_STRUCTURAL_DIFF_SETTING,
 					enabled,

@@ -181,6 +181,58 @@ describe("PostHogCaptureClient", () => {
     expect(uuids[1]).toEqual(uuids[0]);
   });
 
+  it("resends a drop diagnostic with the same uuid and counts the drop once", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
+    roots.push(root);
+    let now = Date.parse("2026-08-05T12:00:00.000Z");
+
+    // The first POST may have landed although its response was lost.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockResolvedValue(new Response(null, { status: 200 }));
+
+    const client = () =>
+      new PostHogCaptureClient({
+        apiKey: "test-key",
+        fetch: fetchMock,
+        queueDir: root,
+        now: () => now,
+      });
+
+    await client().capture({ event: "old", distinctId: "install-1" });
+    // Eight days later the queued event has expired.
+    now += 8 * 24 * 60 * 60 * 1000;
+
+    const first = client();
+
+    await first.capture({ event: "fresh", distinctId: "install-1" });
+    await first.flush();
+
+    now += 2_000;
+    await client().flush();
+    await first.capture({ event: "later", distinctId: "install-1" });
+    await client().flush();
+
+    const drops = fetchMock.mock.calls.map(([, init]) =>
+      (
+        JSON.parse(String(init?.body)).batch as Array<{
+          uuid: string;
+          event: string;
+          properties: PostHogCaptureProperties;
+        }>
+      )
+        .filter((event) => event.event === "review_telemetry_dropped")
+        .map((event) => [event.uuid, event.properties.count]),
+    );
+
+    expect(drops).toHaveLength(3);
+    expect(drops[0]).toEqual([[expect.stringMatching(/^[0-9a-f-]{36}$/), 1]]);
+    expect(drops[1]).toEqual(drops[0]);
+    expect(drops[2]).toEqual([]);
+    expect(await readdir(root)).not.toContain("dropped.json");
+  });
+
   it("sends the time an event happened, not the time it was queued", async () => {
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
@@ -305,6 +357,76 @@ describe("PostHogCaptureClient", () => {
       distinct_id: "install-1",
       $process_person_profile: false,
     });
+  });
+
+  it("sends nested JSON properties unchanged", async () => {
+    const bodies: string[] = [];
+
+    const client = new PostHogCaptureClient({
+      apiKey: "phc_test",
+      fetch: async (_url, init) => {
+        bodies.push(String(init?.body));
+
+        return new Response(null, { status: 200 });
+      },
+    });
+
+    await client.capture({
+      event: "$exception",
+      distinctId: "install-1",
+      properties: {
+        $exception_list: [
+          { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+        ],
+        gone: undefined,
+      },
+    });
+    await client.flush(1_000);
+
+    const batch = JSON.parse(bodies[0]).batch;
+    expect(
+      batch[0].properties.$exception_list[0].stacktrace.frames[0].lineno,
+    ).toBe(1);
+    expect("gone" in batch[0].properties).toBe(false);
+  });
+
+  it("keeps nested JSON properties through the on-disk queue", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
+    roots.push(root);
+
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+
+    const client = new PostHogCaptureClient({
+      apiKey: "test-key",
+      fetch: fetchMock,
+      queueDir: root,
+    });
+
+    await client.capture({
+      event: "$exception",
+      distinctId: "install-1",
+      properties: {
+        $exception_list: [
+          { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+        ],
+      },
+    });
+    await client.flush();
+
+    const sent = fetchMock.mock.calls.flatMap(
+      ([, init]) =>
+        JSON.parse(String(init?.body)).batch as Array<{
+          event: string;
+          properties: PostHogCaptureProperties;
+        }>,
+    );
+
+    expect(sent.map((event) => event.event)).toEqual(["$exception"]);
+    expect(sent[0].properties.$exception_list).toEqual([
+      { type: "TypeError", stacktrace: { frames: [{ lineno: 1 }] } },
+    ]);
   });
 
   it("does not send without a key and swallows network errors", async () => {

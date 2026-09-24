@@ -10,6 +10,12 @@ export interface ReviewSessionTelemetryContext {
 	readonly presentationSessionId: string;
 }
 
+/** The part of a catalog entry that says whether a review is still open. */
+export interface ReviewSessionCatalogEntry {
+	readonly reviewId: string;
+	readonly dismissedAt: string | null;
+}
+
 export type ReviewSessionOutcome = "closed" | "dismissed" | "deleted" | "app_quit" | "abnormal";
 
 type Capture = (
@@ -51,6 +57,23 @@ export class ReviewSessionTelemetry {
 		if (!this.active || this.active.presented) return;
 		this.active.presented = true;
 		this.capture("review_presented", properties, this.active.context);
+	}
+
+	/**
+	 * Ends the session as dismissed or deleted when the catalog shows its review
+	 * went, whoever did it: the topbar, Home or another window. The catalog fires
+	 * this before it asks the tabs to close, so the close cannot win.
+	 */
+	catalogChanged(previous: readonly ReviewSessionCatalogEntry[], current: readonly ReviewSessionCatalogEntry[]): void {
+		const reviewUuid = this.active?.context.reviewUuid;
+		const before = previous.find(review => review.reviewId === reviewUuid);
+		if (!before) return;
+		const after = current.find(review => review.reviewId === reviewUuid);
+		if (!after) {
+			this.end("deleted");
+		} else if (!before.dismissedAt && after.dismissedAt) {
+			this.end("dismissed");
+		}
 	}
 
 	end(outcome: ReviewSessionOutcome): void {

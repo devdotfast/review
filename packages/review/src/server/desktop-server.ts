@@ -53,8 +53,13 @@ import {
   readScratchpadEnabled,
   writeScratchpadEnabled,
 } from "../review-preferences";
-import { ReviewTelemetry } from "../review-telemetry";
+import {
+  ReviewTelemetry,
+  type ReviewTelemetryContext,
+} from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
+import { aliasInstallationToAccount } from "./account-alias";
+import { CrashReportRequestSchema, reportCrashDump } from "./crash-report";
 import {
   readDiffrConfig,
   saveDiffrSummarizer,
@@ -76,6 +81,8 @@ import {
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
 import { createJsonReviewReporting } from "./json-review-reporting";
+import { reviewLifecycleTelemetry } from "./review-lifecycle-telemetry";
+import { ReviewOpenWatchdog } from "./review-open-watchdog";
 import { createTutorialService } from "./tutorial-service";
 import { captureSanitizedUiTelemetry } from "./ui-telemetry";
 
@@ -100,6 +107,8 @@ export interface GlobalReviewServerInput {
   discoveryPath?: string;
   telemetry?: ReviewTelemetry;
   relay?: ReviewDesktopVerbRelay;
+  /** Electron's Review crash dump directory; `/crash-reports` reads only inside it. */
+  crashDumpsDir?: string;
 }
 
 export interface GlobalReviewServer {
@@ -133,6 +142,19 @@ export function createGlobalReviewServer(
   const reviewStore = input.reviewStore;
 
   const reviewLocks = new Map<string, Promise<void>>();
+
+  // A reload or a second window starts the workbench again, but the launch
+  // this server belongs to became ready once.
+  let appReadyReported = false;
+
+  const openWatchdog = new ReviewOpenWatchdog({
+    onTimeout: (context, elapsedMs) =>
+      void telemetry.captureEvent(
+        "review_open_timeout",
+        { elapsed_ms: elapsedMs },
+        context,
+      ),
+  });
 
   const tutorial = createTutorialService({
     packageRoot: input.packageRoot,
@@ -250,6 +272,11 @@ export function createGlobalReviewServer(
           home: devReviewHome(),
         };
       },
+      reviewLifecycleTelemetry(
+        telemetry,
+        (reviewId) => reviewStore.summary(reviewId)?.firstCreatedAt,
+        () => aliasInstallationToAccount(telemetry),
+      ),
     ),
   );
   app.get("/preferences/scratchpad", () =>
@@ -285,6 +312,12 @@ export function createGlobalReviewServer(
       const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
 
+      if (payload.name === "app_ready") {
+        if (appReadyReported) return globalJson(200, { ok: true });
+
+        appReadyReported = true;
+      }
+
       // The workbench has no reader on the stored review; the server does, so
       // `session_started`'s source_kind is filled in here rather than trusted
       // from the client.
@@ -314,11 +347,12 @@ export function createGlobalReviewServer(
         context.req.raw,
         payload.name,
         eventProperties,
-        (event) => {
+        (event, eventContext) => {
           flushBeforeOptOut =
             event.event === "review_setting_changed" &&
             event.properties.setting === "telemetry_enabled" &&
             event.properties.enabled === false;
+          watchSessionOpen(openWatchdog, event.event, eventContext);
         },
         payload.error,
         payload.context,
@@ -331,6 +365,25 @@ export function createGlobalReviewServer(
     }
 
     return globalJson(200, { ok: true });
+  });
+  app.post("/crash-reports", async (context) => {
+    const body = CrashReportRequestSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (!body.success)
+      throw new ReviewServerError(
+        "dump_path, crashed_at and covered are required.",
+        400,
+      );
+
+    const result = await reportCrashDump(
+      telemetry,
+      body.data,
+      input.crashDumpsDir,
+    );
+
+    return globalJson(result.status, result.body);
   });
   app.get("/tutorial/status", async () =>
     globalJson(200, await tutorial.status()),
@@ -642,11 +695,31 @@ export function createGlobalReviewServer(
       for (const discoveryPath of discoveryPaths)
         await removeMatchingDiscovery(discoveryPath, discovery);
       relay.close();
+      openWatchdog.dispose();
 
       await closeHttpServer(httpServer);
       await telemetry.shutdown(1_500);
     },
   };
+}
+
+function watchSessionOpen(
+  watchdog: ReviewOpenWatchdog,
+  event: string,
+  context: ReviewTelemetryContext | undefined,
+): void {
+  const reviewUuid = context?.reviewUuid;
+  const presentationSessionId = context?.presentationSessionId;
+
+  if (!reviewUuid || !presentationSessionId) return;
+
+  if (event === "review_session_started")
+    watchdog.started({ reviewUuid, presentationSessionId });
+  else if (
+    event === "review_review_presented" ||
+    event === "review_session_ended"
+  )
+    watchdog.presented(presentationSessionId);
 }
 
 function httpJsonStatus(cause: unknown): number {

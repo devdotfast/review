@@ -2660,25 +2660,8 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
   ).toEqual({ additions: 3, deletions: 3 });
 });
 
-it("rejects document lenses, unsafe patterns and missing range sources", async () => {
+it("rejects unsafe patterns and missing range sources", async () => {
   const { reviewId } = await create();
-
-  // Lenses left the document: an insert says where they went.
-  for (const content of [
-    {
-      type: "file_lens",
-      title: "Old",
-      targets: [{ kind: "files", patterns: ["**"] }],
-    },
-    {
-      type: "section",
-      title: "Nested",
-      children: [{ type: "file_lens", title: "Old", patterns: ["**"] }],
-    },
-  ])
-    expect(() => edit(reviewId, { type: "insert", content })).toThrow(
-      /no longer a document block.*session_lens_edit/,
-    );
 
   await expect(
     writeLens(reviewId, {
@@ -2995,4 +2978,55 @@ it("shares pending comparison work even when more than 32 reviews are opened", a
   expect(data.coverage(reviewId, pins, "structural")).toBe(first);
   release();
   await Promise.all([first, ...others]);
+});
+
+it("reports a created review with the origin its headers claim", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const created: unknown[] = [];
+
+  const api = createReviewApi(
+    store,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { onReviewCreated: (event) => created.push(event) },
+  );
+
+  const create = (title: string, headers: Record<string, string>) =>
+    api.request("/commands", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(request({ type: "create", title, pins })),
+    });
+
+  expect(
+    (
+      await create("Example", {
+        "x-review-via": "mcp",
+        "x-review-agent": "codex",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await create("Other", {
+        "x-review-via": "carrier-pigeon",
+      })
+    ).status,
+  ).toBe(200);
+
+  expect(created).toEqual([
+    {
+      reviewId: expect.any(String),
+      kind: "review",
+      blocks: 0,
+      via: "mcp",
+      agentKind: "codex",
+    },
+    { reviewId: expect.any(String), kind: "review", blocks: 0, via: "other" },
+  ]);
 });

@@ -399,7 +399,7 @@ export function DatabaseLens(block: DatabaseLensProps) {
       <header className="diagram-header database-lens-header">
         <div className="diagram-header-main">
           <span className="diagram-kind-badge">DB</span>
-          <span className="diagram-header-title">
+          <span className="diagram-header-title" data-review-copy-prose>
             {title ?? "Database lens"}
           </span>
         </div>

@@ -932,7 +932,9 @@ export function SoftwareMapFrame({
             <span className="diagram-kind-badge software-map-kind-badge">
               {VIEW_TYPE_LABELS[viewType]}
             </span>
-            <figcaption className="diagram-header-title">{title}</figcaption>
+            <figcaption className="diagram-header-title" data-review-copy-prose>
+              {title}
+            </figcaption>
           </div>
           <div className="software-map-actions">
             {onRefresh ? (

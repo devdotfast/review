@@ -16,7 +16,7 @@ import {
   instructionsQuerySchema,
   renderInstructions,
 } from "./instructions.js";
-import { mcpServerInstructions, serveReviewMcp } from "./mcp.js";
+import { serveReviewMcp } from "./mcp.js";
 import { ReviewStore } from "./store.js";
 
 const live = {
@@ -149,7 +149,7 @@ describe("renderInstructions", () => {
   });
 });
 
-describe("tool and server descriptions", () => {
+describe("tool descriptions", () => {
   it("mention trace-archaeology only when capture is on", () => {
     const off = authoringTools(false, false).find(
       (tool) => tool.name === "review_get_instructions",
@@ -161,15 +161,6 @@ describe("tool and server descriptions", () => {
 
     expect(off?.description).not.toContain("trace-archaeology");
     expect(on?.description).toContain("trace-archaeology");
-    expect(
-      mcpServerInstructions({
-        scratchpadAvailable: false,
-        traceEnabled: false,
-      }),
-    ).not.toContain("trace-archaeology");
-    expect(
-      mcpServerInstructions({ scratchpadAvailable: false, traceEnabled: true }),
-    ).toContain("trace-archaeology");
   });
 });
 
@@ -481,14 +472,15 @@ describe("review mcp instructions", () => {
       expect(connections).toBe(0);
 
       const init = await mcp.request(1, "initialize", initialize);
-      expect(init.result.instructions).toContain("session_get_instructions");
-      expect(init.result.instructions).toContain("trace-archaeology");
-      expect(init.result.instructions).toContain('topic:"scratchpad"');
+      expect(init.result.instructions).toBeUndefined();
       const list = await mcp.request(2, "tools/list", {});
       expect(
         list.result.tools.map((tool: { name: string }) => tool.name),
       ).toEqual(["session_get_instructions", "whiteboard_status"]);
-      expect(list.result.tools[0].description).not.toContain("scratchpad");
+      const guidance = list.result.tools[0].description;
+      expect(guidance).toContain("session_get_instructions");
+      expect(guidance).toContain("trace-archaeology");
+      expect(guidance).toContain('topic:"scratchpad"');
 
       const down = await mcp.request(3, "tools/call", {
         name: "session_get_instructions",
@@ -508,6 +500,11 @@ describe("review mcp instructions", () => {
       expect(live.result.content[0].text).toContain("rfc-style whiteboard");
       const liveList = await mcp.request(5, "tools/list", {});
       expect(liveList.result.tools[0].name).toBe("session_get_instructions");
+      const preamble = guidance.split("\n\n")[0];
+      expect(liveList.result.tools[0].description).toContain(preamble);
+
+      for (const tool of liveList.result.tools.slice(1))
+        expect(tool.description).not.toContain(preamble);
       expect(
         liveList.result.tools.filter(
           (tool: { name: string }) => tool.name === "session_get_instructions",

@@ -9,11 +9,17 @@ import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export interface ReviewTelemetryInstallConfig {
   installationId: string;
+  /**
+   * When this install was created, ISO 8601. A config written before the
+   * field existed gets the first time a later version read it.
+   */
   createdAt: string;
   installationCreatedSent: boolean;
   firstReviewPresentedSent: boolean;
   enabled: boolean;
   internal: boolean;
+  /** `gh_` + keyed hash of the signed-in account id; absent until a login. */
+  accountAlias?: string;
 }
 
 export type ReviewTelemetryChannel = "stable" | "preview" | "dev";
@@ -43,6 +49,20 @@ const CHANNELS: readonly ReviewTelemetryChannel[] = [
   "preview",
   "dev",
 ];
+
+/**
+ * PostHog groups events into sessions by `$session_id` and accepts only a
+ * UUIDv7 there, so only a v7 app session id doubles as one.
+ */
+export const uuidV7Schema = z
+  .string()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+
+export function isUuidV7(value: unknown): value is string {
+  return uuidV7Schema.safeParse(value).success;
+}
 
 export function reviewTelemetryChannel(
   env: NodeJS.ProcessEnv,
@@ -139,11 +159,12 @@ export function isTelemetryOptedOut(
  */
 const storedTelemetryInstallConfigSchema = z.looseObject({
   installationId: z.string().min(1),
-  createdAt: z.string().optional().catch(undefined),
+  createdAt: z.iso.datetime({ offset: true }).optional().catch(undefined),
   installationCreatedSent: z.boolean().optional().catch(undefined),
   firstReviewPresentedSent: z.boolean().optional().catch(undefined),
   enabled: z.boolean().optional().catch(undefined),
   internal: z.boolean().optional().catch(undefined),
+  accountAlias: z.string().min(1).optional().catch(undefined),
 });
 
 export function normalizeTelemetryInstallConfig(
@@ -154,7 +175,7 @@ export function normalizeTelemetryInstallConfig(
 
   if (!stored.success) return undefined;
 
-  return {
+  const config: ReviewTelemetryInstallConfig = {
     installationId: stored.data.installationId,
     createdAt: stored.data.createdAt ?? now().toISOString(),
     installationCreatedSent: stored.data.installationCreatedSent === true,
@@ -162,6 +183,41 @@ export function normalizeTelemetryInstallConfig(
     enabled: stored.data.enabled !== false,
     internal: stored.data.internal === true,
   };
+
+  if (stored.data.accountAlias) config.accountAlias = stored.data.accountAlias;
+
+  return config;
+}
+
+/**
+ * Whether normalizing changed a field an older or hand-edited file lacked, so
+ * the config must be written back once: a backfilled `createdAt` has to stay
+ * the first-seen time rather than move with every read.
+ */
+export function telemetryInstallConfigNeedsWrite(
+  parsed: JsonValue,
+  config: ReviewTelemetryInstallConfig,
+): boolean {
+  const stored = storedTelemetryInstallConfigSchema.safeParse(parsed).data;
+
+  return (
+    stored?.internal !== config.internal ||
+    stored?.createdAt !== config.createdAt
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/** Whole days since the install was created; 0 for a clock set back. */
+export function installAgeDays(
+  config: Pick<ReviewTelemetryInstallConfig, "createdAt">,
+  now: Date,
+): number {
+  const createdAt = Date.parse(config.createdAt);
+
+  if (Number.isNaN(createdAt)) return 0;
+
+  return Math.max(0, Math.floor((now.getTime() - createdAt) / DAY_MS));
 }
 
 export function createTelemetryInstallConfig(

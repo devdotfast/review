@@ -28,7 +28,14 @@ const ENVELOPE = [
   "arch",
   "os_version",
   "node_major",
+  "app_session_id",
+  "$session_id",
+  "install_age_days",
 ];
+
+/** PostHog sessions key on `$session_id` and accept only a UUIDv7. */
+const UUID_V7 =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Every event this journey may see; a new name must be added here on purpose. */
 const EXPECTED_EVENTS = new Set([
@@ -40,6 +47,22 @@ const EXPECTED_EVENTS = new Set([
   "review_review_presented",
   "review_first_review_presented",
   "review_session_ended",
+  "review_app_ready",
+  "review_review_created",
+]);
+
+/**
+ * Allowed, never required: they depend on timing or a runner this journey
+ * does not control. A GPU crash on a headless Linux runner or a slow open is
+ * a stability signal, not a contract break.
+ */
+const OPTIONAL_EVENTS = new Set([
+  "review_ui_stall",
+  "review_hang_started",
+  "review_hang_ended",
+  "review_authoring_completed",
+  "review_crash",
+  "review_open_timeout",
 ]);
 
 /** Every event printed so far by the embedded server's debug sink. */
@@ -63,20 +86,34 @@ function sentEvents(ctx) {
   return events;
 }
 
-const named = (ctx, event) =>
-  sentEvents(ctx).filter((e) => e.event === event);
+const named = (ctx, event) => sentEvents(ctx).filter((e) => e.event === event);
 
 function assertContract(ctx, review) {
   const events = sentEvents(ctx);
 
   for (const event of events) {
     assert.ok(
-      EXPECTED_EVENTS.has(event.event),
+      EXPECTED_EVENTS.has(event.event) || OPTIONAL_EVENTS.has(event.event),
       `unexpected event ${event.event}`,
     );
 
     for (const key of ENVELOPE)
       assert.ok(key in event.properties, `${event.event} carries ${key}`);
+    assert.equal(
+      event.properties.$session_id,
+      event.properties.app_session_id,
+      `${event.event} keys its PostHog session on the app session`,
+    );
+    assert.match(
+      event.properties.$session_id,
+      UUID_V7,
+      `${event.event} has a UUIDv7 session id`,
+    );
+    assert.ok(
+      Number.isInteger(event.properties.install_age_days) &&
+        event.properties.install_age_days >= 0,
+      `${event.event} carries a whole-day install age`,
+    );
     assert.equal(
       event.properties.environment,
       "e2e",
@@ -105,6 +142,14 @@ export async function run(ctx) {
     () => named(ctx, "review_installation_created").length === 1 || null,
     "the installation event",
   );
+
+  const ready = await ctx.until(
+    () => named(ctx, "review_app_ready")[0] ?? null,
+    "the app ready event",
+  );
+
+  assert.ok(ready.properties.duration_ms > 0, "app ready carries a duration");
+  ctx.check("the workbench reports its ready time");
 
   const review = await createReview(ctx, {
     title: "Telemetry contract",

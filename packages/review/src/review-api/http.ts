@@ -9,9 +9,10 @@ import { resolveReviewBranchLinks } from "../review-branch-links.js";
 import { resolveReviewStackLayers } from "../review-stack.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
-import { mountSharingHost } from "../sharing/host.js";
+import { type SharingHostEvents, mountSharingHost } from "../sharing/host.js";
 import type { SharedReviewStore } from "../sharing/import.js";
 import { SharedReviewData } from "../sharing/routes.js";
+import type { ReviewSessionAgent } from "../ui-telemetry-events.js";
 import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
@@ -27,6 +28,10 @@ import {
   queryAnchor,
   readQuerySchemas,
 } from "./read-schemas.js";
+import {
+  type ReviewRequestVia,
+  reviewRequestOrigin,
+} from "./request-origin.js";
 import {
   type UncategorizedReport,
   coverageModeSchema,
@@ -54,6 +59,21 @@ export interface AuthoringCapabilities {
 const SCRATCHPAD_DISABLED =
   "The scratchpad is off. Turn it on in Review Desktop Settings.";
 
+/**
+ * What the host reports about reviews, for telemetry. `onReviewCreated` fires
+ * again for a replayed create command; consumers dedupe by review id.
+ */
+export interface ReviewApiHooks {
+  onReviewCreated?: (event: {
+    reviewId: string;
+    kind: "review" | "scratchpad";
+    blocks: number;
+    via: ReviewRequestVia;
+    agentKind?: ReviewSessionAgent;
+  }) => void;
+  sharing?: SharingHostEvents;
+}
+
 /** Both hosts mount this behind their token authentication. */
 export function createReviewApi(
   store: ReviewStore,
@@ -76,6 +96,7 @@ export function createReviewApi(
   traceEnabled: () => Promise<boolean> = async () => false,
   /** Which server this is, for whiteboard_status. */
   status: () => JsonObject = () => ({}),
+  hooks: ReviewApiHooks = {},
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -164,7 +185,7 @@ export function createReviewApi(
 
   if (shared && data) {
     shared.connect(store, data);
-    mountSharingHost(app, store, data, shared);
+    mountSharingHost(app, store, data, shared, hooks.sharing);
   }
 
   const readReview = (id: string, version?: number): Snapshot => {
@@ -1223,6 +1244,16 @@ export function createReviewApi(
     }
 
     if (input.operation.type !== "create") return context.json(result);
+
+    // False when an existing review for the same PR came back. A replayed
+    // command returns its first receipt, so this can repeat for one review.
+    if (result.created !== false)
+      hooks.onReviewCreated?.({
+        reviewId: result.reviewId,
+        kind: input.operation.kind === "scratchpad" ? "scratchpad" : "review",
+        blocks: store.read(result.reviewId).document.length,
+        ...reviewRequestOrigin(context.req.raw.headers),
+      });
 
     return context.json({
       ...result,

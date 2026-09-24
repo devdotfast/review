@@ -54,11 +54,17 @@ import type { ServicesAccessor } from '../platform/instantiation/common/instanti
 import { Codicon } from '../base/common/codicons.js';
 import type { ThemeIcon } from '../base/common/themables.js';
 import type { ILocalizedString } from '../platform/action/common/action.js';
-import { isCodeEditor, isDiffEditor } from '../editor/browser/editorBrowser.js';
+import { getCodeEditor, isCodeEditor, isDiffEditor } from '../editor/browser/editorBrowser.js';
 import { IEditorService } from '../workbench/services/editor/common/editorService.js';
 import { IDecorationsService } from '../workbench/services/decorations/common/decorations.js';
 import { IDiffProviderFactoryService } from '../editor/browser/widget/diffEditor/diffProviderFactoryService.js';
 import { NavigatorDiffProviderFactoryService } from './services/navigatorStructuralDiff.js';
+import { URI } from '../base/common/uri.js';
+import { Position } from '../editor/common/core/position.js';
+import { ILanguageFeaturesService } from '../editor/common/services/languageFeatures.js';
+import { SymbolNavigationAnchor } from '../editor/contrib/gotoSymbol/browser/goToCommands.js';
+import { CommandsRegistry, ICommandService } from '../platform/commands/common/commands.js';
+import { isEqual } from '../base/common/resources.js';
 
 /** Set by the built-in review-files extension once its tree has listed the compared files. */
 const REVIEW_FILES_ENABLED_CONTEXT = 'reviewFiles.enabled';
@@ -176,6 +182,36 @@ registerWorkbenchContribution2('review.navigator.emptySource', NavigatorEmptySou
 registerSingleton(IEditorResolverService, NavigatorDiffEditorResolverService, InstantiationType.Delayed);
 registerSingleton(IDecorationsService, NavigatorDecorationsService, InstantiationType.Delayed);
 registerSingleton(IDiffProviderFactoryService, NavigatorDiffProviderFactoryService, InstantiationType.Delayed);
+
+CommandsRegistry.registerCommand('review.action.showReferencesInSource', async (accessor, resource: string, lineNumber: number, column: number) => {
+	const editorService = accessor.get(IEditorService);
+	const references = accessor.get(ILanguageFeaturesService).referenceProvider;
+	const commandService = accessor.get(ICommandService);
+	const uri = URI.parse(resource);
+	const position = new Position(lineNumber, column);
+	const pane = await editorService.openEditor({
+		resource: uri,
+		options: { selection: { startLineNumber: lineNumber, startColumn: column }, pinned: true },
+	});
+	const editor = getCodeEditor(pane?.getControl());
+	if (!editor?.hasModel()) throw new Error('Could not open the source file for references.');
+	const model = editor.getModel();
+	if (!references.has(model)) {
+		await new Promise<void>((resolve, reject) => {
+			const listener = references.onDidChange(() => {
+				if (references.has(model)) { listener.dispose(); clearTimeout(timeout); resolve(); }
+			});
+			const timeout = setTimeout(() => { listener.dispose(); reject(new Error('No reference provider became available for this file.')); }, 30_000);
+			if (references.has(model)) { listener.dispose(); clearTimeout(timeout); resolve(); }
+		});
+	}
+	// A diff or Base mode may show another file, already at the matching line.
+	if (isEqual(model.uri, uri)) {
+		editor.setPosition(position);
+	}
+	editor.focus();
+	await commandService.executeCommand('editor.action.goToReferences', new SymbolNavigationAnchor(model, editor.getPosition()));
+});
 
 Registry.as<IQuickAccessRegistry>(QuickAccessExtensions.Quickaccess).registerQuickAccessProvider({
 	ctor: CommandsQuickAccessProvider,

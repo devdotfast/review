@@ -16,7 +16,7 @@ follow these first six steps exactly, without any extraneous tool calls.
         - pick one diagram that best shows the shape of the change:
             - `sequence` if participants interact over time (who calls whom, async handoffs)
             - `flow_diagram` if the interesting part is branches, retries or state transitions
-            - `database_lens` if the change is about what's stored and who reads/writes it
+            - `database_lens` if the interesting part is a schema change to the data stores, and/or who reads/writes it
         - if the change is mostly a new/changed contract, show the key types / interfaces as `code_peek`(s)
         plus the main decisions and tradeoffs, and alternatives considered if you have evidence for them (trace, PR discussion). skip for small changes whose design is self-evident.
     - implementation: how the code delivers the design, at the level of functions and files. walk the changed code in the order a reader should follow it, starting with the entry point.
@@ -34,3 +34,4 @@ follow these first six steps exactly, without any extraneous tool calls.
 - use `session_activity` to provide regular status updates on your area of focus.
 - keep whiteboards short and sweet when possible (esp. for small changes.) feel free to omit sections.
 - when something (a phrase in the prose, diagram node, etc.) describes actual code in the codebase, always default to attaching/hyperlink code.
+- Link repository code as `[label](review-source:head/src/file.ts#L10-L24)`; use `base` for old code. Use repository-relative paths and verified line numbers.

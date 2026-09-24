@@ -305,6 +305,14 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 			if (chatSessionToOpen && windows.length === 1) {
 				windows[0].sendWhenReady('vscode:openChatSession', CancellationToken.None, URI.revive(chatSessionToOpen).toString());
 			}
+			const references = options.reviewReferencesToShow;
+			if (references && windows.length === 1) {
+				windows[0].sendWhenReady('vscode:runAction', CancellationToken.None, {
+					id: 'review.action.showReferencesInSource',
+					from: 'review',
+					args: [URI.revive(references.resource).toString(), references.lineNumber, references.column],
+				});
+			}
 		}
 	}
 

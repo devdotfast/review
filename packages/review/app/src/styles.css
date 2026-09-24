@@ -2142,6 +2142,8 @@ button {
 
 .review-topbar-context {
   display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   margin-right: auto;
 }
@@ -4735,6 +4737,14 @@ button.review-stack-row:disabled .review-stack-relation {
 
 .review-document li + li {
   margin-top: 8px;
+}
+
+.review-document li > p:first-child {
+  margin-top: 0;
+}
+
+.review-document li > p:last-child {
+  margin-bottom: 0;
 }
 
 .review-document > p,

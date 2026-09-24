@@ -645,7 +645,11 @@ function CodeReviewPeekPanel({
         ) : null}
 
         <div className="peek-content">
-          <ReviewPeekContentView anchor={anchor} content={content} />
+          <ReviewPeekContentView
+            anchor={anchor}
+            content={content}
+            reportOutcome
+          />
         </div>
       </div>
     </ReviewPanelFrame>
@@ -1012,11 +1016,13 @@ function ReviewPeekContentView({
   content,
   active,
   onNativeFocus,
+  reportOutcome = false,
 }: {
   anchor: PeekAnchor;
   content: ReviewPeekContent;
   active?: boolean;
   onNativeFocus?: () => void;
+  reportOutcome?: boolean;
 }) {
   if (content.kind === "explanation") return <p>{content.text}</p>;
 
@@ -1027,6 +1033,7 @@ function ReviewPeekContentView({
         active={active}
         heightMode="content"
         onNativeFocus={onNativeFocus}
+        reportOutcome={reportOutcome}
       />
     );
   }

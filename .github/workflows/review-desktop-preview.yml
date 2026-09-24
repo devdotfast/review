@@ -407,9 +407,10 @@ jobs:
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
           DMG_DISPOSITION="attachment; filename=\"df-whiteboard-preview-${RELEASE_VERSION}.dmg\""
 
-          aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
-            "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip" \
-            --content-type application/zip
+          for zip in "$DIST"/*-darwin-arm64-"${RELEASE_VERSION}".zip; do
+            aws s3 cp "$zip" "${RELEASE_PREFIX}/$(basename "$zip")" \
+              --content-type application/zip
+          done
           aws s3 cp "$DIST/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             "${RELEASE_PREFIX}/Whiteboard-darwin-arm64-${RELEASE_VERSION}.dmg" \
             --content-type application/x-apple-diskimage \
@@ -431,6 +432,11 @@ jobs:
           echo "$RESPONSE"
           echo "$RESPONSE" | grep -F "\"productVersion\":\"${RELEASE_VERSION}\""
           echo "$RESPONSE" | grep -F "\"version\":\"${RELEASE_COMMIT}\""
+          echo "$RESPONSE" | grep -F "/Review-darwin-arm64-${RELEASE_VERSION}.zip"
+
+          echo "Feed for a Whiteboard Preview.app install (expect the Whiteboard zip):"
+          curl -sf "https://update.dev.fast/api/update/darwin-arm64/preview/0000000000000000000000000000000000000000?bundle=Whiteboard%20Preview" \
+            | grep -F "/Whiteboard-darwin-arm64-${RELEASE_VERSION}.zip"
 
           echo "Feed for the just-released commit (expect 204):"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://update.dev.fast/api/update/darwin-arm64/preview/${RELEASE_COMMIT}")

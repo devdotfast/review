@@ -15,7 +15,11 @@ export function DiagramHeader({
     <figcaption className="diagram-header">
       <div className="diagram-header-main">
         <span className="diagram-kind-badge">{kind}</span>
-        {title && <span className="diagram-header-title">{title}</span>}
+        {title && (
+          <span className="diagram-header-title" data-review-copy-prose>
+            {title}
+          </span>
+        )}
         {meta && <em className="diagram-header-meta">{meta}</em>}
       </div>
       {action}

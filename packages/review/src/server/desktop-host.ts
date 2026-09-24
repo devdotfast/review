@@ -13,6 +13,11 @@ import { SharedReviewStore } from "../sharing/import.js";
 import { reviewTelemetryChannel } from "../telemetry-config";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
+import {
+  drainServerCrashReport,
+  installProcessErrorTelemetry,
+  serverCrashReportPath,
+} from "./process-error-telemetry";
 
 export async function runDesktopHost(
   env: NodeJS.ProcessEnv = process.env,
@@ -34,6 +39,11 @@ export async function runDesktopHost(
     surface: "desktop",
   });
 
+  installProcessErrorTelemetry(telemetry, {
+    appSessionId: env.DEV_FAST_REVIEW_APP_SESSION_ID,
+    crashReportPath: serverCrashReportPath(env),
+  });
+
   await telemetry.setEnabled(
     !isEnabledEnvValue(env.DEV_FAST_REVIEW_TELEMETRY_DISABLED),
   );
@@ -43,6 +53,7 @@ export async function runDesktopHost(
   if (reviewTelemetryChannel(env) === "dev") await telemetry.setInternal(true);
   await telemetry.captureInstallationCreated().catch(() => undefined);
   await telemetry.reconcileOpenSessions().catch(() => undefined);
+  await drainServerCrashReport(telemetry, serverCrashReportPath(env));
   const installationId = await telemetry.getInstallationId();
   // This value bootstraps the stored setting. Remove it after persistence so
   // a later in-app enable also reaches telemetry instances created elsewhere.
@@ -92,6 +103,7 @@ export async function runDesktopHost(
     reviewStore: local.store,
     reviewData: local.data,
     cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME,
+    crashDumpsDir: env.DEV_FAST_REVIEW_CRASH_DUMPS_DIR,
   });
 
   try {

@@ -842,3 +842,58 @@ it("degrades to the retained document and an unavailable Commits tab when the ch
     await gone.close();
   }
 });
+
+it("leaves window errors to the workbench it shares a window with", async () => {
+  const review = await command({ type: "create", title: "Errors", pins });
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const telemetry: string[] = [];
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => {
+        if (new URL(String(url)).pathname.endsWith("/telemetry/event"))
+          telemetry.push(JSON.parse(String(init?.body)).name);
+
+        return app.request(url, init);
+      },
+      diffView: {
+        files: async () => [],
+        create: () => {
+          throw new Error("Diff is not mounted by this test.");
+        },
+      },
+    },
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    canvas = mount(container, {
+      kind: "api",
+      reviewId: review.reviewId,
+      bridge,
+      setSourceView: () => {},
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.querySelector("h1")?.textContent).toBe("Errors"),
+    );
+  });
+
+  // Stands in for the workbench's own handler, which reports this error.
+  const handled = (event: ErrorEvent) => event.preventDefault();
+  window.addEventListener("error", handled);
+  window.dispatchEvent(
+    new ErrorEvent("error", {
+      error: new Error("workbench failure"),
+      cancelable: true,
+    }),
+  );
+  window.removeEventListener("error", handled);
+  await act(async () => {});
+
+  expect(telemetry).not.toContain("client_error");
+});

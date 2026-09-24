@@ -76,6 +76,9 @@ export interface IOpenWindowOptions extends IBaseOpenWindowsOptions {
 	 * the Agents window) so the new window restores both the folder and session.
 	 */
 	readonly chatSessionToOpen?: URI;
+
+	/** Run Find References at this source location in the opened window. */
+	readonly reviewReferencesToShow?: { readonly resource: URI; readonly lineNumber: number; readonly column: number };
 }
 
 export interface IAddRemoveFoldersRequest {
@@ -401,7 +404,7 @@ export interface INativeOpenFileRequest extends IOpenFileRequest {
 
 export interface INativeRunActionInWindowRequest {
 	readonly id: string;
-	readonly from: 'menu' | 'touchbar' | 'mouse' | 'systemWideKeybinding';
+	readonly from: 'menu' | 'touchbar' | 'mouse' | 'systemWideKeybinding' | 'review';
 	readonly args?: unknown[];
 }
 

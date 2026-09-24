@@ -57,11 +57,17 @@ export function buildManifest({ version, commit, payloads, now = new Date() }) {
 // Squirrel installs the zip's top-level folder under that name, so a zip whose
 // folder does not match the bundle it is served to would rename the install.
 export function assertZipFolder(zip, folder) {
-  const entries = execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" })
-    .split("\n")
-    .filter(Boolean);
-
-  const roots = new Set(entries.map((entry) => entry.split("/")[0]));
+  // The full listing runs past execFileSync's default buffer, so reduce it
+  // to the distinct top-level names before it crosses the pipe.
+  const roots = new Set(
+    execFileSync(
+      "sh",
+      ["-c", 'unzip -Z1 "$1" | cut -d/ -f1 | sort -u', "sh", zip],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean),
+  );
 
   if (roots.size !== 1 || !roots.has(folder)) {
     throw new Error(

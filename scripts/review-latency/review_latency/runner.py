@@ -73,7 +73,7 @@ def desktop_request(method: str, route: str, home: Path) -> dict | None:
 # Each run gets its own review app: DEV_REVIEW_HOME (reviews store + desktop
 # discovery) under the run dir, and the desktop's Electron state under a short
 # /tmp path — the user-data dir carries a unix socket capped at 103 chars.
-PACKAGED_DESKTOP = Path("/Applications/dev.fast Review.app/Contents/MacOS/Review")
+PACKAGED_DESKTOP = Path("/Applications/Whiteboard.app/Contents/MacOS/Whiteboard")
 # Development desktop from this checkout: the Code OSS shell built by
 # `pnpm --filter @dev-fast/review-desktop app:build`, serving this checkout's
 # review server, so desktop-side instrumentation is measurable. run.sh honors

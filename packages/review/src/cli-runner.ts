@@ -602,7 +602,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   )
     .option("--review <id>", "Review ID")
     .option("--version <number>", "Saved version to share")
-    .option("--preview", "Open the share link in Review Preview by default")
+    .option("--preview", "Open the share link in Whiteboard Preview by default")
     .option(
       "--request-id <uuid>",
       "Reuse this ID when retrying the same immutable upload",

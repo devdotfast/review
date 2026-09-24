@@ -2044,54 +2044,46 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
+  gap: 6px;
   color: inherit;
-  font-size: inherit;
   white-space: nowrap;
 }
 
-.review-branch-ref {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 3px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.review-branch-label {
-  color: var(--ink-faint);
-}
-
-.review-branch-name {
-  max-width: 150px;
-  overflow: hidden;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  text-overflow: ellipsis;
-}
-
+/* Each pinned commit is a small mono chip that copies its full hash. */
 .review-branch-copy {
   position: relative;
   display: inline-flex;
-  min-width: 20px;
-  height: 22px;
+  min-width: 0;
   align-items: center;
-  gap: 4px;
   margin: 0;
-  padding: 4px;
-  font: inherit;
-  border: 0;
-  border-radius: var(--chrome-control-radius);
-  background: transparent;
-  color: var(--ink-faint);
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--tray);
+  color: var(--ink);
+  font: 12px/18px var(--font-mono);
   cursor: pointer;
+}
+
+.review-branch-copy[data-side="base"] {
+  color: var(--ink-muted);
 }
 
 .review-branch-copy:hover,
 .review-branch-copy:focus-visible {
   background: var(--chrome-hover-bg);
-  color: var(--chrome-fg);
+  color: var(--ink);
   outline: none;
+}
+
+.review-branch-copy:focus-visible {
+  border-color: var(--accent);
+}
+
+.review-branch-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .review-branch-copy[data-copied] .review-branch-name {
@@ -2106,7 +2098,6 @@ button {
 }
 
 .review-branch-arrow {
-  margin: 0 4px;
   color: var(--ink-faint);
 }
 

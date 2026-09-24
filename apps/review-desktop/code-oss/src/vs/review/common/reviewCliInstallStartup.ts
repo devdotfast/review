@@ -7,17 +7,10 @@ import type { ReviewCliInstallStatus } from './reviewProtocol.js';
 
 export type ReviewCliInstallStartupAction = 'none' | 'resync' | 'openWelcome';
 
-/**
- * What a built app does with the install stamp at startup. Only a granted
- * stamp acts: an upgrader without the update marker sees the update screen,
- * and a stale fingerprint rewrites the review command silently.
- */
+/** Legacy skills or an unfinished upgrade open Welcome before any silent CLI resync. */
 export function reviewCliInstallStartupAction(status: ReviewCliInstallStatus): ReviewCliInstallStartupAction {
-	if (status.stamp?.consent !== 'granted') {
-		return 'none';
-	}
 	if (status.updateNeeded) {
 		return 'openWelcome';
 	}
-	return status.stale ? 'resync' : 'none';
+	return status.stamp?.consent === 'granted' && status.stale ? 'resync' : 'none';
 }

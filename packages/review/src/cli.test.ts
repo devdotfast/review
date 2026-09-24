@@ -24,14 +24,42 @@ import {
 } from "./review-telemetry";
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
-describe("Review CLI", () => {
-  it("prints the connect prompt for one harness", async () => {
-    const { code, stdout } = await runConnect(["connect", "codex"]);
+describe("Whiteboard CLI", () => {
+  it("routes Cursor install instructions without connecting to Desktop", async () => {
+    const { code, stdout, stderr } = await runConnect([
+      "mcp",
+      "install-instructions",
+      "--harness",
+      "cursor",
+      "--json",
+    ]);
 
     expect(code).toBe(0);
-    expect(stdout).toContain('MCP server named "whiteboard"');
-    expect(stdout).toContain("~/.codex/AGENTS.md");
-    expect(stdout).not.toContain("## Codex");
+    expect(stderr).toBe("");
+    const result = JSON.parse(stdout);
+    expect(result.harness).toBe("cursor");
+    const link = new URL(result.instructions.match(/cursor:\/\/\S+/)[0]);
+    expect(link.hostname).toBe("anysphere.cursor-deeplink");
+    expect(
+      JSON.parse(
+        Buffer.from(link.searchParams.get("config")!, "base64").toString(),
+      ),
+    ).toEqual({
+      command: "sh",
+      args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
+    });
+  });
+
+  it.each([
+    [],
+    ["--harness", "unknown"],
+    ["--harness", "cursor", "--unknown"],
+    ["--harness", "cursor", "extra"],
+  ])("rejects invalid install-instructions arguments %j", async (...args) => {
+    const result = await runConnect(["mcp", "install-instructions", ...args]);
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toBe("");
   });
 
   it("prints every prompt with headings by default", async () => {

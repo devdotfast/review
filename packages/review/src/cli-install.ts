@@ -31,7 +31,7 @@ import {
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 
-import { connectPrompts, reviewMcpLaunch } from "./connect-prompts";
+import { connectSetupPrompts, reviewMcpLaunch } from "./connect-prompts";
 import { cursorInstallDeeplink } from "./cursor-deeplink";
 import { isDirectory, isFile } from "./fs-utils";
 import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
@@ -112,7 +112,7 @@ export async function resolveCliInstallStatus(input: {
     fingerprint,
     stamp,
     stale: granted && stamp.fingerprint !== fingerprint,
-    updateNeeded: granted && !updated,
+    updateNeeded: legacySkills.length > 0 || (granted && !updated),
     shim: {
       path: shimPath,
       installed: hasShim,
@@ -128,12 +128,7 @@ export async function resolveCliInstallStatus(input: {
       : null,
     connect: {
       ...reviewMcpLaunch(hasShim),
-      prompts: connectPrompts({
-        hasShim,
-        traceEnabled: trace.enabled,
-        fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),
-        fffCorpusRoot: path.join(devReviewHome(env, homeDir), "trace-search"),
-      }),
+      prompts: connectSetupPrompts(),
       plugins: connectPlugins(hasShim),
     },
     legacySkills: legacySkills.map((skillPath) => ({
@@ -388,7 +383,7 @@ export async function removeLegacyReviewSkills(
   );
 }
 
-/** Marks an upgrader's setup as current, which ends the update screen. */
+/** Records setup completion; remaining legacy skills still require the update screen. */
 export async function finishCliInstallUpdate(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {

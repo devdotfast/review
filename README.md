@@ -13,7 +13,7 @@
   </p>
 </div>
 
-We’re building Whiteboard, an open-source desktop app where humans and agents can architect software together in a common workspace.
+Whiteboard is an open-source desktop app where humans and agents can architect software together in a common workspace.
 
 Whiteboard plugs into the tools you already use - e.g. Claude Code, Codex, etc. – and gives your agent an SDK to draw on an in-app canvas to describe its work.
 
@@ -34,28 +34,41 @@ Here’s a 1 min demo video explaining more: https://youtu.be/n3bPlt2KzCA
 3. Ask your agent to review your current branch against up-to-date main and
    open the result in Whiteboard.
 
-## How it works
+## Why does this exist?
 
-- **Built on top of CodeOSS:** In Whiteboard, when you click on visualizations
-  like a sequence diagram, an entity relationship diagram, or a quote from the
-  agent’s trace, you can jump to the underlying code directly. When navigating
-  code, you get keybindings and LSP support from VSCode out of the box. We
-  vendor Code OSS rather than maintaining patches, and regularly merge in
-  upstream security/feature patches.
-- **Semantic diff viewer:** We wrote a semantic, AST-aware diff viewer in Rust
-  so you can only view the code changes which are relevant to you. This is all
-  customizable with a WASM-based plugin system.
-- **Decision Log:** We built tools for agents to query and link their own
-  traces on the Whiteboard, so you can visualize the requirements that you set,
-  understand how they were implemented, and understand what decisions the agent
-  made autonomously.
+### Diagrams that lead to code
+
+Walls of agent output in a terminal are a poor way to decide how a system
+should work, and plain HTML diagrams can't connect a spec or plan back to the
+code. Whiteboard is built on Code OSS: click a sequence diagram, an entity
+relationship diagram, or a quote from the agent's trace to jump straight to the
+underlying code, with VS Code keybindings and language support built in.
+
+### Only the diff that matters
+
+A raw diff of an agent's change is mostly noise. Whiteboard's semantic,
+AST-aware diff viewer summarizes large added functions as pseudocode and
+collapses tests and docs, so the changes that matter stand out. The rules are
+customizable with WASM plugins.
+
+### Every decision on the record
+
+It's hard to tell which decisions an agent made on its own, or how they shaped
+a change. Agents link their own traces on the Whiteboard, so you can see the
+requirements you set, how they were implemented, and what the agent decided
+autonomously.
+
+### Open source, on your machine
+
+Whiteboard is MIT-licensed and runs against your local checkouts. A hosted
+product for teams is planned, and everything will always remain self-hostable.
 
 ## Contributing
 
-Please poke through and feel free to contribute! We would love to hear any feedback and to learn from your expertise.
+Contributions and feedback are welcome.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request workflow,
-and follow our [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as
+and follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities as
 described in [SECURITY.md](SECURITY.md). Questions? Ask on
 [Discord](https://discord.gg/wYvd2cpMQg).
 
@@ -68,8 +81,6 @@ your code, diffs, Whiteboard text, prompts, or model output. Read the
 
 ## License
 
-We’re releasing our desktop app under an MIT license. Eventually we’ll charge companies for a hosted product that manages session creation alongside features like trajectory storage and multiplayer reviews. Everything will always remain self-hostable.
-
 Whiteboard is available under the [MIT License](LICENSE). The vendored Code -
 OSS fork retains Microsoft's MIT license and third-party notices; see
 [`apps/review-desktop/LICENSE`](apps/review-desktop/LICENSE) and
@@ -81,9 +92,8 @@ OSS fork retains Microsoft's MIT license and third-party notices; see
   — a great overview of the constraints of modern software engineering.
 - <https://maggieappleton.com/2025-08-vibe-legacy-code/> and
   <https://blog.val.town/vibe-code> — do a great job describing how AI-generated
-  code fits into our pre-2025 notion of software engineering.
-- We're big fans of Karpathy, so here are some of his banger tweets we love
-  discussing:
+  code fits into the pre-2025 notion of software engineering.
+- Karpathy on agents:
   - On LLM agents: <https://x.com/karpathy/status/1979644538185752935>
   - On agents as "junior engineer savants":
     <https://x.com/karpathy/status/1915581920022585597>

@@ -9,6 +9,7 @@ import { Event } from "../base/common/event.js";
 import { Disposable, type IDisposable } from "../base/common/lifecycle.js";
 import type { URI } from "../base/common/uri.js";
 import "../editor/editor.all.js";
+import "./browser/media/reviewWatermark.css";
 
 
 // Core editor/workbench API.

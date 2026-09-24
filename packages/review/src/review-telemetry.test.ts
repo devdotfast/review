@@ -198,6 +198,7 @@ describe("ReviewTelemetry", () => {
   it("never announces a legacy installation as newly created", async () => {
     const { configPath, events, legacyConfigPath, rootPath, telemetry } =
       createTelemetry();
+
     cleanupPaths.push(rootPath);
     await writeStoredConfig(legacyConfigPath, { installId: "legacy-install" });
 
@@ -219,6 +220,7 @@ describe("ReviewTelemetry", () => {
         },
       },
     });
+
     cleanupPaths.push(rootPath);
 
     await telemetry.captureInstallationCreated().catch(() => undefined);
@@ -579,9 +581,11 @@ describe("ReviewTelemetry", () => {
 
   it("leaves sessions of the current app launch open across a server restart", async () => {
     const env = { [REVIEW_APP_SESSION_ID_ENV]: "app-current" };
+
     const { events, markersPath, rootPath, telemetry } = createTelemetry({
       env,
     });
+
     cleanupPaths.push(rootPath);
 
     const live = {

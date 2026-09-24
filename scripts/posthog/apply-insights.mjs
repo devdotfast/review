@@ -103,6 +103,7 @@ function client() {
     });
 
     if (allow404 && response.status === 404) return null;
+
     if (!response.ok) throw new Error(`${method} ${path} → ${response.status} ${await response.text()}`);
 
     return response.status === 204 ? undefined : response.json();
@@ -117,6 +118,7 @@ const projectPath = (project, route) => `/api/projects/${project}${route}`;
 async function legacyEventCounts({ request, project }) {
   const sql =
     "SELECT event, count(), max(timestamp) FROM events WHERE event LIKE 'progressive_review_%' AND timestamp > now() - INTERVAL 90 DAY GROUP BY event";
+
   const { results } = await request("POST", projectPath(project, "/query/"), { query: { kind: "HogQLQuery", query: sql } });
 
   return new Map(results.map(([event, count, lastSeen]) => [event, { count, lastSeen }]));
@@ -130,6 +132,7 @@ async function resolveSettingsRoute({ request, project }) {
 
     if (settings && "session_recording_opt_in" in settings && "test_account_filters" in settings) {
       console.log(`settings route: ${path}`);
+
       return { path, settings };
     }
   }
@@ -195,6 +198,7 @@ async function main() {
 
   const { path: settingsPath, settings: currentSettings } = await resolveSettingsRoute({ request, project });
   const plannedSettings = planProjectSettings();
+
   const settingsCurrent =
     isDeepStrictEqual(currentSettings.session_recording_opt_in, plannedSettings.session_recording_opt_in) &&
     isDeepStrictEqual(currentSettings.test_account_filters, plannedSettings.test_account_filters);

@@ -47,6 +47,8 @@ const CHANNELS: readonly ReviewTelemetryChannel[] = [
 export function reviewTelemetryChannel(
   env: NodeJS.ProcessEnv,
 ): ReviewTelemetryChannel {
+  // SAFETY: the cast is provisional; CHANNELS.includes(value) below checks
+  // membership before the value is ever returned, falling back to "stable".
   const value = env[REVIEW_CHANNEL_ENV]?.trim() as ReviewTelemetryChannel;
 
   return CHANNELS.includes(value) ? value : "stable";

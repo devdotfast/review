@@ -47,6 +47,7 @@ test("removes legacy names from a HogQL IN list", () => {
 
 test("keeps a legacy series whose event is still seen, strips the rest", () => {
   const keepNames = new Set(["progressive_review_installation_created"]);
+
   const query = {
     kind: "TrendsQuery",
     series: [
@@ -63,6 +64,7 @@ test("keeps a legacy series whose event is still seen, strips the rest", () => {
 
 test("keeps a legacy name in a HogQL IN list when it is still seen", () => {
   const keepNames = new Set(["progressive_review_session_started"]);
+
   const query = {
     kind: "DataVisualizationNode",
     source: {

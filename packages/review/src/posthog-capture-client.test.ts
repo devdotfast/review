@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PostHogCaptureClient } from "./posthog-capture-client";
+import {
+  PostHogCaptureClient,
+  type PostHogCaptureProperties,
+} from "./posthog-capture-client";
 
 describe("PostHogCaptureClient", () => {
   const roots: string[] = [];
@@ -136,10 +139,13 @@ describe("PostHogCaptureClient", () => {
   it("stamps dropped-event diagnostics with the default properties", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
     roots.push(root);
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     let now = Date.parse("2026-08-05T12:00:00.000Z");
+
     const client = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
@@ -158,12 +164,14 @@ describe("PostHogCaptureClient", () => {
       ([, init]) =>
         JSON.parse(String(init?.body)).batch as Array<{
           event: string;
-          properties: Record<string, unknown>;
+          properties: PostHogCaptureProperties;
         }>,
     );
+
     const dropped = sent.find(
       (event) => event.event === "review_telemetry_dropped",
     );
+
     expect(dropped?.properties).toMatchObject({
       reason: "expired",
       count: 1,
@@ -180,10 +188,13 @@ describe("PostHogCaptureClient", () => {
     // anything has called setDefaultProperties.
     const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
     roots.push(root);
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     let now = Date.parse("2026-08-05T12:00:00.000Z");
+
     const writer = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
@@ -196,6 +207,7 @@ describe("PostHogCaptureClient", () => {
     // A brand-new client instance, as at process startup: setDefaultProperties
     // has never been called on it.
     now += 8 * 24 * 60 * 60 * 1000;
+
     const reader = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
@@ -212,12 +224,14 @@ describe("PostHogCaptureClient", () => {
       ([, init]) =>
         JSON.parse(String(init?.body)).batch as Array<{
           event: string;
-          properties: Record<string, unknown>;
+          properties: PostHogCaptureProperties;
         }>,
     );
+
     const dropped = sent.find(
       (event) => event.event === "review_telemetry_dropped",
     );
+
     expect(dropped?.properties).toMatchObject({
       reason: "expired",
       count: 1,

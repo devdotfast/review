@@ -254,6 +254,7 @@ export function createGlobalReviewServer(
       const body = await readBoundedRequestJson(context.req.raw, undefined, {});
       const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
+
       // The workbench has no reader on the stored review; the server does, so
       // `session_started`'s source_kind is filled in here rather than trusted
       // from the client.
@@ -269,6 +270,7 @@ export function createGlobalReviewServer(
         delete eventProperties.agent_kind;
 
         const rawContext = isJsonObject(payload.context) ? payload.context : {};
+
         const sourceKind = sessionStartedSourceKind(
           reviewStore,
           jsonString(rawContext.reviewUuid),

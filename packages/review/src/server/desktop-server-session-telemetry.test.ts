@@ -6,7 +6,7 @@ import path from "node:path";
 import { expect, it, vi } from "vitest";
 
 import { openLocalReviewStore } from "../review-api/local-data";
-import { SCRATCHPAD_ID, ReviewStore } from "../review-api/store";
+import { ReviewStore, SCRATCHPAD_ID } from "../review-api/store";
 import { ReviewTelemetry } from "../review-telemetry";
 import {
   createGlobalReviewServer,
@@ -46,14 +46,17 @@ it("enriches session_started with source_kind on the global /telemetry/event rou
   const home = await mkdtemp(
     path.join(os.tmpdir(), "review-session-telemetry-"),
   );
+
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
   const token = "session-telemetry-test-token";
 
   await local.store.ensureScratchpad();
+
   const telemetry = ReviewTelemetry.fromEnv({
     ...process.env,
     DEV_REVIEW_HOME: home,
   });
+
   const captureUiEvent = vi.spyOn(telemetry, "captureUiEvent");
 
   const server = createGlobalReviewServer({
@@ -104,6 +107,7 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
   const home = await mkdtemp(
     path.join(os.tmpdir(), "review-session-telemetry-"),
   );
+
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
   const token = "session-telemetry-test-token";
 
@@ -111,6 +115,7 @@ it("never trusts a client-supplied source_kind or agent_kind on session_started"
     ...process.env,
     DEV_REVIEW_HOME: home,
   });
+
   const captureUiEvent = vi.spyOn(telemetry, "captureUiEvent");
 
   const server = createGlobalReviewServer({

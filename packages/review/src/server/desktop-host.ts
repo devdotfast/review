@@ -28,9 +28,11 @@ export async function runDesktopHost(
   const toolingRoot = env.DEV_FAST_REVIEW_TOOLING_ROOT || packageRoot;
   const telemetryEnv = { ...env };
   delete telemetryEnv.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
+
   const telemetry = ReviewTelemetry.fromEnv(telemetryEnv, {
     surface: "desktop",
   });
+
   await telemetry.setEnabled(
     !isEnabledEnvValue(env.DEV_FAST_REVIEW_TELEMETRY_DISABLED),
   );

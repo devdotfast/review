@@ -50,6 +50,7 @@ import {
 } from "./ui-telemetry-events";
 
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
+
 export const REVIEW_APP_SESSION_ID_ENV = "DEV_FAST_REVIEW_APP_SESSION_ID";
 
 export type ReviewCliCommand = "review" | "map" | "status";
@@ -355,12 +356,17 @@ export class ReviewTelemetry {
   }
 
   async captureCommandStarted(input: ReviewCommandStartedInput): Promise<void> {
-    await this.captureEvent("review_command_started", {
+    const properties: PostHogCaptureProperties = {
       command_path: input.command,
       command_run_id: input.commandRunId,
       agent_kind: this.sessionAgent(),
-      ...(input.surface ? { surface: input.surface } : {}),
-    });
+    };
+
+    if (input.surface) {
+      properties.surface = input.surface;
+    }
+
+    await this.captureEvent("review_command_started", properties);
   }
 
   async captureReviewDeleted(): Promise<void> {
@@ -660,6 +666,7 @@ export class ReviewTelemetry {
     }
 
     const legacyInstallId = await this.readLegacyInstallId();
+
     const config = createTelemetryInstallConfig(
       legacyInstallId ?? this.idFactory(),
       this.now,

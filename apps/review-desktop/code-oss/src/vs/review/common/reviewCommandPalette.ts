@@ -9,16 +9,99 @@ import type { ICommandAction } from '../../platform/action/common/action.js';
 
 type CommandLabel = Pick<ICommandAction, 'title' | 'category'>;
 
-/** Stock features Whiteboard does not ship, whose commands stay out of the palette. */
-const FOREIGN_COMMAND = /chat|debug|extension|git|keybinding|mcp|notebook|preference|profile|remote|scm|setting|sync|task|terminal|test|update/i;
-
 /**
- * Whether a Command Palette entry belongs in Whiteboard's palette. Whiteboard
- * and extension commands always do; stock commands only when they are not
- * part of a feature Whiteboard leaves out.
+ * Stock and built-in-extension commands that belong in Whiteboard's palette.
+ * Whiteboard is for reading and reviewing code: source and diffs are
+ * read-only, so only navigation, search, folding, diff review and a few app
+ * commands are offered. Everything else keeps its keybinding but stays out of
+ * the palette, including all commands contributed by language extensions.
  */
-export function isReviewPaletteCommand(commandId: string, extensionCommands: ReadonlySet<string>): boolean {
-	return commandId.startsWith('review.') || extensionCommands.has(commandId) || !FOREIGN_COMMAND.test(commandId);
+const REVIEW_PALETTE_STOCK_COMMANDS: ReadonlySet<string> = new Set([
+	// Go to code
+	'workbench.action.quickOpen',
+	'workbench.action.gotoSymbol',
+	'workbench.action.showAllSymbols',
+	'workbench.action.navigateBack',
+	'workbench.action.navigateForward',
+	'editor.action.revealDefinition',
+	'editor.action.revealDefinitionAside',
+	'editor.action.revealDeclaration',
+	'editor.action.goToTypeDefinition',
+	'editor.action.goToImplementation',
+	'editor.action.goToReferences',
+	'editor.action.peekDefinition',
+	'editor.action.peekDeclaration',
+	'editor.action.peekTypeDefinition',
+	'editor.action.peekImplementation',
+	'editor.action.referenceSearch.trigger',
+	'editor.action.jumpToBracket',
+	'editor.action.marker.next',
+	'editor.action.marker.prev',
+	'editor.action.wordHighlight.next',
+	'editor.action.wordHighlight.prev',
+	'editor.action.showHover',
+	'editor.action.showDefinitionPreviewHover',
+	'references-view.findReferences',
+	'references-view.findImplementations',
+	'references-view.showCallHierarchy',
+	'references-view.showIncomingCalls',
+	'references-view.showOutgoingCalls',
+	'references-view.showTypeHierarchy',
+	'references-view.showSupertypes',
+	'references-view.showSubtypes',
+
+	// Find
+	'actions.find',
+	'actions.findWithSelection',
+	'editor.action.nextMatchFindAction',
+	'editor.action.previousMatchFindAction',
+
+	// Folding
+	'editor.fold',
+	'editor.unfold',
+	'editor.toggleFold',
+	'editor.foldRecursively',
+	'editor.unfoldRecursively',
+	'editor.foldAll',
+	'editor.unfoldAll',
+	'editor.foldAllExcept',
+	'editor.unfoldAllExcept',
+	'editor.foldAllBlockComments',
+	'editor.foldLevel1',
+	'editor.foldLevel2',
+	'editor.foldLevel3',
+	'editor.gotoParentFold',
+
+	// Diff review
+	'workbench.action.compareEditor.nextChange',
+	'workbench.action.compareEditor.previousChange',
+	'toggle.diff.renderSideBySide',
+	'diffEditor.collapseAllUnchangedRegions',
+	'diffEditor.showAllUnchangedRegions',
+
+	// Open files and tabs
+	'copyFilePath',
+	'copyRelativeFilePath',
+	'workbench.action.closeActiveEditor',
+	'workbench.action.closeAllEditors',
+	'workbench.action.reopenClosedEditor',
+	'workbench.action.nextEditor',
+	'workbench.action.previousEditor',
+
+	// App and window
+	'workbench.action.zoomIn',
+	'workbench.action.zoomOut',
+	'workbench.action.zoomReset',
+	'workbench.action.toggleFullScreen',
+	'workbench.action.closeWindow',
+	'workbench.action.reloadWindow',
+	'workbench.action.toggleDevTools',
+	'workbench.action.showAboutDialog',
+]);
+
+/** Whether a command belongs in Whiteboard's Command Palette. */
+export function isReviewPaletteCommand(commandId: string): boolean {
+	return commandId.startsWith('review.') || commandId.startsWith('whiteboard.') || REVIEW_PALETTE_STOCK_COMMANDS.has(commandId);
 }
 
 export function reviewCommandPaletteLabel(commandId: string, command: CommandLabel | undefined): string {

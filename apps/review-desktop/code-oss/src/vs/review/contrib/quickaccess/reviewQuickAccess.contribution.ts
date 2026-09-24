@@ -19,14 +19,13 @@ import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.
 import { ShowAllCommandsAction } from '../../../workbench/contrib/quickaccess/browser/commandsQuickAccess.js';
 import { IEditorGroupsService } from '../../../workbench/services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../../workbench/services/editor/common/editorService.js';
-import { IExtensionService } from '../../../workbench/services/extensions/common/extensions.js';
 import { isReviewPaletteCommand, reviewCommandPaletteLabel } from '../../common/reviewCommandPalette.js';
 
 /**
- * Lists the same commands as the stock palette (the active editor's actions
- * and the CommandPalette menu, with their when/precondition applied), minus
- * stock features Whiteboard does not ship. Internal commands registered only
- * in CommandsRegistry, such as `_executeCompletionItemProvider`, never appear.
+ * Collects commands the way the stock palette does (the active editor's
+ * actions and the CommandPalette menu, with their when/precondition applied),
+ * then keeps only Whiteboard's own commands and the curated stock ones in
+ * `isReviewPaletteCommand`.
  */
 export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQuickAccessProvider {
 	protected get activeTextEditorControl(): IEditor | undefined { return this.editorService.activeTextEditorControl; }
@@ -37,7 +36,6 @@ export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQui
 		@ICommandService commandService: ICommandService,
 		@ITelemetryService telemetryService: ITelemetryService,
 		@IDialogService dialogService: IDialogService,
-		@IExtensionService private readonly extensionService: IExtensionService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService private readonly editorGroupService: IEditorGroupsService,
 		@IMenuService private readonly menuService: IMenuService,
@@ -47,15 +45,8 @@ export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQui
 
 	protected override async getCommandPicks(token: CancellationToken): Promise<ICommandQuickPick[]> {
 		if (token.isCancellationRequested) return [];
-		await this.extensionService.whenInstalledExtensionsRegistered();
-		if (token.isCancellationRequested) return [];
-		const extensionCommands = new Set(
-			this.extensionService.extensions.flatMap(extension =>
-				extension.contributes?.commands?.map(command => command.command) ?? []
-			)
-		);
 		return [...this.getCodeEditorCommandPicks(), ...this.getPaletteMenuCommandPicks()]
-			.filter(pick => isReviewPaletteCommand(pick.commandId, extensionCommands));
+			.filter(pick => isReviewPaletteCommand(pick.commandId));
 	}
 
 	private getPaletteMenuCommandPicks(): ICommandQuickPick[] {

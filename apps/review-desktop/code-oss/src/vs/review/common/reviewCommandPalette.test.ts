@@ -31,19 +31,22 @@ test('falls back to the command id when metadata is unavailable', () => {
 	assert.equal(reviewCommandPaletteLabel('internal.command', undefined), 'internal.command');
 });
 
-test('keeps Whiteboard commands even when they name a left-out feature', () => {
-	assert.equal(isReviewPaletteCommand('review.checkForUpdates', new Set()), true);
+test('keeps Whiteboard commands', () => {
+	assert.equal(isReviewPaletteCommand('review.checkForUpdates'), true);
+	assert.equal(isReviewPaletteCommand('whiteboard.openSharedSession'), true);
 });
 
-test('drops stock commands for features Whiteboard leaves out', () => {
-	assert.equal(isReviewPaletteCommand('workbench.action.terminal.new', new Set()), false);
-	assert.equal(isReviewPaletteCommand('workbench.action.openSettings', new Set()), false);
+test('keeps read-only navigation commands', () => {
+	assert.equal(isReviewPaletteCommand('editor.action.revealDefinition'), true);
+	assert.equal(isReviewPaletteCommand('references-view.findReferences'), true);
 });
 
-test('keeps extension-contributed commands for left-out features', () => {
-	assert.equal(isReviewPaletteCommand('rust-analyzer.debug', new Set(['rust-analyzer.debug'])), true);
+test('drops editing commands', () => {
+	assert.equal(isReviewPaletteCommand('editor.action.formatDocument'), false);
+	assert.equal(isReviewPaletteCommand('workbench.action.files.save'), false);
 });
 
-test('keeps other stock commands', () => {
-	assert.equal(isReviewPaletteCommand('workbench.action.reloadWindow', new Set()), true);
+test('drops commands contributed by language extensions', () => {
+	assert.equal(isReviewPaletteCommand('ruff.executeFormat'), false);
+	assert.equal(isReviewPaletteCommand('python.setInterpreter'), false);
 });

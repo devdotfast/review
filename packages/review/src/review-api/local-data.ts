@@ -330,21 +330,19 @@ export class LocalReviewData {
       !!pins.worktreeRevision &&
       (side === "head" || (source.empty && pins[side] === EMPTY_SOURCE));
 
-    const ref =
-      pins[side] === EMPTY_SOURCE && source.empty ? pins.head : pins[side];
+    const checkoutSide =
+      pins[side] === EMPTY_SOURCE && source.empty ? "head" : side;
+
+    const ref = pins[checkoutSide];
 
     if (source.file) checkRelativePath(source.file);
 
-    // Keep navigation separate from language preparation, which may modify
-    // tracked files. Retain these checkouts across window closes and restarts.
+    // Browse the Review's own base/head checkout. The window opens while
+    // preparation may still be installing dependencies beside the source.
     const rootPath = live
       ? await realpath(repository)
-      : await ensureReviewPinnedCheckout({
-          rootPath: repository,
-          ref,
-          reviewUuid: snapshot.reviewId,
-          role: "navigator",
-        });
+      : (await this.workspaces.source(snapshot.reviewId, pins, checkoutSide))
+          .rootPath;
 
     const context = await resolveRepoContext(repository);
 
@@ -365,7 +363,7 @@ export class LocalReviewData {
 
       if (stdout.trim())
         throw new ReviewInputError(
-          "The navigator checkout has local changes. Restore those files before browsing this pinned revision.",
+          "The pinned checkout has local changes, possibly from devfast.prepare. Restore those files before browsing this pinned revision.",
           409,
         );
     }

@@ -4739,6 +4739,14 @@ button.review-stack-row:disabled .review-stack-relation {
   margin-top: 8px;
 }
 
+.review-document li > p:first-child {
+  margin-top: 0;
+}
+
+.review-document li > p:last-child {
+  margin-bottom: 0;
+}
+
 .review-document > p,
 .review-document > h2,
 .review-document > h3,

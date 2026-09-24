@@ -221,7 +221,7 @@ function useWindowErrorTelemetry(): void {
 /** A commit-scoped diff stays "commit"; otherwise it follows the reader's
  * structural-diff setting. */
 function diffOpenedKind(
-  diffScope: ReviewCommitSummary | null,
+  diffScope: { commit: ReviewCommitSummary } | null,
   structuralDiffEnabled: boolean,
 ): "commit" | "file" | "structural" {
   if (diffScope) return "commit";

@@ -16,6 +16,7 @@ import type {
   PostHogCaptureInput,
   PostHogCaptureProperties,
 } from "./posthog-capture-client";
+import { DEV_REVIEW_HOME_ENV } from "./review-home-paths";
 import {
   REVIEW_APP_SESSION_ID_ENV,
   REVIEW_APP_VERSION_ENV,
@@ -23,7 +24,6 @@ import {
   type ReviewTelemetryCaptureClient,
   type ReviewTelemetryOptions,
 } from "./review-telemetry";
-import { DEV_REVIEW_HOME_ENV } from "./review-home-paths";
 import { recordOpenSession } from "./session-markers";
 import {
   REVIEW_CHANNEL_ENV,

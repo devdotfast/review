@@ -326,7 +326,9 @@ describe("Review CLI", () => {
   });
 
   it("labels every event of a headless server process headless", async () => {
-    const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-cli-surface-"));
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-cli-surface-"),
+    );
     const events: PostHogCaptureInput[] = [];
 
     const telemetry = new ReviewTelemetry({
@@ -354,9 +356,9 @@ describe("Review CLI", () => {
       expect(events.map((event) => event.event)).toContain(
         "review_installation_created",
       );
-      expect(
-        new Set(events.map((event) => event.properties?.surface)),
-      ).toEqual(new Set(["headless"]));
+      expect(new Set(events.map((event) => event.properties?.surface))).toEqual(
+        new Set(["headless"]),
+      );
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }

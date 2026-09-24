@@ -4,23 +4,33 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
+import type { IEditor } from '../../../editor/common/editorCommon.js';
+import { AbstractEditorCommandsQuickAccessProvider } from '../../../editor/contrib/quickAccess/browser/commandsQuickAccess.js';
 import { localize } from '../../../nls.js';
-import { MenuRegistry, registerAction2 } from '../../../platform/actions/common/actions.js';
-import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
+import { IMenuService, MenuId, MenuItemAction, registerAction2 } from '../../../platform/actions/common/actions.js';
+import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../platform/keybinding/common/keybinding.js';
-import { AbstractCommandsQuickAccessProvider, type ICommandQuickPick } from '../../../platform/quickinput/browser/commandsQuickAccess.js';
+import type { ICommandQuickPick } from '../../../platform/quickinput/browser/commandsQuickAccess.js';
 import { Extensions, type IQuickAccessRegistry } from '../../../platform/quickinput/common/quickAccess.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.js';
 import { ShowAllCommandsAction } from '../../../workbench/contrib/quickaccess/browser/commandsQuickAccess.js';
+import { IEditorGroupsService } from '../../../workbench/services/editor/common/editorGroupsService.js';
+import { IEditorService } from '../../../workbench/services/editor/common/editorService.js';
 import { IExtensionService } from '../../../workbench/services/extensions/common/extensions.js';
-import { reviewCommandPaletteLabel } from '../../common/reviewCommandPalette.js';
+import { isReviewPaletteCommand, reviewCommandPaletteLabel } from '../../common/reviewCommandPalette.js';
 
-const FOREIGN_COMMAND = /chat|debug|extension|git|keybinding|mcp|notebook|preference|profile|remote|scm|setting|sync|task|terminal|test|update/i;
+/**
+ * Lists the same commands as the stock palette (the active editor's actions
+ * and the CommandPalette menu, with their when/precondition applied), minus
+ * stock features Whiteboard does not ship. Internal commands registered only
+ * in CommandsRegistry, such as `_executeCompletionItemProvider`, never appear.
+ */
+export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQuickAccessProvider {
+	protected get activeTextEditorControl(): IEditor | undefined { return this.editorService.activeTextEditorControl; }
 
-export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAccessProvider {
 	constructor(
 		@IInstantiationService instantiationService: IInstantiationService,
 		@IKeybindingService keybindingService: IKeybindingService,
@@ -28,6 +38,9 @@ export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAcce
 		@ITelemetryService telemetryService: ITelemetryService,
 		@IDialogService dialogService: IDialogService,
 		@IExtensionService private readonly extensionService: IExtensionService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IEditorGroupsService private readonly editorGroupService: IEditorGroupsService,
+		@IMenuService private readonly menuService: IMenuService,
 	) {
 		super({ showAlias: false }, instantiationService, keybindingService, commandService, telemetryService, dialogService);
 	}
@@ -41,12 +54,19 @@ export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAcce
 				extension.contributes?.commands?.map(command => command.command) ?? []
 			)
 		);
-		return [...CommandsRegistry.getCommands().keys()]
-			.filter(commandId => commandId.startsWith('review.') || extensionCommands.has(commandId) || !FOREIGN_COMMAND.test(commandId))
-			.sort((left, right) => left.localeCompare(right))
-			.map(commandId => ({
-				commandId,
-				label: reviewCommandPaletteLabel(commandId, MenuRegistry.getCommand(commandId)),
+		return [...this.getCodeEditorCommandPicks(), ...this.getPaletteMenuCommandPicks()]
+			.filter(pick => isReviewPaletteCommand(pick.commandId, extensionCommands));
+	}
+
+	private getPaletteMenuCommandPicks(): ICommandQuickPick[] {
+		const contextKeyService = this.editorService.activeEditorPane?.scopedContextKeyService ?? this.editorGroupService.activeGroup.scopedContextKeyService;
+		return this.menuService.getMenuActions(MenuId.CommandPalette, contextKeyService)
+			.flatMap(([, actions]) => actions)
+			.filter((action): action is MenuItemAction => action instanceof MenuItemAction && action.enabled)
+			.map(action => ({
+				commandId: action.item.id,
+				commandWhen: action.item.precondition?.serialize(),
+				label: reviewCommandPaletteLabel(action.item.id, action.item),
 			}));
 	}
 

@@ -51,7 +51,7 @@ test("packReviewError unwraps a loader error and an array stack", () => {
 
 test("the limiter removes an immediate repeat but allows it later", () => {
 	let now = 1000;
-	const limiter = new ReviewErrorReportLimiter(30, 5, () => now);
+	const limiter = new ReviewErrorReportLimiter(30, () => now);
 	const sent: ReviewErrorReport[] = [];
 	const send = (report: ReviewErrorReport): void => { sent.push(report); };
 
@@ -66,21 +66,21 @@ test("the limiter removes an immediate repeat but allows it later", () => {
 
 test("the limiter caps a session and never lets a report raise an error", () => {
 	let now = 0;
-	const limiter = new ReviewErrorReportLimiter(3, 5, () => (now += 5000));
+	const limiter = new ReviewErrorReportLimiter(3, () => (now += 5000));
 	let sent = 0;
 	for (let index = 0; index < 10; index++) {
 		limiter.report(errorWithStack(`boom ${index}`), () => { sent++; });
 	}
 	assert.equal(sent, 3);
 
-	const guarded = new ReviewErrorReportLimiter(30, 5, () => 0);
+	const guarded = new ReviewErrorReportLimiter(30, () => 0);
 	assert.doesNotThrow(() => {
 		guarded.report(errorWithStack("boom"), () => { throw new Error("reporting failed"); });
 	});
 });
 
 test("the limiter refuses to run inside itself", () => {
-	const limiter = new ReviewErrorReportLimiter(30, 5, () => 0);
+	const limiter = new ReviewErrorReportLimiter(30, () => 0);
 	let depth = 0;
 	limiter.report(errorWithStack("outer"), () => {
 		depth++;
@@ -89,16 +89,13 @@ test("the limiter refuses to run inside itself", () => {
 	assert.equal(depth, 1);
 });
 
-test("the limiter caps each error key at five and keeps other keys open", () => {
+test("the limiter sends a spaced-out repeat every time, leaving the per-error budget to the server", () => {
 	let now = 0;
-	const limiter = new ReviewErrorReportLimiter(200, 5, () => now);
-	const sent: ReviewErrorReport[] = [];
-	for (let i = 0; i < 20; i++) {
+	const limiter = new ReviewErrorReportLimiter(200, () => now);
+	let sent = 0;
+	for (let i = 0; i < 8; i++) {
 		now += 5_000;
-		limiter.report(errorWithStack("same"), report => sent.push(report));
+		limiter.report(errorWithStack("same"), () => { sent++; });
 	}
-	assert.equal(sent.length, 5);
-	now += 5_000;
-	limiter.report(errorWithStack("other"), report => sent.push(report));
-	assert.equal(sent.length, 6);
+	assert.equal(sent, 8);
 });

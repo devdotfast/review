@@ -115,7 +115,10 @@ export async function captureSanitizedUiTelemetry(
   request: Request,
   name: JsonValue,
   properties: JsonValue,
-  onSanitized?: (event: SanitizedUiTelemetryEvent) => void,
+  onSanitized?: (
+    event: SanitizedUiTelemetryEvent,
+    context: ReviewTelemetryContext | undefined,
+  ) => void,
   /**
    * The raw error envelope, which arrives beside `properties` and never inside
    * it. This function is where the raw form dies: what continues is the class
@@ -154,9 +157,9 @@ export async function captureSanitizedUiTelemetry(
   const admitted = admitUiTelemetryEvent(sanitized);
 
   if (!admitted) return;
-  onSanitized?.(admitted);
   const parsedContext = contextSchema.safeParse(rawContext);
   const context = parsedContext.success ? parsedContext.data : undefined;
+  onSanitized?.(admitted, context);
 
   try {
     await telemetry.captureUiEvent?.(

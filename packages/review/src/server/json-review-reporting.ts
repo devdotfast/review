@@ -162,7 +162,8 @@ export function createJsonReviewReporting(
             }
           : jsonReviewBugReportSource(store, snapshot),
         clientErrorNames: clientErrorsForSession(report.app_session_id),
-        telemetryEnvelope: await telemetry.envelope(),
+        // A locked telemetry config must not cost the user their report.
+        telemetryEnvelope: await telemetry.envelope().catch(() => undefined),
       }),
     );
   });

@@ -322,6 +322,7 @@ export function createGlobalReviewServer(
         },
         payload.error,
         payload.context,
+        payload.occurredAt,
       );
 
       if (flushBeforeOptOut) await telemetry.flush(500);

@@ -9,6 +9,7 @@ import {
   isJsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { withFileLock } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { findReviewPackageRoot } from "./package-paths";
@@ -763,6 +764,66 @@ describe("ReviewTelemetry", () => {
     });
   });
 
+  it("stamps a session start before it waits for the marker lock", async () => {
+    let clock = Date.parse("2026-01-02T03:04:05.000Z");
+
+    const { events, markersPath, rootPath, telemetry } = createTelemetry({
+      now: () => new Date(clock),
+    });
+
+    cleanupPaths.push(rootPath);
+
+    const context = {
+      reviewUuid: "86df96ed-65ef-46de-9348-c94811e3bb46",
+      presentationSessionId: "0f98956f-ec90-45b5-ae21-19acbcd8b6ef",
+    };
+
+    // Another Desktop holds the shared marker file while this session starts.
+    let release = () => {};
+
+    const held = withFileLock(
+      `${markersPath}.lock`,
+      {
+        retryMs: 10,
+        staleMs: 30_000,
+        timeoutMs: 1_000,
+        unownedGraceMs: 1_000,
+        heartbeatMs: 5_000,
+      },
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const started = telemetry.captureUiEvent(
+      "review_session_started",
+      {},
+      context,
+    );
+
+    clock += 5;
+    await telemetry.captureUiEvent(
+      "review_review_presented",
+      { load_ms: 5 },
+      context,
+    );
+    release();
+    await Promise.all([held, started]);
+
+    const at = (name: string) =>
+      events.find((event) => event.event === name)?.timestamp;
+
+    // Delivered out of order, stamped in order.
+    expect(
+      events
+        .map((event) => event.event)
+        .filter((name) => name !== "review_first_review_presented"),
+    ).toEqual(["review_review_presented", "review_session_started"]);
+    expect(at("review_session_started")).toBeLessThan(
+      at("review_review_presented")!,
+    );
+  });
+
   it("leaves sessions owned by a live process open", async () => {
     const { events, markersPath, rootPath, telemetry } = createTelemetry();
     cleanupPaths.push(rootPath);
@@ -1018,6 +1079,7 @@ function createTelemetry(input?: {
   surface?: ReviewTelemetryOptions["surface"];
   captureClient?: ReviewTelemetryCaptureClient;
   ownerPid?: number;
+  now?: () => Date;
 }) {
   const rootPath = path.join(
     os.tmpdir(),
@@ -1053,7 +1115,7 @@ function createTelemetry(input?: {
     openSessionMarkersPath: markersPath,
     openSessionOwnerPid: input?.ownerPid ?? deadPid,
     idFactory: () => input?.installationId ?? "install-123",
-    now: () => new Date("2026-01-02T03:04:05.000Z"),
+    now: input?.now ?? (() => new Date("2026-01-02T03:04:05.000Z")),
     surface: input?.surface,
   };
 

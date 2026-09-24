@@ -413,6 +413,7 @@ export class ReviewTelemetry {
     event: string,
     properties: Record<string, string | number | boolean>,
     context?: ReviewTelemetryContext,
+    occurredAt = this.now().getTime(),
   ): Promise<void> {
     const reviewUuid = context?.reviewUuid;
     const presentationSessionId = context?.presentationSessionId;
@@ -450,6 +451,7 @@ export class ReviewTelemetry {
         ...properties,
       },
       context,
+      occurredAt,
     );
 
     if (inSession && event === "review_review_presented") {
@@ -506,10 +508,15 @@ export class ReviewTelemetry {
     }
   }
 
+  /**
+   * `occurredAt` defaults to the call, before any await: config and marker
+   * locks must not reorder events that happened in order.
+   */
   async captureEvent(
     event: string,
     properties: PostHogCaptureProperties = {},
     context?: ReviewTelemetryContext,
+    occurredAt = this.now().getTime(),
   ): Promise<void> {
     await this.withTelemetry(async (config) => {
       const common = await this.commonProperties(config);
@@ -522,6 +529,7 @@ export class ReviewTelemetry {
           ...properties,
           ...correlationProperties(config.installationId, context),
         },
+        timestamp: occurredAt,
       });
     });
   }

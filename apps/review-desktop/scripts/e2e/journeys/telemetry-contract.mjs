@@ -124,6 +124,10 @@ export async function run(ctx) {
     started[0].properties.presentation_id,
     presented[0].properties.presentation_id,
   );
+  assert.ok(
+    started[0].timestamp <= presented[0].timestamp,
+    "the session starts no later than it is presented",
+  );
   assert.match(started[0].properties.review_id, /^rv_/);
   assert.ok(presented[0].properties.load_ms >= 0);
   // The server announces the first review after a file-lock round trip, so it can trail the presented event.

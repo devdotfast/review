@@ -49,6 +49,7 @@ describe("PostHogCaptureClient", () => {
             $process_person_profile: false,
           },
           timestamp: "2026-08-05T12:00:00.000Z",
+          uuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
         },
       ],
     });
@@ -134,6 +135,72 @@ describe("PostHogCaptureClient", () => {
     expect(
       (await readdir(root)).filter((file) => file.endsWith(".json")),
     ).toEqual([]);
+  });
+
+  it("resends a failed batch with the same event uuids after a restart", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
+    roots.push(root);
+    let now = Date.parse("2026-08-05T12:00:00.000Z");
+
+    // The first POST may have landed although its response was lost.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const client = () =>
+      new PostHogCaptureClient({
+        apiKey: "test-key",
+        fetch: fetchMock,
+        queueDir: root,
+        now: () => now,
+      });
+
+    const first = client();
+
+    await first.capture({ event: "a", distinctId: "install-1" });
+    await first.capture({ event: "b", distinctId: "install-1" });
+    await first.flush();
+
+    now += 2_000;
+    await client().flush();
+
+    const uuids = fetchMock.mock.calls.map(([, init]) =>
+      (JSON.parse(String(init?.body)).batch as Array<{ uuid?: string }>).map(
+        (event) => event.uuid,
+      ),
+    );
+
+    expect(uuids).toHaveLength(2);
+    expect(uuids[0]).toHaveLength(2);
+    expect(new Set(uuids[0]).size).toBe(2);
+    expect(uuids[0]).toEqual([
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+    ]);
+    expect(uuids[1]).toEqual(uuids[0]);
+  });
+
+  it("sends the time an event happened, not the time it was queued", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+
+    const client = new PostHogCaptureClient({
+      apiKey: "test-key",
+      fetch: fetchMock,
+      now: () => Date.parse("2026-08-05T12:00:00.000Z"),
+    });
+
+    await client.capture({
+      event: "a",
+      distinctId: "install-1",
+      timestamp: Date.parse("2026-08-05T11:59:59.000Z"),
+    });
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).batch[0].timestamp,
+    ).toBe("2026-08-05T11:59:59.000Z");
   });
 
   it("stamps dropped-event diagnostics with the default properties", async () => {

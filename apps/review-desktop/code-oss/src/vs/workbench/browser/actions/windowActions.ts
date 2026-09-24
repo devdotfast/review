@@ -7,7 +7,7 @@ import { localize, localize2 } from '../../../nls.js';
 import { IWindowOpenable } from '../../../platform/window/common/window.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { MenuRegistry, MenuId, Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
-import { KeyChord, KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
+import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { IsMainWindowFullscreenContext } from '../../common/contextkeys.js';
 import { IsMacNativeContext, IsDevelopmentContext, IsWebContext, IsIOSContext } from '../../../platform/contextkey/common/contextkeys.js';
 import { Categories } from '../../../platform/action/common/actionCommonCategories.js';
@@ -23,7 +23,7 @@ import { URI } from '../../../base/common/uri.js';
 import { getIconClasses } from '../../../editor/common/services/getIconClasses.js';
 import { FileKind } from '../../../platform/files/common/files.js';
 import { splitRecentLabel } from '../../../base/common/labels.js';
-import { isMacintosh, isWeb, isWindows } from '../../../base/common/platform.js';
+import { isMacintosh } from '../../../base/common/platform.js';
 import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
 import { inQuickPickContext, getQuickNavigateHandler } from '../quickaccess.js';
 import { IHostService } from '../../services/host/browser/host.js';
@@ -411,36 +411,6 @@ class ShowAboutDialogAction extends Action2 {
 	}
 }
 
-class NewWindowAction extends Action2 {
-
-	constructor() {
-		super({
-			id: 'workbench.action.newWindow',
-			title: {
-				...localize2('newWindow', "New Window"),
-				mnemonicTitle: localize({ key: 'miNewWindow', comment: ['&& denotes a mnemonic'] }, "New &&Window"),
-			},
-			f1: true,
-			keybinding: {
-				weight: KeybindingWeight.WorkbenchContrib,
-				primary: isWeb ? (isWindows ? KeyChord(KeyMod.CtrlCmd | KeyCode.KeyK, KeyMod.Shift | KeyCode.KeyN) : KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.KeyN) : KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyN,
-				secondary: isWeb ? [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyN] : undefined
-			},
-			menu: {
-				id: MenuId.MenubarFileMenu,
-				group: '1_new',
-				order: 3,
-			}
-		});
-	}
-
-	override run(accessor: ServicesAccessor): Promise<void> {
-		const hostService = accessor.get(IHostService);
-
-		return hostService.openWindow({ remoteAuthority: null });
-	}
-}
-
 class BlurAction extends Action2 {
 
 	constructor() {
@@ -460,7 +430,6 @@ class BlurAction extends Action2 {
 
 // --- Actions Registration
 
-registerAction2(NewWindowAction);
 registerAction2(ToggleFullScreenAction);
 registerAction2(QuickPickRecentAction);
 registerAction2(OpenRecentAction);

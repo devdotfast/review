@@ -95,7 +95,7 @@ export class ReviewMultiDiffUIElementFactory
 			toggle.onclick = () => entry?.onToggleSectionCollapsed?.();
 			const chevron = document.createElement('span'); chevron.className = `codicon codicon-chevron-${entry?.sectionCollapsed ? 'right' : 'down'}`;
 			const title = document.createElement('span'); title.className = 'review-diff-group-title'; title.textContent = section.label;
-			counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? '✓' : section.state === 'folded' ? 'Folded' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
+			counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? 'Viewed' : section.state === 'folded' ? 'Folded' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
 			countsTooltip.content = section.total.additions + section.total.deletions === 0 ? undefined : reviewCountsTooltip(section);
 			viewed.update(section.state, section.label, section.total.additions + section.total.deletions === 0);
 			element.classList.toggle('is-viewed', section.state === 'viewed');
@@ -200,7 +200,7 @@ export class ReviewMultiDiffUIElementFactory
 			viewed.update(current.viewedState, path ? reviewMultiDiffLabelPath(path) : "file", !current.onToggleViewed);
 			counts.classList.toggle("review-counts-viewed", current.viewedState === "viewed" || current.viewedState === "folded");
 			counts.classList.toggle("review-counts-folded", current.viewedState === "folded");
-			if (current.viewedState === "viewed") { additions.textContent = "✓"; deletions.textContent = ""; }
+			if (current.viewedState === "viewed") { additions.textContent = "Viewed"; deletions.textContent = ""; }
 			else if (current.viewedState === "folded") {
 				// A hidden file's note already says why it is folded.
 				additions.textContent = "Folded"; deletions.textContent = "";

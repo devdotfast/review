@@ -13,7 +13,6 @@ import { mark } from '../../base/common/performance.js';
 import { onUnexpectedError, setUnexpectedErrorHandler } from '../../base/common/errors.js';
 import { ReviewErrorReportLimiter } from '../common/reviewErrorReport.js';
 import { IReviewTelemetryService } from '../services/reviewTelemetryService.js';
-import { startStallWatchdog } from '../common/reviewStallWatchdog.js';
 import { ITimerService } from '../../workbench/services/timer/browser/timerService.js';
 import { isLinux, isMacintosh, isNative, isWeb, isWindows } from '../../base/common/platform.js';
 import { IPartVisibilityChangeEvent, IWorkbenchLayoutService, MULTI_WINDOW_PARTS, PanelAlignment, Parts, Position, SINGLE_WINDOW_PARTS } from '../../workbench/services/layout/browser/layoutService.js';
@@ -456,25 +455,6 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 		}
 	}
 
-	/**
-	 * Report main-thread stalls. The canvas mounts into this window, so this one
-	 * watchdog covers it too.
-	 */
-	private startStallWatchdog(): void {
-		const document = mainWindow.document;
-		this._register(toDisposable(startStallWatchdog({
-			onStall: durationMs => {
-				this.reviewTelemetryService ??= this.workbenchInstantiationService?.invokeFunction(accessor => accessor.get(IReviewTelemetryService));
-				this.reviewTelemetryService?.capture('ui_stall', { duration_ms: durationMs, process: 'renderer', phase: this.restored ? 'running' : 'startup' });
-			},
-			isVisible: () => document.visibilityState === 'visible',
-			onVisibilityChange: listener => {
-				document.addEventListener('visibilitychange', listener);
-				return () => document.removeEventListener('visibilitychange', listener);
-			},
-		})));
-	}
-
 	//#endregion
 
 	//#region Startup
@@ -491,7 +471,6 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 			// service exists. Keep the instantiation service here so it can
 			// resolve the telemetry service on the first error.
 			this.workbenchInstantiationService = instantiationService;
-			this.startStallWatchdog();
 
 			instantiationService.invokeFunction(accessor => {
 				const lifecycleService = accessor.get(ILifecycleService);

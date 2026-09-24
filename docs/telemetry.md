@@ -205,7 +205,6 @@ events.
 | `review_crash`                    | `process` in `renderer`, `gpu`, `utility`, `server`, `unknown`; `reason` (≤40 chars); `exit_code`; `uptime_ms`; `source` in `live`, `minidump` | A Review process dies, or an uncovered dump is found on the next launch |
 | `review_hang_started`             | None                                                        | A Desktop window stops responding                    |
 | `review_hang_ended`               | `duration_ms`                                               | The window responds again, its process dies, or it closes |
-| `review_ui_stall`                 | `duration_ms`; `process` in `renderer`, `canvas` (`canvas` is allowlisted but not sent — it shares the workbench thread); `phase` in `startup`, `running` | The main thread lags 2 seconds or more behind a timer tick; capped at 5 per session |
 | `review_app_ready`                | `duration_ms`                                                | The workbench restores, timed from the startup trace; once per Desktop launch |
 | `review_error_burst`              | `message_hash`, `suppressed`                                 | A `review_client_error` passes 5 reports for one message in one session; see "Error reports" |
 | `review_open_timeout`             | `elapsed_ms`, `review_id`, `presentation_id`                 | A session starts and no presented or ended event follows within 30 seconds |
@@ -311,11 +310,10 @@ is `home` today; `review_topbar` is allowlisted but not yet sent.
 implicit undo, where opening a dismissed review brings it back — is
 allowlisted but not yet sent.
 
-## Hangs and stalls
+## Hangs
 
 - `review_hang_started` / `review_hang_ended`: Electron's window
   `unresponsive` / `responsive` events.
-- `review_ui_stall`: a workbench timer that fires 2 seconds or more late.
 - `review_open_timeout`: a review that neither presents nor ends within 30
   seconds.
 
@@ -521,4 +519,3 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 | Crash dump upload          | `packages/review/src/server/crash-report.ts`                                                   |
 | Crash and hang listeners   | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashTelemetry.ts`              |
 | Crash dump reconciliation  | `apps/review-desktop/code-oss/src/vs/review/electron-main/reviewCrashDumps.ts`                  |
-| Main-thread stall watchdog | `apps/review-desktop/code-oss/src/vs/review/common/reviewStallWatchdog.ts`                      |

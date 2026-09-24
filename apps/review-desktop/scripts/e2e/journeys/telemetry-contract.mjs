@@ -57,7 +57,6 @@ const EXPECTED_EVENTS = new Set([
  * a stability signal, not a contract break.
  */
 const OPTIONAL_EVENTS = new Set([
-  "review_ui_stall",
   "review_hang_started",
   "review_hang_ended",
   "review_authoring_completed",

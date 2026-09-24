@@ -33,6 +33,14 @@ const require = createRequire(path.join(appRoot, "code-oss/package.json"));
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The one record a home's single Desktop wrote; undefined before it starts. */
+export async function instanceRecordPath(home) {
+  const dir = path.join(home, "review-desktop/instances");
+  const [name] = await readdir(dir).catch(() => []);
+
+  return name && path.join(dir, name);
+}
+
 /** Pages `watchPage` has instrumented; attaching twice doubles every page error and races two dialog handlers. */
 const watchedPages = new WeakSet();
 
@@ -286,7 +294,7 @@ export async function createHarness({
   async function attach() {
     discovery = await until(async () => {
       const value = JSON.parse(
-        await readFile(path.join(home, "review-desktop/server.json"), "utf8"),
+        await readFile(await instanceRecordPath(home), "utf8"),
       );
 
       const health = await (await fetch(`${value.url}/health`)).json();
@@ -507,7 +515,8 @@ export async function createHarness({
 
     while (app.exitCode === null && Date.now() < deadline) await sleep(100);
 
-    if (app.exitCode === null) throw new Error(`Timed out waiting for ${label}`);
+    if (app.exitCode === null)
+      throw new Error(`Timed out waiting for ${label}`);
   }
 
   async function restartDesktop() {
@@ -516,7 +525,7 @@ export async function createHarness({
     try {
       await waitForExit("Desktop shutdown");
     } catch {
-      // A respawn while the old instance still holds the CDP port and server.json would attach to the dying Desktop.
+      // A respawn while the old instance still holds the CDP port and its instance record would attach to the dying Desktop.
       killGroup("SIGKILL");
       await waitForExit("Desktop shutdown after SIGKILL");
     }
@@ -616,7 +625,11 @@ export async function createReview(ctx, spec) {
   });
 
   for (const content of spec.blocks)
-    await command({ type: "edit", reviewId, edit: { type: "insert", content } });
+    await command({
+      type: "edit",
+      reviewId,
+      edit: { type: "insert", content },
+    });
 
   const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
 

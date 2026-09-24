@@ -97,6 +97,7 @@ async function serve(input: HeadlessServerInput) {
     }),
     () => scratchpadEnabled,
     () => traceMachineEnabled(),
+    () => ({ key: "headless", home: input.stateDir }),
   );
 
   mountSharingPublisher(api, local.store, local.data);

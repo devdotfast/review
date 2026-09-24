@@ -78,9 +78,6 @@ it("keeps Desktop preparation owned while a headless connection edits and delete
   try {
     expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
     expect(() => headless.data.workspaces).toThrow(/Desktop/);
-    expect(() => openLocalReviewStore(database)).toThrow(
-      /Another Desktop owns/,
-    );
     expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
     await headless.store.execute({
       commandId: randomUUID(),
@@ -94,6 +91,34 @@ it("keeps Desktop preparation owned while a headless connection edits and delete
   } finally {
     await headless.data.close();
     await headless.store.close();
+  }
+});
+
+it("lets a second Desktop share the profile without preparing a review the first one owns", async () => {
+  git("config", "devfast.prepare", 'node -e "setTimeout(() => {}, 60000)"');
+  const preparing = await local.data.workspaces.source(reviewId, pins, "head");
+  const second = openLocalReviewStore(database);
+
+  try {
+    expect(await second.data.workspaces.source(reviewId, pins, "head")).toEqual(
+      preparing,
+    );
+    await expect(second.data.workspaces.remove(reviewId)).rejects.toThrow(
+      /Another Desktop/,
+    );
+    await expect(
+      second.data.workspaces.retry(reviewId, preparing.id),
+    ).rejects.toThrow(/Another Desktop/);
+    await local.data.close();
+    await local.store.close();
+    local = second;
+    await second.data.workspaces.remove(reviewId);
+    expect(existsSync(preparing.rootPath!)).toBe(false);
+  } finally {
+    if (local !== second) {
+      await second.data.close();
+      await second.store.close();
+    }
   }
 });
 
@@ -269,4 +294,25 @@ it("reports a missing repository before first acquisition and recovers after it 
   expect(
     readFileSync(path.join(restored.rootPath!, "value.ts"), "utf8"),
   ).toContain("42");
+});
+
+it("claims unowned workspaces before removing them", async () => {
+  await local.data.workspaces.source(reviewId, pins, "head");
+  const second = openLocalReviewStore(database);
+  const third = openLocalReviewStore(database);
+
+  try {
+    await local.data.close();
+    const removal = second.data.workspaces.remove(reviewId);
+    await expect(third.data.workspaces.remove(reviewId)).rejects.toThrow(
+      /Another Desktop/,
+    );
+    await removal;
+    expect(third.data.workspaces.list(reviewId)).toEqual([]);
+  } finally {
+    await second.data.close();
+    await second.store.close();
+    await third.data.close();
+    await third.store.close();
+  }
 });

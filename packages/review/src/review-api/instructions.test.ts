@@ -401,7 +401,15 @@ async function startMcp(connect: () => Promise<ReviewApiClient>) {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
-  const server = await serveReviewMcp(connect, stdin, stdout, stderr, true);
+
+  const server = await serveReviewMcp(
+    async () => ({ client: await connect() }),
+    stdin,
+    stdout,
+    stderr,
+    true,
+  );
+
   let output = "";
 
   stdout.on("data", (chunk) => {
@@ -479,7 +487,7 @@ describe("review mcp instructions", () => {
       const list = await mcp.request(2, "tools/list", {});
       expect(
         list.result.tools.map((tool: { name: string }) => tool.name),
-      ).toEqual(["session_get_instructions"]);
+      ).toEqual(["session_get_instructions", "whiteboard_status"]);
       expect(list.result.tools[0].description).not.toContain("scratchpad");
 
       const down = await mcp.request(3, "tools/call", {

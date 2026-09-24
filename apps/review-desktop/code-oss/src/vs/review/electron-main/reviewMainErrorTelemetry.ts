@@ -34,6 +34,8 @@ interface PendingReviewTelemetryEvent {
   readonly name: string;
   readonly properties: Readonly<Record<string, string | number | boolean>>;
   readonly error?: ReviewErrorReport;
+  /** Called once the server has accepted the event. */
+  readonly onDelivered?: () => void;
 }
 
 /**
@@ -53,6 +55,8 @@ export class ReviewMainErrorTelemetry {
   private readonly queued: PendingReviewTelemetryEvent[] = [];
   private readonly unbind: () => void;
   private connection: ReviewDesktopConnection | undefined;
+  /** False while the server is down between a death and its restart. */
+  private online = false;
   private disposed = false;
 
   constructor(private readonly options: ReviewMainErrorTelemetryOptions) {
@@ -62,6 +66,7 @@ export class ReviewMainErrorTelemetry {
       .whenConnected()
       .then((connection) => {
         this.connection = connection;
+        this.online = true;
         this.drain();
       })
       .catch(() => undefined);
@@ -79,30 +84,52 @@ export class ReviewMainErrorTelemetry {
     );
   }
 
-  /** Queue a named Review telemetry event for the embedded server. */
+  /**
+   * Queue a named Review telemetry event for the embedded server. Events
+   * captured while the server is down, or whose send fails, wait for it to
+   * come back; `onDelivered` runs only once the server accepts one.
+   */
   capture(
     name: string,
     properties: Readonly<Record<string, string | number | boolean>> = {},
     error?: ReviewErrorReport,
+    onDelivered?: () => void,
   ): void {
     if (this.disposed) return;
-    const pending = { name, properties, error };
-    if (this.connection) {
+    const pending = { name, properties, error, onDelivered };
+    if (this.connection && this.online) {
       this.post(pending);
       return;
     }
-    this.queued.push(pending);
-    // The connection never resolves when the server cannot start, so the cap is
-    // what bounds this queue.
-    if (this.queued.length > (this.options.maxQueued ?? DEFAULT_MAX_QUEUED)) {
-      this.queued.shift();
-    }
+    this.hold(pending);
+  }
+
+  /** The server died; hold events until it is ready again. */
+  serverLost(): void {
+    this.online = false;
+  }
+
+  /** A (re)started server announced itself; send what waited for it. */
+  serverReady(): void {
+    if (!this.connection) return;
+    this.online = true;
+    this.drain();
   }
 
   dispose(): void {
     this.disposed = true;
     this.queued.length = 0;
     this.unbind();
+  }
+
+  private hold(pending: PendingReviewTelemetryEvent): void {
+    if (this.disposed) return;
+    this.queued.push(pending);
+    // The connection never resolves when the server cannot start, so the cap is
+    // what bounds this queue.
+    if (this.queued.length > (this.options.maxQueued ?? DEFAULT_MAX_QUEUED)) {
+      this.queued.shift();
+    }
   }
 
   private report(error: unknown): void {
@@ -147,7 +174,7 @@ export class ReviewMainErrorTelemetry {
     if (!this.options.isTelemetryEnabled()) return;
     const send = this.options.fetchImpl ?? fetch;
     try {
-      void send(
+      send(
         `${connection.url}/telemetry/event`,
         reviewTelemetryEventRequest(
           connection,
@@ -157,7 +184,16 @@ export class ReviewMainErrorTelemetry {
             error: pending.error,
           },
         ),
-      ).catch(() => undefined);
+      ).then(
+        (response) => {
+          if (!response.ok) return;
+          pending.onDelivered?.();
+          // A send that failed while the server was up retries after this one.
+          if (this.online) this.drain();
+        },
+        // The server is unreachable: most likely it just died.
+        () => this.hold(pending),
+      );
     } catch (error) {
       this.options.logError?.(
         `[Review Desktop] could not report a main-process telemetry event: ${error}`,

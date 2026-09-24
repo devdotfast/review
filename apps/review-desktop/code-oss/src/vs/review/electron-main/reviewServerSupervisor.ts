@@ -81,6 +81,8 @@ export interface ReviewServerSupervisorOptions {
   readonly crashDumpsDir?: string;
   /** A server process that died on its own; deliberate stops never report. */
   readonly onServerTerminated?: (detail: ReviewServerTermination) => void;
+  /** Called every time a server, first or restarted, announces its endpoint. */
+  readonly onServerReady?: () => void;
 }
 
 export function createReviewServerEnvironment(options: {
@@ -332,6 +334,7 @@ export class ReviewServerSupervisor extends Disposable {
           );
           void this.connected.complete(connection);
         }
+        this.options.onServerReady?.();
       }),
     );
     this.processListeners.add(

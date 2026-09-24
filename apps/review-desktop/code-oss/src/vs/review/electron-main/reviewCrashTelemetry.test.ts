@@ -17,7 +17,10 @@ function setup(now = () => 10_000, windows: ReviewCrashWindow[] = []) {
   const telemetry = new ReviewCrashTelemetry({
     app: app as never,
     windows,
-    capture: (name, properties) => captured.push([name, properties]),
+    capture: (name, properties, onDelivered) => {
+      captured.push([name, properties]);
+      onDelivered?.();
+    },
     now,
     launchedAt: 4_000,
     onCrashRecorded: (at) => recorded.push(at),

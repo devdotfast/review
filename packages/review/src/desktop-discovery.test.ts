@@ -219,6 +219,28 @@ describe("Review instance selection", () => {
     expect(other.instance?.healthy).toBe(true);
   });
 
+  it("reports any broken record when nothing is selected and nothing answers", async () => {
+    // The one Desktop that ran may be the broken record; without a selected
+    // key that is the diagnosis, not "no Whiteboard is running".
+    const select = await home({ "dev-review-0123456789ab": "broken" });
+    const selection = await select();
+    expect(selection).toMatchObject({ key: "stable", source: "fallback" });
+    expect(selection.problem?.message).toMatch(/dev-review-0123456789ab\.json/);
+
+    // Once a Desktop answers, the broken record is only skipped.
+    const answering = await home({ preview: true, stable: "broken" });
+    const answered = await answering();
+    expect(answered).toMatchObject({ key: "preview", source: "only-running" });
+    expect(answered.problem).toBeUndefined();
+  });
+
+  it("lets a stable record, even a broken one, hide the pre-instance server.json", async () => {
+    const select = await home({ stable: "broken" }, { legacy: true });
+    const selection = await select({ DEV_REVIEW_INSTANCE: "stable" });
+    expect(selection.instance).toBeUndefined();
+    expect(selection.problem?.message).toMatch(/stable\.json/);
+  });
+
   it("reads a pre-instance Desktop's server.json as stable", async () => {
     const select = await home({}, { legacy: true });
     const selection = await select();

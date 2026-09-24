@@ -15,7 +15,6 @@ import {
 import {
   reviewDefaultInstancePath,
   reviewDevInstanceKey,
-  reviewInstanceDiscoveryPath,
   reviewInstancesDir,
   reviewLegacyDiscoveryPath,
 } from "./review-home-paths";
@@ -188,38 +187,43 @@ export interface ReviewInstanceDependencies {
 export async function listReviewInstances(
   dependencies: ReviewInstanceDependencies = {},
 ): Promise<ReviewInstance[]> {
+  return (await readReviewInstances(dependencies)).instances;
+}
+
+/** Records by key, plus the files that could not be read, by key. */
+async function readReviewInstances(dependencies: ReviewInstanceDependencies) {
   const env = dependencies.env ?? process.env;
   const directory = reviewInstancesDir(env);
-  const names = await readdir(directory).catch(() => []);
+  const names = await readdir(directory).catch((): string[] => []);
 
   const files = names
     .filter((name) => name.endsWith(".json"))
-    .map((name) => path.join(directory, name));
+    .map((name): [string, string] => [
+      path.basename(name, ".json"),
+      path.join(directory, name),
+    ]);
+
+  // A stable Desktop that predates instances wrote only the legacy file; it
+  // stands in for stable only while no stable record exists at all.
+  if (!names.includes("stable.json"))
+    files.push(["stable", reviewLegacyDiscoveryPath(env)]);
 
   const records: Omit<ReviewInstance, "healthy">[] = [];
+  const broken = new Map<string, Error>();
 
-  for (const filePath of [...files, reviewLegacyDiscoveryPath(env)]) {
+  for (const [key, filePath] of files) {
     try {
       const discovery = await readReviewDesktopDiscoveryFile(filePath);
 
-      if (!discovery) continue;
-
-      // The file name is the key; a stable Desktop that predates instances
-      // wrote only the legacy file.
-      const key = filePath.startsWith(directory)
-        ? path.basename(filePath, ".json")
-        : "stable";
-
-      if (records.some((record) => record.key === key)) continue;
-      records.push({ key, filePath, discovery });
+      if (discovery) records.push({ key, filePath, discovery });
     } catch (error) {
-      dependencies.warn?.(
-        `Skipping ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const problem = error instanceof Error ? error : new Error(String(error));
+      broken.set(key, problem);
+      dependencies.warn?.(`Skipping ${filePath}: ${problem.message}`);
     }
   }
 
-  return Promise.all(
+  const instances = await Promise.all(
     records.map(async (record) => ({
       ...record,
       healthy: await isHealthyReviewDesktop(
@@ -228,6 +232,8 @@ export async function listReviewInstances(
       ),
     })),
   );
+
+  return { instances, broken };
 }
 
 export async function readDefaultReviewInstance(
@@ -270,7 +276,7 @@ export async function selectReviewInstance(
   dependencies: ReviewInstanceDependencies = {},
 ): Promise<ReviewInstanceSelection> {
   const env = dependencies.env ?? process.env;
-  const instances = await listReviewInstances(dependencies);
+  const { instances, broken } = await readReviewInstances(dependencies);
   const fromEnv = env[REVIEW_INSTANCE_ENV]?.trim();
 
   const fromDefault = fromEnv
@@ -296,34 +302,20 @@ export async function selectReviewInstance(
   const selection: ReviewInstanceSelection = { key, source, instances };
   const instance = instances.find((instance) => instance.key === key);
 
-  if (instance) selection.instance = instance;
-  else {
-    const problem = await brokenRecord(key, env);
+  // A broken record is a diagnosis, not "not running": `app pick` must not
+  // launch a second Desktop over it. With nothing selected explicitly, any
+  // broken record may be the one Desktop that is running.
+  const problem = instance
+    ? undefined
+    : fromEnv || fromDefault
+      ? broken.get(key)
+      : broken.values().next().value;
 
-    if (problem) selection.problem = problem;
-  }
+  if (instance) selection.instance = instance;
+
+  if (problem) selection.problem = problem;
 
   return selection;
-}
-
-// A broken record for the selected key is a diagnosis, not "not running":
-// `app pick` must not launch a second Desktop over it.
-async function brokenRecord(
-  key: string,
-  env: NodeJS.ProcessEnv,
-): Promise<Error | undefined> {
-  const files = [reviewInstanceDiscoveryPath(key, env)];
-
-  if (key === "stable") files.push(reviewLegacyDiscoveryPath(env));
-
-  for (const file of files)
-    try {
-      await readReviewDesktopDiscoveryFile(file);
-    } catch (error) {
-      return error instanceof Error ? error : new Error(String(error));
-    }
-
-  return undefined;
 }
 
 /** Never a redirect: names what is running and how to start or pick one. */

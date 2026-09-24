@@ -33,11 +33,10 @@ import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Whiteboard CLI", () => {
   it("routes Cursor install instructions without connecting to Desktop", async () => {
-    const { code, stdout, stderr } = await runConnect([
-      "connect",
-      "cursor",
-      "--json",
-    ]);
+    const { code, stdout, stderr } = await runConnect(
+      ["connect", "cursor", "--json"],
+      installTestShim,
+    );
 
     expect(code).toBe(0);
     expect(stderr).toBe("");
@@ -63,6 +62,7 @@ describe("Whiteboard CLI", () => {
     const { code, stdout } = await runConnect(
       ["connect", "--json"],
       async (home) => {
+        await installTestShim(home);
         owned = path.join(home, ".agents", "skills", "dev-review");
         unrelated = path.join(home, ".agents", "skills", "review");
         plugin = path.join(home, ".config", "opencode", "plugins", "review.ts");
@@ -691,6 +691,12 @@ describe("Whiteboard CLI", () => {
 
 function outputStream(): PassThrough {
   return new PassThrough();
+}
+
+async function installTestShim(home: string): Promise<void> {
+  const bin = path.join(home, ".local", "bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(path.join(bin, "whiteboard"), "# Managed by Whiteboard\n");
 }
 
 async function runConnect(

@@ -82,11 +82,9 @@ export function connectPrompt(
   target: InstallTarget,
   input: ConnectPromptInput,
 ): string {
-  const prerequisites = input.hasShim
-    ? []
-    : [
-        "Stop and ask me to install the whiteboard command in Whiteboard Desktop (Settings → Command line), then run this connect command again. The connection requires ~/.local/bin/whiteboard.",
-      ];
+  if (!input.hasShim) {
+    return "Connect this agent to dev.fast Whiteboard.\n\nStop and ask me to install the whiteboard command in Whiteboard Desktop (Settings → Command line), then run this connect command again. The connection requires ~/.local/bin/whiteboard.";
+  }
 
   const extra =
     target === "claude" || target === "codex" || target === "pi"
@@ -102,7 +100,6 @@ export function connectPrompt(
     "Connect this agent to dev.fast Whiteboard.",
     "",
     ...numbered([
-      ...prerequisites,
       ...(input.legacyPaths.length
         ? [
             `Delete these old Whiteboard skill folders and plugin files:\n${input.legacyPaths.map((item) => `- ${JSON.stringify(item)}`).join("\n")}`,

@@ -115,8 +115,9 @@ SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos
 
 builds an unsigned `VSCode-darwin-arm64/Whiteboard.app` and skips
 signing, notarization, and artifact creation. A full run needs the signing
-environment and produces `dist/Whiteboard-darwin-arm64-<version>.zip` (the
-Squirrel update payload) and the matching `.dmg`, both notarized and stapled:
+environment and produces the `.dmg` plus one Squirrel update zip per installed
+bundle folder name (`Whiteboard-…zip`, `Review-…zip`; see `release-channel.mjs`),
+all notarized and stapled:
 
 - `CODESIGN_IDENTITY` — the Developer ID Application identity string.
 - Keychain: `CODESIGN_KEYCHAIN` (explicit path), or `AGENT_TEMPDIRECTORY`
@@ -219,8 +220,9 @@ Preview uses its own bundle identifier, URL scheme, CLI name, and data folders,
 so it can run beside stable without replacing the stable app or sharing its
 settings. Preview updates continue to use the preview feed. To return to stable,
 open the existing `Whiteboard.app` or install it from <https://install.dev.fast>.
-Auto-updated Review installs keep the `Review.app` file name; reinstall from
-the disk image to get `Whiteboard.app`.
+Squirrel renames an install to the update zip's folder name, so the client
+sends its own folder name (`?bundle=`) and the feed answers with the matching
+zip: `Review.app` installs stay `Review.app`, fresh installs are `Whiteboard.app`.
 
 Builds from before the preview identity split installed as `Review.app`.
 Reinstall once from <https://install.dev.fast/preview> after the split so the
@@ -285,6 +287,7 @@ browser download always does.
 update/stable/darwin-arm64/latest.json     current-release manifest
 update/preview/darwin-arm64/latest.json    current-preview manifest
 releases/<version>/darwin-arm64/           Whiteboard-darwin-arm64-<version>.zip + .dmg
+                                           Review-darwin-arm64-<version>.zip (Review.app-named copy)
 releases/latest/darwin-arm64/Whiteboard.dmg
                                            direct-download alias, saved as
                                            df-whiteboard-<version>.dmg

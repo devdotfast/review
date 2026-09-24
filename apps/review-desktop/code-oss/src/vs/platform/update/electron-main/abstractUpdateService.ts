@@ -28,6 +28,8 @@ const LAST_KNOWN_VERSION_STORAGE_KEY = 'abstractUpdateService/lastKnownVersion';
 export interface IUpdateURLOptions {
 	readonly background?: boolean;
 	readonly internalOrg?: string;
+	/** The .app folder name this install runs from (without .app). The feed serves the zip whose folder matches, so Squirrel never renames the install. */
+	readonly bundle?: string;
 }
 
 export function createUpdateURL(baseUpdateUrl: string, platform: string, quality: string, commit: string, options?: IUpdateURLOptions): string {
@@ -38,6 +40,10 @@ export function createUpdateURL(baseUpdateUrl: string, platform: string, quality
 	}
 
 	url.searchParams.set('u', options?.internalOrg ?? 'none');
+
+	if (options?.bundle) {
+		url.searchParams.set('bundle', options.bundle);
+	}
 
 	return url.toString();
 }

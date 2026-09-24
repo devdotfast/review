@@ -1,3 +1,4 @@
+import { cursorInstallDeeplink } from "./cursor-deeplink";
 import type { InstallTarget } from "./install";
 
 /** The one launch form every Whiteboard MCP registration uses; plugins must match it byte for byte. */
@@ -9,6 +10,7 @@ export const REVIEW_MCP_LAUNCH = {
 export interface ConnectPromptInput {
   /** False when the serving package has no built CLI (Desktop from source): prompts fall back to a bare `whiteboard`. */
   hasShim: boolean;
+  legacyPaths: string[];
   traceEnabled: boolean;
   fffBinaryPath: string;
   fffCorpusRoot: string;
@@ -18,9 +20,6 @@ export const FFF_INSTALL_URL =
   "https://raw.githubusercontent.com/dmtrKovalenko/fff/v0.11.0/install-mcp.sh";
 
 export const PI_FFF_PACKAGE = "npm:@ff-labs/pi-fff";
-
-const LEGACY_SKILL_NAMES =
-  "whiteboard, dev-review, dev-review-batch, dev-file-lenses, scratchpad, trace-archaeology, dev-review-map, review, review-map, review-stop, progressive-review or pr-review";
 
 export function reviewMcpLaunch(hasShim: boolean): {
   command: string;
@@ -34,57 +33,16 @@ export function reviewMcpLaunch(hasShim: boolean): {
     : { command: "whiteboard", args: ["mcp"] };
 }
 
-/** `command "sh", args ["-c","exec \"$HOME/.local/bin/whiteboard\" mcp"]`, JSON-escaped so agents copy it verbatim. */
-function launchText(hasShim: boolean): string {
-  const launch = reviewMcpLaunch(hasShim);
-
-  return `command ${JSON.stringify(launch.command)}, args ${JSON.stringify(launch.args)}`;
-}
-
 function whiteboardCli(hasShim: boolean): string {
   return hasShim ? '"$HOME/.local/bin/whiteboard"' : "whiteboard";
 }
 
-const SKILLS_DIRS: Record<InstallTarget, string> = {
-  claude: "~/.claude/skills",
-  codex: "~/.agents/skills",
-  cursor: "~/.cursor/skills",
-  opencode: "~/.config/opencode/skills",
-  pi: "~/.agents/skills",
-};
-
-const removeOldSkills = (target: InstallTarget) =>
-  `Look in ${SKILLS_DIRS[target]} for folders named ${LEGACY_SKILL_NAMES}. Inspect each SKILL.md's YAML frontmatter. Delete a folder only when its metadata has review-managed-by: "Review Desktop", a nonempty review-generated string, and review-version set to a semantic version or "development"; or whiteboard-managed-by: "Whiteboard" (or "Whiteboard Desktop"), a nonempty whiteboard-generated string, and whiteboard-version set to a semantic version or "development". Do not follow symlinks. Leave every other folder alone. Verify that the matching legacy folders are gone and the others are unchanged.`;
-
-function pathNote(hasShim: boolean): string {
-  return hasShim
-    ? ""
-    : " Whiteboard Desktop has no installed command on this machine, so whiteboard must be on the PATH of the agent.";
+function shellQuote(value: string): string {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 
 function numbered(steps: string[]): string[] {
   return steps.map((step, index) => `${index + 1}. ${step}`);
-}
-
-function mcpPrompt(
-  target: InstallTarget,
-  input: ConnectPromptInput,
-  extra: string[],
-): string {
-  const homeNote = input.hasShim
-    ? " Keep `$HOME` literal in the args; sh expands it when the server starts. Do not replace it with the expanded path."
-    : "";
-
-  return [
-    "Connect this agent to dev.fast Whiteboard.",
-    "",
-    ...numbered([
-      `Add an MCP server named "whiteboard" to my user-level (global) MCP configuration, not this project's: ${launchText(input.hasShim)}, no environment variables.${homeNote} If a "whiteboard" server already exists, replace it. Skip step 1 if the Whiteboard plugin is already installed.${pathNote(input.hasShim)}`,
-      removeOldSkills(target),
-      ...extra,
-      "Reload your MCP tools, or tell me that a restart is needed. Then call session_get_instructions and confirm it answered. Do not author anything yet.",
-    ]),
-  ].join("\n");
 }
 
 function fffSteps(input: ConnectPromptInput, target: InstallTarget): string[] {
@@ -92,54 +50,82 @@ function fffSteps(input: ConnectPromptInput, target: InstallTarget): string[] {
 
   if (target === "pi") return [`Run: pi install ${PI_FFF_PACKAGE}`];
 
+  const binary = shellQuote(input.fffBinaryPath);
+  const root = shellQuote(input.fffCorpusRoot);
+  const add = target === "claude" ? "claude mcp add -s user" : "codex mcp add";
+
   return [
-    `Connect Whiteboard's trace search. If ${input.fffBinaryPath} does not exist, install it with: curl -fsSL ${FFF_INSTALL_URL} | bash. Then add a second user-level MCP server named "fff": command ${JSON.stringify(input.fffBinaryPath)}, args ${JSON.stringify([input.fffCorpusRoot])}. If an MCP server named "fff" already exists, leave it unchanged and tell me.`,
+    `Unless \`${target} mcp get fff\` finds an existing server, run:\n\n\`\`\`sh\n[ -x ${binary} ] || curl -fsSL ${FFF_INSTALL_URL} | bash\n${add} fff -- ${binary} ${root}\n\`\`\``,
   ];
 }
 
-function piPrompt(input: ConnectPromptInput): string {
-  const cli = whiteboardCli(input.hasShim);
-
-  const skill = [
-    "---",
-    "name: whiteboard",
-    'description: "Explain code in Whiteboard, the architecture-visualization tool: author Whiteboards of branches, changes and pull requests, draw on the Whiteboard scratchpad, or research why code exists from past agent sessions."',
-    "---",
-    "",
-    "# dev.fast Whiteboard",
-    "",
-    `Whiteboard serves its own instructions. Before authoring, run \`${cli} api session_get_instructions '{}'\` and follow the result. Pass \`'{"topic":"scratchpad"}'\` to explain code visually, or \`'{"topic":"trace-archaeology"}'\` to research why code exists. If Whiteboard is not running, the response says how to start it.`,
-  ].join("\n");
-
-  return [
-    "Connect this agent to dev.fast Whiteboard.",
-    "",
-    ...numbered([
-      removeOldSkills("pi"),
-      `Create ${SKILLS_DIRS.pi}/whiteboard/SKILL.md. The file's content is exactly the fenced block below. Skip step 2 if the Whiteboard package for Pi is already installed.\n\n\`\`\`markdown\n${skill}\n\`\`\`\n`,
-      ...fffSteps(input, "pi"),
-      `Run \`${cli} api session_get_instructions '{}'\` once and confirm it answered. Do not author anything yet.${pathNote(input.hasShim)}`,
-    ]),
-  ].join("\n");
+function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
+  switch (target) {
+    case "claude":
+      return [
+        "Run:\n\n```sh\nclaude plugin marketplace add devdotfast/review\nclaude plugin install whiteboard@devfast --scope user\nclaude mcp remove -s user whiteboard # old manual registration, if any\n```",
+      ];
+    case "codex":
+      return [
+        "Run:\n\n```sh\ncodex plugin marketplace add devdotfast/review\ncodex plugin add whiteboard@devfast\ncodex mcp remove whiteboard # old manual registration, if any\n```",
+      ];
+    case "opencode":
+      return [
+        "Run:\n\n```sh\nopencode plugin @dev.fast/opencode-whiteboard --global\n```",
+      ];
+    case "pi":
+      return ["Run:\n\n```sh\npi install npm:@dev.fast/pi-whiteboard\n```"];
+  }
 }
 
 export function connectPrompt(
   target: InstallTarget,
   input: ConnectPromptInput,
 ): string {
-  if (target === "pi") return piPrompt(input);
+  if (!input.hasShim) {
+    return "Connect this agent to dev.fast Whiteboard.\n\nStop and ask me to install the whiteboard command in Whiteboard Desktop (Settings → Command line), then run this connect command again. The connection requires ~/.local/bin/whiteboard.";
+  }
 
   const extra =
-    target === "codex"
-      ? [
-          'Append this line to ~/.codex/AGENTS.md, creating the file if needed, unless that line is already there: "For code reviews and explaining code, use the whiteboard MCP server: call session_get_instructions first."',
-        ]
+    target === "claude" || target === "codex" || target === "pi"
+      ? fffSteps(input, target)
       : [];
 
-  const fff =
-    target === "claude" || target === "codex" ? fffSteps(input, target) : [];
+  const verify =
+    target === "pi"
+      ? `Ask me to run /reload in Pi, then run \`${whiteboardCli(input.hasShim)} api session_get_instructions '{}'\` and confirm it answered. Do not author anything yet.`
+      : "Reload your MCP tools and call `session_get_instructions` on the Whiteboard server. If a restart is needed, tell me and verify after it. Do not author anything yet.";
 
-  return mcpPrompt(target, input, [...extra, ...fff]);
+  return [
+    "Connect this agent to dev.fast Whiteboard.",
+    "",
+    ...numbered([
+      ...(input.legacyPaths.length
+        ? [
+            `Delete these old Whiteboard skill folders and plugin files:\n${input.legacyPaths.map((item) => `- ${JSON.stringify(item)}`).join("\n")}`,
+          ]
+        : []),
+      ...(target === "cursor"
+        ? [
+            `Show me this link and ask me to confirm the installation in Cursor:\n\n${cursorInstallDeeplink(reviewMcpLaunch(true))}`,
+          ]
+        : [...pluginSteps(target), ...extra, verify]),
+    ]),
+  ].join("\n");
+}
+
+export function connectSetupPrompt(target: InstallTarget): string {
+  return `Run \`whiteboard connect ${target}\` and follow the instructions to connect this agent to Whiteboard.`;
+}
+
+export function connectSetupPrompts(): Record<InstallTarget, string> {
+  return {
+    claude: connectSetupPrompt("claude"),
+    codex: connectSetupPrompt("codex"),
+    cursor: connectSetupPrompt("cursor"),
+    opencode: connectSetupPrompt("opencode"),
+    pi: connectSetupPrompt("pi"),
+  };
 }
 
 export function connectPrompts(

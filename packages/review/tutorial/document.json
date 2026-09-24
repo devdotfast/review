@@ -70,7 +70,7 @@
       "children": [
         {
           "type": "markdown",
-          "markdown": "Review pins an exact base and head before the agent starts writing. Open\n**Commits** to see the change in author order. Expand the sample commit to see\nits files, then choose **Open diff** to inspect only that commit.\n\nThe **Diff** tab shows the complete change between the pinned base and head.\nChoose **Review** when you are ready to return to this tour.\n"
+          "markdown": "Review pins an exact base and head before the agent starts writing. Open\n**Commits** to see the change in author order. Expand the sample commit to see\nits files, then choose the **<>** button to inspect only that commit.\n\nThe **Diff** tab shows the complete change between the pinned base and head.\nChoose **Review** when you are ready to return to this tour.\n"
         },
         {
           "type": "tutorial",

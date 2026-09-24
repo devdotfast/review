@@ -175,7 +175,8 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_telemetry_dropped`    | `reason`, `count`                                                                      | The queue drops one or more events   |
 
 `command_path` is a closed enum: `help`, `version`, `app.launch`, `app.pick`,
-`info`, `connect`, `migrate.apply`, `login`, `logout`, `whoami`,
+`info`, `connect`, `instances`, `instances.use`, `instances.clear`,
+`migrate.apply`, `login`, `logout`, `whoami`,
 `trace.store.create`, `trace.store.delete`, `trace.store.info`,
 `trace.install`, `trace.allow`, `trace.deny`, `trace.storage.use`,
 `trace.config.migrate`, `api`, `mcp`, and `invalid`. Other commands, such as

@@ -3,8 +3,14 @@ import type { Readable, Writable } from "node:stream";
 import { traceMachineEnabled } from "@dev.fast/trace-core";
 
 import {
+  REVIEW_INSTANCE_ENV,
+  selectReviewInstance,
+} from "../desktop-discovery.js";
+import { devReviewHome } from "../review-home-paths.js";
+import {
   type AuthoringTool,
   connectReviewApi,
+  connectReviewInstance,
   toolResultText,
 } from "./agent-client.js";
 import { type ReviewApiClient, ReviewApiError } from "./client.js";
@@ -23,6 +29,8 @@ export const reviewAgentCliHelp =
   "whiteboard api tools\nwhiteboard api <tool-name> '<json>'\nwhiteboard api <tool-name> -  (read JSON from stdin)\nwhiteboard mcp  (stdio MCP adapter; Whiteboard Desktop or whiteboard server start must be running)\nSelect headless state with DEV_REVIEW_SERVER_DIR or whiteboard --state-dir <path> api/mcp.\n";
 
 export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
+  const env = input.env ?? process.env;
+
   try {
     const [mode, ...rest] = input.argv;
 
@@ -47,11 +55,30 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
     if (mode === "mcp") {
       const { serveReviewMcp } = await import("./mcp.js");
       await serveReviewMcp(
-        () => connectReviewApi(input.env),
+        (key) =>
+          connectReviewInstance(
+            key ? { ...env, [REVIEW_INSTANCE_ENV]: key } : env,
+          ),
         input.stdin ?? process.stdin,
         input.stdout,
         input.stderr,
         await traceMachineEnabled({ env: input.env }),
+        env.DEV_REVIEW_SERVER_DIR?.trim()
+          ? undefined
+          : async (problem) => {
+              const selection = await selectReviewInstance({ env });
+
+              return {
+                key: selection.key,
+                selectedBy: selection.source,
+                desktopAvailable: false,
+                running: selection.instances
+                  .filter((instance) => instance.healthy)
+                  .map((instance) => instance.key),
+                home: devReviewHome(env),
+                problem,
+              };
+            },
       );
 
       return 0;

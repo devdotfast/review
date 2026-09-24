@@ -28,6 +28,12 @@ pnpm install
 pnpm dev
 ```
 
+A dev build can run alongside an installed Whiteboard. They share the same
+data, so commands and your agent's `whiteboard` MCP server talk to one selected
+app. Run `whiteboard instances` to see which one, `whiteboard instances use
+<key>` to change the default, or set `DEV_REVIEW_INSTANCE=<key>` in the shell
+you start your agent from. Reconnect the MCP server after switching.
+
 ## Repository layout
 
 The product is named Whiteboard, but package names and directories still use

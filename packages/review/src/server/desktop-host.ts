@@ -3,6 +3,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { reviewInstanceIdentity } from "../desktop-discovery";
 import { findReviewPackageRoot } from "../package-paths";
 import { openReviewProfile } from "../review-api/profile";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
@@ -43,6 +44,7 @@ export async function runDesktopHost(
     port,
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
+    identity: reviewInstanceIdentity(env),
     telemetry,
   };
 

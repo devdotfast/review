@@ -45,10 +45,16 @@ def claude_project_dir(cwd: Path) -> Path:
     return CLAUDE_PROJECTS_DIR / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
 
 
+def instance_record_path(home: Path) -> Path | None:
+    directory = home / "review-desktop" / "instances"
+    names = sorted(p.name for p in directory.glob("*.json")) if directory.is_dir() else []
+    return directory / names[0] if names else None
+
+
 def read_desktop_discovery(home: Path) -> dict:
-    path = home / "review-desktop" / "server.json"
-    if not path.exists():
-        raise RuntimeError(f"Review Desktop discovery file missing at {path}.")
+    path = instance_record_path(home)
+    if path is None:
+        raise RuntimeError(f"Review Desktop discovery file missing under {home / 'review-desktop' / 'instances'}.")
     return json.loads(path.read_text())
 
 
@@ -116,11 +122,11 @@ def launch_desktop(home: Path, state: Path, mode: str, log) -> subprocess.Popen:
             raise RuntimeError(
                 f"isolated desktop exited with {process.returncode}; see {home / 'desktop.log'}"
             )
-        if (home / "review-desktop" / "server.json").exists():
+        if instance_record_path(home) is not None:
             try:
                 health = desktop_request("GET", "/health", home)
             except (urllib.error.URLError, ConnectionError):
-                health = None  # server.json written before the port listens
+                health = None  # instance record written before the port listens
             if health and health.get("ok") and health.get("desktopAttached"):
                 log(f"isolated {mode} desktop up at {read_desktop_discovery(home)['url']} (pid {process.pid})")
                 return process

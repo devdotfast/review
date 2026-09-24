@@ -611,6 +611,7 @@ describe("installed launcher runtime selection", () => {
 
   it.each([
     ["healthy discovery", true, true, false, "discovered"],
+    ["instance management", true, true, false, "fallback"],
     ["missing discovered CLI", false, true, false, "fallback"],
     ["missing discovered runtime", true, false, false, "fallback"],
     ["delegation disabled", true, true, true, "fallback"],
@@ -645,11 +646,17 @@ describe("installed launcher runtime selection", () => {
         JSON.stringify({
           cliPath: discoveredCli,
           cliRuntimePath: discoveredRuntime,
+          serverPid: process.pid,
         }),
       );
       await writePathShim(shim, fallbackCli, fallbackRuntime, home);
 
-      const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
+      const args =
+        _name === "instance management"
+          ? ["instances", "use", "preview"]
+          : ["trace", "status"];
+
+      const { stdout } = await promisify(execFile)(shim, args, {
         env: {
           ...process.env,
           DEV_REVIEW_HOME: home,
@@ -662,11 +669,96 @@ describe("installed launcher runtime selection", () => {
         "guard=1",
         `delegated=${expected === "discovered" ? "1" : ""}`,
         expected === "fallback" ? fallbackCli : discoveredCli,
-        "trace",
-        "status",
+        ...args,
       ]);
     },
   );
+});
+
+describe("installed launcher instance selection", () => {
+  // A dead pid: the shim must not trust a record whose server has exited.
+  const deadPid = 2 ** 22 + 1;
+
+  async function fixture(records: Record<string, number>) {
+    const home = await temporaryHome("review-shim-instances-");
+    const shim = path.join(home, "review");
+    const fallbackCli = path.join(home, "fallback-cli.js");
+    const fallbackRuntime = path.join(home, "fallback-runtime");
+    await writeFile(fallbackCli, "// CLI fixture\n");
+    await writeFile(fallbackRuntime, "#!/bin/sh\necho fallback\n", {
+      mode: 0o755,
+    });
+    const instances = path.join(home, "review-desktop", "instances");
+    await mkdir(instances, { recursive: true });
+
+    for (const [key, serverPid] of Object.entries(records)) {
+      const file =
+        key === "legacy"
+          ? path.join(home, "review-desktop", "server.json")
+          : path.join(instances, `${key}.json`);
+
+      const cliPath = path.join(home, `${key}-cli.js`);
+      const cliRuntimePath = path.join(home, `${key}-runtime`);
+      await writeFile(cliPath, "// CLI fixture\n");
+      await writeFile(cliRuntimePath, `#!/bin/sh\necho ${key}\n`, {
+        mode: 0o755,
+      });
+      await writeFile(
+        file,
+        JSON.stringify({ cliPath, cliRuntimePath, serverPid }),
+      );
+    }
+
+    await writePathShim(shim, fallbackCli, fallbackRuntime, home);
+
+    return async (env: NodeJS.ProcessEnv = {}, defaultInstance?: string) => {
+      if (defaultInstance)
+        await writeFile(
+          path.join(home, "review-desktop", "default-instance"),
+          `${defaultInstance}\n`,
+        );
+
+      const { stdout } = await promisify(execFile)(shim, [], {
+        env: {
+          PATH: process.env.PATH,
+          DEV_REVIEW_HOME: home,
+          DEV_REVIEW_INSTANCE: "",
+          ...env,
+        },
+      });
+
+      return stdout.trim();
+    };
+  }
+
+  it("follows the env override, then the machine default, then the only live Desktop, then stable", async () => {
+    const both = await fixture({ stable: process.pid, preview: process.pid });
+    expect(await both({ DEV_REVIEW_INSTANCE: "preview" })).toBe("preview");
+    expect(await both()).toBe("stable");
+    expect(await both({}, "preview")).toBe("preview");
+    expect(await both({ DEV_REVIEW_INSTANCE: "stable" }, "preview")).toBe(
+      "stable",
+    );
+
+    const previewOnly = await fixture({
+      stable: deadPid,
+      preview: process.pid,
+    });
+
+    expect(await previewOnly()).toBe("preview");
+    expect(await previewOnly({ DEV_REVIEW_INSTANCE: "stable" })).toBe(
+      "fallback",
+    );
+
+    // A pre-instance stable Desktop answers only for stable.
+    const legacy = await fixture({ legacy: process.pid });
+    expect(await legacy()).toBe("legacy");
+    expect(await legacy({ DEV_REVIEW_INSTANCE: "stable" })).toBe("legacy");
+    expect(await legacy({ DEV_REVIEW_INSTANCE: "preview" })).toBe("fallback");
+
+    // A key is a file name; anything else is left for the CLI to reject.
+    expect(await both({ DEV_REVIEW_INSTANCE: "../server" })).toBe("fallback");
+  });
 });
 
 describe("Desktop installation alongside npm", () => {
@@ -823,6 +915,31 @@ describe("MCP self-install", () => {
       ).toBe(true);
     });
 
+    it.each([null, "granted", "declined", "skipped"] as const)(
+      "requires the update while legacy skills remain with consent %s, even after Done",
+      async (consent) => {
+        if (consent) await writeStamp({ consent, updatedAt: now });
+        await writeStampedSkill(
+          path.join(homeDir, ".agents", "skills", "dev-review"),
+        );
+        const input = { packageRoot: builtRoot, homeDir, env };
+
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(true);
+        await mkdir(path.dirname(cliInstallUpdateMarkerPath(env)), {
+          recursive: true,
+        });
+        await writeFile(cliInstallUpdateMarkerPath(env), "");
+        await finishCliInstallUpdate(env);
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(true);
+
+        await removeLegacyReviewSkills({ homeDir, env });
+        expect((await resolveCliInstallStatus(input)).updateNeeded).toBe(false);
+        expect(
+          (await readCliInstallStamp(cliInstallStampPath(env)))?.consent,
+        ).toBe(consent ?? undefined);
+      },
+    );
+
     it("generates prompts with the sh launch form when the shim exists and the bare command otherwise", async () => {
       await writePathShim(shim, cliPath, undefined, path.join(homeDir, ".dev"));
 
@@ -836,9 +953,6 @@ describe("MCP self-install", () => {
         command: "sh",
         args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
       });
-      expect(built.connect.prompts.claude).toContain(
-        "$HOME/.local/bin/whiteboard",
-      );
 
       await rm(shim);
 
@@ -852,9 +966,6 @@ describe("MCP self-install", () => {
         command: "whiteboard",
         args: ["mcp"],
       });
-      expect(source.connect.prompts.pi).toContain(
-        "whiteboard api session_get_instructions",
-      );
     });
 
     it("offers each harness's plugin, with the Cursor link only when the shim exists", async () => {

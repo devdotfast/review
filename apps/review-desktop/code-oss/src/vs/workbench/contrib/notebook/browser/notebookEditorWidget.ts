@@ -89,7 +89,6 @@ import { INotebookRendererMessagingService } from '../common/notebookRendererMes
 import { INotebookService } from '../common/notebookService.js';
 import { IWebviewElement } from '../../webview/browser/webview.js';
 import { EditorExtensionsRegistry } from '../../../../editor/browser/editorExtensions.js';
-import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
 import { NotebookPerfMarks } from '../common/notebookPerformance.js';
 import { BaseCellEditorOptions } from './viewModel/cellEditorOptions.js';
 import { FloatingEditorClickMenu } from '../../../browser/codeeditor.js';
@@ -309,7 +308,6 @@ export class NotebookEditorWidget extends Disposable implements INotebookEditorD
 		readonly creationOptions: INotebookEditorCreationOptions,
 		dimension: DOM.Dimension | undefined,
 		@IInstantiationService instantiationService: IInstantiationService,
-		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
 		@INotebookRendererMessagingService private readonly notebookRendererMessaging: INotebookRendererMessagingService,
 		@INotebookEditorService private readonly notebookEditorService: INotebookEditorService,
 		@INotebookKernelService private readonly notebookKernelService: INotebookKernelService,
@@ -1934,9 +1932,7 @@ export class NotebookEditorWidget extends Disposable implements INotebookEditorD
 			return;
 		}
 
-		const modalEditorContainer = this.editorGroupsService.activeModalEditorPart?.modalElement;
-		const isModal = DOM.isHTMLElement(modalEditorContainer) && modalEditorContainer.contains(anchorElement);
-		const clippingContainer = isModal ? undefined : this.layoutService.getContainer(DOM.getWindow(this.getDomNode()), Parts.EDITOR_PART);
+		const clippingContainer = this.layoutService.getContainer(DOM.getWindow(this.getDomNode()), Parts.EDITOR_PART);
 
 		this._overlayContainer.style.visibility = 'visible';
 		this._overlayLayout.setAnchorElement(anchorElement, { clippingContainer });

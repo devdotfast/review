@@ -1352,7 +1352,6 @@ try {
     );
   }, "preparation failure");
 
-  await probe({ command: "workbench.action.closeModalEditor" });
   const opened = await api(`/${exact.reviewId}/open`, "POST");
   assert.equal(opened.environmentIssues, undefined);
   assert.deepEqual(await api(`/${exact.reviewId}/environment`, "POST", {}), {
@@ -1396,7 +1395,6 @@ try {
     "--porcelain",
   );
 
-  await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${live.reviewId}/open`, "POST");
 
   if (structuralDiffAvailable) {
@@ -1699,7 +1697,6 @@ try {
     "live worktree source and language services follow saved edits without preparation",
   );
 
-  await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${live.reviewId}/open`, "POST");
   await writeFile(
     path.join(liveFixture.repo, "main.ts"),
@@ -1832,7 +1829,6 @@ try {
   await record(
     "live worktree review and authored history recover after Desktop restart without pinning",
   );
-  await probe({ command: "workbench.action.closeModalEditor" });
   await mkdir(path.join(liveFixture.repo, "nested"));
   await writeFile(
     path.join(liveFixture.repo, "nested/child.ts"),

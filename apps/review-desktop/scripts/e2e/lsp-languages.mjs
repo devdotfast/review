@@ -15,11 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import {
-  createReview,
-  dismissModalEditor,
-  installExtensionGroup,
-} from "./harness.mjs";
+import { createReview, installExtensionGroup } from "./harness.mjs";
 
 const exec = promisify(execFile);
 
@@ -339,7 +335,7 @@ export async function runLspJourney(ctx, id) {
   }
 }
 
-/** The reader's half: from the open review to the modal editor Go to Definition opens. */
+/** The reader's half: from the open review to the file Go to Definition opens in the Source window. */
 async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const page = canvas.page();
 
@@ -410,20 +406,29 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   await token.click({ position: await aim() });
   await page.keyboard.press("F12");
 
-  // Go to Definition opens the file in the modal editor, whose header carries the resolved label: the cross-file evidence.
-  const modalTitle = page
-    .locator(".monaco-modal-editor-block .modal-editor-title")
-    .first();
-
-  // The label is the file name, not its path in the repository.
+  // A cross-file definition opens in the review's Source window; its active tab label is the cross-file evidence.
   const definitionName = path.basename(language.definitionFile);
 
   await ctx.until(
-    async () => (await modalTitle.innerText().catch(() => "")).includes(definitionName),
-    `${id} Go to Definition to open ${language.definitionFile} in the modal editor`,
+    async () => {
+      for (const candidate of ctx.browser
+        .contexts()
+        .flatMap((context) => context.pages())) {
+        if (!(await candidate.title().catch(() => "")).includes("Source")) continue;
+
+        const label = await candidate
+          .locator(".tabs-container .tab.active")
+          .first()
+          .innerText()
+          .catch(() => "");
+
+        if (label.includes(definitionName)) return true;
+      }
+
+      return false;
+    },
+    `${id} Go to Definition to open ${language.definitionFile} in the Source window`,
     60000,
   );
   ctx.check(`${id}: go to definition crosses files`);
-
-  await dismissModalEditor(ctx, page);
 }

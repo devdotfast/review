@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import { EditorGroupLayout, GroupActivationReason, GroupDirection, GroupLocation, GroupOrientation, GroupsArrangement, GroupsOrder, IAuxiliaryEditorPart, IEditorGroupContextKeyProvider, IEditorDropTargetDelegate, IEditorGroupsService, IEditorSideGroup, IEditorWorkingSet, IFindGroupScope, IMergeGroupOptions, IEditorWorkingSetOptions, IEditorPart, IModalEditorPart, IEditorGroupActivationEvent } from '../../../services/editor/common/editorGroupsService.js';
+import { EditorGroupLayout, GroupActivationReason, GroupDirection, GroupLocation, GroupOrientation, GroupsArrangement, GroupsOrder, IAuxiliaryEditorPart, IEditorGroupContextKeyProvider, IEditorDropTargetDelegate, IEditorGroupsService, IEditorSideGroup, IEditorWorkingSet, IFindGroupScope, IMergeGroupOptions, IEditorWorkingSetOptions, IEditorPart, IEditorGroupActivationEvent } from '../../../services/editor/common/editorGroupsService.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { DisposableMap, DisposableStore, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { GroupIdentifier, IEditorPartOptions } from '../../../common/editor.js';
@@ -14,7 +14,6 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { distinct } from '../../../../base/common/arrays.js';
 import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions } from './auxiliaryEditorPart.js';
-import { ModalEditorPart } from './modalEditorPart.js';
 import { MultiWindowParts } from '../../part.js';
 import { DeferredPromise } from '../../../../base/common/async.js';
 import { IStorageService, IStorageValueChangeEvent, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -22,13 +21,12 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ContextKeyValue, IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
-import { getActiveElement, IDimension, isAncestor, isHTMLElement } from '../../../../base/browser/dom.js';
+import { getActiveElement, isAncestor, isHTMLElement } from '../../../../base/browser/dom.js';
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { DeepPartial } from '../../../../base/common/types.js';
 import { IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
 import { mainWindow } from '../../../../base/browser/window.js';
-import { IModalEditorPartOptions } from '../../../../platform/editor/common/editor.js';
 
 interface IEditorPartsUIState {
 	readonly auxiliary: IAuxiliaryEditorPartState[];
@@ -45,17 +43,8 @@ interface IEditorWorkingSetState extends IEditorWorkingSet {
 	readonly auxiliary: IEditorPartsUIState;
 }
 
-interface IModalEditorPartState {
-	readonly maximized: boolean;
-	readonly size?: { readonly width: number; readonly height: number };
-	readonly position?: { readonly left: number; readonly top: number };
-	readonly sidebarWidth?: number;
-	readonly sidebarHidden?: boolean;
-}
-
 interface IEditorPartsMemento {
 	'editorparts.state'?: IEditorPartsUIState;
-	'editorparts.modalState'?: IModalEditorPartState;
 }
 
 export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMemento> implements IEditorGroupsService, IEditorPartsView {
@@ -88,15 +77,6 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 			return [];
 		})();
 
-		const modalState = this.profileMemento[EditorParts.MODAL_EDITOR_STATE_STORAGE_KEY];
-		if (modalState) {
-			this.modalEditorMaximized = modalState.maximized;
-			this.modalEditorSize = modalState.size;
-			this.modalEditorPosition = modalState.position;
-			this.modalEditorSidebarWidth = modalState.sidebarWidth;
-			this.modalEditorSidebarHidden = modalState.sidebarHidden;
-		}
-
 		this.mainPart = this._register(this.createMainEditorPart());
 		this._register(this.registerPart(this.mainPart));
 
@@ -118,7 +98,6 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 	//#region Scoped Instantiation Services
 
 	private readonly mapPartToInstantiationService = new Map<number /* window ID */, IInstantiationService>();
-	private modalPartInstantiationService: IInstantiationService | undefined;
 
 	getScopedInstantiationService(part: IEditorPart): IInstantiationService {
 
@@ -143,11 +122,6 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 			return mainPartInstantiationService;
 		}
 
-		// Modal Part (if opened)
-		if (part === this.modalEditorPart && this.modalPartInstantiationService) {
-			return this.modalPartInstantiationService;
-		}
-
 		return this.mapPartToInstantiationService.get(part.windowId) ?? this.instantiationService;
 	}
 
@@ -169,64 +143,6 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 		this._onDidAddGroup.fire(part.activeGroup);
 
 		this._onDidCreateAuxiliaryEditorPart.fire(part);
-
-		return part;
-	}
-
-	//#endregion
-
-	//#region Modal Editor Part
-
-	private modalEditorPart: IModalEditorPart | undefined;
-	get activeModalEditorPart(): IModalEditorPart | undefined { return this.modalEditorPart; }
-
-	private modalEditorMaximized = false;
-	private modalEditorSize: IDimension | undefined;
-	private modalEditorPosition: { readonly left: number; readonly top: number } | undefined;
-	private modalEditorSidebarWidth: number | undefined;
-	private modalEditorSidebarHidden: boolean | undefined;
-
-	async createModalEditorPart(options?: IModalEditorPartOptions): Promise<IModalEditorPart> {
-
-		// Reuse existing modal editor part if it exists
-		if (this.modalEditorPart) {
-			this.modalEditorPart.updateOptions(options);
-
-			return this.modalEditorPart;
-		}
-
-		const { part, instantiationService, disposables } = await this.instantiationService.createInstance(ModalEditorPart, this).create({
-			...options,
-			maximized: options?.maximized ?? this.modalEditorMaximized,
-			size: options?.size ?? this.modalEditorSize,
-			position: options?.position ?? this.modalEditorPosition,
-			sidebar: options?.sidebar ? {
-				...options.sidebar,
-				sidebarWidth: options.sidebar.sidebarWidth ?? this.modalEditorSidebarWidth,
-				sidebarHidden: options.sidebar.sidebarHidden ?? this.modalEditorSidebarHidden
-			} : undefined
-		});
-
-		// Keep instantiation service and reference to reuse
-		this.modalEditorPart = part;
-		this.modalPartInstantiationService = instantiationService;
-
-		// Remember state on dispose to restore when opening next time
-		disposables.add(toDisposable(() => {
-			this.modalEditorMaximized = part.maximized;
-			this.modalEditorSize = part.size;
-			this.modalEditorPosition = part.position;
-			if (part.hasSidebar) {
-				this.modalEditorSidebarWidth = part.sidebarWidth;
-				this.modalEditorSidebarHidden = part.sidebarHidden || undefined;
-			}
-
-			this.modalPartInstantiationService = undefined;
-			this.modalEditorPart = undefined;
-		}));
-
-		// Events
-		this._onDidAddGroup.fire(part.activeGroup);
 
 		return part;
 	}
@@ -383,10 +299,8 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 	//#region Lifecycle / State
 
 	private static readonly EDITOR_PARTS_UI_STATE_STORAGE_KEY = 'editorparts.state';
-	private static readonly MODAL_EDITOR_STATE_STORAGE_KEY = 'editorparts.modalState';
 
 	private readonly workspaceMemento = this.getMemento(StorageScope.WORKSPACE, StorageTarget.USER);
-	private readonly profileMemento = this.getMemento(StorageScope.PROFILE, StorageTarget.MACHINE);
 
 	private _isReady = false;
 	get isReady(): boolean { return this._isReady; }
@@ -439,37 +353,6 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
 			this.workspaceMemento[EditorParts.EDITOR_PARTS_UI_STATE_STORAGE_KEY] = state;
 		}
 
-		this.saveModalState();
-	}
-
-	private saveModalState(): void {
-
-		// Also capture state from any currently open modal editor part
-		if (this.modalEditorPart) {
-			this.modalEditorMaximized = this.modalEditorPart.maximized;
-			this.modalEditorSize = this.modalEditorPart.size;
-			this.modalEditorPosition = this.modalEditorPart.position;
-			if (this.modalEditorPart.hasSidebar) {
-				this.modalEditorSidebarWidth = this.modalEditorPart.sidebarWidth;
-				this.modalEditorSidebarHidden = this.modalEditorPart.sidebarHidden || undefined;
-			}
-		}
-
-		// Only persist when there is meaningful state to restore.
-		// When all values are at their defaults (not maximized, no
-		// custom size or position), we delete the key to avoid
-		// storing unnecessary data.
-		if (this.modalEditorMaximized || this.modalEditorSize || this.modalEditorPosition || this.modalEditorSidebarWidth || this.modalEditorSidebarHidden) {
-			this.profileMemento[EditorParts.MODAL_EDITOR_STATE_STORAGE_KEY] = {
-				maximized: this.modalEditorMaximized,
-				size: this.modalEditorSize ? { width: this.modalEditorSize.width, height: this.modalEditorSize.height } : undefined,
-				position: this.modalEditorPosition,
-				sidebarWidth: this.modalEditorSidebarWidth,
-				sidebarHidden: this.modalEditorSidebarHidden,
-			};
-		} else {
-			delete this.profileMemento[EditorParts.MODAL_EDITOR_STATE_STORAGE_KEY];
-		}
 	}
 
 	private createState(): IEditorPartsUIState {

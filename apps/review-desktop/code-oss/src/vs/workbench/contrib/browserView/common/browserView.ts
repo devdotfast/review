@@ -260,12 +260,8 @@ export interface IBrowserViewWorkbenchService {
 	 * Resolve the preferred editor group for opening an integrated browser
 	 * editor. Honors the `workbench.browser.newTabPlacement` setting, routing new
 	 * tabs into a dedicated (locked) side group or auxiliary window when
-	 * configured. When the workbench forces editors into a modal part
-	 * (`workbench.editor.useModal: 'all'`), browser opens that target the active
-	 * group (or leave it unspecified) are
-	 * redirected to the main editor area so the browser docks instead of opening
-	 * as a modal overlay. Explicit placements (side group, auxiliary window, a
-	 * specific group) are left untouched.
+	 * configured. Explicit placements (side group, auxiliary window, a specific
+	 * group) are left untouched.
 	 */
 	getPreferredGroup(preferredGroup?: PreferredGroup): Promise<PreferredGroup | undefined>;
 

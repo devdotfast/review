@@ -7,7 +7,7 @@ import { Event } from '../../../../base/common/event.js';
 import { IInstantiationService, createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IEditorPane, GroupIdentifier, EditorInputWithOptions, CloseDirection, IEditorPartOptions, IEditorPartOptionsChangeEvent, EditorsOrder, IVisibleEditorPane, IEditorCloseEvent, IUntypedEditorInput, isEditorInput, IEditorWillMoveEvent, IMatchEditorOptions, IActiveEditorChangeEvent, IFindEditorOptions, IToolbarActions } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
-import { IEditorOptions, IModalEditorNavigation, IModalEditorPartOptions } from '../../../../platform/editor/common/editor.js';
+import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IDimension } from '../../../../editor/common/core/2d/dimension.js';
 import { DisposableStore, IDisposable } from '../../../../base/common/lifecycle.js';
@@ -527,89 +527,6 @@ export interface IAuxiliaryEditorPart extends IEditorPart {
 	close(): boolean;
 }
 
-export interface IModalEditorPart extends IEditorPart {
-
-	/**
-	 * Modal container of the editor part.
-	 */
-	readonly modalElement: unknown /* HTMLElement */;
-
-	/**
-	 * Whether the modal editor part is currently maximized.
-	 */
-	readonly maximized: boolean;
-
-	/**
-	 * Fired when the maximized state changes.
-	 */
-	readonly onDidChangeMaximized: Event<boolean>;
-
-	/**
-	 * Toggle between default and maximized size.
-	 */
-	toggleMaximized(): void;
-
-	/**
-	 * Size set by the user via resizing, if any.
-	 */
-	readonly size: IDimension | undefined;
-
-	/**
-	 * Position set by the user via dragging, if any.
-	 */
-	readonly position: { left: number; top: number } | undefined;
-
-	/**
-	 * Whether the modal editor part has a sidebar.
-	 */
-	readonly hasSidebar: boolean;
-
-	/**
-	 * Sidebar width set by the user via resizing, if any.
-	 */
-	readonly sidebarWidth: number | undefined;
-
-	/**
-	 * Whether the sidebar is hidden.
-	 */
-	readonly sidebarHidden: boolean;
-
-	/**
-	 * Toggle sidebar visibility.
-	 */
-	toggleSidebar(): void;
-
-	/**
-	 * The current navigation context, if any.
-	 */
-	readonly navigation: IModalEditorNavigation | undefined;
-
-	/**
-	 * Update options for the modal editor part.
-	 */
-	updateOptions(options?: IModalEditorPartOptions): void;
-
-	/**
-	 * Fired when this modal editor part is about to close.
-	 */
-	readonly onWillClose: Event<void>;
-
-	/**
-	 * Close this modal editor part after closing all
-	 * editors of all groups. Dirty editors will trigger
-	 * a confirmation dialog asking the user to save.
-	 *
-	 * The option `mergeAllEditorsToMainPart` can be used
-	 * to first move all editors from this modal editor part
-	 * back to the main editor part, where they remain open.
-	 * This avoids the confirmation dialog because the editors
-	 * are not closed as part of this operation.
-	 *
-	 * @returns `false` if the close was cancelled.
-	 */
-	close(options?: { mergeAllEditorsToMainPart?: boolean }): Promise<boolean>;
-}
-
 export interface IEditorWorkingSet {
 	readonly id: string;
 	readonly name: string;
@@ -674,20 +591,6 @@ export interface IEditorGroupsService extends IEditorGroupsContainer {
 	 * in there at the optional position and size on screen.
 	 */
 	createAuxiliaryEditorPart(options?: { bounds?: Partial<IRectangle>; compact?: boolean; alwaysOnTop?: boolean }): Promise<IAuxiliaryEditorPart>;
-
-	/**
-	 * Creates a modal editor part that shows in a modal overlay
-	 * on top of the main workbench window.
-	 *
-	 * If a modal part already exists, it will be returned
-	 * instead of creating a new one.
-	 */
-	createModalEditorPart(options?: IModalEditorPartOptions): Promise<IModalEditorPart>;
-
-	/**
-	 * The currently active modal editor part, if any.
-	 */
-	readonly activeModalEditorPart: IModalEditorPart | undefined;
 
 	/**
 	 * Returns the instantiation service that is scoped to the

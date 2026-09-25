@@ -1095,7 +1095,7 @@ export class EditorPart extends Part<IEditorPartMemento> implements IEditorPart,
 	protected handleContextKeys(): void {
 		// Bind `editorAreaFocus` to the editor part's scoped context key service so
 		// it evaluates to `true` only when keyboard focus is within the editor area.
-		// Applies to all editor parts (main, modal, auxiliary) so callers can gate
+		// Applies to all editor parts (main, auxiliary) so callers can gate
 		// shortcuts on focus being in any editor area regardless of which part.
 		EditorAreaFocusContext.bindTo(this.scopedContextKeyService).set(true);
 
@@ -1446,10 +1446,8 @@ export class EditorPart extends Part<IEditorPartMemento> implements IEditorPart,
 			height = Math.max(0, height - topMargin - bottomMargin);
 
 			// Reserve space for the Modern UI editor border (styleOverrides/media/editorBorder.css) so content doesn't get clipped.
-			if (!this.element.classList.contains('modal-editor-part')) {
-				width = Math.max(0, width - EDITOR_FRAME_BORDER_WIDTH * 2);
-				height = Math.max(0, height - EDITOR_FRAME_BORDER_WIDTH * 2);
-			}
+			width = Math.max(0, width - EDITOR_FRAME_BORDER_WIDTH * 2);
+			height = Math.max(0, height - EDITOR_FRAME_BORDER_WIDTH * 2);
 
 			this.element.classList.toggle('floating-editor-outer-left', outerLeft);
 			this.element.classList.toggle('floating-editor-outer-right', outerRight);

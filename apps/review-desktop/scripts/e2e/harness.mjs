@@ -687,37 +687,6 @@ export const orderReviewBlocks = [
   },
 ];
 
-/** Closes with one Escape the modal editor Go to Definition opens; `focus` is what must hold focus when the key lands. */
-export async function dismissModalEditor(
-  ctx,
-  page = ctx.page,
-  focus = ".monaco-modal-editor-block",
-) {
-  const modalEditor = page.locator(".monaco-modal-editor-block").first();
-
-  const opened = await modalEditor.waitFor({ timeout: 10000 }).then(
-    () => true,
-    () => false,
-  );
-
-  if (!opened) return false;
-
-  // Which element holds focus decides which Escape rule runs, so the press is measured only once it has settled.
-  await ctx.until(
-    () =>
-      page.evaluate(
-        (selector) => document.activeElement?.closest(selector) != null,
-        focus,
-      ),
-    `${focus} to take focus in the modal editor`,
-    10000,
-  );
-  await page.keyboard.press("Escape");
-  await modalEditor.waitFor({ state: "detached", timeout: 5000 });
-
-  return true;
-}
-
 /** Opens a review the way a reader does, with `review app pick --review`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(

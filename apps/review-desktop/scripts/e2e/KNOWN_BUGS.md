@@ -14,7 +14,6 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 - `review app pick --review <uuid>` never opens the review — fix-pr #348
 - The first-run telemetry notice disappears before it can be used — fix-pr #351
 - A community invitation dismissed before the first-run reload comes back — fix-pr #351
-- The modal editor opened by Go to Definition ignores the first Escape — fix-pr #352
 - The review topbar covers the Find widget and the contents pill — fix-pr #350
 - A review whose repository directory moves or is deleted renders `ReviewApiError: Review operation failed.` — fix-pr #355
 - `review app pick` goes to the launcher instead of reporting an unusable pointer — fix-pr #348
@@ -109,30 +108,6 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   profile about 1.8 s in; the pending storage write does not survive that
   reload. A dismissal after the reload persists, so only the first-run window
   loses it.
-
-## The modal editor opened by Go to Definition ignores the first Escape
-
-- **Journey:** `tutorial` · **Found:** 2026-09-17 · **Status:** fix-pr #352
-- **Repro:** open the tutorial, click `totalCents` in the Welcome inline editor
-  (`src/orders/order-service.ts:13-29`), press `F12`, then press `Escape` once.
-- **Expected:** one `Escape` closes the modal editor and returns the reader to
-  the review, which is what the keybinding's own comment promises: "When a
-  list/tree is focused, still close the modal … The selection is intentionally
-  not cleared first so a single `Escape` closes the modal."
-- **Actual:** the modal stays open. Measured twice on a fresh profile: when the
-  modal mounts, `document.activeElement` is the modal's References tree
-  (`div.monaco-list[role="tree"][aria-label="References"]`, inside
-  `.monaco-modal-editor-block`); the first `Escape` only moves focus to the
-  modal editor's `div.native-edit-context` and leaves the modal up; the second
-  `Escape` closes it. The journey clicks the modal backdrop instead, which
-  closes it in one action.
-- **Notes:** the `Escape` binding for `workbench.action.closeModalEditor` has a
-  list/tree arm at `KeybindingWeight.WorkbenchContrib + 1`
-  (`editorCommands.ts:1587-1593`), but the References list's own `Escape`
-  handling appears to win and refocus the editor instead, so the documented
-  single-press close never happens. No assertion is weakened by this: the
-  journey does not call `ctx.knownBug` for it, it only records why the backdrop
-  click replaced `Escape`.
 
 ## The review topbar covers the Find widget and the contents pill
 

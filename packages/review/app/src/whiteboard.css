@@ -768,21 +768,6 @@ button.host-authoring-activity[data-locatable]:focus-visible {
   color: var(--ink);
   font: 13px/20px var(--font-mono);
   text-align: left;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ghost) var(--tray);
-}
-
-.rendered-code-body::-webkit-scrollbar {
-  height: 4px;
-}
-
-.rendered-code-body::-webkit-scrollbar-track {
-  background: var(--tray);
-}
-
-.rendered-code-body::-webkit-scrollbar-thumb {
-  border-radius: 2px;
-  background: var(--ghost);
 }
 
 .rendered-code-block .rendered-code-body code {

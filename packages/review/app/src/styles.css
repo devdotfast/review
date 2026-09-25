@@ -142,27 +142,77 @@
     #ff7a1a 60%,
     transparent
   );
-  /* Scrollbar slider, bridged from the workbench for the same reason as the
-     neutrals above. The fallbacks are the stock dark-theme slider values, which
-     read as a neutral translucent grey on either palette. */
+  /* Scrollbar slider, bridged from the workbench so the canvas pill and the
+     Monaco sliders share one color on any theme. The fallbacks are the
+     Whiteboard recipe: ink-faint at 45% at rest, ink-faint on hover, ink-muted
+     while dragging. */
   --review-scrollbar-size: 10px;
   --review-scrollbar-thumb: var(
     --vscode-scrollbarSlider-background,
-    rgba(121, 121, 121, 0.4)
+    color-mix(in srgb, #5f6776 45%, transparent)
   );
   --review-scrollbar-thumb-hover: var(
     --vscode-scrollbarSlider-hoverBackground,
-    rgba(100, 100, 100, 0.7)
+    #5f6776
   );
   --review-scrollbar-thumb-active: var(
     --vscode-scrollbarSlider-activeBackground,
-    rgba(191, 191, 191, 0.4)
+    #9199a8
   );
   color: var(--ink);
   background: var(--bg);
   font-family: var(--font-display);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/* One scrollbar for every native scroller in the canvas: a 6px pill centered
+   in a 10px lane, with no visible track. Chromium ignores these rules on an
+   element with a non-auto `scrollbar-width` or `scrollbar-color` (and the
+   latter inherits), so keep both unset inside the canvas. Scoped to the canvas:
+   it shares the workbench document, and these variables exist only here. */
+:where(.review-canvas-root, .review-canvas-root *)::-webkit-scrollbar {
+  width: var(--review-scrollbar-size);
+  height: var(--review-scrollbar-size);
+}
+
+:where(.review-canvas-root, .review-canvas-root *)::-webkit-scrollbar-track,
+:where(.review-canvas-root, .review-canvas-root *)::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:where(.review-canvas-root, .review-canvas-root *)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--review-scrollbar-thumb) padding-box;
+}
+
+:where(
+    .review-canvas-root,
+    .review-canvas-root *
+  )::-webkit-scrollbar-thumb:vertical {
+  min-height: 32px;
+}
+
+:where(
+    .review-canvas-root,
+    .review-canvas-root *
+  )::-webkit-scrollbar-thumb:horizontal {
+  min-width: 32px;
+}
+
+:where(
+    .review-canvas-root,
+    .review-canvas-root *
+  )::-webkit-scrollbar-thumb:hover {
+  background: var(--review-scrollbar-thumb-hover) padding-box;
+}
+
+:where(
+    .review-canvas-root,
+    .review-canvas-root *
+  )::-webkit-scrollbar-thumb:active {
+  background: var(--review-scrollbar-thumb-active) padding-box;
 }
 
 /* Commit range view */
@@ -1813,6 +1863,18 @@ button {
   --ink: var(--vscode-editor-foreground, #15181e);
   --ink-muted: var(--vscode-descriptionForeground, #5d6472);
   --ink-faint: var(--vscode-disabledForeground, #9aa0ab);
+  --review-scrollbar-thumb: var(
+    --vscode-scrollbarSlider-background,
+    color-mix(in srgb, #9aa0ab 45%, transparent)
+  );
+  --review-scrollbar-thumb-hover: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    #9aa0ab
+  );
+  --review-scrollbar-thumb-active: var(
+    --vscode-scrollbarSlider-activeBackground,
+    #5d6472
+  );
   --rule: var(--vscode-panel-border, #d8dbe1);
   --rule-soft: var(--vscode-editorWidget-border, #b9bec7);
   --selection: var(--accent);
@@ -2133,7 +2195,6 @@ button {
   min-width: 0;
   height: 100%;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .review-topbar-actions > * {
@@ -3738,51 +3799,6 @@ button {
      page becomes unscrollable wherever the cursor sits over the diagram. */
 }
 
-/* Explicit, draggable scrollbars for document diagrams. `auto` adds each
-   scrollbar only when that axis overflows; styling keeps it visible on macOS. */
-.review-document :is(.sequence-diagram-body, .database-lens-diagram) {
-  scrollbar-width: auto;
-  scrollbar-color: auto;
-}
-
-.review-document
-  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar {
-  width: var(--review-scrollbar-size);
-  height: var(--review-scrollbar-size);
-}
-
-.review-document
-  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar-track,
-.review-document
-  :is(
-    .sequence-diagram-body,
-    .database-lens-diagram
-  )::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-.review-document
-  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar-thumb {
-  background: var(--review-scrollbar-thumb);
-  border-radius: 5px;
-}
-
-.review-document
-  :is(
-    .sequence-diagram-body,
-    .database-lens-diagram
-  )::-webkit-scrollbar-thumb:hover {
-  background: var(--review-scrollbar-thumb-hover);
-}
-
-.review-document
-  :is(
-    .sequence-diagram-body,
-    .database-lens-diagram
-  )::-webkit-scrollbar-thumb:active {
-  background: var(--review-scrollbar-thumb-active);
-}
-
 .sequence-diagram > .diagram-header em {
   background: var(--tray);
   color: var(--ink-muted);
@@ -4237,39 +4253,9 @@ button {
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: var(--review-scrollbar-thumb) transparent;
-  scrollbar-width: thin;
   /* --review-toc-tail is the room the contents rail adds so the last heading
      can scroll up to the top edge, measured by the rail itself. */
   padding: var(--review-page-top) 52px calc(120px + var(--review-toc-tail, 0px));
-}
-
-.review-view-region--review::-webkit-scrollbar {
-  width: var(--review-scrollbar-size);
-  background: transparent;
-}
-
-.review-view-region--review::-webkit-scrollbar-track,
-.review-view-region--review::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-.review-view-region--review::-webkit-scrollbar-thumb {
-  min-height: 32px;
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: var(--review-scrollbar-thumb);
-  background-clip: padding-box;
-}
-
-.review-view-region--review::-webkit-scrollbar-thumb:hover {
-  background: var(--review-scrollbar-thumb-hover);
-  background-clip: padding-box;
-}
-
-.review-view-region--review::-webkit-scrollbar-thumb:active {
-  background: var(--review-scrollbar-thumb-active);
-  background-clip: padding-box;
 }
 
 .review-view-region--review.review-view-region--document-warning {

@@ -13,11 +13,34 @@ export const legacyRoot = path.join(
   "src/fixtures/legacy-reviews",
 );
 
+/** Windows' own bsdtar reads a drive-letter path as a path; a Git for Windows tar earlier on PATH would read it as a remote host. */
+const tar =
+  process.platform === "win32"
+    ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
+
+/** The repository the fixtures' commits are fetched from: this checkout, or the git store behind a secondary jj workspace, which has no `.git` of its own. */
+async function fixtureCommitSource() {
+  try {
+    await exec("git", ["-C", workspace, "rev-parse", "--git-dir"]);
+
+    return workspace;
+  } catch {
+    const { stdout } = await exec(
+      "jj",
+      ["--ignore-working-copy", "git", "root"],
+      { cwd: workspace },
+    );
+
+    return stdout.trim();
+  }
+}
+
 async function seedLegacyFixture(ctx, fixture) {
   const { name, metadata } = fixture;
   const legacyDir = path.join(ctx.home, "reviews", metadata.sourceUuid);
   await mkdir(legacyDir, { recursive: true });
-  await exec("tar", [
+  await exec(tar, [
     "-xzf",
     path.join(legacyRoot, `${name}.tgz`),
     "-C",
@@ -26,13 +49,15 @@ async function seedLegacyFixture(ctx, fixture) {
   let worktreePath = ctx.repo;
 
   if (metadata.sourceRepository === "devdotfast/review") {
+    const source = await fixtureCommitSource();
+
     worktreePath = path.join(ctx.root, name);
     await exec("git", [
       "clone",
       "--no-hardlinks",
       "--no-checkout",
       "--quiet",
-      workspace,
+      source,
       worktreePath,
     ]);
     await exec("git", [
@@ -40,7 +65,7 @@ async function seedLegacyFixture(ctx, fixture) {
       worktreePath,
       "fetch",
       "--quiet",
-      workspace,
+      source,
       metadata.baseCommit,
       metadata.sourceCommit,
     ]);
@@ -84,7 +109,7 @@ export async function seedLegacyFixtures(ctx) {
   return legacyFixtures;
 }
 
-/** Opens an imported fixture through the shared `review app pick` helper. */
+/** Opens an imported fixture through the shared `whiteboard app pick` helper. */
 export const openLegacyReview = (ctx, fixture) =>
   pickReview(ctx, fixture.metadata.sourceUuid, fixture.worktreePath);
 

@@ -2,7 +2,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-import { createReview, orderReviewBlocks } from "../harness.mjs";
+import {
+  PRIMARY_MODIFIER,
+  createReview,
+  orderReviewBlocks,
+} from "../harness.mjs";
 
 export const name = "reader-navigation";
 
@@ -21,10 +25,10 @@ const PARAGRAPH =
   "apply the same change twice.";
 
 /** A section long enough to push whatever follows it below the fold. */
-const longSection = (title) => ({
+const longSection = (title, paragraphs = 10) => ({
   type: "section",
   title,
-  children: Array.from({ length: 10 }, () => ({
+  children: Array.from({ length: paragraphs }, () => ({
     type: "markdown",
     markdown: PARAGRAPH,
   })),
@@ -33,13 +37,15 @@ const longSection = (title) => ({
 export async function run(ctx) {
   const { until } = ctx;
 
-  // The contents need more than two headings and an entry below the fold, so two long sections are added.
+  // The contents need more than two headings and an entry below the fold; a tall trailing section lets that entry
+  // reach the top of the region however tall the window is.
   const review = await createReview(ctx, {
     title: TITLE,
     blocks: [
       ...orderReviewBlocks,
       longSection("Rollout"),
       longSection("Risks"),
+      longSection("Follow-up", 40),
     ],
   });
 
@@ -50,7 +56,7 @@ export async function run(ctx) {
 
   const canvas = page.locator(".review-canvas-root [data-review-api]");
 
-  const views = page.locator('[aria-label="Review views"]');
+  const views = page.locator('[aria-label="Session views"]');
 
   const viewLabels = () =>
     views
@@ -70,7 +76,7 @@ export async function run(ctx) {
 
   // A two-commit range offers Commits and Diff, Map needs a software map this review has none of, Trace needs traces.
   const offered = [
-    "Review",
+    "Whiteboard",
     "Commits",
     "Diff",
     ...(traces.sessions.length > 0 ? ["Trace"] : []),
@@ -81,8 +87,8 @@ export async function run(ctx) {
     `the review views to settle on ${offered.join(", ")}`,
   );
 
-  // Review goes last so the reader ends on the document the rest of the journey reads.
-  for (const label of [...offered.slice(1), "Review"]) {
+  // Whiteboard goes last so the reader ends on the document the rest of the journey reads.
+  for (const label of [...offered.slice(1), "Whiteboard"]) {
     const button = views.locator(`button[aria-label="${label}"]`);
 
     await button.click();
@@ -94,22 +100,29 @@ export async function run(ctx) {
 
   ctx.check("all offered review views activate");
 
-  const find = page.locator('[role="search"][aria-label="Find in Review"]');
+  const find = page.locator('[role="search"][aria-label="Find in session"]');
 
   const input = find.locator('[aria-label="Find"]');
 
   const countText = async () =>
     (await find.locator(".review-find-count").innerText()).trim();
 
-  await page.keyboard.press("Meta+F");
+  // The peek's source is searchable too, so Find starts once it has rendered.
+  await canvas.locator(".review-inline-editor .view-line").first().waitFor();
+  await page.keyboard.press(`${PRIMARY_MODIFIER}+KeyF`);
   await find.waitFor();
   await input.fill("stat");
 
+  // The code peek's matches join the count once its editor has rendered, so only a count that holds still is read.
   const plain = await until(async () => {
     const text = await countText();
 
-    return /^\d+ of \d+$/.test(text) ? text : null;
-  }, "a plain-text match count");
+    await page.waitForTimeout(1000);
+
+    return /^\d+ of \d+$/.test(text) && (await countText()) === text
+      ? text
+      : null;
+  }, "a settled plain-text match count");
 
   const wholeWord = find.locator(".review-find-toggle--whole-word");
 
@@ -168,7 +181,9 @@ export async function run(ctx) {
 
   await input.press("Escape");
   await find.waitFor({ state: "hidden" });
-  ctx.check("find handles plain, whole-word, regex and invalid regex, and wraps");
+  ctx.check(
+    "find handles plain, whole-word, regex and invalid regex, and wraps",
+  );
 
   const toc = page.locator("nav#review-toc");
 
@@ -188,7 +203,7 @@ export async function run(ctx) {
     (await links.locator(".review-toc-text").allInnerTexts()).map((text) =>
       text.trim(),
     ),
-    ["Overview", "Rollout", "Risks"],
+    ["Overview", "Rollout", "Risks", "Follow-up"],
     "the contents must list every section of the review",
   );
 
@@ -213,7 +228,7 @@ export async function run(ctx) {
     `Risks starts ${beforeClick}px into the region, too near the top for ` +
       "the scroll to prove anything",
   );
-  await links.last().click();
+  await links.filter({ hasText: "Risks" }).click();
   await until(async () => {
     const value = await offset();
 
@@ -234,7 +249,7 @@ export async function run(ctx) {
 
   const after = await history();
 
-  // Every command seals a version, so the rename alone gives the history control a previous revision to open.
+  // Every command seals a version, so the rename alone leaves exactly one previous revision behind.
   assert.equal(
     after.length,
     before.length + 1,
@@ -251,34 +266,7 @@ export async function run(ctx) {
     "the version before the rename must keep the original title",
   );
 
+  // The version picker left the topbar in #389, so no reader control opens an older revision; the history is API-only.
   await canvas.getByRole("heading", { name: RENAMED, exact: true }).waitFor();
-  await page.locator('button[aria-label="Version history"]').click();
-
-  const items = page.locator('ul[role="menu"] [role="menuitem"]');
-
-  await until(
-    async () => (await items.count()) === after.length,
-    `the version menu to list all ${after.length} versions`,
-  );
-
-  const previous = items.nth(after.length - 2);
-
-  assert.match(
-    await previous.innerText(),
-    new RegExp(`^Version ${after.at(-2).version} `),
-    "the second-to-last menu item is not the version before the rename",
-  );
-  await previous.click();
-
-  const banner = page.locator('.review-history-banner[role="status"]');
-
-  await banner
-    .getByText("You are viewing an older version of this review.")
-    .waitFor();
-  await canvas.getByRole("heading", { name: TITLE, exact: true }).waitFor();
-  await canvas.getByRole("heading", { name: "Overview", exact: true }).waitFor();
-  await banner.getByRole("button", { name: "Back to latest" }).click();
-  await banner.waitFor({ state: "hidden" });
-  await canvas.getByRole("heading", { name: RENAMED, exact: true }).waitFor();
-  ctx.check("version history opens the previous revision");
+  ctx.check("a rename seals a new version and the open canvas shows it");
 }

@@ -22,6 +22,8 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 - Home says nothing about a legacy review directory left behind by the JSON cutover — not-a-bug
 - Opening a Go file installs Go tools from the network without asking — fix-pr #354
 - A review's Rust language server never starts when the extension wins a race with the workspace folder — open
+- A review whose repository directory moved fails with `ReviewApiError` again: `/commits` has no degradation — open
+- The tutorial's hover and Go to Definition steps never complete on their own — open
 
 ## Template (copy, do not edit)
 
@@ -413,3 +415,44 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   patch never reaches it. A fix therefore needs an install-time manifest patch
   that replaces the implicit event with a Review-owned one fired after
   `addFolders`; see PR #353's description.
+
+## A review whose repository directory moved fails with `ReviewApiError` again: `/commits` has no degradation
+
+- **Journey:** `worktree-drift` · **Found:** 2026-09-25 · **Status:** open
+- **Repro:** create a `commits` review in a git repository and let it render,
+  `mv <repo> <repo>-moved`, restart Whiteboard Desktop, then
+  `whiteboard app pick --session <uuid>` from `<repo>-moved` (and, after
+  `rm -rf <repo>-moved` and a restart, open the review from Home).
+- **Expected:** the canvas renders the review from the pinned checkout, or the
+  retained document with "Local checkout unavailable. Showing retained source."
+- **Actual:** the canvas renders only `ReviewApiError: Review operation failed
+  (Error). The server logged the cause; …`, and the Desktop log has
+  `GET /reviews-api/<uuid>/commits failed: Error: No Git or jj repository found for <repo>.`
+  This is the symptom #355 fixed, back again. Intermittent: it reproduced in two
+  of three runs on 2026-09-25; in the third the moved review rendered from the
+  pinned checkout and the deleted one showed the retained document.
+- **Notes:** `GET /:id?full=true` still degrades to `sourceUnavailable` when
+  `sourcePins` 404s (`packages/review/src/review-api/http.ts:1147-1156`), but
+  `GET /:id/commits` (`http.ts:939-950`) calls `data.resolveSource(...)` with no
+  equivalent fallback; the log shows it looking the repository up at the
+  registered, absolute path, which the move invalidated, although the pinned
+  checkout moved with it.
+
+## The tutorial's hover and Go to Definition steps never complete on their own
+
+- **Journey:** `tutorial` · **Found:** 2026-09-25 · **Status:** open
+- **Repro:** open the tutorial (`Whiteboard: Open Tutorial...`), pick a keymap,
+  hover a typed symbol in the Welcome editor until tsserver's hover shows, then
+  click `totalCents` and press F12.
+- **Expected:** the hover checks "Inspect a symbol" and the navigation checks
+  "Navigate the code" in `review.tutorial.progress.v1`, as the guide promises.
+- **Actual:** the hover shows and F12 opens `order-service.ts` in the Source
+  window, but neither step is checked; the reader has to press Next.
+- **Notes:** the tutorial completes those steps from `inline-hover` and
+  `inline-navigation` interaction events, which `DocumentCodeView.tsx` emits
+  from the `onDidShowHover` / `onDidNavigate` callbacks it passes to the
+  Desktop (`packages/review/app/src/DocumentCodeView.tsx:238-239`). Since
+  b5b80ec04 ("Use the native multi-diff editor for document code views")
+  removed `reviewInlineEditorService.ts`, nothing in the Desktop calls either
+  callback; they survive only as optional fields in
+  `vs/review/common/reviewProtocol.ts:829-830`.

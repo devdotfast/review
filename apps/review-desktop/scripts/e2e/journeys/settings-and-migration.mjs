@@ -40,7 +40,25 @@ const telemetryToggle = (settings) =>
     .filter({ hasText: "Share anonymous usage data" })
     .locator('input[type="checkbox"]');
 
-const themeSelect = (settings) => settings.getByLabel("Theme");
+/** The Theme control is a radio group whose buttons read Light, Dark and System. */
+const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" };
+
+const themeRadio = (settings, theme) =>
+  settings
+    .getByRole("radiogroup", { name: "Theme" })
+    .getByRole("radio", { name: THEME_LABELS[theme], exact: true });
+
+/** The checked theme choice, or undefined while none is checked. */
+async function themeValue(settings) {
+  for (const theme of Object.keys(THEME_LABELS))
+    if (
+      (await themeRadio(settings, theme).getAttribute("aria-checked")) ===
+      "true"
+    )
+      return theme;
+
+  return undefined;
+}
 
 /** Writes the unreadable record into `<home>/reviews/<uuid>/review.json`. */
 async function seedLegacyReview(home) {
@@ -111,12 +129,11 @@ export async function run(ctx) {
     `review.telemetry.enabled to be ${!before} in the workbench settings`,
   );
 
-  const theme =
-    (await themeSelect(settings).inputValue()) === "light" ? "dark" : "light";
+  const theme = (await themeValue(settings)) === "light" ? "dark" : "light";
 
-  await themeSelect(settings).selectOption(theme);
+  await themeRadio(settings, theme).click();
   await until(
-    async () => (await themeSelect(settings).inputValue()) === theme,
+    async () => (await themeValue(settings)) === theme,
     `the theme control to read ${theme}`,
   );
   await until(() => {
@@ -136,7 +153,7 @@ export async function run(ctx) {
     "the telemetry toggle did not keep its value across the restart",
   );
   assert.equal(
-    await themeSelect(settings).inputValue(),
+    await themeValue(settings),
     theme,
     "the theme control did not keep its value across the restart",
   );
@@ -171,7 +188,7 @@ export async function run(ctx) {
   const home = ctx.page.locator("main.review-home");
 
   // The onboarding rail is what an empty Home renders, so waiting for it makes the absences below mean "finished", not "slow".
-  await home.getByText("Create your first review").waitFor({ timeout: 60000 });
+  await home.getByText("Create your first session").waitFor({ timeout: 60000 });
 
   const summaries = await ctx.api("/reviews-api");
 

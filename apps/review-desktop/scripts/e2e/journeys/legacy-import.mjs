@@ -2,9 +2,12 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { sourcePackage, workspace } from "../harness.mjs";
 import {
   legacyRoot,
   openLegacyReview,
@@ -20,6 +23,39 @@ export const phase = 1;
 
 export const options = { beforeLaunch: seedLegacyFixtures };
 
+/**
+ * The golden in the format migration seals today: sealing runs the source's own `upgradeReviewDocumentJson` over the
+ * legacy document (older code-peek refs become diff selections), so the checkout's copy of that function, run
+ * through tsx, is what the sealed bytes are held to.
+ */
+async function upgradedGolden(file) {
+  const tsx = createRequire(path.join(workspace, "package.json")).resolve(
+    "tsx/cli",
+  );
+
+  const module = pathToFileURL(
+    path.join(sourcePackage, "src/review-document-data.ts"),
+  ).href;
+
+  const { stdout } = await exec(
+    process.execPath,
+    [
+      tsx,
+      "--eval",
+      `import { readFileSync } from "node:fs";
+       import { upgradeReviewDocumentJson } from ${JSON.stringify(module)};
+       process.stdout.write(JSON.stringify(upgradeReviewDocumentJson(JSON.parse(readFileSync(process.env.GOLDEN, "utf8")))));`,
+    ],
+    {
+      cwd: workspace,
+      env: { ...process.env, GOLDEN: file },
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
+
+  return JSON.parse(stdout);
+}
+
 export async function run(ctx) {
   const { api, apiOk, apiCanvasFor, legacyFixtures, root } = ctx;
 
@@ -29,7 +65,7 @@ export async function run(ctx) {
   const first = legacyFixtures[0];
 
   const info = await ctx.cliRaw(
-    ["info", "--review", first.metadata.sourceUuid, "--json"],
+    ["info", "--session", first.metadata.sourceUuid, "--json"],
     first.worktreePath,
   );
 
@@ -71,11 +107,8 @@ export async function run(ctx) {
 
     const migrated = JSON.parse(await readFile(legacyRecordPath, "utf8"));
 
-    const golden = JSON.parse(
-      await readFile(
-        path.join(legacyRoot, `${fixtureName}.expected-document.json`),
-        "utf8",
-      ),
+    const golden = await upgradedGolden(
+      path.join(legacyRoot, `${fixtureName}.expected-document.json`),
     );
 
     const sealed = await exec(

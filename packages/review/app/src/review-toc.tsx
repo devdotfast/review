@@ -19,10 +19,12 @@ interface NumberedReviewTocEntry extends ReviewTocEntry {
 
 /**
  * Narrowest shell that fits the rail beside the document without touching
- * the section ring the agent draws while writing. The document (up to 900px)
- * sits centered, and the ring reaches 24px inside its left edge, so the ring
- * starts at (shell - 900) / 2 + 24. The rail ends at 24 + 248, so a 1440px
- * shell leaves ~20px between them once the scrollbar is counted.
+ * the section ring the agent draws while writing. The document (900px in a
+ * review, 860px otherwise) sits centered, and the ring starts 24px inside its
+ * left edge: (shell - scrollbar - 900) / 2 + 24 for a review. Below 1428px a
+ * review's 240px rail is pinned at 24, so it ends at 264; a 1440px shell with
+ * the 10px scrollbar leaves 19px. Tied to the document widths, the rail width
+ * and the ring's 40px reach in styles.css and whiteboard.css.
  */
 const TOC_RAIL_MIN_SHELL_WIDTH = 1440;
 

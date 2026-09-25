@@ -2830,8 +2830,11 @@ button:focus-visible > .review-chevron {
   margin-top: 40px;
 }
 
+/* The rail's right edge meets the 900px document's left edge: (900 + 2 × 240)
+   = 1380. The section ring reaches 40px into the document's 64px padding, so
+   this keeps 24px between the rail and the ring. */
 .review-app:has(.review-document-header) .review-toc--rail {
-  left: max(24px, calc((100% - 1320px) / 2));
+  left: max(24px, calc((100% - 1380px) / 2));
   width: 240px;
   padding: 6px 0 0;
 }

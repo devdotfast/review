@@ -18,12 +18,13 @@ interface NumberedReviewTocEntry extends ReviewTocEntry {
 }
 
 /**
- * Narrowest shell that fits the rail beside the prose: the 720px prose
- * measure sits centered, so each gutter is (shell - 720) / 2, and the rail
- * needs left offset (24) + card (up to ~286 with padding) + breathing room
- * before the text starts — a ~320px gutter, so a 1360px shell.
+ * Narrowest shell that fits the rail beside the document without touching
+ * the section ring the agent draws while writing. The document (up to 900px)
+ * sits centered, and the ring reaches 24px inside its left edge, so the ring
+ * starts at (shell - 900) / 2 + 24. The rail ends at 24 + 248, so a 1440px
+ * shell leaves ~20px between them once the scrollbar is counted.
  */
-const TOC_RAIL_MIN_SHELL_WIDTH = 1360;
+const TOC_RAIL_MIN_SHELL_WIDTH = 1440;
 
 /**
  * Room to leave above the last heading once it is scrolled to the top, so

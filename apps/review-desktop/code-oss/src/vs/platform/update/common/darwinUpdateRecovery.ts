@@ -126,3 +126,8 @@ function parseObject(raw: string | undefined): Record<string, unknown> | undefin
 		return undefined;
 	}
 }
+
+/** Squirrel's native error for a mounted image or macOS App Translocation. */
+export function isDarwinReadOnlyVolumeError(error: string | undefined): boolean {
+	return error?.startsWith('Cannot update while running on a read-only volume.') ?? false;
+}

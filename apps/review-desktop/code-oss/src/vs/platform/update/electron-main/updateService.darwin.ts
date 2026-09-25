@@ -23,6 +23,7 @@ import { IApplicationStorageMainService } from '../../storage/electron-main/stor
 import { ITelemetryService } from '../../telemetry/common/telemetry.js';
 import {
 	blocksAutomaticDarwinUpdate,
+	isDarwinReadOnlyVolumeError,
 	DARWIN_FAILED_UPDATE_STORAGE_KEY,
 	DARWIN_UPDATE_ATTEMPT_STORAGE_KEY,
 	DARWIN_UPDATE_OUTCOME_STORAGE_KEY,
@@ -42,6 +43,8 @@ function darwinBundleName(): string | undefined {
 
 export class DarwinUpdateService extends AbstractUpdateService implements IRelaunchHandler {
 	private feedUrlError: string | undefined;
+	// A relaunch after moving the app clears this; explicit checks can retry sooner.
+	private readOnlyVolume = false;
 
 	@memoize private get onRawError(): Event<string> { return Event.fromNodeEventEmitter(electron.autoUpdater, 'error', (_, message) => message); }
 	@memoize private get onRawCheckingForUpdate(): Event<void> { return Event.fromNodeEventEmitter<void>(electron.autoUpdater, 'checking-for-update'); }
@@ -113,6 +116,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			return;
 		}
 
+		this.readOnlyVolume = isDarwinReadOnlyVolumeError(err);
 		this.setState(State.Idle(UpdateType.Archive, err, undefined, 'electron'));
 	}
 
@@ -134,10 +138,11 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 	}
 
 	protected doCheckForUpdates(explicit: boolean, pendingCommit?: string): void {
-		if (!this.quality) {
+		if (!this.quality || (this.readOnlyVolume && !explicit)) {
 			return;
 		}
 
+		this.readOnlyVolume = false;
 		this.setState(State.CheckingForUpdates(explicit));
 
 		const internalOrg = this.getInternalOrg();

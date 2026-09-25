@@ -782,6 +782,61 @@ it("copies prose and code from the displayed historical JSON review", async () =
   }
 });
 
+it("reads a worktree review's range as its base against the working tree", async () => {
+  const head = "c14db2183b0e6c1f4a4a5c3f2d9e8b7a6f5e4d3c";
+
+  const worktree = new ReviewStore(path.join(directory, "worktree.db"), {
+    resolveTarget: async (target) => ({
+      target,
+      pins: { repositoryId: target.repositoryId, base: head, head },
+    }),
+    validatePins: async () => {},
+    validateSource: async () => {},
+    validateResource: async () => {},
+  });
+
+  try {
+    const { reviewId } = await worktree.execute({
+      commandId: randomUUID(),
+      operation: {
+        type: "create",
+        title: "Uncommitted work",
+        target: { kind: "worktree", repositoryId: "repo" },
+      },
+    });
+
+    const app = new Hono().route("/reviews-api", createReviewApi(worktree));
+    app.get("/reviews-api/:id/commits", (context) => context.json([]));
+
+    const bridge = testReviewBridge(
+      {},
+      { request: async (url, init) => app.request(url, init) },
+    );
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      canvas = mount(container, { kind: "api", reviewId, bridge });
+    });
+    await act(async () =>
+      vi.waitFor(() =>
+        expect(container.querySelector("h1")?.textContent).toBe(
+          "Uncommitted work",
+        ),
+      ),
+    );
+
+    expect(
+      container
+        .querySelector('.review-document-header [role="group"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Session commits: base c14db218, head working tree");
+    expect(container.textContent?.match(/Working tree/g)).toHaveLength(1);
+  } finally {
+    await worktree.close();
+  }
+});
+
 it("degrades to the retained document and an unavailable Commits tab when the checkout is gone", async () => {
   const gone = new ReviewStore(path.join(directory, "gone.db"), {
     // Present only so the refresh loop runs; a commit-pinned review never calls it.

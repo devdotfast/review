@@ -2073,8 +2073,10 @@ button {
   white-space: nowrap;
 }
 
-/* Each pinned commit is a small mono chip that copies its full hash. */
-.review-branch-copy {
+/* Each pinned commit is a small mono chip that copies its full hash; a
+   working-tree head wears the same chip but has nothing to copy. */
+.review-branch-copy,
+.review-branch-worktree {
   position: relative;
   display: inline-flex;
   min-width: 0;
@@ -2087,6 +2089,10 @@ button {
   color: var(--ink);
   font: 12px/18px var(--font-mono);
   cursor: pointer;
+}
+
+.review-branch-worktree {
+  cursor: default;
 }
 
 .review-branch-copy[data-side="base"] {

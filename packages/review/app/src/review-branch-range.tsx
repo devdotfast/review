@@ -10,16 +10,20 @@ export function shortRef(ref: string): string {
   return fullHash.test(ref) ? ref.slice(0, 8) : ref;
 }
 
+/** A head that is the checkout's working files, not a commit. */
+export const WORKING_TREE = Symbol("working tree");
+
 /**
  * The pinned commit range as two copyable chips, `base ← head`: the arrow
- * points from the head commit into the base it is compared against.
+ * points from the head commit into the base it is compared against. A
+ * working-tree head has no commit to copy, so it is a plain label.
  */
 export function ReviewBranchRange({
   baseRef,
   headRef,
 }: {
   baseRef: string;
-  headRef: string;
+  headRef: string | typeof WORKING_TREE;
 }): ReactElement {
   const [copied, setCopied] = useState<"base" | "head" | null>(null);
 
@@ -40,7 +44,9 @@ export function ReviewBranchRange({
     <div
       className="review-branch-range"
       role="group"
-      aria-label={`Session commits: base ${shortRef(baseRef)}, head ${shortRef(headRef)}`}
+      aria-label={`Session commits: base ${shortRef(baseRef)}, head ${
+        headRef === WORKING_TREE ? "working tree" : shortRef(headRef)
+      }`}
     >
       <BranchRef
         label="base"
@@ -51,12 +57,16 @@ export function ReviewBranchRange({
       <span className="review-branch-arrow" aria-hidden="true">
         ←
       </span>
-      <BranchRef
-        label="head"
-        name={headRef}
-        copied={copied === "head"}
-        onCopy={() => void copy("head", headRef)}
-      />
+      {headRef === WORKING_TREE ? (
+        <WorkingTreeRef />
+      ) : (
+        <BranchRef
+          label="head"
+          name={headRef}
+          copied={copied === "head"}
+          onCopy={() => void copy("head", headRef)}
+        />
+      )}
     </div>
   );
 }
@@ -89,5 +99,17 @@ function BranchRef({
         {copied ? "Copied" : ""}
       </span>
     </button>
+  );
+}
+
+function WorkingTreeRef(): ReactElement {
+  const tooltip = useTooltip<HTMLSpanElement>("head Working tree", {
+    detail: "Saved files in the checkout, including uncommitted changes",
+  });
+
+  return (
+    <span className="review-branch-worktree" data-side="head" ref={tooltip}>
+      Working tree
+    </span>
   );
 }

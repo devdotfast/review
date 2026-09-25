@@ -17,7 +17,7 @@ import {
 import { DiffCount } from "./diff-count";
 import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import { useReviewSession } from "./host/review-session";
-import { ReviewBranchRange } from "./review-branch-range";
+import { ReviewBranchRange, WORKING_TREE } from "./review-branch-range";
 import { useReviewDiffFiles } from "./review-diff-files-context";
 
 interface ReviewDocumentMetaState {
@@ -154,7 +154,9 @@ export function ReviewDocumentMetaLine({
       node: (
         <ReviewBranchRange
           baseRef={review.pins.base}
-          headRef={review.pins.head}
+          headRef={
+            review.targetKind === "worktree" ? WORKING_TREE : review.pins.head
+          }
         />
       ),
     });

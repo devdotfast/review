@@ -56,6 +56,37 @@ describe("ReviewDocumentMetaLine", () => {
     expect(container.querySelector(".review-doc-meta-branch")).toBeNull();
   });
 
+  it("shows a worktree review's head as the working tree", async () => {
+    const session = testReviewSession();
+    const commit = "c".repeat(40);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    const render = async (targetKind: "worktree" | "commits") => {
+      session.review = {
+        ...session.review!,
+        pins: { base: commit, head: commit },
+        targetKind,
+      };
+      await act(async () =>
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <ReviewDocumentMetaLine />
+          </ReviewSessionProvider>,
+        ),
+      );
+    };
+
+    const range = () =>
+      container.querySelector('[role="group"]')?.getAttribute("aria-label");
+
+    await render("worktree");
+    expect(range()).toBe("Session commits: base cccccccc, head working tree");
+    await render("commits");
+    expect(range()).toBe("Session commits: base cccccccc, head cccccccc");
+  });
+
   it("hydrates when the relative update time changes after SSR", async () => {
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));

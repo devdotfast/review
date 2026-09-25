@@ -21,8 +21,12 @@ const root = await mkdtemp(
 
 const installed = [];
 
-const run = (exe, args) =>
+const step = (message) => console.log(`[${new Date().toISOString()}] ${message}`);
+
+const run = (exe, args) => {
+  step(`${path.basename(exe)} ${args.join(" ")}`);
   execFileSync(exe, args, { timeout: 180000, stdio: "inherit" });
+};
 
 const installer = (channel, kind) =>
   path.join(
@@ -115,6 +119,7 @@ try {
         .toLowerCase()
         .includes(bin.toLowerCase()),
     );
+    step(`smoke ${destination}`);
     await smokeWindows(destination, evidence);
 
     // A reinstall must replace the embedded dependency closure, including files
@@ -146,6 +151,7 @@ try {
     );
 
     assert.ok(updatedRegistry.includes(updated.reviewVersion));
+    step(`smoke ${destination}`);
     await smokeWindows(destination, evidence);
 
     assert.equal(await readFile(saved, "utf8"), '{"review":"preserve"}');
@@ -154,6 +160,7 @@ try {
   // Both identities are installed together. Removing preview cannot unregister
   // stable's protocol or break its runtime.
   uninstall(installed.pop());
+  step(`smoke ${installed[0]}`);
   await smokeWindows(installed[0], evidence);
   uninstall(installed.pop());
   const system = path.join(root, "system install");
@@ -165,6 +172,7 @@ try {
   );
 
   assert.equal(product.target, "system");
+  step(`smoke ${system}`);
   await smokeWindows(system, evidence);
   uninstall(installed.pop());
   console.log(

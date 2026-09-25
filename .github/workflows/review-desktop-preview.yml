@@ -14,14 +14,15 @@ on:
         type: boolean
         default: false
       platforms:
-        description: "Platforms to release; only both creates a promotable preview tag"
+        description: "Platforms to release; only all creates a promotable preview tag"
         required: true
         type: choice
         options:
-          - both
-          - linux
+          - all
           - macos
-        default: both
+          - linux
+          - windows
+        default: all
 
 permissions:
   contents: read
@@ -42,7 +43,7 @@ jobs:
   # Previews publish a signed dev-fast-review-preview package, so the Linux
   # build signs with the production repository key rather than a CI key.
   linux:
-    if: ${{ inputs.platforms != 'macos' }}
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'linux' }}
     needs: version
     uses: ./.github/workflows/review-linux-build.yml
     with:
@@ -50,6 +51,18 @@ jobs:
       version: ${{ needs.version.outputs.version }}
       release_signing: ${{ !inputs.dry_run }}
     secrets: inherit
+
+  windows:
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'windows' }}
+    needs: version
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/review-windows-build.yml
+    with:
+      commit: ${{ needs.version.outputs.commit }}
+      version: ${{ needs.version.outputs.version }}
+      sign: true
 
   version:
     needs: approve
@@ -115,7 +128,7 @@ jobs:
   compile:
     name: Compile Darwin payload on Linux
     needs: version
-    if: ${{ inputs.platforms != 'linux' }}
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'macos' }}
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
@@ -480,7 +493,7 @@ jobs:
     name: Publish Linux preview repository
     environment: review-release
     needs: [version, build, linux]
-    if: ${{ !cancelled() && !inputs.dry_run && inputs.platforms != 'macos' && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') }}
+    if: ${{ !cancelled() && !inputs.dry_run && needs.version.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') }}
     runs-on: review_big_boy
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -508,15 +521,62 @@ jobs:
           curl -fsS https://install.dev.fast/linux/preview | grep -F "Version ${RELEASE_VERSION/-preview./~preview.}"
           curl -fsS https://install.dev.fast/repos/dev-fast-review-preview.repo | grep -F 'baseurl=https://install.dev.fast/repos/preview/rpm/x86_64/'
 
+  publish-windows:
+    name: Publish Windows preview installers
+    environment: review-release
+    needs: [version, build, windows]
+    if: ${{ !cancelled() && !inputs.dry_run && needs.version.result == 'success' && needs.windows.result == 'success' && (inputs.platforms == 'windows' || needs.build.result == 'success') }}
+    runs-on: review_big_boy
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-packages
+          path: windows-packages
+      # Versioned payloads first, then the alias install.dev.fast/windows/preview serves.
+      - name: Upload preview to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/win32-x64"
+          SETUP="Whiteboard-Preview-${RELEASE_VERSION}-Setup.exe"
+          aws s3 cp windows-packages/Whiteboard-win32-x64-user.exe "${RELEASE_PREFIX}/${SETUP}" \
+            --content-type application/vnd.microsoft.portable-executable \
+            --content-disposition "attachment; filename=\"${SETUP}\""
+          aws s3 cp windows-packages/Whiteboard-win32-x64-system.exe "${RELEASE_PREFIX}/Whiteboard-Preview-${RELEASE_VERSION}-System-Setup.exe" \
+            --content-type application/vnd.microsoft.portable-executable \
+            --content-disposition "attachment; filename=\"Whiteboard-Preview-${RELEASE_VERSION}-System-Setup.exe\""
+          aws s3 cp windows-packages/Whiteboard-win32-x64.zip "${RELEASE_PREFIX}/Whiteboard-Preview-win32-x64-${RELEASE_VERSION}.zip" \
+            --content-type application/zip
+          aws s3 cp windows-packages/Whiteboard-win32-x64-user.exe \
+            "s3://${R2_BUCKET}/releases/preview-latest/win32-x64/Whiteboard-Setup.exe" \
+            --content-type application/vnd.microsoft.portable-executable \
+            --content-disposition "attachment; filename=\"${SETUP}\""
+      - name: Verify preview install landing
+        run: |
+          echo "install.dev.fast/windows/preview (expect 302 to the preview installer):"
+          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/windows/preview)
+          echo "$LOCATION"
+          test "$LOCATION" = "https://install.dev.fast/releases/preview-latest/win32-x64/Whiteboard-Setup.exe"
+
+          echo "Following it (expect 200 and a Windows executable):"
+          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/windows/preview \
+            | grep -F "200 application/vnd.microsoft.portable-executable"
+
   # The one job here that can write to the repository, and it holds no signing
   # or R2 credentials. `needs: version` carries the initial approval
-  # gate transitively, and `needs: build` plus `needs: publish-linux` mean a tag
-  # only ever names a preview that published on both platforms, answered its
-  # update feeds, and served its installers.
+  # gate transitively, and `needs: build`, `needs: publish-linux` and
+  # `needs: publish-windows` mean a tag only ever names a preview that published
+  # on every platform, answered its update feeds, and served its installers.
   tag-preview:
     name: Tag published preview
-    needs: [version, build, publish-linux]
-    if: ${{ !inputs.dry_run && inputs.platforms == 'both' }}
+    needs: [version, build, publish-linux, publish-windows]
+    if: ${{ !inputs.dry_run && inputs.platforms == 'all' }}
     runs-on: review_big_boy
     permissions:
       contents: write

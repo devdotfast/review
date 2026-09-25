@@ -8,10 +8,11 @@ on:
         required: true
         type: choice
         options:
-          - both
-          - linux
+          - all
           - macos
-        default: both
+          - linux
+          - windows
+        default: all
       bump:
         description: "Version bump type"
         required: true
@@ -77,7 +78,7 @@ jobs:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Verify Linux release prerequisites
-        if: ${{ !inputs.dry_run && inputs.platforms != 'macos' }}
+        if: ${{ !inputs.dry_run && (inputs.platforms == 'all' || inputs.platforms == 'linux') }}
         env:
           SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
           SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
@@ -273,7 +274,7 @@ jobs:
             --generate-notes
 
   compile:
-    if: ${{ inputs.platforms != 'linux' }}
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'macos' }}
     name: Compile Darwin payload on Linux
     needs: tag
     runs-on: review_big_boy
@@ -389,7 +390,7 @@ jobs:
           key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
 
   linux:
-    if: ${{ inputs.platforms != 'macos' }}
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'linux' }}
     needs: tag
     uses: ./.github/workflows/review-linux-build.yml
     with:
@@ -398,10 +399,24 @@ jobs:
       release_signing: ${{ !inputs.dry_run }}
     secrets: inherit
 
+  # Signs even on a dry run, so the run validates exactly what would ship.
+  windows:
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'windows' }}
+    needs: tag
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/review-windows-build.yml
+    with:
+      commit: ${{ needs.tag.outputs.commit }}
+      version: ${{ needs.tag.outputs.version }}
+      sign: true
+
   build:
     name: Build, sign, publish
-    needs: [tag, compile, linux]
-    if: ${{ !cancelled() && inputs.platforms != 'linux' && needs.tag.result == 'success' && needs.compile.result == 'success' && (inputs.platforms == 'macos' || needs.linux.result == 'success') }}
+    # Nothing publishes until every selected platform has built and validated.
+    needs: [tag, compile, linux, windows]
+    if: ${{ !cancelled() && needs.tag.result == 'success' && needs.compile.result == 'success' && (inputs.platforms != 'all' || (needs.linux.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: macos-15-xlarge
     timeout-minutes: 90
     env:
@@ -663,8 +678,8 @@ jobs:
   publish-linux:
     name: Publish Linux repositories
     environment: review-release
-    needs: [tag, build, linux]
-    if: ${{ !cancelled() && !inputs.dry_run && inputs.platforms != 'macos' && needs.tag.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') }}
+    needs: [tag, build, linux, windows]
+    if: ${{ !cancelled() && !inputs.dry_run && needs.tag.result == 'success' && needs.linux.result == 'success' && (inputs.platforms == 'linux' || (needs.build.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: review_big_boy
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -691,10 +706,67 @@ jobs:
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm linux-packages/*.deb
 
+  publish-windows:
+    name: Publish Windows installers
+    environment: review-release
+    needs: [tag, build, linux, windows]
+    if: ${{ !cancelled() && !inputs.dry_run && needs.tag.result == 'success' && needs.windows.result == 'success' && (inputs.platforms == 'windows' || (needs.build.result == 'success' && needs.linux.result == 'success')) }}
+    runs-on: review_big_boy
+    env:
+      RELEASE_VERSION: ${{ needs.tag.outputs.version }}
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-packages
+          path: windows-packages
+      - name: Name the installers for this release
+        run: |
+          mkdir windows-release
+          cp windows-packages/Whiteboard-win32-x64-user.exe "windows-release/Whiteboard-${RELEASE_VERSION}-Setup.exe"
+          cp windows-packages/Whiteboard-win32-x64-system.exe "windows-release/Whiteboard-${RELEASE_VERSION}-System-Setup.exe"
+          cp windows-packages/Whiteboard-win32-x64.zip "windows-release/Whiteboard-win32-x64-${RELEASE_VERSION}.zip"
+      # Versioned payloads first, then the alias install.dev.fast/windows serves.
+      - name: Upload release to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/win32-x64"
+          for file in windows-release/*.exe; do
+            aws s3 cp "$file" "${RELEASE_PREFIX}/$(basename "$file")" \
+              --content-type application/vnd.microsoft.portable-executable \
+              --content-disposition "attachment; filename=\"$(basename "$file")\""
+          done
+          aws s3 cp "windows-release/Whiteboard-win32-x64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Whiteboard-win32-x64-${RELEASE_VERSION}.zip" \
+            --content-type application/zip
+          aws s3 cp "windows-release/Whiteboard-${RELEASE_VERSION}-Setup.exe" \
+            "s3://${R2_BUCKET}/releases/latest/win32-x64/Whiteboard-Setup.exe" \
+            --content-type application/vnd.microsoft.portable-executable \
+            --content-disposition "attachment; filename=\"Whiteboard-${RELEASE_VERSION}-Setup.exe\""
+      - name: Verify install landing
+        run: |
+          echo "install.dev.fast/windows (expect 302 to the installer):"
+          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/windows)
+          echo "$LOCATION"
+          test "$LOCATION" = "https://install.dev.fast/releases/latest/win32-x64/Whiteboard-Setup.exe"
+
+          echo "Following it (expect 200 and a Windows executable):"
+          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/windows \
+            | grep -F "200 application/vnd.microsoft.portable-executable"
+      - name: Attach installers to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" windows-release/*
+
   finalize-release:
     name: Publish release
-    needs: [tag, build, publish-linux]
-    if: ${{ !cancelled() && !inputs.dry_run && needs.tag.result == 'success' && (inputs.platforms == 'linux' || needs.build.result == 'success') && (inputs.platforms == 'macos' || needs.publish-linux.result == 'success') }}
+    needs: [tag, build, publish-linux, publish-windows]
+    if: ${{ !cancelled() && !inputs.dry_run && needs.tag.result == 'success' && (inputs.platforms != 'all' && inputs.platforms != 'macos' || needs.build.result == 'success') && (inputs.platforms != 'all' && inputs.platforms != 'linux' || needs.publish-linux.result == 'success') && (inputs.platforms != 'all' && inputs.platforms != 'windows' || needs.publish-windows.result == 'success') }}
     runs-on: review_big_boy
     steps:
       - name: Publish GitHub Release

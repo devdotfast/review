@@ -152,6 +152,16 @@ patch/minor/major bump. The workflow:
 6. curls the live feed to confirm the new release is served, attaches the dmg
    to the GitHub release, and publishes it.
 
+The `platforms` input picks `all` (the default), `macos`, `linux` or `windows`.
+Windows builds in parallel with the Darwin payload and the Linux packages
+(`review-windows-build.yml` on the 16-core `review_big_boy_windows` runner) and
+signs every binary and installer with Azure Artifact Signing through the
+`windows-signing` environment. Nothing is uploaded until every selected platform
+has built and validated; `publish-windows` then uploads the installers to
+`releases/<version>/win32-x64/`, points `install.dev.fast/windows` at the new
+per-user installer, and attaches the installers to the GitHub release. Windows
+has no update feed yet, so installed Windows apps do not update themselves.
+
 ### Promoting a preview to stable
 
 A preview that has been running well can be released as the stable build
@@ -322,8 +332,10 @@ PostHog error tracking (`scripts/upload-source-maps.mjs`), so reported stack
 traces resolve to source files and functions. That build fails when the two
 `POSTHOG_CLI_*` credentials are missing.
 
-Normal CI uses GitHub's standard Ubuntu runner. The manual release workflow
-uses the `review_big_boy` larger runner. Its `review_release` runner group
+Normal CI uses GitHub's standard Ubuntu runner. Windows builds, in CI and in
+releases, use the `review_big_boy_windows` larger runner in the `review_windows`
+runner group, which only this repository can use; pull requests from forks skip
+them. The manual release workflow uses the `review_big_boy` larger runner. Its `review_release` runner group
 allows `review-desktop-release.yml` and `review-desktop-preview.yml` from
 `main`. The first stable or preview job also uses the `review-release`
 environment, which requires repository-admin approval before downstream jobs

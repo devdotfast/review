@@ -31,8 +31,27 @@ async function mainLog(profile) {
 async function connect(url) {
   const ws = new WebSocket(url);
   await new Promise((resolve, reject) => {
-    ws.addEventListener("open", resolve, { once: true });
-    ws.addEventListener("error", reject, { once: true });
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("CDP connection timeout"));
+    }, 15000);
+
+    ws.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+    ws.addEventListener(
+      "error",
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+      { once: true },
+    );
   });
   let id = 0;
 
@@ -121,7 +140,9 @@ export async function smokeWindows(app, evidence) {
         if (!port) throw new Error("Waiting for DevTools");
 
         const pages = await (
-          await fetch(`http://127.0.0.1:${port}/json/list`)
+          await fetch(`http://127.0.0.1:${port}/json/list`, {
+            signal: AbortSignal.timeout(5000),
+          })
         ).json();
 
         const page = pages.find(

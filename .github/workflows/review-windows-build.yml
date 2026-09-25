@@ -1,27 +1,35 @@
 name: Review Windows packages
+
 on:
-  pull_request:
-    paths:
-      - "apps/review-desktop/**"
-      - "packages/review/**"
-      - ".github/workflows/review-windows-build.yml"
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      artifact_name:
+        type: string
+        default: windows-packages
+      sign:
+        type: boolean
+        default: false
+      upgrade_fixture:
+        description: Also build a newer-versioned installer for the upgrade test.
+        type: boolean
+        default: false
+
 permissions:
   contents: read
-concurrency:
-  group: review-windows-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+
 jobs:
   windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        channel: [stable, preview]
-    # Fork pull requests stay on the standard runner; review_big_boy_windows is a paid 16-core runner.
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'windows-2022' || 'review_big_boy_windows' }}
+    name: Build and validate Windows installers
+    runs-on: review_big_boy_windows
     timeout-minutes: 120
     # The Azure app behind these variables trusts only this environment's OIDC tokens.
-    environment: windows-signing
+    environment: ${{ inputs.sign && 'windows-signing' || 'windows-ci' }}
     permissions:
       contents: read
       id-token: write
@@ -29,13 +37,14 @@ jobs:
       run:
         shell: bash
     env:
-      # Fork pull requests get no OIDC token, so they build unsigned.
-      SIGN_WINDOWS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      BUILD_SOURCEVERSION: ${{ inputs.commit }}
       REVIEW_DESKTOP_CI_FAST: "1"
       npm_config_msvs_version: "2022"
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.commit }}
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -53,13 +62,13 @@ jobs:
           $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Test Windows command and PATH launchers
         run: node --test apps/review-desktop/scripts/windows-cli.test.mjs
-      - name: Stamp channel identity
+      - name: Stamp release identity
         env:
-          CHANNEL: ${{ matrix.channel }}
+          VERSION: ${{ inputs.version }}
         run: |
-          VERSION=0.1.2
-          if [[ "$CHANNEL" == preview ]]; then VERSION=0.1.3-preview.1; fi
-          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$CHANNEL"
+          QUALITY=stable
+          if [[ "$VERSION" == *-preview.* ]]; then QUALITY=preview; fi
+          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
       - name: Restore native dependencies
         id: native-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -83,7 +92,7 @@ jobs:
       - name: Build desktop
         run: pnpm desktop:build
       - name: Log in to Azure for code signing
-        if: env.SIGN_WINDOWS == 'true'
+        if: inputs.sign
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -91,7 +100,7 @@ jobs:
           # The signer role is scoped to one certificate profile, not a subscription.
           allow-no-subscriptions: true
       - name: Set up Azure Artifact Signing
-        if: env.SIGN_WINDOWS == 'true'
+        if: inputs.sign
         shell: pwsh
         env:
           ENDPOINT: ${{ vars.AZURE_CODE_SIGNING_ENDPOINT }}
@@ -121,7 +130,7 @@ jobs:
       - name: Package Windows installers
         run: pnpm --filter @dev.fast/review-desktop app:package:windows
       - name: Verify Windows signatures
-        if: env.SIGN_WINDOWS == 'true'
+        if: inputs.sign
         shell: pwsh
         env:
           PUBLISHER: ${{ vars.AZURE_CODE_SIGNING_PUBLISHER_NAME }}
@@ -140,10 +149,11 @@ jobs:
       - name: Verify the packaged desktop and CLI
         run: node apps/review-desktop/scripts/smoke-windows.mjs apps/review-desktop/VSCode-win32-x64 artifacts/windows
       - name: Build upgrade test installer
+        if: inputs.upgrade_fixture
         run: node apps/review-desktop/scripts/build-windows-upgrade-fixture.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows-packages-${{ matrix.channel }}
+          name: ${{ inputs.artifact_name }}
           path: apps/review-desktop/dist/windows/*
           if-no-files-found: error
           compression-level: 0
@@ -151,26 +161,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows-launch-${{ matrix.channel }}
+          name: ${{ inputs.artifact_name }}-launch
           path: artifacts/windows/*
-  installed:
-    needs: windows
-    runs-on: windows-2022
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: apps/review-desktop/code-oss/.nvmrc
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: windows-packages-*
-          path: artifacts/installers
-      - name: Test installation, coexistence and removal
-        run: node apps/review-desktop/scripts/verify-installed-windows.mjs artifacts/installers
-      - name: Upload installed desktop evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: windows-installed-evidence
-          path: artifacts/windows-installed/*

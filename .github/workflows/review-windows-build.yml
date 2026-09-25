@@ -112,6 +112,10 @@ jobs:
             CertificateProfileName = $env:PROFILE
             ExcludeCredentials = @('ManagedIdentityCredential', 'EnvironmentCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
           } | ConvertTo-Json | Set-Content $metadata
+          # GitHub's OIDC assertion expires after five minutes, before packaging reaches the signing
+          # step; the Azure CLI keeps this hour-long access token cached for the signing client.
+          az account get-access-token --resource https://codesigning.azure.net --output none
+          if ($LASTEXITCODE -ne 0) { throw 'Could not get an Artifact Signing access token' }
           "REVIEW_WINDOWS_SIGNING_DLIB=$root\bin\x64\Azure.CodeSigning.Dlib.dll" >> $env:GITHUB_ENV
           "REVIEW_WINDOWS_SIGNING_METADATA=$metadata" >> $env:GITHUB_ENV
       - name: Package Windows installers

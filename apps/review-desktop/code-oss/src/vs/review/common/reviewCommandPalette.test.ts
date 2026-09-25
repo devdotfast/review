@@ -36,9 +36,9 @@ test('keeps Whiteboard commands', () => {
 	assert.equal(isReviewPaletteCommand('whiteboard.openSharedSession'), true);
 });
 
-test('keeps read-only navigation commands', () => {
-	assert.equal(isReviewPaletteCommand('editor.action.revealDefinition'), true);
-	assert.equal(isReviewPaletteCommand('references-view.findReferences'), true);
+test('drops stock navigation commands', () => {
+	assert.equal(isReviewPaletteCommand('editor.action.revealDefinition'), false);
+	assert.equal(isReviewPaletteCommand('workbench.action.quickOpen'), false);
 });
 
 test('drops editing commands', () => {

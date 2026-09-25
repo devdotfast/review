@@ -4,15 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
-import type { IEditor } from '../../../editor/common/editorCommon.js';
-import { AbstractEditorCommandsQuickAccessProvider } from '../../../editor/contrib/quickAccess/browser/commandsQuickAccess.js';
 import { localize } from '../../../nls.js';
 import { IMenuService, MenuId, MenuItemAction, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../platform/keybinding/common/keybinding.js';
-import type { ICommandQuickPick } from '../../../platform/quickinput/browser/commandsQuickAccess.js';
+import { AbstractCommandsQuickAccessProvider, type ICommandQuickPick } from '../../../platform/quickinput/browser/commandsQuickAccess.js';
 import { Extensions, type IQuickAccessRegistry } from '../../../platform/quickinput/common/quickAccess.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.js';
@@ -22,13 +20,10 @@ import { IEditorService } from '../../../workbench/services/editor/common/editor
 import { isReviewPaletteCommand, reviewCommandPaletteLabel } from '../../common/reviewCommandPalette.js';
 
 /**
- * Collects commands the way the stock palette does (the active editor's
- * actions and the CommandPalette menu, with their when/precondition applied),
- * then keeps only Whiteboard's own commands and the curated stock ones in
- * `isReviewPaletteCommand`.
+ * Lists Whiteboard's own commands from the CommandPalette menu, with their
+ * when/precondition applied. See `isReviewPaletteCommand`.
  */
-export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQuickAccessProvider {
-	protected get activeTextEditorControl(): IEditor | undefined { return this.editorService.activeTextEditorControl; }
+export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAccessProvider {
 
 	constructor(
 		@IInstantiationService instantiationService: IInstantiationService,
@@ -45,8 +40,7 @@ export class ReviewCommandsQuickAccessProvider extends AbstractEditorCommandsQui
 
 	protected override async getCommandPicks(token: CancellationToken): Promise<ICommandQuickPick[]> {
 		if (token.isCancellationRequested) return [];
-		return [...this.getCodeEditorCommandPicks(), ...this.getPaletteMenuCommandPicks()]
-			.filter(pick => isReviewPaletteCommand(pick.commandId));
+		return this.getPaletteMenuCommandPicks().filter(pick => isReviewPaletteCommand(pick.commandId));
 	}
 
 	private getPaletteMenuCommandPicks(): ICommandQuickPick[] {
@@ -79,7 +73,7 @@ Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessPro
 	ctor: ReviewCommandsQuickAccessProvider,
 	prefix: ReviewCommandsQuickAccessProvider.PREFIX,
 	contextKey: 'inCommandsPicker',
-	placeholder: localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of an editor or Whiteboard command to run.'),
+	placeholder: localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of a Whiteboard command to run.'),
 	helpEntries: [{
 		description: localize('reviewCommandsQuickAccess', 'Show and run Whiteboard commands'),
 		commandId: ShowAllCommandsAction.ID,

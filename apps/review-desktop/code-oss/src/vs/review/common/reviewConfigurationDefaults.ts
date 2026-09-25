@@ -75,6 +75,10 @@ export const reviewConfigurationDefaults = {
 	// tail is Monaco's own macOS default stack.
 	'editor.fontFamily': '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
 	'editor.minimap.enabled': false,
+	// A 10px lane on both axes, as in the canvas; review.css insets the slider
+	// to the same 6px pill.
+	'editor.scrollbar.verticalScrollbarSize': 10,
+	'editor.scrollbar.horizontalScrollbarSize': 10,
 	'diffEditor.renderIndicators': false,
 	'breadcrumbs.enabled': false,
 	'git.enabled': false,

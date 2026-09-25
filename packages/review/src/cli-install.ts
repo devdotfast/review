@@ -38,6 +38,7 @@ import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
 import {
+  WINDOWS_MACHINE_ENVIRONMENT_KEY,
   updateWindowsUserPath,
   windowsCliShim,
   windowsUserPathContains,
@@ -125,7 +126,8 @@ export async function resolveCliInstallStatus(input: {
     stamp,
     stale: granted && stamp.fingerprint !== fingerprint,
     updateNeeded: legacySkills.length > 0 || (granted && !updated),
-    shim: {
+    shim: (!hasShim &&
+      (await windowsInstallerCommand(input.packageRoot, env))) || {
       path: shimPath,
       installed: hasShim,
       profileConfigured:
@@ -159,6 +161,39 @@ export async function resolveCliInstallStatus(input: {
   if (error) status.error = error;
 
   return status;
+}
+
+/**
+ * The Windows installer's "Add to PATH" task puts <install dir>\bin, which
+ * holds a whiteboard.cmd, on the user or machine PATH.
+ */
+async function windowsInstallerCommand(
+  packageRoot: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ReviewCliInstallStatus["shim"] | undefined> {
+  if (process.platform !== "win32") return undefined;
+
+  // packageRoot is <install dir>\resources\app\review-runtime.
+  const bin = path.resolve(packageRoot, "..", "..", "..", "bin");
+  const command = path.join(bin, "whiteboard.cmd");
+
+  if (!(await isOwnedShim(command))) return undefined;
+
+  const profileConfigured =
+    (await windowsUserPathContains(bin)) ||
+    (await windowsUserPathContains(bin, WINDOWS_MACHINE_ENVIRONMENT_KEY));
+
+  const onPath = pathContainsDirectory(env.PATH, bin);
+
+  if (!profileConfigured && !onPath) return undefined;
+
+  return {
+    path: command,
+    installed: true,
+    profileConfigured,
+    onPath,
+    installer: true,
+  };
 }
 
 interface ApplyCliInstallInput {

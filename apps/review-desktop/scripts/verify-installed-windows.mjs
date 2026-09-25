@@ -96,6 +96,25 @@ try {
         `${product.nameShort}.lnk`,
       ),
     );
+    // "Add to PATH" puts the Whiteboard CLI on PATH, not the Code OSS editor launcher.
+    const bin = path.join(destination, "bin");
+    await assert.rejects(
+      access(path.join(bin, `${product.applicationName}.cmd`)),
+    );
+    assert.match(
+      execFileSync("cmd.exe", ["/d", "/c", path.join(bin, "whiteboard.cmd"), "version"], {
+        encoding: "utf8",
+        timeout: 30000,
+      }),
+      /\d+\.\d+\.\d+/,
+    );
+    assert.ok(
+      execFileSync("reg.exe", ["query", "HKCU\\Environment", "/v", "Path"], {
+        encoding: "utf8",
+      })
+        .toLowerCase()
+        .includes(bin.toLowerCase()),
+    );
     await smokeWindows(destination, evidence);
 
     // A reinstall must replace the embedded dependency closure, including files

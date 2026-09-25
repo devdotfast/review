@@ -88,21 +88,23 @@ $result = [UIntPtr]::Zero
   );
 }
 
+export const WINDOWS_MACHINE_ENVIRONMENT_KEY =
+  "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+
 /**
  * A running process keeps the PATH it started with, so the saved user PATH is
  * what tells whether new terminals will find the command.
  */
 export async function windowsUserPathContains(
   directory: string,
+  key = "HKCU\\Environment",
 ): Promise<boolean> {
   let stdout: string;
 
   try {
-    ({ stdout } = await execFileAsync(
-      "reg.exe",
-      ["query", "HKCU\\Environment", "/v", "Path"],
-      { windowsHide: true },
-    ));
+    ({ stdout } = await execFileAsync("reg.exe", ["query", key, "/v", "Path"], {
+      windowsHide: true,
+    }));
   } catch {
     return false;
   }

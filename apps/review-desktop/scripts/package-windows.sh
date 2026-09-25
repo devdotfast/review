@@ -9,6 +9,8 @@ export BUILD_SOURCEVERSION="${BUILD_SOURCEVERSION:-$(git -C "$MONOREPO_ROOT" rev
 node "$APP_DIR/scripts/curated-extensions.mjs" --target=win32-x64
 cp "$MONOREPO_ROOT/packages/review/app/icons/review.ico" "$CHECKOUT/resources/win32/code.ico"
 npm --prefix "$CHECKOUT" run gulp -- vscode-win32-x64
+# Code OSS puts an editor-opening bin\<applicationName> on PATH; the installer's PATH command is the Whiteboard CLI instead.
+node "$APP_DIR/scripts/windows-path-command.mjs" "$PACKAGED_ROOT"
 node "$APP_DIR/scripts/copy-canvas.mjs" --packaged-root "$PACKAGED_ROOT"
 node "$APP_DIR/scripts/curated-extensions.mjs" --target=win32-x64 --copy-to "$PACKAGED_ROOT/resources/app/extensions"
 # ty links the Visual C++ runtime dynamically and a clean Windows install has none, so ship it beside ty.

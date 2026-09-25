@@ -920,6 +920,8 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     installed: z.boolean(),
     profileConfigured: z.boolean(),
     onPath: z.boolean(),
+    /** The Windows installer put this command on PATH; uninstalling Whiteboard removes it. */
+    installer: z.literal(true).optional(),
   }),
   trace: z.strictObject({
     enabled: z.boolean(),

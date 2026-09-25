@@ -119,23 +119,25 @@ export function SettingsPage({
                     : "Adds whiteboard to your shell PATH. Your agents and trace capture run it."
                 }
               >
-                <button
-                  type="button"
-                  className="review-settings-button"
-                  disabled={busy !== null}
-                  onClick={() =>
-                    void run(
-                      "command",
-                      () =>
-                        install.status.shim.installed
-                          ? install.remove({ shim: true })
-                          : install.apply({ shim: true }),
-                      setInstallStatus,
-                    )
-                  }
-                >
-                  {install.status.shim.installed ? "Remove" : "Install"}
-                </button>
+                {install.status.shim.installer ? null : (
+                  <button
+                    type="button"
+                    className="review-settings-button"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      void run(
+                        "command",
+                        () =>
+                          install.status.shim.installed
+                            ? install.remove({ shim: true })
+                            : install.apply({ shim: true }),
+                        setInstallStatus,
+                      )
+                    }
+                  >
+                    {install.status.shim.installed ? "Remove" : "Install"}
+                  </button>
+                )}
               </Row>
             </Section>
           ) : null}

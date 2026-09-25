@@ -2830,9 +2830,13 @@ button:focus-visible > .review-chevron {
   margin-top: 40px;
 }
 
+/* The section ring hangs 40px left of the 760px prose, 420px left of center.
+   The rail ends at 436px, clear of the ring even with the scrollbar taking
+   its share of the width; on a shell too narrow to hold its 240px there, it
+   gives up width rather than run under the ring. */
 .review-app:has(.review-document-header) .review-toc--rail {
-  left: max(24px, calc((100% - 1320px) / 2));
-  width: 240px;
+  left: max(24px, calc((100% - 1352px) / 2));
+  width: min(240px, calc((100% - 920px) / 2));
   padding: 6px 0 0;
 }
 

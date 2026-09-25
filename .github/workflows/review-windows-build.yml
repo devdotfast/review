@@ -20,10 +20,17 @@ jobs:
     # Fork pull requests stay on the standard runner; review_big_boy_windows is a paid 16-core runner.
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'windows-2022' || 'review_big_boy_windows' }}
     timeout-minutes: 120
+    # The Azure app behind these variables trusts only this environment's OIDC tokens.
+    environment: windows-signing
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         shell: bash
     env:
+      # Fork pull requests get no OIDC token, so they build unsigned.
+      SIGN_WINDOWS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
       REVIEW_DESKTOP_CI_FAST: "1"
       npm_config_msvs_version: "2022"
       NODE_OPTIONS: --max-old-space-size=8192
@@ -75,8 +82,57 @@ jobs:
         run: rustup update stable
       - name: Build desktop
         run: pnpm desktop:build
+      - name: Log in to Azure for code signing
+        if: env.SIGN_WINDOWS == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          # The signer role is scoped to one certificate profile, not a subscription.
+          allow-no-subscriptions: true
+      - name: Set up Azure Artifact Signing
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        env:
+          ENDPOINT: ${{ vars.AZURE_CODE_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          PROFILE: ${{ vars.AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'artifact-signing'
+          $package = Join-Path $root 'client.zip'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg' -OutFile $package
+          if ((Get-FileHash $package -Algorithm SHA256).Hash -ne '74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B') { throw 'Unexpected Artifact Signing client hash' }
+          Expand-Archive $package -DestinationPath $root
+          $metadata = Join-Path $root 'metadata.json'
+          # azure/login leaves an Azure CLI session; skip the credentials that would only time out first.
+          @{
+            Endpoint = $env:ENDPOINT
+            CodeSigningAccountName = $env:ACCOUNT
+            CertificateProfileName = $env:PROFILE
+            ExcludeCredentials = @('ManagedIdentityCredential', 'EnvironmentCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
+          } | ConvertTo-Json | Set-Content $metadata
+          "REVIEW_WINDOWS_SIGNING_DLIB=$root\bin\x64\Azure.CodeSigning.Dlib.dll" >> $env:GITHUB_ENV
+          "REVIEW_WINDOWS_SIGNING_METADATA=$metadata" >> $env:GITHUB_ENV
       - name: Package Windows installers
         run: pnpm --filter @dev.fast/review-desktop app:package:windows
+      - name: Verify Windows signatures
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        env:
+          PUBLISHER: ${{ vars.AZURE_CODE_SIGNING_PUBLISHER_NAME }}
+        run: |
+          $installers = @(Get-ChildItem apps/review-desktop/dist/windows/*.exe)
+          $binaries = @(Get-ChildItem apps/review-desktop/VSCode-win32-x64 -Recurse -File -Include *.exe, *.dll, *.node)
+          foreach ($file in $installers + $binaries) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "$($file.FullName) is not validly signed: $($signature.Status)" }
+          }
+          foreach ($file in $installers + @(Get-Item apps/review-desktop/VSCode-win32-x64/*.exe)) {
+            $subject = (Get-AuthenticodeSignature $file.FullName).SignerCertificate.Subject
+            if (-not $subject.Contains("O=$env:PUBLISHER")) { throw "$($file.Name) is signed by $subject" }
+            Write-Host "$($file.Name): $subject"
+          }
       - name: Verify the packaged desktop and CLI
         run: node apps/review-desktop/scripts/smoke-windows.mjs apps/review-desktop/VSCode-win32-x64 artifacts/windows
       - name: Build upgrade test installer

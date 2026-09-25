@@ -19,7 +19,15 @@ node "$APP_DIR/scripts/windows-diffr.mjs"
 node "$APP_DIR/scripts/stage-review-runtime.mjs" --packaged-root "$PACKAGED_ROOT"
 node "$APP_DIR/scripts/stage-review-runtime.mjs" --verify --packaged-root "$PACKAGED_ROOT"
 npm --prefix "$CHECKOUT" run gulp -- vscode-win32-x64-inno-updater
-npm --prefix "$CHECKOUT" run gulp -- vscode-win32-x64-user-setup vscode-win32-x64-system-setup
+SETUP_ARGS=()
+# CI provides Azure Artifact Signing; local and fork builds stay unsigned.
+if [[ -n "${REVIEW_WINDOWS_SIGNING_METADATA:-}" ]]; then
+  node "$APP_DIR/scripts/sign-windows.mjs" "$PACKAGED_ROOT"
+  # Inno Setup runs this signing command itself, so it needs a Windows path.
+  export REVIEW_WIN32_SIGN_SCRIPT="$(cygpath -w "$APP_DIR/scripts/sign-windows.mjs")"
+  SETUP_ARGS+=(--sign)
+fi
+npm --prefix "$CHECKOUT" run gulp -- vscode-win32-x64-user-setup vscode-win32-x64-system-setup "${SETUP_ARGS[@]}"
 mkdir -p "$APP_DIR/dist/windows"
 cp "$CHECKOUT/.build/win32-x64/user-setup/VSCodeSetup.exe" "$APP_DIR/dist/windows/Whiteboard-win32-x64-user.exe"
 cp "$CHECKOUT/.build/win32-x64/system-setup/VSCodeSetup.exe" "$APP_DIR/dist/windows/Whiteboard-win32-x64-system.exe"

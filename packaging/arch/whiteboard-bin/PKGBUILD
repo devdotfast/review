@@ -1,0 +1,71 @@
+# Maintainer: dev.fast <support@dev.fast>
+pkgname=whiteboard-bin
+pkgver=0.1.2
+pkgrel=1
+pkgdesc='Guided code reviews with coding agents'
+arch=('x86_64')
+url='https://dev.fast/'
+license=('MIT')
+options=('!debug' '!strip')
+depends=(
+	'alsa-lib'
+	'at-spi2-core'
+	'ca-certificates'
+	'cairo'
+	'curl'
+	'dbus'
+	'expat'
+	'gcc-libs'
+	'glib2'
+	'glibc'
+	'gtk3'
+	'git'
+	'hicolor-icon-theme'
+	'krb5'
+	'libcups'
+	'libnotify'
+	'libsecret'
+	'libx11'
+	'libxcb'
+	'libxcomposite'
+	'libxdamage'
+	'libxext'
+	'libxfixes'
+	'libxkbcommon'
+	'libxkbfile'
+	'libxrandr'
+	'mesa'
+	'nspr'
+	'nss'
+	'pango'
+	'systemd-libs'
+	'vulkan-icd-loader'
+	'xdg-utils'
+	'zlib'
+)
+makedepends=('rpm-tools')
+optdepends=(
+	'bubblewrap: sandbox agent commands'
+	'python: run Python language extensions'
+	'socat: sandbox agent commands'
+)
+provides=('whiteboard')
+conflicts=('whiteboard')
+source=("whiteboard-${pkgver}.rpm::https://github.com/devdotfast/whiteboard/releases/download/v${pkgver}/dev-fast-review-${pkgver}-1.x86_64.rpm")
+noextract=("whiteboard-${pkgver}.rpm")
+sha256sums=('5d5bb875efdce1d37b66e2c241c5315f30a9036136e620f5894c5329a31b71f7')
+
+package() {
+	cd "$srcdir"
+	# Reuse the official Linux release payload while registering its files with
+	# pacman. Do not execute RPM scriptlets or install RPM's package database.
+	set -o pipefail
+	rpm2cpio "whiteboard-${pkgver}.rpm" | bsdtar -xpf - -C "$pkgdir"
+	install -d "$pkgdir/opt"
+	mv "$pkgdir/usr/share/review" "$pkgdir/opt/whiteboard"
+	sed -i 's|/usr/share/review|/opt/whiteboard|g' \
+		"$pkgdir/usr/bin/review" \
+		"$pkgdir/usr/bin/review-desktop"
+	install -Dm644 "$pkgdir/opt/whiteboard/resources/app/LICENSE.txt" \
+		"$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

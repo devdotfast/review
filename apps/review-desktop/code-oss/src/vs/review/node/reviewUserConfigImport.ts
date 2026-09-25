@@ -82,6 +82,7 @@ const SOURCE_INSTALLS = [
 const KEYMAP_EXTENSIONS: Readonly<Record<Exclude<ReviewKeymap, 'none'>, string>> = {
 	vim: 'vscodevim.vim',
 	emacs: 'tuttieee.emacs-mcx',
+	sublime: 'ms-vscode.sublime-keybindings',
 };
 
 function existingMtime(target: string): number {

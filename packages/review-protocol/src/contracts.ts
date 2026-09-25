@@ -398,7 +398,12 @@ export const REVIEW_THEME_CHOICES = ["dark", "light", "system"] as const;
 
 export type ReviewThemeChoice = (typeof REVIEW_THEME_CHOICES)[number];
 
-export const REVIEW_KEYMAP_CHOICES = ["none", "vim", "emacs"] as const;
+export const REVIEW_KEYMAP_CHOICES = [
+  "none",
+  "vim",
+  "emacs",
+  "sublime",
+] as const;
 
 export type ReviewKeymapChoice = (typeof REVIEW_KEYMAP_CHOICES)[number];
 

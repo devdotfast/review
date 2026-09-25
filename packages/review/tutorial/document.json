@@ -33,7 +33,7 @@
         },
         {
           "type": "markdown",
-          "markdown": "### Your keybindings\n\nChoose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs.\n"
+          "markdown": "### Your keybindings\n\nChoose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim, Emacs, and Sublime Text.\n"
         },
         {
           "type": "tutorial",

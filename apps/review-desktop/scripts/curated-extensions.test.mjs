@@ -177,8 +177,9 @@ test("keeps the curated identifiers unique", () => {
 });
 
 test("disables only the conflicting keymaps by default", () => {
-  assert.deepEqual([...keymapGroups], ["vim", "emacs"]);
+  assert.deepEqual([...keymapGroups], ["vim", "emacs", "sublime"]);
   assert.deepEqual([...defaultDisabledIds].sort(), [
+    "ms-vscode.sublime-keybindings",
     "tuttieee.emacs-mcx",
     "vscodevim.vim",
   ]);

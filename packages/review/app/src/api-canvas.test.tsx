@@ -782,10 +782,10 @@ it("copies prose and code from the displayed historical JSON review", async () =
   }
 });
 
-it("reads a worktree review's range as its base against the working tree", async () => {
+it("reads a worktree review's range as its base against the working tree, and a commit review's as two commits", async () => {
   const head = "c14db2183b0e6c1f4a4a5c3f2d9e8b7a6f5e4d3c";
 
-  const worktree = new ReviewStore(path.join(directory, "worktree.db"), {
+  const store = new ReviewStore(path.join(directory, "worktree.db"), {
     resolveTarget: async (target) => ({
       target,
       pins: { repositoryId: target.repositoryId, base: head, head },
@@ -795,24 +795,30 @@ it("reads a worktree review's range as its base against the working tree", async
     validateResource: async () => {},
   });
 
-  try {
-    const { reviewId } = await worktree.execute({
-      commandId: randomUUID(),
-      operation: {
-        type: "create",
-        title: "Uncommitted work",
-        target: { kind: "worktree", repositoryId: "repo" },
-      },
-    });
+  const create = async (
+    title: string,
+    source:
+      | { target: { kind: "worktree"; repositoryId: string } }
+      | { pins: { repositoryId: string; base: string; head: string } },
+  ) =>
+    (
+      await store.execute({
+        commandId: randomUUID(),
+        operation: { type: "create", title, ...source },
+      })
+    ).reviewId;
 
-    const app = new Hono().route("/reviews-api", createReviewApi(worktree));
-    app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
 
-    const bridge = testReviewBridge(
-      {},
-      { request: async (url, init) => app.request(url, init) },
-    );
+  const bridge = testReviewBridge(
+    {},
+    { request: async (url, init) => app.request(url, init) },
+  );
 
+  const open = async (reviewId: string, title: string) => {
+    await act(async () => canvas?.dispose());
+    document.body.innerHTML = "";
     const container = document.createElement("div");
     document.body.append(container);
     await act(async () => {
@@ -820,20 +826,42 @@ it("reads a worktree review's range as its base against the working tree", async
     });
     await act(async () =>
       vi.waitFor(() =>
-        expect(container.querySelector("h1")?.textContent).toBe(
-          "Uncommitted work",
-        ),
+        expect(container.querySelector("h1")?.textContent).toBe(title),
       ),
     );
 
-    expect(
-      container
-        .querySelector('.review-document-header [role="group"]')
-        ?.getAttribute("aria-label"),
-    ).toBe("Session commits: base c14db218, head working tree");
-    expect(container.textContent?.match(/Working tree/g)).toHaveLength(1);
+    return container;
+  };
+
+  const range = (container: HTMLElement) =>
+    container
+      .querySelector('[role="group"][aria-label^="Session commits"]')
+      ?.getAttribute("aria-label");
+
+  try {
+    const worktree = await open(
+      await create("Uncommitted work", {
+        target: { kind: "worktree", repositoryId: "repo" },
+      }),
+      "Uncommitted work",
+    );
+
+    expect(range(worktree)).toBe(
+      "Session commits: base c14db218, head working tree",
+    );
+    expect(worktree.textContent?.match(/Working tree/g)).toHaveLength(1);
+
+    const committed = await open(
+      await create("Committed work", {
+        pins: { repositoryId: "repo", base: head, head },
+      }),
+      "Committed work",
+    );
+
+    expect(range(committed)).toContain("head c14db218");
+    expect(committed.textContent).not.toContain("Working tree");
   } finally {
-    await worktree.close();
+    await store.close();
   }
 });
 

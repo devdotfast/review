@@ -77,11 +77,9 @@ describe("ReviewBranchRange", () => {
 
     const range = container.querySelector('[role="group"]');
 
-    expect(range?.getAttribute("aria-label")).toBe(
-      "Session commits: base c14db218, head working tree",
-    );
+    expect(range?.getAttribute("aria-label")).toContain("head working tree");
     expect(range?.textContent).toContain("Working tree");
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.querySelector('[aria-label^="Copy head"]')).toBeNull();
 
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")

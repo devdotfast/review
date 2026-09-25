@@ -15,10 +15,6 @@ on:
       sign:
         type: boolean
         default: false
-      upgrade_fixture:
-        description: Also build a newer-versioned installer for the upgrade test.
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -148,9 +144,6 @@ jobs:
           }
       - name: Verify the packaged desktop and CLI
         run: node apps/review-desktop/scripts/smoke-windows.mjs apps/review-desktop/VSCode-win32-x64 artifacts/windows
-      - name: Build upgrade test installer
-        if: inputs.upgrade_fixture
-        run: node apps/review-desktop/scripts/build-windows-upgrade-fixture.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ inputs.artifact_name }}

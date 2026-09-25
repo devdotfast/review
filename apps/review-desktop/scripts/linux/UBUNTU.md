@@ -29,9 +29,7 @@ publication. `linux/verify-repository.sh <publication> ubuntu` checks:
 The tests use a pinned Ubuntu container. Docker's outer seccomp filter is
 relaxed for Chromium namespace creation; Chromium's sandbox remains enabled.
 Containers share the host kernel, so this does not replace a GNOME/Wayland test
-on an Ubuntu host with AppArmor enforcement. `review-linux-ci.yml` runs the
-packaging checks for packaging PRs and supports manual builds. It checks both channels, then starts each installed
-app on an Ubuntu 24.04 runner with AppArmor namespace restrictions enabled.
+on an Ubuntu host with AppArmor enforcement.
 
 ## Publication contract
 

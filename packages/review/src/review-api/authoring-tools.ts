@@ -17,6 +17,16 @@ export function authoringTools(
   const review = { reviewId: id };
   const version = z.number().int().nonnegative().optional();
 
+  // Anthropic rejects a top-level union, so publish one object; the host validates the union.
+  const uploadInput = z.strictObject({
+    ...Object.assign(
+      {},
+      ...uploadSchema.options.map((option) => option.partial().shape),
+    ),
+    ...uploadSchema.options[0].pick({ id: true, repositoryId: true }).shape,
+    kind: z.enum(uploadSchema.options.map((option) => option.shape.kind.value)),
+  });
+
   const read = (name: keyof typeof readQuerySchemas) =>
     z.strictObject({ ...review, ...readQuerySchemas[name].shape });
 
@@ -162,8 +172,8 @@ export function authoringTools(
     ),
     tool(
       "upload",
-      "Retain an image, trace or software map for use in a review. Reusing an upload ID requires identical content; rejected uploads are not saved.",
-      uploadSchema,
+      'Retain an image, trace or software map for use in a review. kind:"image" takes base64; kind:"trace" takes trace; kind:"map" takes pins, side and model. Reusing an upload ID requires identical content; rejected uploads are not saved.',
+      uploadInput,
       "POST",
       "/resources",
     ),

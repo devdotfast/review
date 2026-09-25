@@ -207,6 +207,12 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
     const list = await request(2, "tools/list", {});
     ListToolsResultSchema.parse(list.result);
+    // The Anthropic API rejects these at the top level of a tool input schema.
+    expect(
+      list.result.tools.filter((tool: AuthoringTool) =>
+        ["anyOf", "oneOf", "allOf"].some((key) => key in tool.inputSchema),
+      ),
+    ).toEqual([]);
     expect(
       list.result.tools.find(
         (tool: AuthoringTool) => tool.name === "session_edit",

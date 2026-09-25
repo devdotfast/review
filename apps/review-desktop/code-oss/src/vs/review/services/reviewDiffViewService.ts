@@ -163,30 +163,35 @@ export class ReviewDiffViewService extends Disposable {
 			const entries = data.entries.filter(entry => lensRanges(lens, entry).length > 0);
 			const structural = data.session ? createStructuralDiffEditors(this.instantiationService, entries, lifetime, data.session)
 				: { instantiation: this.instantiationService, entries };
-			const instantiation = withLens(structural.instantiation, structural.entries, lens, lifetime, () => undefined, () => ({ dispose() {} }));
-			const resolver = instantiation.invokeFunction(a => a.get(ITextModelService));
-			const factory = instantiation.invokeFunction(a => a.get(IDiffProviderFactoryService));
+			const resolver = structural.instantiation.invokeFunction(a => a.get(ITextModelService));
 			const matches: DocumentMatch[] = [];
 			for (const entry of structural.entries) {
-				const original = entry.original ? lifetime.add(await resolver.createModelReference(entry.original)).object.textEditorModel : undefined;
-				const modified = entry.modified ? lifetime.add(await resolver.createModelReference(entry.modified)).object.textEditorModel : undefined;
-				const provider = factory.createDiffProvider({ diffAlgorithm: "advanced" });
-				if (isDisposable(provider)) lifetime.add(provider);
-				const diff = original && modified ? await provider.computeDiff(original, modified, { ignoreTrimWhitespace: false, maxComputationTimeMs: 0, computeMoves: false }, CancellationToken.None) : undefined;
-				const pairs = diff && original && modified ? new Map(alignmentRows(diff, original.getLineCount(), modified.getLineCount()).filter((row): row is [number, number] => row[0] !== null && row[1] !== null)) : new Map<number, number>();
-				for (const [side, model] of [["base", original], ["head", modified]] as const) {
-					if (!model) continue;
-					const ranges = lensRanges(lens, entry).filter(range => range.side === side);
-					const found = model.findMatches(query.text, false, query.isRegex, query.matchCase, query.wholeWord ? USUAL_WORD_SEPARATORS : null, false);
-					for (const match of found) {
-						const line = match.range.startLineNumber;
-						const outside = diff?.contextGaps?.some(gap => gap.label === "Outside lens" && line >= (side === "base" ? gap.originalStart : gap.modifiedStart) && line < (side === "base" ? gap.originalStart + gap.originalCount : gap.modifiedStart + gap.modifiedCount));
-						if (outside || (!diff && !ranges.some(range => line >= range.fromLine && line <= range.toLine))) continue;
-						const headLine = pairs.get(line - 1);
-						if (side === "base" && headLine !== undefined && modified && match.range.startLineNumber === match.range.endLineNumber && model.getLineContent(line) === modified.getLineContent(headLine + 1)) continue;
-						matches.push({ file: side === "base" ? entry.file.previousPath ?? entry.file.path : entry.file.path, side, range: match.range });
+				// Search is sequential: only the current file needs live models and
+				// language listeners. Matches retain ranges, never model references.
+				const fileLifetime = new DisposableStore();
+				try {
+					const instantiation = withLens(structural.instantiation, [entry], lens, fileLifetime, () => undefined, () => ({ dispose() {} }));
+					const factory = instantiation.invokeFunction(a => a.get(IDiffProviderFactoryService));
+					const original = entry.original ? fileLifetime.add(await resolver.createModelReference(entry.original)).object.textEditorModel : undefined;
+					const modified = entry.modified ? fileLifetime.add(await resolver.createModelReference(entry.modified)).object.textEditorModel : undefined;
+					const provider = factory.createDiffProvider({ diffAlgorithm: "advanced" });
+					if (isDisposable(provider)) fileLifetime.add(provider);
+					const diff = original && modified ? await provider.computeDiff(original, modified, { ignoreTrimWhitespace: false, maxComputationTimeMs: 0, computeMoves: false }, CancellationToken.None) : undefined;
+					const pairs = diff && original && modified ? new Map(alignmentRows(diff, original.getLineCount(), modified.getLineCount()).filter((row): row is [number, number] => row[0] !== null && row[1] !== null)) : new Map<number, number>();
+					for (const [side, model] of [["base", original], ["head", modified]] as const) {
+						if (!model) continue;
+						const ranges = lensRanges(lens, entry).filter(range => range.side === side);
+						const found = model.findMatches(query.text, false, query.isRegex, query.matchCase, query.wholeWord ? USUAL_WORD_SEPARATORS : null, false);
+						for (const match of found) {
+							const line = match.range.startLineNumber;
+							const outside = diff?.contextGaps?.some(gap => gap.label === "Outside lens" && line >= (side === "base" ? gap.originalStart : gap.modifiedStart) && line < (side === "base" ? gap.originalStart + gap.originalCount : gap.modifiedStart + gap.modifiedCount));
+							if (outside || (!diff && !ranges.some(range => line >= range.fromLine && line <= range.toLine))) continue;
+							const headLine = pairs.get(line - 1);
+							if (side === "base" && headLine !== undefined && modified && match.range.startLineNumber === match.range.endLineNumber && model.getLineContent(line) === modified.getLineContent(headLine + 1)) continue;
+							matches.push({ file: side === "base" ? entry.file.previousPath ?? entry.file.path : entry.file.path, side, range: match.range });
+						}
 					}
-				}
+				} finally { fileLifetime.dispose(); }
 			}
 			return matches;
 		} finally { lifetime.dispose(); }

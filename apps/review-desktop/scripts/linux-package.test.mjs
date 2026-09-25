@@ -12,13 +12,14 @@ test("stable versions package as dev-fast-review", () => {
     app: "review",
     appName: "Whiteboard",
     appId: "dev.fast.review",
-    rpmVersion: "1.2.3",
+    version: "1.2.3",
     revision: "2",
-    file: "dev-fast-review-1.2.3-2.x86_64.rpm",
+    rpmFile: "dev-fast-review-1.2.3-2.x86_64.rpm",
+    debFile: "dev-fast-review_1.2.3-2_amd64.deb",
   });
 });
 
-test("preview versions package separately with a tilde RPM version", () => {
+test("preview versions package separately with a tilde version", () => {
   assert.deepEqual(
     reviewPackage(product("preview"), "1.2.4-preview.20260922.7", "1"),
     {
@@ -26,9 +27,10 @@ test("preview versions package separately with a tilde RPM version", () => {
       app: "review-preview",
       appName: "Whiteboard Preview",
       appId: "dev.fast.review.preview",
-      rpmVersion: "1.2.4~preview.20260922.7",
+      version: "1.2.4~preview.20260922.7",
       revision: "1",
-      file: "dev-fast-review-preview-1.2.4~preview.20260922.7-1.x86_64.rpm",
+      rpmFile: "dev-fast-review-preview-1.2.4~preview.20260922.7-1.x86_64.rpm",
+      debFile: "dev-fast-review-preview_1.2.4~preview.20260922.7-1_amd64.deb",
     },
   );
 });

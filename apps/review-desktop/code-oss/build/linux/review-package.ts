@@ -6,7 +6,8 @@
 import { execFileSync } from 'node:child_process';
 import { chmod, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { additionalDeps, recommendedDeps } from './rpm/dep-lists.ts';
+import { additionalDeps as rpmAdditionalDeps, recommendedDeps as rpmRecommendedDeps } from './rpm/dep-lists.ts';
+import { additionalDeps as debAdditionalDeps, recommendedDeps as debRecommendedDeps, referenceGeneratedDepsByArch as debGeneratedDeps } from './debian/dep-lists.ts';
 
 export interface ReviewPackageProduct {
 	quality: string;
@@ -16,19 +17,20 @@ export interface ReviewPackageProduct {
 }
 
 export interface ReviewPackage {
-	/** RPM package name: dev-fast-review or dev-fast-review-preview. */
+	/** Package name: dev-fast-review or dev-fast-review-preview. */
 	name: string;
 	/** Installed application directory and command name: review or review-preview. */
 	app: string;
 	appName: string;
 	appId: string;
-	/** RPM version; previews use the tilde form so they sort below their stable release. */
-	rpmVersion: string;
+	/** Upstream version; previews use the tilde form, which sorts below their stable release in both RPM and dpkg. */
+	version: string;
 	revision: string;
-	file: string;
+	rpmFile: string;
+	debFile: string;
 }
 
-/** Derive the Fedora package identity from the stamped release channel. */
+/** Derive the Linux package identity from the stamped release channel. */
 export function reviewPackage(product: ReviewPackageProduct, version: string, revision = process.env.REVIEW_LINUX_PACKAGE_REVISION ?? '1'): ReviewPackage {
 	const match = /^(\d+\.\d+\.\d+)(?:-(preview\.\d{8}\.\d+))?$/.exec(version);
 	if (!match || !/^[1-9]\d*$/.test(revision)) {
@@ -41,16 +43,17 @@ export function reviewPackage(product: ReviewPackageProduct, version: string, re
 	if (!/^[a-z][a-z0-9-]*$/.test(product.applicationName)) {
 		throw new Error('Linux packages need a lowercase applicationName');
 	}
-	const rpmVersion = prerelease ? `${release}~${prerelease}` : release;
+	const packageVersion = prerelease ? `${release}~${prerelease}` : release;
 	const name = `dev-fast-${product.applicationName}`;
 	return {
 		name,
 		app: product.applicationName,
 		appName: product.nameShort,
 		appId: product.darwinBundleIdentifier,
-		rpmVersion,
+		version: packageVersion,
 		revision,
-		file: `${name}-${rpmVersion}-${revision}.x86_64.rpm`,
+		rpmFile: `${name}-${packageVersion}-${revision}.x86_64.rpm`,
+		debFile: `${name}_${packageVersion}-${revision}_amd64.deb`,
 	};
 }
 
@@ -64,16 +67,11 @@ async function loadReviewPackage(appRoot: string) {
 	return { pkg: reviewPackage(product, metadata.version), source, urlProtocol: product.urlProtocol };
 }
 
-/** Stage the Review runtime for the existing Code OSS RPM build task. */
-export async function prepareReviewRpmPackage(codeRoot: string, arch: string): Promise<void> {
-	if (arch !== 'x86_64') { throw new Error('Review Linux packages currently support x86_64 only'); }
-	const appRoot = resolve(codeRoot, '..');
-	const monorepoRoot = resolve(appRoot, '../..');
-	const { pkg, source, urlProtocol } = await loadReviewPackage(appRoot);
+/** Stage the /usr tree that every Review Linux package installs. */
+async function stageReviewTree(destination: string, appRoot: string, pkg: ReviewPackage, source: string, urlProtocol: string): Promise<void> {
 	const { name, app, appName, appId } = pkg;
 	const share = `/usr/share/${app}`;
-	const rpmRoot = join(codeRoot, '.build/linux/rpm/x86_64/rpmbuild');
-	const destination = join(rpmRoot, 'BUILD');
+	const monorepoRoot = resolve(appRoot, '../..');
 	await rm(destination, { recursive: true, force: true });
 	await mkdir(destination, { recursive: true });
 	await cp(source, join(destination, share), { recursive: true, verbatimSymlinks: true });
@@ -132,10 +130,26 @@ MimeType=x-scheme-handler/${urlProtocol};
 	// Electron's packaged sandbox helper must be root-owned with setuid in the
 	// system package. Package creation sets ownership; no runtime chmod is needed.
 	await chmod(join(destination, share, 'chrome-sandbox'), 0o4755);
-	const dependencies = [...additionalDeps.filter(dep => !dep.startsWith('rpmlib(')), 'git', 'libsecret-1.so.0()(64bit)', 'libkrb5.so.3()(64bit)', 'libnotify.so.4()(64bit)', '/bin/sh'];
+}
+
+/** Refresh the desktop and icon caches. Hooks never enroll a repository,
+ *  change editor alternatives, or edit user profiles. */
+const desktopCacheHooks = `if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q || :; fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || :; fi`;
+
+/** Stage the Review runtime for the existing Code OSS RPM build task. */
+export async function prepareReviewRpmPackage(codeRoot: string, arch: string): Promise<void> {
+	if (arch !== 'x86_64') { throw new Error('Review Linux packages currently support x86_64 only'); }
+	const appRoot = resolve(codeRoot, '..');
+	const { pkg, source, urlProtocol } = await loadReviewPackage(appRoot);
+	const { name, app, appName } = pkg;
+	const share = `/usr/share/${app}`;
+	const rpmRoot = join(codeRoot, '.build/linux/rpm/x86_64/rpmbuild');
+	await stageReviewTree(join(rpmRoot, 'BUILD'), appRoot, pkg, source, urlProtocol);
+	const dependencies = [...rpmAdditionalDeps.filter(dep => !dep.startsWith('rpmlib(')), 'git', 'libsecret-1.so.0()(64bit)', 'libkrb5.so.3()(64bit)', 'libnotify.so.4()(64bit)', '/bin/sh'];
 	await mkdir(join(rpmRoot, 'SPECS'), { recursive: true });
 	await writeFile(join(rpmRoot, 'SPECS/review.spec'), String.raw`Name: ${name}
-Version: ${pkg.rpmVersion}
+Version: ${pkg.version}
 Release: ${pkg.revision}
 Summary: Guided code reviews with your coding agents
 License: MIT
@@ -144,7 +158,7 @@ Vendor: dev.fast
 Packager: dev.fast <support@dev.fast>
 BuildArch: x86_64
 Requires: ${dependencies.join(', ')}
-Recommends: ${recommendedDeps.join(', ')}
+Recommends: ${rpmRecommendedDeps.join(', ')}
 
 # Keep ELF dependency discovery, but do not require system Node for scripts
 # that are executed by bundled Electron. Do not export bundled private libraries.
@@ -165,12 +179,10 @@ mkdir -p %{buildroot}
 cp -a %{_builddir}/usr %{buildroot}/
 
 %post
-if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q || :; fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || :; fi
+${desktopCacheHooks}
 
 %postun
-if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q || :; fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || :; fi
+${desktopCacheHooks}
 
 %files
 %defattr(-,root,root)
@@ -191,5 +203,58 @@ export async function buildReviewRpmPackage(codeRoot: string, arch: string): Pro
 	const rpmRoot = join(codeRoot, '.build/linux/rpm/x86_64/rpmbuild');
 	const { pkg } = await loadReviewPackage(resolve(codeRoot, '..'));
 	execFileSync('rpmbuild', ['--define', `_topdir ${rpmRoot}`, '-bb', join(rpmRoot, 'SPECS/review.spec'), '--target', arch], { stdio: 'inherit' });
-	await cp(join(rpmRoot, 'RPMS/x86_64', pkg.file), join(rpmRoot, '..', pkg.file));
+	await cp(join(rpmRoot, 'RPMS/x86_64', pkg.rpmFile), join(rpmRoot, '..', pkg.rpmFile));
+}
+
+const DEB_ARCH = 'amd64';
+
+function debStagePath(codeRoot: string, app: string): string {
+	return join(codeRoot, `.build/linux/deb/${DEB_ARCH}/${app}-${DEB_ARCH}`);
+}
+
+/** Stage the Review runtime for the existing Code OSS deb build task. */
+export async function prepareReviewDebPackage(codeRoot: string, arch: string): Promise<void> {
+	if (arch !== DEB_ARCH) { throw new Error('Review Debian packages support amd64 only'); }
+	const appRoot = resolve(codeRoot, '..');
+	const { pkg, source, urlProtocol } = await loadReviewPackage(appRoot);
+	const destination = debStagePath(codeRoot, pkg.app);
+	await stageReviewTree(destination, appRoot, pkg, source, urlProtocol);
+	// dpkg-deb has no equivalent of rpmbuild's ELF dependency discovery. The
+	// generated Debian dependencies checked in for this Electron version stand in
+	// for it; the rest mirror what the RPM requires on top of that discovery.
+	const dependencies = [...new Set([...debAdditionalDeps, ...debGeneratedDeps[DEB_ARCH], 'git', 'libsecret-1-0', 'libkrb5-3', 'libnotify4'])].sort();
+	// Installed-Size is the staged payload in KiB, measured before DEBIAN/ exists.
+	const installedSize = execFileSync('du', ['--summarize', '--block-size=1K', destination], { encoding: 'utf8' }).split('\t')[0];
+	const control = join(destination, 'DEBIAN');
+	await mkdir(control, { recursive: true });
+	await writeFile(join(control, 'control'), `Package: ${pkg.name}
+Version: ${pkg.version}-${pkg.revision}
+Section: devel
+Priority: optional
+Architecture: ${DEB_ARCH}
+Maintainer: dev.fast <support@dev.fast>
+Homepage: https://dev.fast/
+Installed-Size: ${installedSize}
+Depends: ${dependencies.join(', ')}
+Recommends: ${debRecommendedDeps.join(', ')}
+Description: Guided code reviews with your coding agents
+ ${pkg.appName} turns code changes into guided, interactive reviews with code,
+ traces, and agent discussions. Includes the Review CLI and its runtime.
+`);
+	const hooks = `#!/bin/sh
+set -e
+${desktopCacheHooks}
+`;
+	await writeFile(join(control, 'postinst'), hooks, { mode: 0o755 });
+	await writeFile(join(control, 'postrm'), hooks, { mode: 0o755 });
+}
+
+/** Build the deb from the staged tree. */
+export async function buildReviewDebPackage(codeRoot: string, arch: string): Promise<void> {
+	if (arch !== DEB_ARCH) { throw new Error('Review Debian packages support amd64 only'); }
+	const { pkg } = await loadReviewPackage(resolve(codeRoot, '..'));
+	const destination = debStagePath(codeRoot, pkg.app);
+	// --root-owner-group installs the payload as root without a fakeroot session.
+	// It rewrites ownership only; the staged setuid mode on chrome-sandbox stands.
+	execFileSync('dpkg-deb', ['--root-owner-group', '-Zxz', '--build', destination, join(destination, '..', pkg.debFile)], { stdio: 'inherit' });
 }

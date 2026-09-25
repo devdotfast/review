@@ -17,7 +17,7 @@ import { recommendedDeps as rpmRecommendedDependencies } from './linux/rpm/dep-l
 import * as path from 'path';
 import * as cp from 'child_process';
 import { promisify } from 'util';
-import { prepareReviewRpmPackage, buildReviewRpmPackage } from './linux/review-package.ts';
+import { prepareReviewRpmPackage, buildReviewRpmPackage, prepareReviewDebPackage, buildReviewDebPackage } from './linux/review-package.ts';
 
 const exec = promisify(cp.exec);
 const root = path.dirname(import.meta.dirname);
@@ -40,6 +40,9 @@ function prepareDebPackage(arch: string) {
 	const destination = '.build/linux/deb/' + debArch + '/' + product.applicationName + '-' + debArch;
 
 	return async function () {
+		if (product.reviewVersion) {
+			return prepareReviewDebPackage(root, debArch);
+		}
 		const dependencies = await getDependencies('deb', binaryDir, product.applicationName, debArch);
 
 		const desktop = gulp.src('resources/linux/code.desktop', { base: '.' })
@@ -125,6 +128,9 @@ function buildDebPackage(arch: string) {
 	const cwd = `.build/linux/deb/${debArch}`;
 
 	return async () => {
+		if (product.reviewVersion) {
+			return buildReviewDebPackage(root, debArch);
+		}
 		await exec(`chmod 755 ${product.applicationName}-${debArch}/DEBIAN/postinst ${product.applicationName}-${debArch}/DEBIAN/prerm ${product.applicationName}-${debArch}/DEBIAN/postrm`, { cwd });
 		await exec('mkdir -p deb', { cwd });
 		await exec(`fakeroot dpkg-deb -Zxz -b ${product.applicationName}-${debArch} deb`, { cwd });

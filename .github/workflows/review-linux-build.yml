@@ -1,4 +1,4 @@
-name: Review Fedora packages
+name: Review Linux packages
 
 on:
   workflow_call:
@@ -12,6 +12,12 @@ on:
       package_revision:
         type: string
         default: "1"
+      runner:
+        type: string
+        default: review_big_boy
+      artifact_name:
+        type: string
+        default: linux-packages
       release_signing:
         type: boolean
         default: false
@@ -21,9 +27,9 @@ permissions:
 
 jobs:
   linux:
-    name: Build and validate Fedora packages
+    name: Build and validate Fedora and Ubuntu packages
     environment: ${{ inputs.release_signing && 'review-release' || 'review-linux-ci' }}
-    runs-on: review_big_boy
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     env:
       BUILD_SOURCEVERSION: ${{ inputs.commit }}
@@ -56,7 +62,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev \
             libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libnotify4 \
-            rpm createrepo-c zstd gnupg xvfb dbus-x11 unzip
+            rpm createrepo-c zstd gnupg xvfb dbus-x11 unzip dpkg-dev apt-utils file
           docker pull --platform linux/amd64 fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
           docker pull --platform linux/amd64 fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
       - name: Build and assemble Linux app
@@ -76,7 +82,7 @@ jobs:
         run: xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app apps/review-desktop/VSCode-linux-x64
       # Preview versions build the dev-fast-review-preview package; see
       # code-oss/build/linux/review-package.ts for the channel mapping.
-      - name: Create Fedora RPM
+      - name: Create Fedora RPM and Ubuntu DEB
         run: |
           pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
       - name: Prepare repository signing key
@@ -113,17 +119,18 @@ jobs:
             --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT" --channel "$CHANNEL"
           find apps/review-desktop/dist/linux-repository -name '*.rpm' -exec cp {} apps/review-desktop/dist/linux/ \;
           tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
-      - name: Validate clean installs and rejected signatures
-        run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: linux-packages
+          name: ${{ inputs.artifact_name }}
           path: |
             apps/review-desktop/dist/linux/*.rpm
+            apps/review-desktop/dist/linux/*.deb
             apps/review-desktop/dist/linux/*.tar.zst
           retention-days: 7
           compression-level: 0
+      - name: Validate clean installs and rejected signatures
+        run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
       - name: Remove signing credentials
         if: always()
         run: |

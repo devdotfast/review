@@ -274,7 +274,7 @@ export async function createHarness({
       : [path.join(appRoot, "scripts/run.sh")];
 
     app = spawn(
-      packagedApp ? path.join(packagedApp, "Contents/MacOS/Review") : "bash",
+      packagedApp ? packagedExecutable(packagedApp) : "bash",
       launchArgs,
       { cwd: appRoot, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
     );
@@ -519,8 +519,7 @@ export async function createHarness({
 
     while (running() && Date.now() < deadline) await sleep(100);
 
-    if (running())
-      throw new Error(`Timed out waiting for ${label}`);
+    if (running()) throw new Error(`Timed out waiting for ${label}`);
   }
 
   /** `signal: "SIGKILL"` stops the Desktop without letting it run any shutdown handler. */
@@ -808,4 +807,9 @@ export async function openHome(ctx) {
   if (await tab.count()) await tab.click();
   else await ctx.restartDesktop();
   await ctx.page.locator("main.review-home").waitFor({ timeout: 60000 });
+}
+
+/** `--app` names a macOS bundle, or the installed executable on Linux and Windows. */
+function packagedExecutable(app) {
+  return app.endsWith(".app") ? path.join(app, "Contents/MacOS/Review") : app;
 }

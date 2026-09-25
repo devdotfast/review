@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Build a sealed signed RPM/DNF publication without network writes."""
+"""Build a sealed signed RPM/DNF and DEB/APT publication without network writes."""
 
 import argparse
+from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
 import os
@@ -55,6 +57,44 @@ def sign_rpm(file, fingerprint, public_key):
             raise ValueError("RPM has no valid package signature")
 
 
+def build_apt(packages, repos, snapshot_root, package_name, version, revision, fingerprint, channel):
+    name = f"{package_name}_{version}-{revision}_amd64.deb"
+    source = packages / name
+    metadata = run("dpkg-deb", "--show", "--showformat=${Package}\\n${Version}\\n${Architecture}\\n", str(source)).decode().splitlines()
+    if metadata != [package_name, f"{version}-{revision}", "amd64"]:
+        raise ValueError("DEB metadata does not match the release")
+    apt = repos / "apt"
+    pool = apt / "pool/main"
+    pool.mkdir(parents=True)
+    shutil.copyfile(source, pool / name)
+    suite = f"dists/{channel}"
+    snapshot = snapshot_root / "apt" / suite
+    index = snapshot / "main/binary-amd64"
+    index.mkdir(parents=True)
+    (index / "Packages").write_bytes(run("apt-ftparchive", "packages", "pool", cwd=apt))
+    (index / "Packages.gz").write_bytes(gzip.compress((index / "Packages").read_bytes(), mtime=0))
+    hashes = apt / suite / "main/binary-amd64/by-hash/SHA256"
+    hashes.mkdir(parents=True)
+    entries = []
+    for file in sorted(index.iterdir()):
+        sha = digest(file)
+        shutil.copyfile(file, hashes / sha)
+        entries.append(f" {sha} {file.stat().st_size} main/binary-amd64/{file.name}")
+    release = snapshot / "Release"
+    date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    release.write_text(f"Origin: dev.fast\nLabel: Whiteboard\nSuite: {channel}\nCodename: {channel}\n"
+                       f"Date: {date}\nArchitectures: amd64\nComponents: main\nAcquire-By-Hash: yes\n"
+                       + "SHA256:\n" + "\n".join(entries) + "\n")
+    args = ["gpg", "--batch", "--yes", "--local-user", fingerprint]
+    passphrase = os.environ.get("REVIEW_SIGNING_PASSPHRASE_FILE")
+    if passphrase:
+        args += ["--pinentry-mode", "loopback", "--passphrase-file", passphrase]
+    run(*args, "--digest-algo", "SHA256", "--output", str(snapshot / "InRelease"), "--clearsign", str(release))
+    run(*args, "--output", str(snapshot / "Release.gpg"), "--detach-sign", str(release))
+    run("gpg", "--batch", "--verify", str(snapshot / "InRelease"))
+    run("gpg", "--batch", "--verify", str(snapshot / "Release.gpg"), str(release))
+
+
 # Each channel is a separate package in a separate repository. Preview builds
 # use RPM's tilde form so they sort below the stable release they precede.
 CHANNELS = {
@@ -106,8 +146,9 @@ def build(packages, output, version, revision, commit, fingerprint, channel="sta
             raise ValueError(f"Unexpected or non-content-addressed RPM metadata: {file.name}")
     (rpm / "repodata/repomd.xml").rename(snapshot / "repomd.xml")
     sign(snapshot / "repomd.xml", fingerprint)
+    build_apt(packages, repos, repos / "snapshots" / generation, package_name, version, revision, fingerprint, channel)
     pointer = {
-        "schemaVersion": 1, "format": "rpm", "generation": generation, "version": version,
+        "schemaVersion": 1, "format": "rpm", "deb": True, "generation": generation, "version": version,
         "commit": commit, "keyFingerprint": fingerprint,
     }
     (repos / "current.json").write_text(json.dumps(pointer) + "\n")

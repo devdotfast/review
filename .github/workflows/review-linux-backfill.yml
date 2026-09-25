@@ -56,6 +56,7 @@ jobs:
           test -n "$R2_BUCKET"
           [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
           curl -fsS https://install.dev.fast/repos/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1, "format": "rpm"}'
+          curl -fsS https://install.dev.fast/repos/apt/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1, "format": "deb"}'
           TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           VERSION=${TAG#v}
@@ -115,8 +116,8 @@ jobs:
           python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
           curl -fsS https://install.dev.fast/linux >/dev/null
           curl -fsS https://install.dev.fast/repos/dev-fast-review.repo >/dev/null
-      - name: Attach RPM to the existing release
+      - name: Attach Linux packages to the existing release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm linux-packages/*.deb

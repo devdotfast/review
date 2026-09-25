@@ -1,0 +1,73 @@
+name: Review Linux package CI
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/review-linux-*.yml'
+      - '.github/workflows/review-desktop-release.yml'
+      - '.github/workflows/review-desktop-preview.yml'
+      - 'apps/review-desktop/code-oss/build/linux/**'
+      - 'apps/review-desktop/code-oss/build/gulpfile.vscode.linux.ts'
+      - 'apps/review-desktop/scripts/*linux*'
+      - 'apps/review-desktop/scripts/linux/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-linux-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable
+            version: '0.0.1'
+          - channel: preview
+            version: '0.0.2-preview.20000101.1'
+    uses: ./.github/workflows/review-linux-build.yml
+    with:
+      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+      version: ${{ matrix.version }}
+      artifact_name: linux-packages-${{ matrix.channel }}
+      release_signing: false
+      runner: ubuntu-24.04
+
+  ubuntu-desktop:
+    name: Ubuntu desktop, AppArmor and channel coexistence
+    needs: packages
+    # Keep the native AppArmor check independent of container validation, but
+    # skip it when no packages were built (fork pull requests skip that job).
+    if: ${{ !cancelled() && needs.packages.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: linux-packages-*
+          merge-multiple: true
+          path: linux-packages
+      - name: Install on Ubuntu with namespace restrictions enabled
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb dbus-x11 apparmor ./linux-packages/*.deb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sudo aa-status
+      - name: Launch the installed desktop with its sandbox
+        env:
+          DO_NOT_TRACK: '1'
+        run: |
+          dpkg-query -W dev-fast-review dev-fast-review-preview
+          for APP in review review-preview; do
+            export APP APPARMOR_PROFILE="dev-fast-$APP"
+            "$APP" --help >/dev/null
+            dbus-run-session -- xvfb-run -a bash apps/review-desktop/scripts/linux/smoke-installed-linux.sh
+          done

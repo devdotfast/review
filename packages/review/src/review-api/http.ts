@@ -819,7 +819,11 @@ export function createReviewApi(
       );
     });
     app.get("/:id/file", async (context) => {
-      const input = readQuerySchemas.file.parse(context.req.query());
+      // Browsing can describe binaries; authoring reads still require text.
+      const input = readQuerySchemas.file
+        .extend({ binary: z.literal("describe").optional() })
+        .parse(context.req.query());
+
       const id = context.req.param("id");
 
       const anchor = queryAnchor(input);
@@ -830,7 +834,21 @@ export function createReviewApi(
         anchor,
       );
 
-      const file = await data.file(pins, input.side, input.file);
+      const file = await data.file(
+        pins,
+        input.side,
+        input.file,
+        input.binary === "describe",
+      );
+
+      if (file.text.includes("\0")) {
+        return context.json({
+          binary: true,
+          file: file.file,
+          side: file.side,
+          commit: file.commit,
+        });
+      }
 
       const local =
         !input.commit &&

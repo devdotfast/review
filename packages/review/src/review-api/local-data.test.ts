@@ -1381,6 +1381,48 @@ it("refuses a committed binary file as a code reference", async () => {
   ).rejects.toThrow("Binary files cannot be used as code references.");
 });
 
+it("describes binary source for browsing without allowing it as code evidence", async () => {
+  writeFileSync(path.join(repository, "binary.bin"), "text\u0000more\n");
+  git("add", "binary.bin");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Binary");
+
+  const binaryPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  const review = await local.store.execute(
+    command({ type: "create", title: "Binary", pins: binaryPins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+  const route = `/${review.reviewId}/file?side=head&file=binary.bin`;
+  const response = await app.request(`${route}&binary=describe`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    binary: true,
+    file: "binary.bin",
+    side: "head",
+    commit: binaryPins.head,
+  });
+  expect((await app.request(route)).status).toBe(400);
+  await expect(
+    insert(review.reviewId, {
+      type: "code_peek",
+      source: selectSource({ ...source, file: "binary.bin", toLine: 1 }),
+    }),
+  ).rejects.toThrow("Binary files cannot be used as code references.");
+
+  const text = await app.request(
+    `/${review.reviewId}/file?side=head&file=example.ts&binary=describe`,
+  );
+
+  expect(await text.json()).toMatchObject({
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+});
+
 it("reads a committed empty file as empty text, not a missing file", async () => {
   writeFileSync(path.join(repository, "blank.ts"), "");
   git("add", "blank.ts");

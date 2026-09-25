@@ -14,7 +14,7 @@ const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a"
 function setup() {
 	let provider: ITextModelContentProvider;
 	let disposed = 0;
-	const models = new Map<string, { uri: URI; text: string; getLineCount(): number }>();
+	const models = new Map<string, { uri: URI; text: string; language: unknown; getLineCount(): number }>();
 	const opened: Array<{ original: { resource: URI }; modified: { resource: URI } }> = [];
 	const editor = { resource: URI.parse("review-api-source://review-a/file") };
 	const registered: string[] = [];
@@ -34,13 +34,13 @@ function setup() {
 		} as never,
 		{
 			getModel: (uri: URI) => models.get(uri.toString()),
-			createModel: (text: string, _: unknown, uri: URI) => {
-				const model = { uri, text, getLineCount: () => text.split("\n").length };
+			createModel: (text: string, language: unknown, uri: URI) => {
+				const model = { uri, text, language, getLineCount: () => text.split("\n").length };
 				models.set(uri.toString(), model);
 				return model;
 			},
 		} as never,
-		{ createByFilepathOrFirstLine: () => ({ languageId: "typescript" }) } as never,
+		{ createById: (languageId: string) => ({ languageId }), createByFilepathOrFirstLine: () => ({ languageId: "typescript" }) } as never,
 		{
 			openEditor: async (input: (typeof opened)[number]) => {
 				opened.push(input);
@@ -238,4 +238,32 @@ test("a source at its own pins keeps them through its URI and reads them back fr
 	});
 	const model = await readModel(uri);
 	assert.equal((model as unknown as { text: string }).text, "at own pins");
+});
+
+for (const side of ["base", "head"] as const) {
+	test(`binary ${side} source resolves to a notice using plaintext instead of the file language`, async (t) => {
+		const { service, readModel, models } = setup();
+		t.after(() => service.dispose());
+		t.mock.method(globalThis, "fetch", async (value: string) => {
+			const url = new URL(value);
+			assert.equal(url.searchParams.get("binary"), "describe");
+			assert.equal(url.searchParams.get("side"), side);
+			return Response.json({ binary: true, file: "image.png", side, commit: "pinned" });
+		});
+		const uri = apiSourceUri({ view: view(0), side, file: "image.png" });
+		await readModel(uri);
+		assert.match(models.get(uri.toString())!.text, /Binary file.*cannot be displayed as text/);
+		assert.deepEqual(models.get(uri.toString())!.language, { languageId: "plaintext" });
+	});
+}
+
+test("absent binary diff sides resolve as empty without reading the missing file", async (t) => {
+	const { service, readModel, models } = setup();
+	t.after(() => service.dispose());
+	t.mock.method(globalThis, "fetch", async () => { throw new Error("Absent sides must not request source"); });
+	for (const side of ["base", "head"] as const) {
+		const uri = apiSourceUri({ view: view(0), side, file: "image.png" }, true);
+		await readModel(uri);
+		assert.equal(models.get(uri.toString())!.text, "");
+	}
 });

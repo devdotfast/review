@@ -109,18 +109,21 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					if (existing) return existing;
 					const query = new URLSearchParams(resource.query);
 					const target = sourceLocation(resource);
-					const body = query.has("empty")
+					const body: { text: string; localPath?: string; binary?: false } | { binary: true } = query.has("empty")
 						? { text: "" }
-						: await this.read<{ text: string; localPath?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
+						: await this.read(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file, binary: "describe" });
+					// Keep the file visible in source/diff browsing without treating its
+					// bytes (or this notice) as source code. Authoring still validates it.
+					const text = body.binary ? "Binary file cannot be displayed as text." : body.text;
 					const model = (
 						modelService.getModel(resource) ??
 						modelService.createModel(
-							body.text,
-							languages.createByFilepathOrFirstLine(resource, body.text.split("\n", 1)[0]),
+							text,
+							body.binary ? languages.createById("plaintext") : languages.createByFilepathOrFirstLine(resource, text.split("\n", 1)[0]),
 							resource,
 						)
 					);
-					if (body.localPath) {
+					if (!body.binary && body.localPath) {
 						this.followDisk(model, URI.file(body.localPath), async () => (await this.read<{ text: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file })).text);
 					}
 					return model;

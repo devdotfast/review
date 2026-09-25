@@ -124,6 +124,11 @@ export interface ScrollableElementCreationOptions {
 	 */
 	verticalHasArrows?: boolean;
 	/**
+	 * Space (in px) left above the vertical scrollbar, e.g. for a pinned header.
+	 * Defaults to 0.
+	 */
+	verticalScrollbarTopInset?: number;
+	/**
 	 * Scroll gutter clicks move by page vs. jump to position.
 	 * Defaults to false.
 	 */
@@ -166,5 +171,6 @@ export interface ScrollableElementResolvedOptions {
 	verticalScrollbarSize: number;
 	verticalSliderSize: number;
 	verticalHasArrows: boolean;
+	verticalScrollbarTopInset: number;
 	scrollByPage: boolean;
 }

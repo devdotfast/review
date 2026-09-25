@@ -27,6 +27,7 @@ import { ICodeEditor } from '../../editorBrowser.js';
 import { ObservableElementSizeObserver } from '../diffEditor/utils.js';
 import { DiffEditorItemTemplate, TemplateData } from './diffEditorItemTemplate.js';
 import { IDocumentDiffItem } from './model.js';
+import { MULTI_DIFF_RESOURCE_HEADER_HEIGHT } from './multiDiffEditorResourceHeader.js';
 import { DocumentDiffItemViewModel, MultiDiffEditorViewModel } from './multiDiffEditorViewModel.js';
 import { RevealOptions } from './multiDiffEditorWidget.js';
 import { ObjectPool } from './objectPool.js';
@@ -102,11 +103,14 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 			smoothScrollDuration: 100,
 		}));
 		this._scrollableElement = this._register(new SmoothScrollableElement(this._scrollableElements.root, {
-			vertical: ScrollbarVisibility.Auto,
+			vertical: this._workbenchUIElementFactory.alwaysShowScrollbars ? ScrollbarVisibility.Visible : ScrollbarVisibility.Auto,
 			horizontal: this._workbenchUIElementFactory.horizontalScrollbar === 'hidden'
 				? ScrollbarVisibility.Hidden
-				: ScrollbarVisibility.Auto,
+				: this._workbenchUIElementFactory.alwaysShowScrollbars ? ScrollbarVisibility.Visible : ScrollbarVisibility.Auto,
 			useShadows: false,
+			verticalScrollbarTopInset: this._workbenchUIElementFactory.scrollbarBelowResourceHeader && !this._workbenchUIElementFactory.hideResourceHeader
+				? MULTI_DIFF_RESOURCE_HEADER_HEIGHT
+				: 0,
 		}, this._scrollable));
 		this._elements = h('div.monaco-component.multiDiffEditor', {}, [
 			h('div', {}, [this._scrollableElement.getDomNode()]),

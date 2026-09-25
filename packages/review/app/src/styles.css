@@ -3738,6 +3738,51 @@ button {
      page becomes unscrollable wherever the cursor sits over the diagram. */
 }
 
+/* Explicit, draggable scrollbars for document diagrams. `auto` adds each
+   scrollbar only when that axis overflows; styling keeps it visible on macOS. */
+.review-document :is(.sequence-diagram-body, .database-lens-diagram) {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.review-document
+  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar {
+  width: var(--review-scrollbar-size);
+  height: var(--review-scrollbar-size);
+}
+
+.review-document
+  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar-track,
+.review-document
+  :is(
+    .sequence-diagram-body,
+    .database-lens-diagram
+  )::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.review-document
+  :is(.sequence-diagram-body, .database-lens-diagram)::-webkit-scrollbar-thumb {
+  background: var(--review-scrollbar-thumb);
+  border-radius: 5px;
+}
+
+.review-document
+  :is(
+    .sequence-diagram-body,
+    .database-lens-diagram
+  )::-webkit-scrollbar-thumb:hover {
+  background: var(--review-scrollbar-thumb-hover);
+}
+
+.review-document
+  :is(
+    .sequence-diagram-body,
+    .database-lens-diagram
+  )::-webkit-scrollbar-thumb:active {
+  background: var(--review-scrollbar-thumb-active);
+}
+
 .sequence-diagram > .diagram-header em {
   background: var(--tray);
   color: var(--ink-muted);

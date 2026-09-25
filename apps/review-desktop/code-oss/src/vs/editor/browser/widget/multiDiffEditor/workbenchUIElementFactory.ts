@@ -22,6 +22,10 @@ export interface IWorkbenchUIElementFactory {
 
 	/** Controls the outer multi-diff scroller for compact embedded hosts. */
 	readonly horizontalScrollbar?: 'auto' | 'hidden';
+	/** Keep needed scrollbars visible even when the pointer is elsewhere. */
+	readonly alwaysShowScrollbars?: boolean;
+	/** Start the vertical scrollbar below a resource header pinned at the top. */
+	readonly scrollbarBelowResourceHeader?: boolean;
 
 	/**
 	 * External host for the inner editors' overflowing widgets (hover,

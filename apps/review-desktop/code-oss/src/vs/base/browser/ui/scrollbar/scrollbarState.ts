@@ -28,6 +28,11 @@ export class ScrollbarState {
 	 */
 	private readonly _arrowSize: number;
 
+	/**
+	 * Space before the track, which starts this far into the scrollable area.
+	 */
+	private readonly _leadingInset: number;
+
 	// --- variables
 	/**
 	 * For the vertical scrollbar: the viewport height.
@@ -62,7 +67,8 @@ export class ScrollbarState {
 	private _computedSliderRatio: number;
 	private _computedSliderPosition: number;
 
-	constructor(arrowSize: number, scrollbarSize: number, oppositeScrollbarSize: number, visibleSize: number, scrollSize: number, scrollPosition: number) {
+	constructor(arrowSize: number, scrollbarSize: number, oppositeScrollbarSize: number, visibleSize: number, scrollSize: number, scrollPosition: number, leadingInset: number = 0) {
+		this._leadingInset = Math.round(leadingInset);
 		this._scrollbarSize = Math.round(scrollbarSize);
 		this._oppositeScrollbarSize = Math.round(oppositeScrollbarSize);
 		this._arrowSize = Math.round(arrowSize);
@@ -81,7 +87,7 @@ export class ScrollbarState {
 	}
 
 	public clone(): ScrollbarState {
-		return new ScrollbarState(this._arrowSize, this._scrollbarSize, this._oppositeScrollbarSize, this._visibleSize, this._scrollSize, this._scrollPosition);
+		return new ScrollbarState(this._arrowSize, this._scrollbarSize, this._oppositeScrollbarSize, this._visibleSize, this._scrollSize, this._scrollPosition, this._leadingInset);
 	}
 
 	public setVisibleSize(visibleSize: number): boolean {
@@ -122,8 +128,8 @@ export class ScrollbarState {
 		this._oppositeScrollbarSize = Math.round(oppositeScrollbarSize);
 	}
 
-	private static _computeValues(oppositeScrollbarSize: number, arrowSize: number, visibleSize: number, scrollSize: number, scrollPosition: number) {
-		const computedAvailableSize = Math.max(0, visibleSize - oppositeScrollbarSize);
+	private static _computeValues(oppositeScrollbarSize: number, arrowSize: number, visibleSize: number, scrollSize: number, scrollPosition: number, leadingInset: number) {
+		const computedAvailableSize = Math.max(0, visibleSize - oppositeScrollbarSize - leadingInset);
 		const computedRepresentableSize = Math.max(0, computedAvailableSize - 2 * arrowSize);
 		const computedIsNeeded = (scrollSize > 0 && scrollSize > visibleSize);
 
@@ -156,12 +162,16 @@ export class ScrollbarState {
 	}
 
 	private _refreshComputedValues(): void {
-		const r = ScrollbarState._computeValues(this._oppositeScrollbarSize, this._arrowSize, this._visibleSize, this._scrollSize, this._scrollPosition);
+		const r = ScrollbarState._computeValues(this._oppositeScrollbarSize, this._arrowSize, this._visibleSize, this._scrollSize, this._scrollPosition, this._leadingInset);
 		this._computedAvailableSize = r.computedAvailableSize;
 		this._computedIsNeeded = r.computedIsNeeded;
 		this._computedSliderSize = r.computedSliderSize;
 		this._computedSliderRatio = r.computedSliderRatio;
 		this._computedSliderPosition = r.computedSliderPosition;
+	}
+
+	public getLeadingInset(): number {
+		return this._leadingInset;
 	}
 
 	public getArrowSize(): number {

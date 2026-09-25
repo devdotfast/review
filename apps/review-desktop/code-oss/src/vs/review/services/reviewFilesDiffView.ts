@@ -263,6 +263,9 @@ export class ReviewFilesDiffView extends Disposable {
 			false,
 			undefined,
 		);
+		factory.alwaysShowScrollbars = Boolean(document);
+		// A document embed shows one file, so its header stays pinned at the top.
+		factory.scrollbarBelowResourceHeader = Boolean(document);
 		this.headerFactory = factory;
 
 		this.widget = this._register(

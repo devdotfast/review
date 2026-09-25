@@ -28,7 +28,8 @@ export class VerticalScrollbar extends AbstractScrollbar {
 				0,
 				scrollDimensions.height,
 				scrollDimensions.scrollHeight,
-				scrollPosition.scrollTop
+				scrollPosition.scrollTop,
+				options.verticalScrollbarTopInset
 			),
 			visibility: options.vertical,
 			extraScrollbarClassName: 'vertical',
@@ -77,7 +78,7 @@ export class VerticalScrollbar extends AbstractScrollbar {
 		this.domNode.setWidth(smallSize);
 		this.domNode.setHeight(largeSize);
 		this.domNode.setRight(0);
-		this.domNode.setTop(0);
+		this.domNode.setTop(this._scrollbarState.getLeadingInset());
 	}
 
 	public onDidScroll(e: ScrollEvent): boolean {

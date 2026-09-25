@@ -69,16 +69,29 @@ export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAcce
 	}
 }
 
-Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess).registerQuickAccessProvider({
+const quickAccessRegistry = Registry.as<IQuickAccessRegistry>(Extensions.Quickaccess);
+const placeholder = localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of a Whiteboard command to run.');
+
+quickAccessRegistry.registerQuickAccessProvider({
 	ctor: ReviewCommandsQuickAccessProvider,
 	prefix: ReviewCommandsQuickAccessProvider.PREFIX,
 	contextKey: 'inCommandsPicker',
-	placeholder: localize('reviewCommandsQuickAccessPlaceholder', 'Type the name of a Whiteboard command to run.'),
+	placeholder,
 	helpEntries: [{
 		description: localize('reviewCommandsQuickAccess', 'Show and run Whiteboard commands'),
 		commandId: ShowAllCommandsAction.ID,
 		commandCenterOrder: 20
 	}]
+});
+
+// The Review window has no file search, so ⌘P lists the same Whiteboard
+// commands instead of an empty picker.
+quickAccessRegistry.registerQuickAccessProvider({
+	ctor: ReviewCommandsQuickAccessProvider,
+	prefix: '',
+	contextKey: 'inCommandsPicker',
+	placeholder,
+	helpEntries: [],
 });
 
 registerAction2(ShowAllCommandsAction);

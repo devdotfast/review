@@ -231,7 +231,6 @@ import "../workbench/contrib/keybindings/browser/keybindings.contribution.js";
 import "../workbench/contrib/list/browser/list.contribution.js";
 import "../workbench/contrib/opener/browser/opener.contribution.js";
 import "../workbench/contrib/sash/browser/sash.contribution.js";
-import "../workbench/contrib/search/browser/searchQuickAccess.contribution.js";
 import "../workbench/contrib/snippets/browser/snippets.service.contribution.js";
 import "../workbench/contrib/speech/browser/speech.contribution.js";
 import "../workbench/contrib/themes/browser/themes.contribution.js";

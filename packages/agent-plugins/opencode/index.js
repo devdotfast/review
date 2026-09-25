@@ -6,7 +6,11 @@ export default async function whiteboardPlugin() {
         ...config.mcp,
         whiteboard: {
           type: "local",
-          command: ["sh", "-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
+          // Windows has no sh; cmd finds whiteboard.cmd on PATH.
+          command:
+            process.platform === "win32"
+              ? ["cmd", "/d", "/c", "whiteboard", "mcp"]
+              : ["sh", "-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
           enabled: true,
         },
       };

@@ -21,7 +21,10 @@ import {
   type ReviewServerAnnouncement,
   resolveReviewServerEntry,
 } from "../common/reviewDesktopBootstrap.js";
-import { REVIEW_SERVER_RESTART_DELAYS } from "../common/reviewReconnect.js";
+import {
+  REVIEW_SERVER_RESTART_DELAYS,
+  REVIEW_SERVER_STARTUP_TIMEOUT_MS,
+} from "../common/reviewReconnect.js";
 import { uuidV7 } from "../common/reviewUuidV7.js";
 
 /**
@@ -233,7 +236,7 @@ export class ReviewServerSupervisor extends Disposable {
 
   constructor(private readonly options: ReviewServerSupervisorOptions) {
     super();
-    this.readyTimeout = options.readyTimeout ?? 30_000;
+    this.readyTimeout = options.readyTimeout ?? REVIEW_SERVER_STARTUP_TIMEOUT_MS;
     this.telemetryEnabled = options.telemetryEnabled !== false;
   }
 

@@ -6,6 +6,7 @@ import gitUrlParse from "git-url-parse";
 
 import { BlobBatchReader } from "./blob-batch-reader";
 import { execFileAsync, execFileSyncObserved } from "./exec";
+import { refreshWindowsPath } from "./windows-path";
 
 export { type BlobBatchReader } from "./blob-batch-reader";
 
@@ -104,16 +105,53 @@ export interface LocalVcsCommitSummary {
   deletions: number;
 }
 
+/** Neither git nor jj could be started, so no folder can be recognized as a repository. */
+export class LocalVcsToolsMissingError extends Error {
+  constructor() {
+    super(
+      process.platform === "win32"
+        ? "Git isn't installed or isn't on PATH. Install Git for Windows, then try again."
+        : "Git isn't installed or isn't on PATH. Install Git, then try again.",
+    );
+    this.name = "LocalVcsToolsMissingError";
+  }
+}
+
 export async function detectLocalVcs(
   rootPath: string,
 ): Promise<LocalVcs | null> {
+  const detected = await detectLocalVcsOnce(rootPath);
+
+  if (detected !== TOOLS_MISSING) return detected;
+
+  if (refreshWindowsPath()) {
+    const retried = await detectLocalVcsOnce(rootPath);
+
+    if (retried !== TOOLS_MISSING) return retried;
+  }
+
+  throw new LocalVcsToolsMissingError();
+}
+
+const TOOLS_MISSING = Symbol("tools missing");
+
+async function detectLocalVcsOnce(
+  rootPath: string,
+): Promise<LocalVcs | null | typeof TOOLS_MISSING> {
   const resolvedRootPath = canonicalPath(rootPath);
+  let missing = 0;
+
+  const notStarted = (error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") missing++;
+
+    return null;
+  };
 
   const jjRoot = await commandOutput(
     "jj",
     ["-R", resolvedRootPath, "root", "--ignore-working-copy"],
     { cwd: resolvedRootPath },
-  ).catch(() => null);
+  ).catch(notStarted);
 
   if (jjRoot && isInsideDirectory(resolvedRootPath, canonicalPath(jjRoot))) {
     return createLocalVcs("jj", canonicalPath(jjRoot));
@@ -123,11 +161,14 @@ export async function detectLocalVcs(
     "git",
     ["-C", resolvedRootPath, "rev-parse", "--show-toplevel"],
     { cwd: resolvedRootPath },
-  ).catch(() => null);
+  ).catch(notStarted);
 
   if (gitRoot) return createLocalVcs("git", canonicalPath(gitRoot));
 
-  return null;
+  // execFile also reports ENOENT for a missing cwd, which is not a missing tool.
+  return missing === 2 && fs.existsSync(resolvedRootPath)
+    ? TOOLS_MISSING
+    : null;
 }
 
 export function detectLocalVcsSync(rootPath: string): LocalVcs | null {

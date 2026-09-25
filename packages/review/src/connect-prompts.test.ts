@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CLAUDE_WINDOWS_MCP_ADD,
   REVIEW_MCP_LAUNCH,
+  WINDOWS_MCP_LAUNCH,
   connectPrompt,
   connectPrompts,
   reviewMcpLaunch,
@@ -24,6 +26,11 @@ describe("reviewMcpLaunch", () => {
       args: ["mcp"],
     });
   });
+
+  it("launches through cmd on Windows, which has no sh", () => {
+    for (const hasShim of [true, false])
+      expect(reviewMcpLaunch(hasShim, "win32")).toEqual(WINDOWS_MCP_LAUNCH);
+  });
 });
 
 describe("connectPrompt", () => {
@@ -45,6 +52,16 @@ describe("connectPrompt", () => {
         target === "omp",
       );
     }
+  });
+
+  it("registers Claude's MCP server directly on Windows instead of the plugin", () => {
+    const prompt = connectPrompt("claude", { ...input, platform: "win32" });
+
+    expect(prompt).toContain(CLAUDE_WINDOWS_MCP_ADD);
+    expect(prompt).not.toContain("claude plugin install");
+    expect(connectPrompt("claude", { ...input, platform: "darwin" })).toContain(
+      "claude plugin install whiteboard@devfast",
+    );
   });
 
   it("installs the Pi package in oh-my-pi and reloads its plugins", () => {

@@ -20,7 +20,8 @@
     "pretest": "pnpm run protocol:sync",
     "test": "node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
     "pretypecheck": "pnpm run protocol:sync",
-    "typecheck": "npm --prefix code-oss run typecheck-client"
+    "typecheck": "npm --prefix code-oss run typecheck-client",
+    "app:package:windows": "bash scripts/package-windows.sh"
   },
   "dependencies": {
     "@dev.fast/review": "workspace:*",

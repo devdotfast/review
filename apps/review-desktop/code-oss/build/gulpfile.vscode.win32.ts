@@ -9,7 +9,6 @@ import { gulp } from './lib/gulp/facade.ts';
 import * as path from 'path';
 import rcedit from 'rcedit';
 import vfs from 'vinyl-fs';
-import pkg from '../package.json' with { type: 'json' };
 import product from '../product.json' with { type: 'json' };
 import { getVersion } from './lib/getVersion.ts';
 import * as task from './lib/gulp/task.ts';
@@ -23,7 +22,7 @@ const commit = getVersion(repoPath);
 const buildPath = (arch: string) => path.join(path.dirname(repoPath), `VSCode-win32-${arch}`);
 const setupDir = (arch: string, target: string) => path.join(repoPath, '.build', `win32-${arch}`, `${target}-setup`);
 const innoSetupPath = path.join(path.dirname(path.dirname(require.resolve('innosetup'))), 'bin', 'ISCC.exe');
-const signWin32Path = path.join(repoPath, 'build', 'azure-pipelines', 'common', 'sign-win32.ts');
+const signWin32Path = process.env.REVIEW_WIN32_SIGN_SCRIPT || path.join(repoPath, 'build', 'azure-pipelines', 'common', 'sign-win32.ts');
 
 function packageInnoSetup(iss: string, options: { definitions?: Record<string, unknown> }, cb: (err?: Error | null) => void) {
 	const definitions = options.definitions || {};
@@ -84,8 +83,8 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			NameLong: product.nameLong,
 			NameShort: product.nameShort,
 			DirName: product.win32DirName,
-			Version: pkg.version,
-			RawVersion: pkg.version.replace(/-\w+$/, ''),
+			Version: product.reviewVersion,
+			RawVersion: product.reviewVersion.split('-')[0],
 			Commit: commit,
 			NameVersion: product.win32NameVersion + (target === 'user' ? ' (User)' : ''),
 			ExeBasename: product.nameShort,
@@ -96,12 +95,14 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			TunnelServiceMutex: product.win32TunnelServiceMutex,
 			TunnelApplicationName: product.tunnelApplicationName,
 			ApplicationName: product.applicationName,
+			UrlProtocol: product.urlProtocol,
 			Arch: arch,
 			AppId: { 'x64': x64AppId, 'arm64': arm64AppId }[arch],
 			IncompatibleTargetAppId: { 'x64': product.win32x64AppId, 'arm64': product.win32arm64AppId }[arch],
 			AppUserId: product.win32AppUserModelId,
-			ArchitecturesAllowed: { 'x64': 'x64', 'arm64': 'arm64' }[arch],
-			ArchitecturesInstallIn64BitMode: { 'x64': 'x64', 'arm64': 'arm64' }[arch],
+			// x64compatible also admits Windows on Arm, which runs the x64 build under emulation.
+			ArchitecturesAllowed: { 'x64': 'x64compatible', 'arm64': 'arm64' }[arch],
+			ArchitecturesInstallIn64BitMode: { 'x64': 'x64compatible', 'arm64': 'arm64' }[arch],
 			SourceDir: sourcePath,
 			RepoDir: repoPath,
 			OutputDir: outputPath,
@@ -111,7 +112,7 @@ function buildWin32Setup(arch: string, target: string): task.CallbackTask {
 			Quality: quality
 		};
 
-		if (quality === 'stable' || quality === 'insider') {
+		if ('win32ContextMenu' in product && (quality === 'stable' || quality === 'insider')) {
 			definitions['AppxPackage'] = `${quality === 'stable' ? 'code' : 'code_insider'}_${arch}.appx`;
 			definitions['AppxPackageDll'] = `${quality === 'stable' ? 'code' : 'code_insider'}_explorer_command_${arch}.dll`;
 			definitions['AppxPackageName'] = `${product.win32AppUserModelId}`;

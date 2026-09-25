@@ -54,6 +54,9 @@ if [[ "${REVIEW_DESKTOP_COMPILE_ONLY:-0}" != "1" ]]; then
     PRODUCT_APP="$(node -p "require('./product.json').nameShort")"
     PRODUCT_EXE="$(node -p "require('./product.json').nameShort")"
     EXPECTED_BINARY="$CHECKOUT/.build/electron/$PRODUCT_APP.app/Contents/MacOS/$PRODUCT_EXE"
+  elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then
+    PRODUCT_APP="$(node -p "require('./product.json').nameShort")"
+    EXPECTED_BINARY="$CHECKOUT/.build/electron/$PRODUCT_APP.exe"
   else
     PRODUCT_APP="$(node -p "require('./product.json').applicationName")"
     EXPECTED_BINARY="$CHECKOUT/.build/electron/$PRODUCT_APP"

@@ -1,11 +1,21 @@
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import whiteboardOpencodePlugin from "../../agent-plugins/opencode/index.js";
-import { REVIEW_MCP_LAUNCH } from "./connect-prompts";
+import { REVIEW_MCP_LAUNCH, WINDOWS_MCP_LAUNCH } from "./connect-prompts";
 import { findReviewPackageRoot } from "./package-paths";
 
 const repoRoot = path.resolve(
@@ -26,10 +36,6 @@ const mcpServersWhiteboard: WhiteboardServerSchema = z
 const MANIFESTS: Array<{ file: string; whiteboard: WhiteboardServerSchema }> = [
   {
     file: "packages/agent-plugins/claude/.mcp.json",
-    whiteboard: mcpServersWhiteboard,
-  },
-  {
-    file: "packages/agent-plugins/codex/.mcp.json",
     whiteboard: mcpServersWhiteboard,
   },
   {
@@ -60,25 +66,75 @@ describe("agent plugin manifests", () => {
     });
   }
 
-  it("the OpenCode plugin's config hook launches whiteboard the shared way", async () => {
-    const { config } = await whiteboardOpencodePlugin();
+  it.skipIf(process.platform === "win32")(
+    "the Codex plugin's launcher runs whiteboard mcp from the home shim",
+    async () => {
+      const codex = path.join(repoRoot, "packages/agent-plugins/codex");
 
-    const other = {
-      type: "remote",
-      url: "https://example.invalid",
-    } satisfies { type: "remote"; url: string };
+      const manifest = z
+        .object({
+          mcpServers: z.object({
+            whiteboard: z.object({ command: z.string(), cwd: z.string() }),
+          }),
+        })
+        .parse(
+          JSON.parse(await readFile(path.join(codex, ".mcp.json"), "utf8")),
+        ).mcpServers.whiteboard;
 
-    const opencodeConfig = { mcp: { other } };
+      // Windows resolves the extensionless command to its .cmd twin.
+      await readFile(path.join(codex, `${manifest.command}.cmd`));
 
-    await config(opencodeConfig);
+      const home = await mkdtemp(path.join(os.tmpdir(), "codex-launch-"));
 
-    expect(opencodeConfig.mcp).toEqual({
-      other,
-      whiteboard: {
-        type: "local",
-        command: [REVIEW_MCP_LAUNCH.command, ...REVIEW_MCP_LAUNCH.args],
-        enabled: true,
-      },
+      try {
+        const shim = path.join(home, ".local/bin/whiteboard");
+        await mkdir(path.dirname(shim), { recursive: true });
+        await writeFile(shim, '#!/bin/sh\necho "$@"\n');
+        await chmod(shim, 0o755);
+
+        const { stdout } = await promisify(execFile)(manifest.command, [], {
+          cwd: path.join(codex, manifest.cwd),
+          env: { ...process.env, HOME: home },
+        });
+
+        expect(stdout.trim()).toBe("mcp");
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  for (const [platform, launch] of [
+    ["darwin", REVIEW_MCP_LAUNCH],
+    ["win32", WINDOWS_MCP_LAUNCH],
+  ] as const) {
+    it(`the OpenCode plugin's config hook launches whiteboard the shared way on ${platform}`, async () => {
+      const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+      Object.defineProperty(process, "platform", { value: platform });
+
+      try {
+        const { config } = await whiteboardOpencodePlugin();
+
+        const other = {
+          type: "remote",
+          url: "https://example.invalid",
+        } satisfies { type: "remote"; url: string };
+
+        const opencodeConfig = { mcp: { other } };
+
+        await config(opencodeConfig);
+
+        expect(opencodeConfig.mcp).toEqual({
+          other,
+          whiteboard: {
+            type: "local",
+            command: [launch.command, ...launch.args],
+            enabled: true,
+          },
+        });
+      } finally {
+        Object.defineProperty(process, "platform", original);
+      }
     });
-  });
+  }
 });

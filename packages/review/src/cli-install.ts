@@ -31,12 +31,22 @@ import {
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 
-import { connectSetupPrompts, reviewMcpLaunch } from "./connect-prompts";
+import {
+  CLAUDE_WINDOWS_MCP_ADD,
+  connectSetupPrompts,
+  reviewMcpLaunch,
+} from "./connect-prompts";
 import { cursorInstallDeeplink } from "./cursor-deeplink";
 import { isDirectory, isFile } from "./fs-utils";
 import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewDesktopStateDir } from "./review-home-paths";
+import {
+  WINDOWS_MACHINE_ENVIRONMENT_KEY,
+  updateWindowsUserPath,
+  windowsCliShim,
+  windowsUserPathContains,
+} from "./windows-cli";
 
 const installErrors = new Map<string, string>();
 
@@ -59,7 +69,12 @@ const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
 
 const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
 
-type ApplyResult = { code: number; output: string; shimPath?: string };
+type ApplyResult = {
+  code: number;
+  output: string;
+  shimPath?: string;
+  userPath?: string;
+};
 
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,
@@ -79,7 +94,12 @@ export function cliInstallUpdateMarkerPath(
 }
 
 export function pathShimPath(homeDir = os.homedir()): string {
-  return path.join(homeDir, ".local", "bin", "whiteboard");
+  return path.join(
+    homeDir,
+    ".local",
+    "bin",
+    process.platform === "win32" ? "whiteboard.cmd" : "whiteboard",
+  );
 }
 
 export async function resolveCliInstallStatus(input: {
@@ -105,15 +125,27 @@ export async function resolveCliInstallStatus(input: {
 
   const granted = stamp?.consent === "granted";
 
+  const installerCommand = hasShim
+    ? undefined
+    : await windowsInstallerCommand(input.packageRoot, env);
+
+  const hasCommand = hasShim || installerCommand !== undefined;
+
   const status: ReviewCliInstallStatus = {
     fingerprint,
     stamp,
     stale: granted && stamp.fingerprint !== fingerprint,
     updateNeeded: legacySkills.length > 0 || (granted && !updated),
-    shim: {
+    shim: installerCommand ?? {
       path: shimPath,
       installed: hasShim,
-      profileConfigured: await isShellProfileConfigured(homeDir),
+      profileConfigured:
+        process.platform === "win32"
+          ? (hasShim &&
+              stamp?.userPath !== undefined &&
+              sameWindowsPath(stamp.userPath, path.dirname(shimPath))) ||
+            (await windowsUserPathContains(path.dirname(shimPath)))
+          : await isShellProfileConfigured(homeDir),
       onPath: pathContainsDirectory(env.PATH, path.dirname(shimPath)),
     },
     trace,
@@ -124,9 +156,9 @@ export async function resolveCliInstallStatus(input: {
         }
       : null,
     connect: {
-      ...reviewMcpLaunch(hasShim),
+      ...reviewMcpLaunch(hasCommand),
       prompts: connectSetupPrompts(),
-      plugins: connectPlugins(hasShim),
+      plugins: connectPlugins(hasCommand),
     },
     legacySkills: legacySkills.map((skillPath) => ({
       path: homeRelative(homeDir, skillPath),
@@ -138,6 +170,39 @@ export async function resolveCliInstallStatus(input: {
   if (error) status.error = error;
 
   return status;
+}
+
+/**
+ * The Windows installer's "Add to PATH" task puts <install dir>\bin, which
+ * holds a whiteboard.cmd, on the user or machine PATH.
+ */
+export async function windowsInstallerCommand(
+  packageRoot: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ReviewCliInstallStatus["shim"] | undefined> {
+  if (process.platform !== "win32") return undefined;
+
+  // packageRoot is <install dir>\resources\app\review-runtime.
+  const bin = path.resolve(packageRoot, "..", "..", "..", "bin");
+  const command = path.join(bin, "whiteboard.cmd");
+
+  if (!(await isOwnedShim(command))) return undefined;
+
+  const profileConfigured =
+    (await windowsUserPathContains(bin)) ||
+    (await windowsUserPathContains(bin, WINDOWS_MACHINE_ENVIRONMENT_KEY));
+
+  const onPath = pathContainsDirectory(env.PATH, bin);
+
+  if (!profileConfigured && !onPath) return undefined;
+
+  return {
+    path: command,
+    installed: true,
+    profileConfigured,
+    onPath,
+    installer: true,
+  };
 }
 
 interface ApplyCliInstallInput {
@@ -213,21 +278,27 @@ async function resyncCliInstallUnlocked(
 
   const chunks: string[] = [];
   let shimPath: string | undefined;
+  let userPath = stamp.userPath;
 
   if (stamp.shimPath && !stamp.commandDisabled) {
     const installed = await installShim(input, chunks);
 
     if (installed.code !== 0) return installed;
     shimPath = installed.shimPath;
+    userPath = installed.userPath ?? userPath;
   }
 
-  // The update marker stays as it was: an upgrader keeps `updateNeeded` until
-  // Done.
-  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+  const next: ReviewCliInstallStamp = {
     ...stamp,
     fingerprint,
     updatedAt: new Date().toISOString(),
-  } satisfies ReviewCliInstallStamp);
+  };
+
+  if (userPath) next.userPath = userPath;
+
+  // The update marker stays as it was: an upgrader keeps `updateNeeded` until
+  // Done.
+  await writePrivateJsonAtomic(cliInstallStampPath(env), next);
 
   return withShimPath({ code: 0, output: chunks.join("") }, shimPath);
 }
@@ -267,12 +338,14 @@ async function applyCliInstallUnlocked(
   }
 
   let shimPath: string | undefined;
+  let userPath: string | undefined;
 
   if (input.shim === true) {
     const installed = await installShim(input, chunks);
 
     if (installed.code !== 0) return installed;
     shimPath = installed.shimPath;
+    userPath = installed.userPath;
   }
 
   if (traceEnabled) {
@@ -302,6 +375,11 @@ async function applyCliInstallUnlocked(
   if (input.trace !== undefined || (granted && previous.traceManaged))
     stamp.traceManaged = true;
 
+  const stampUserPath =
+    userPath ?? (granted && !shimPath ? previous.userPath : undefined);
+
+  if (stampUserPath) stamp.userPath = stampUserPath;
+
   await writeCurrentStamp(env, stamp);
 
   return withShimPath({ code: 0, output: chunks.join("") }, shimPath);
@@ -326,7 +404,15 @@ async function installShim(
 
   chunks.push(installed.output);
 
-  return { code: 0, output: "", shimPath: installed.shimPath };
+  const result: ApplyResult = {
+    code: 0,
+    output: "",
+    shimPath: installed.shimPath,
+  };
+
+  if (installed.userPath) result.userPath = installed.userPath;
+
+  return result;
 }
 
 function withShimPath(
@@ -343,11 +429,17 @@ function connectPlugins(
   hasShim: boolean,
 ): ReviewCliInstallStatus["connect"]["plugins"] {
   return {
-    claude: {
-      label: "Install the Claude Code plugin",
-      command:
-        "/plugin marketplace add devdotfast/whiteboard\n/plugin install whiteboard@devfast",
-    },
+    claude:
+      process.platform === "win32"
+        ? {
+            label: "Add the Claude Code MCP server",
+            command: CLAUDE_WINDOWS_MCP_ADD,
+          }
+        : {
+            label: "Install the Claude Code plugin",
+            command:
+              "/plugin marketplace add devdotfast/whiteboard\n/plugin install whiteboard@devfast",
+          },
     codex: {
       label: "Install the Codex plugin",
       command:
@@ -483,6 +575,13 @@ async function removeCliInstallUnlocked(
 
     if (contents.includes(SHIM_MARKER)) {
       await rm(shimPath, { force: true });
+
+      if (process.platform === "win32") {
+        const bashShim = shimPath.replace(/\.cmd$/i, "");
+
+        if (await isOwnedShim(bashShim)) await rm(bashShim, { force: true });
+      }
+
       chunks.push(`[ok] removed whiteboard command ${shimPath}\n`);
     } else if (contents) {
       chunks.push(
@@ -529,6 +628,8 @@ async function removeCliInstallUnlocked(
     if (input.shim || previous.commandDisabled) stamp.commandDisabled = true;
 
     if (!input.trace && previous.traceManaged) stamp.traceManaged = true;
+
+    if (!input.shim && previous.userPath) stamp.userPath = previous.userPath;
     await writeCurrentStamp(env, stamp);
   }
 
@@ -583,6 +684,17 @@ export async function writePathShim(
   runtimePath: string | undefined,
   devHome: string,
 ): Promise<void> {
+  if (process.platform === "win32") {
+    await writeFileAtomicAsync(
+      shimPath,
+      windowsCliShim(cliPath, runtimePath ?? process.execPath, devHome),
+      { replaceSymlink: true },
+    );
+
+    // Git Bash and agent plugins use the POSIX launcher beside the .cmd file.
+    shimPath = shimPath.replace(/\.cmd$/i, "");
+  }
+
   const source = `#!/bin/sh
 # Managed by Whiteboard Desktop ("Review: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
@@ -686,7 +798,7 @@ export async function installReviewCommand(input: {
   cliRuntimePath?: string;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<{ shimPath: string; output: string }> {
+}): Promise<{ shimPath: string; output: string; userPath?: string }> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const shimPath = pathShimPath(homeDir);
@@ -736,10 +848,13 @@ export async function installReviewCommand(input: {
     ? `Warning: ${shadowingCommand} currently shadows ${shimPath}. Remove that PATH entry or put ${path.dirname(shimPath)} before it.\n`
     : "";
 
-  return {
-    shimPath,
-    output: `[ok] whiteboard command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
-  };
+  const output = `[ok] whiteboard command -> ${shimPath}\n${profileOutput}${shadowingOutput}`;
+
+  // ensureShellProfilePath throws when the Windows PATH write fails, so
+  // reaching here means new terminals will find the command.
+  return process.platform === "win32"
+    ? { shimPath, output, userPath: path.dirname(shimPath) }
+    : { shimPath, output };
 }
 
 export async function ensureShellProfilePath(input: {
@@ -749,6 +864,12 @@ export async function ensureShellProfilePath(input: {
   const shimDirectory = path.dirname(pathShimPath(input.homeDir));
 
   if (pathContainsDirectory(input.env.PATH, shimDirectory)) return "";
+
+  if (process.platform === "win32") {
+    await updateWindowsUserPath(shimDirectory);
+
+    return `[ok] added ${shimDirectory} to your user PATH; open a new terminal\n`;
+  }
 
   const shell = path.basename(input.env.SHELL?.trim() ?? "");
   let profileName: (typeof SHELL_PROFILE_NAMES)[number] | undefined;
@@ -781,6 +902,12 @@ export async function ensureShellProfilePath(input: {
 export async function removeShellProfilePath(
   homeDir: string,
 ): Promise<string[]> {
+  if (process.platform === "win32") {
+    await updateWindowsUserPath(path.dirname(pathShimPath(homeDir)), true);
+
+    return ["user PATH"];
+  }
+
   const removed: string[] = [];
 
   for (const profileName of SHELL_PROFILE_NAMES) {
@@ -826,6 +953,13 @@ async function resolvePathCommand(
   }
 
   return undefined;
+}
+
+function sameWindowsPath(left: string, right: string): boolean {
+  return (
+    path.win32.resolve(left).toLowerCase() ===
+    path.win32.resolve(right).toLowerCase()
+  );
 }
 
 function pathContainsDirectory(

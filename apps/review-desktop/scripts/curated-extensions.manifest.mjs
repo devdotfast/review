@@ -70,6 +70,12 @@ export const curatedExtensions = Object.freeze([
     group: "rust",
     label: "Rust (rust-analyzer)",
     targets: {
+      "win32-x64": {
+        url: "https://open-vsx.org/api/rust-lang/rust-analyzer/win32-x64/0.4.2990/file/rust-lang.rust-analyzer-0.4.2990@win32-x64.vsix",
+        sha256:
+          "09e9023bf4e7c1d7b333b2a2457742c482b897b776d12528e38853230e5bcb38",
+        size: 19125573,
+      },
       "darwin-arm64": {
         url: "https://open-vsx.org/api/rust-lang/rust-analyzer/darwin-arm64/0.4.2990/file/rust-lang.rust-analyzer-0.4.2990@darwin-arm64.vsix",
         sha256:
@@ -144,6 +150,12 @@ export const curatedExtensions = Object.freeze([
     group: "csharp",
     label: "C#",
     targets: {
+      "win32-x64": {
+        url: "https://open-vsx.org/api/muhammad-sammy/csharp/win32-x64/2.145.21-g154a82fd27/file/muhammad-sammy.csharp-2.145.21-g154a82fd27@win32-x64.vsix",
+        sha256:
+          "29c22be7c5d15e8b395a403a18953e6f069bb8d9f5e886ee81eba7ee4e1a0e6b",
+        size: 78285827,
+      },
       "darwin-arm64": {
         url: "https://open-vsx.org/api/muhammad-sammy/csharp/darwin-arm64/2.145.21-g154a82fd27/file/muhammad-sammy.csharp-2.145.21-g154a82fd27@darwin-arm64.vsix",
         sha256:
@@ -210,6 +222,12 @@ export const curatedExtensions = Object.freeze([
     group: "python",
     label: "Python type checking (ty)",
     targets: {
+      "win32-x64": {
+        url: "https://open-vsx.org/api/astral-sh/ty/win32-x64/2026.64.0/file/astral-sh.ty-2026.64.0@win32-x64.vsix",
+        sha256:
+          "b88ffd1b25c87fe209745ecf68a1871ad31e1eb970441b1d016cba64429b112d",
+        size: 12920723,
+      },
       "darwin-arm64": {
         sha256:
           "3ac92b3f4b7ac848ea9a125a787a0b181879835d54b2e136e760161df414b08a",
@@ -231,6 +249,12 @@ export const curatedExtensions = Object.freeze([
     group: "python",
     label: "Python lint/format (ruff)",
     targets: {
+      "win32-x64": {
+        url: "https://open-vsx.org/api/charliermarsh/ruff/win32-x64/2026.66.0/file/charliermarsh.ruff-2026.66.0@win32-x64.vsix",
+        sha256:
+          "23474f4e92ead0e18e8034275d2dff743f2aaaff6c4e87254b156bbedac7fb46",
+        size: 12802660,
+      },
       "darwin-arm64": {
         sha256:
           "652cf695fbe11c4bcae85432b3baf70f8bc2520dc13bbc5dd95b3600c8b1f227",
@@ -272,7 +296,11 @@ export const curatedExtensions = Object.freeze([
 ]);
 
 /** Build targets Review knows how to materialize platform-specific VSIXes for. */
-export const supportedTargets = Object.freeze(["darwin-arm64", "linux-x64"]);
+export const supportedTargets = Object.freeze([
+  "darwin-arm64",
+  "linux-x64",
+  "win32-x64",
+]);
 
 /** Group tokens accepted by DEV_REVIEW_EXTENSIONS, in display order. */
 export const curatedGroups = Object.freeze([

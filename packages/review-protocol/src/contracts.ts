@@ -896,6 +896,10 @@ export const ReviewCliInstallStampSchema = z.object({
   /** The user removed the review command; the shim resync must not reinstall it. */
   commandDisabled: z.literal(true).optional(),
   traceManaged: z.boolean().optional(),
+  /** Windows: the directory the install put on the saved user PATH. A running
+   * process keeps its startup PATH, so this is what says new terminals will
+   * find the command. */
+  userPath: requiredString.optional(),
   updatedAt: requiredString,
 });
 // z.object (not strictObject) so stamps from earlier versions parse; their
@@ -916,6 +920,8 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     installed: z.boolean(),
     profileConfigured: z.boolean(),
     onPath: z.boolean(),
+    /** The Windows installer put this command on PATH; uninstalling Whiteboard removes it. */
+    installer: z.literal(true).optional(),
   }),
   trace: z.strictObject({
     enabled: z.boolean(),

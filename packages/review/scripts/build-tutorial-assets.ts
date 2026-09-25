@@ -118,11 +118,16 @@ export async function buildTutorialAssets(
     await git(repo, ["init", "--initial-branch=main"]);
     await git(repo, ["config", "user.name", "Review Tutorial"]);
     await git(repo, ["config", "user.email", "tutorial@review.local"]);
+    await git(repo, ["config", "core.autocrlf", "input"]);
     const headSources = new Map<string, string>();
 
     for (const rewrite of BASE_SOURCE_REWRITES) {
       const sourcePath = path.join(repo, rewrite.path);
-      const headSource = await readFile(sourcePath, "utf8");
+
+      const headSource = (await readFile(sourcePath, "utf8")).replace(
+        /\r\n?/gu,
+        "\n",
+      );
 
       if (!headSource.includes(rewrite.head)) {
         throw new Error(`Tutorial base rewrite is stale for ${rewrite.path}.`);

@@ -17,7 +17,11 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { verifyWindowsDiffr } from "./windows-diffr.mjs";
+
 const execFileAsync = promisify(execFile);
+
+const diffrName = process.platform === "win32" ? "diffr.exe" : "diffr";
 
 const appDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -44,7 +48,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "THIRD_PARTY_NOTICES.md",
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
-  "bin/diffr",
+  `bin/${diffrName}`,
   "dist/cli.js",
   "instructions/authoring.md",
   "tutorial/runtime-manifest.json",
@@ -109,9 +113,18 @@ export async function stageReviewRuntime(packagedRoot) {
   }
 
   await rm(runtimeRoot, { recursive: true, force: true });
+
+  const pnpmScript =
+    process.platform === "win32" ? process.env.npm_execpath : undefined;
+
+  if (process.platform === "win32" && !pnpmScript) {
+    throw new Error("Run Windows packaging through pnpm app:package:windows.");
+  }
+
   await execFileAsync(
-    "pnpm",
+    pnpmScript ? process.execPath : "pnpm",
     [
+      ...(pnpmScript ? [pnpmScript] : []),
       "--config.allow-unused-patches=true",
       // This workspace pins `nodeLinker: hoisted`, under which a plain deploy
       // links workspace dependencies back to the checkout and never resolves
@@ -157,7 +170,7 @@ export async function stageReviewDocs(
 
 export async function stageDiffrBinary(
   runtimeRoot,
-  source = path.join(monorepoRoot, "packages", "review", "bin", "diffr"),
+  source = path.join(monorepoRoot, "packages", "review", "bin", diffrName),
 ) {
   if (!(await stat(source).catch(() => null))?.isFile()) {
     throw new Error(
@@ -165,22 +178,26 @@ export async function stageDiffrBinary(
     );
   }
 
-  const require = createRequire(
-    path.join(monorepoRoot, "packages/review/package.json"),
-  );
+  if (process.platform === "win32") {
+    verifyWindowsDiffr(source);
+  } else {
+    const require = createRequire(
+      path.join(monorepoRoot, "packages/review/package.json"),
+    );
 
-  const packageRoot = path.dirname(
-    require.resolve("@dev.fast/diffr/package.json"),
-  );
+    const packageRoot = path.dirname(
+      require.resolve("@dev.fast/diffr/package.json"),
+    );
 
-  await execFileAsync(process.execPath, [
-    path.join(packageRoot, "bin/fetch.mjs"),
-    "--check",
-    "--into",
-    path.dirname(source),
-  ]);
+    await execFileAsync(process.execPath, [
+      path.join(packageRoot, "bin/fetch.mjs"),
+      "--check",
+      "--into",
+      path.dirname(source),
+    ]);
+  }
 
-  const destination = path.join(runtimeRoot, "bin", "diffr");
+  const destination = path.join(runtimeRoot, "bin", diffrName);
   await mkdir(path.dirname(destination), { recursive: true });
   await copyFile(source, destination);
   await chmod(destination, 0o755);

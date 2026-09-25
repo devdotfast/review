@@ -5,6 +5,11 @@
 
 export const REVIEW_SERVER_RESTART_DELAYS = [250, 1_000, 2_000] as const;
 
+// A first launch can spend half a minute before the host answers: Windows scans
+// the freshly installed files, and Windows on Arm also translates the x64 build.
+// A host that exits is reported at once, so this only bounds a slow start.
+export const REVIEW_SERVER_STARTUP_TIMEOUT_MS = 120_000;
+
 // Keep the renderer retrying after the utility host has scheduled its final
 // restart. The replacement process still needs time to boot and attach its
 // authenticated event streams after the host's delay has elapsed.

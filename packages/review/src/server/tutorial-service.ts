@@ -163,7 +163,17 @@ export function createTutorialService(input: {
         commandId: randomUUID(),
         operation: { type: "delete", reviewId },
       });
-    await rm(tutorialRoot, { recursive: true, force: true });
+
+    // Windows cannot delete a checkout while its Git reader or watchers
+    // hold it open, and handles can outlive their close briefly.
+    for (const repository of input.store.repositories()) {
+      const relative = path.relative(tutorialRoot, repository.path);
+
+      if (relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+        await input.data.forgetRepository(repository.id);
+    }
+
+    await rm(tutorialRoot, { recursive: true, force: true, maxRetries: 10 });
   }
 
   return {

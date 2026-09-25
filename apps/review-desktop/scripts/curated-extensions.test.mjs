@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,12 +33,17 @@ import {
 } from "./curated-extensions.manifest.mjs";
 import {
   copyCuratedExtensions,
+  extractVsixPayload,
   verifyCuratedExtensions,
 } from "./curated-extensions.mjs";
 
 const APP_DIR = path.dirname(fileURLToPath(new URL("./", import.meta.url)));
 
 const EXTENSIONS_DIR = path.join(APP_DIR, "code-oss", "extensions");
+
+const codeOssRequire = createRequire(
+  path.join(APP_DIR, "code-oss", "package.json"),
+);
 
 const buildExtensions = await readFile(
   new URL("../code-oss/build/lib/extensions.ts", import.meta.url),
@@ -313,6 +319,52 @@ test("materializes the selected groups from run.sh", () => {
   assert.match(runScript, /curated-extensions\.mjs/);
 });
 
+test("extracts nested Windows executables from a VSIX archive", async () => {
+  const yazl = codeOssRequire("yazl");
+  const root = mkdtempSync(path.join(os.tmpdir(), "review-vsix-extract-"));
+  const archive = path.join(root, "fixture.vsix");
+  const destination = path.join(root, "extension");
+  const zip = new yazl.ZipFile();
+  const chunks = [];
+
+  const complete = new Promise((resolve, reject) => {
+    zip.outputStream.on("data", (chunk) => chunks.push(chunk));
+    zip.outputStream.once("end", resolve);
+    zip.outputStream.once("error", reject);
+  });
+
+  zip.addBuffer(
+    Buffer.from("windows executable fixture"),
+    "extension/bundled/libs/bin/ty.exe",
+  );
+  zip.addBuffer(
+    Buffer.from('{"publisher":"astral-sh","name":"ty"}'),
+    "extension/package.json",
+  );
+  zip.end();
+
+  try {
+    await complete;
+    writeFileSync(archive, Buffer.concat(chunks));
+    await extractVsixPayload(archive, destination);
+
+    assert.equal(
+      readFileSync(
+        path.join(destination, "bundled", "libs", "bin", "ty.exe"),
+        "utf8",
+      ),
+      "windows executable fixture",
+    );
+    assert.equal(
+      JSON.parse(readFileSync(path.join(destination, "package.json"), "utf8"))
+        .name,
+      "ty",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // The payloads are downloaded rather than committed, so a clean checkout has
 // nothing to inspect. When they are present, hold them to the contract the
 // materialize step promises.
@@ -362,21 +414,30 @@ test(
       }
 
       for (const relative of extension.executables) {
-        const executable = path.join(directory, relative);
+        const windowsTarget = stamp.target.startsWith("win32-");
+
+        const executable = path.join(
+          directory,
+          windowsTarget ? `${relative}.exe` : relative,
+        );
+
         assert.ok(
           existsSync(executable),
           `${extension.id} is missing ${relative}`,
         );
-        assert.ok(
-          statSync(executable).mode & 0o111,
-          `${extension.id} ${relative} must stay executable`,
-        );
+
+        if (!windowsTarget) {
+          assert.ok(
+            statSync(executable).mode & 0o111,
+            `${extension.id} ${relative} must stay executable`,
+          );
+        }
       }
     }
   },
 );
 
-test("copies only bundled extensions for both package targets", () => {
+test("copies only bundled extensions for each package target", () => {
   for (const target of supportedTargets) {
     const root = mkdtempSync(path.join(os.tmpdir(), "review-curated-copy-"));
     const sourceRoot = path.join(root, "source");
@@ -408,7 +469,11 @@ test("copies only bundled extensions for both package targets", () => {
         );
 
         for (const relative of extension.executables) {
-          const executable = path.join(directory, relative);
+          const executable = path.join(
+            directory,
+            target.startsWith("win32-") ? `${relative}.exe` : relative,
+          );
+
           mkdirSync(path.dirname(executable), { recursive: true });
           writeFileSync(executable, "fixture\n");
           chmodSync(executable, 0o755);

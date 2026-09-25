@@ -1,0 +1,165 @@
+name: Review Windows packages
+
+on:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      artifact_name:
+        type: string
+        default: windows-packages
+      sign:
+        type: boolean
+        default: false
+      upgrade_fixture:
+        description: Also build a newer-versioned installer for the upgrade test.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Build and validate Windows installers
+    runs-on: review_big_boy_windows
+    timeout-minutes: 120
+    # The Azure app behind these variables trusts only this environment's OIDC tokens.
+    environment: ${{ inputs.sign && 'windows-signing' || 'windows-ci' }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_SOURCEVERSION: ${{ inputs.commit }}
+      REVIEW_DESKTOP_CI_FAST: "1"
+      npm_config_msvs_version: "2022"
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.commit }}
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: pnpm
+      - run: git config --global core.longpaths true
+      - run: pnpm install --frozen-lockfile
+      - name: Add Windows SDK signing tools to PATH
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction Stop |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw 'Windows SDK signtool.exe was not found' }
+          $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Test Windows command and PATH launchers
+        run: node --test apps/review-desktop/scripts/windows-cli.test.mjs
+      - name: Stamp release identity
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          QUALITY=stable
+          if [[ "$VERSION" == *-preview.* ]]; then QUALITY=preview; fi
+          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
+      - name: Restore native dependencies
+        id: native-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/review-desktop/code-oss/**/node_modules
+          key: windows-2022-x64-native-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json', 'apps/review-desktop/code-oss/.nvmrc', 'apps/review-desktop/code-oss/.npmrc', 'apps/review-desktop/code-oss/build/npm/**') }}
+      - name: Install native dependencies
+        run: |
+          source apps/review-desktop/scripts/code-oss-dependencies.sh
+          ensure_code_oss_dependencies "$PWD/apps/review-desktop" "$PWD/apps/review-desktop/code-oss"
+      - name: Test curated extension extraction
+        run: node --test apps/review-desktop/scripts/curated-extensions.test.mjs
+      - name: Save native dependencies
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: apps/review-desktop/code-oss/**/node_modules
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Install Rust toolchain
+        run: rustup update stable
+      - name: Build desktop
+        run: pnpm desktop:build
+      - name: Log in to Azure for code signing
+        if: inputs.sign
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          # The signer role is scoped to one certificate profile, not a subscription.
+          allow-no-subscriptions: true
+      - name: Set up Azure Artifact Signing
+        if: inputs.sign
+        shell: pwsh
+        env:
+          ENDPOINT: ${{ vars.AZURE_CODE_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          PROFILE: ${{ vars.AZURE_CODE_SIGNING_CERTIFICATE_PROFILE_NAME }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'artifact-signing'
+          $package = Join-Path $root 'client.zip'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg' -OutFile $package
+          if ((Get-FileHash $package -Algorithm SHA256).Hash -ne '74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B') { throw 'Unexpected Artifact Signing client hash' }
+          Expand-Archive $package -DestinationPath $root
+          $metadata = Join-Path $root 'metadata.json'
+          # azure/login leaves an Azure CLI session; skip the credentials that would only time out first.
+          @{
+            Endpoint = $env:ENDPOINT
+            CodeSigningAccountName = $env:ACCOUNT
+            CertificateProfileName = $env:PROFILE
+            ExcludeCredentials = @('ManagedIdentityCredential', 'EnvironmentCredential', 'WorkloadIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
+          } | ConvertTo-Json | Set-Content $metadata
+          # GitHub's OIDC assertion expires after five minutes, before packaging reaches the signing
+          # step; the Azure CLI keeps this hour-long access token cached for the signing client.
+          az account get-access-token --resource https://codesigning.azure.net --output none
+          if ($LASTEXITCODE -ne 0) { throw 'Could not get an Artifact Signing access token' }
+          "REVIEW_WINDOWS_SIGNING_DLIB=$root\bin\x64\Azure.CodeSigning.Dlib.dll" >> $env:GITHUB_ENV
+          "REVIEW_WINDOWS_SIGNING_METADATA=$metadata" >> $env:GITHUB_ENV
+      - name: Package Windows installers
+        run: pnpm --filter @dev.fast/review-desktop app:package:windows
+      - name: Verify Windows signatures
+        if: inputs.sign
+        shell: pwsh
+        env:
+          PUBLISHER: ${{ vars.AZURE_CODE_SIGNING_PUBLISHER_NAME }}
+        run: |
+          $installers = @(Get-ChildItem apps/review-desktop/dist/windows/*.exe)
+          $binaries = @(Get-ChildItem apps/review-desktop/VSCode-win32-x64 -Recurse -File -Include *.exe, *.dll, *.node)
+          foreach ($file in $installers + $binaries) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "$($file.FullName) is not validly signed: $($signature.Status)" }
+          }
+          foreach ($file in $installers + @(Get-Item apps/review-desktop/VSCode-win32-x64/*.exe)) {
+            $subject = (Get-AuthenticodeSignature $file.FullName).SignerCertificate.Subject
+            if (-not $subject.Contains("O=$env:PUBLISHER")) { throw "$($file.Name) is signed by $subject" }
+            Write-Host "$($file.Name): $subject"
+          }
+      - name: Verify the packaged desktop and CLI
+        run: node apps/review-desktop/scripts/smoke-windows.mjs apps/review-desktop/VSCode-win32-x64 artifacts/windows
+      - name: Build upgrade test installer
+        if: inputs.upgrade_fixture
+        run: node apps/review-desktop/scripts/build-windows-upgrade-fixture.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: apps/review-desktop/dist/windows/*
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload launch evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ inputs.artifact_name }}-launch
+          path: artifacts/windows/*

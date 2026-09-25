@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { isCancellationError } from "../../../base/common/errors.js";
-import { isLinux, isMacintosh } from "../../../base/common/platform.js";
+import { isLinux, isMacintosh, isWindows } from "../../../base/common/platform.js";
 import { localize, localize2 } from "../../../nls.js";
 import { Action2, registerAction2 } from "../../../platform/actions/common/actions.js";
 import { IDialogService } from "../../../platform/dialogs/common/dialogs.js";
@@ -206,6 +206,18 @@ class UninstallReviewDesktopAction extends Action2 {
 						"review.uninstall.linuxFinish",
 						"To remove the app, quit Whiteboard and run sudo apt remove dev-fast-review on Ubuntu, sudo dnf remove dev-fast-review on Fedora, or sudo pacman -R whiteboard-bin on Omarchy / Arch. Your sessions and settings stay on disk.",
 					),
+			);
+			return;
+		}
+
+		if (isWindows && environmentService.isBuilt) {
+			await dialogService.info(
+				localize("review.uninstall.done", "Whiteboard's command and trace setup were removed."),
+				localize(
+					"review.uninstall.windowsFinish",
+					"To remove the app, quit Whiteboard and uninstall {0} from Settings > Apps > Installed apps. Your sessions and settings stay on disk.",
+					productService.nameLong,
+				),
 			);
 			return;
 		}

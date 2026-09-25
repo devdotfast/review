@@ -1,10 +1,20 @@
 import { cursorInstallDeeplink } from "./cursor-deeplink";
 import type { InstallTarget } from "./install";
 
-/** The one launch form every Whiteboard MCP registration uses; plugins must match it byte for byte. */
+/** The macOS and Linux launch form; the Claude, Cursor and OpenCode plugins must match it byte for byte, and the Codex plugin's bin/whiteboard-mcp runs the same command. */
 export const REVIEW_MCP_LAUNCH = {
   command: "sh",
   args: ["-c", 'exec "$HOME/.local/bin/whiteboard" mcp'],
+} as const;
+
+/**
+ * Windows has no sh, and Node-based harnesses cannot start a .cmd file
+ * directly. cmd finds whiteboard.cmd on PATH, whether the first-run step or
+ * the installer put it there. The OpenCode plugin must match it on Windows.
+ */
+export const WINDOWS_MCP_LAUNCH = {
+  command: "cmd",
+  args: ["/d", "/c", "whiteboard", "mcp"],
 } as const;
 
 export interface ConnectPromptInput {
@@ -14,6 +24,8 @@ export interface ConnectPromptInput {
   traceEnabled: boolean;
   fffBinaryPath: string;
   fffCorpusRoot: string;
+  /** Defaults to this process's platform. */
+  platform?: NodeJS.Platform;
 }
 
 export const FFF_INSTALL_URL =
@@ -23,10 +35,22 @@ export const PI_FFF_PACKAGE = "npm:@ff-labs/pi-fff";
 
 export const PI_WHITEBOARD_PACKAGE = "npm:@dev.fast/pi-whiteboard";
 
-export function reviewMcpLaunch(hasShim: boolean): {
+/** A stdio MCP server launch, as harness configs spell it. */
+export interface McpLaunch {
   command: string;
   args: string[];
-} {
+}
+
+export function reviewMcpLaunch(
+  hasShim: boolean,
+  platform: NodeJS.Platform = process.platform,
+): McpLaunch {
+  if (platform === "win32")
+    return {
+      command: WINDOWS_MCP_LAUNCH.command,
+      args: [...WINDOWS_MCP_LAUNCH.args],
+    };
+
   return hasShim
     ? {
         command: REVIEW_MCP_LAUNCH.command,
@@ -59,9 +83,20 @@ function fffSteps(input: ConnectPromptInput, target: InstallTarget): string[] {
   ];
 }
 
-function pluginSteps(target: Exclude<InstallTarget, "cursor">): string[] {
+/** The Claude plugin's sh launch cannot start on Windows, so register the server directly. */
+export const CLAUDE_WINDOWS_MCP_ADD = `claude mcp add -s user whiteboard -- ${WINDOWS_MCP_LAUNCH.command} ${WINDOWS_MCP_LAUNCH.args.join(" ")}`;
+
+function pluginSteps(
+  target: Exclude<InstallTarget, "cursor">,
+  platform: NodeJS.Platform,
+): string[] {
   switch (target) {
     case "claude":
+      if (platform === "win32")
+        return [
+          `Run:\n\n\`\`\`sh\nclaude plugin uninstall whiteboard@devfast # its launch cannot start on Windows, if installed\nclaude mcp remove -s user whiteboard # old registration, if any\n${CLAUDE_WINDOWS_MCP_ADD}\n\`\`\``,
+        ];
+
       return [
         "Run:\n\n```sh\nclaude plugin marketplace add devdotfast/whiteboard\nclaude plugin install whiteboard@devfast --scope user\nclaude mcp remove -s user whiteboard # old manual registration, if any\n```",
       ];
@@ -126,7 +161,10 @@ export function connectPrompt(
         : []),
       ...(target === "cursor"
         ? cursorSteps()
-        : [...pluginSteps(target), ...extra]),
+        : [
+            ...pluginSteps(target, input.platform ?? process.platform),
+            ...extra,
+          ]),
       verify,
     ]),
   ].join("\n");

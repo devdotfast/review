@@ -10,6 +10,7 @@ import {
   type LocalVcsCommitSummary,
   type LocalVcsDiffFileSummary,
   type LocalVcsKind,
+  LocalVcsToolsMissingError,
   createBlobBatchReader,
   detectLocalVcs,
   diffFileSummariesTrees,
@@ -717,6 +718,7 @@ export class LocalReviewData {
 
   async forgetRepository(repositoryId: string) {
     await this.closeReader(repositoryId);
+    this.forgetWorktree(repositoryId);
     this.repositories.delete(repositoryId);
 
     for (const key of this.trackedFiles.keys())
@@ -747,7 +749,12 @@ export class LocalReviewData {
       );
     });
 
-    const vcs = await detectLocalVcs(resolved);
+    const vcs = await detectLocalVcs(resolved).catch((cause: unknown) => {
+      if (cause instanceof LocalVcsToolsMissingError)
+        throw new ReviewInputError(cause.message);
+
+      throw cause;
+    });
 
     if (!vcs) throw new ReviewInputError("Choose a Git or jj repository.");
 

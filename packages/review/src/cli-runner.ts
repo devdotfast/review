@@ -32,7 +32,11 @@ import {
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { isOwnedShim, pathShimPath } from "./cli-install";
+import {
+  isOwnedShim,
+  pathShimPath,
+  windowsInstallerCommand,
+} from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import { connectPrompts } from "./connect-prompts";
 import { selectReviewInstance } from "./desktop-discovery";
@@ -43,7 +47,10 @@ import {
 } from "./install";
 import { scanLegacySkills } from "./legacy-skills";
 import { runReviewMigration } from "./migrate";
-import { readReviewPackageVersion } from "./package-paths";
+import {
+  findReviewPackageRoot,
+  readReviewPackageVersion,
+} from "./package-paths";
 import { reviewAgentCliHelp } from "./review-api/agent-cli";
 import { type ReviewAppEvent, runReviewAppPick } from "./review-app";
 import {
@@ -543,7 +550,12 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
     const prompts = connectPrompts({
       legacyPaths: await scanLegacySkills(homeDir),
-      hasShim: await isOwnedShim(pathShimPath(homeDir)),
+      hasShim:
+        (await isOwnedShim(pathShimPath(homeDir))) ||
+        (await windowsInstallerCommand(
+          findReviewPackageRoot(import.meta.url),
+          env,
+        )) !== undefined,
       traceEnabled: await traceMachineEnabled({ homeDir, env }),
       fffBinaryPath: path.join(homeDir, ".local", "bin", "fff-mcp"),
       fffCorpusRoot: path.join(devHome, "trace-search"),

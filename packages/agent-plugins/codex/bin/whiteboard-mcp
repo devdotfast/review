@@ -1,0 +1,3 @@
+#!/bin/sh
+# Codex runs this on macOS and Linux. On Windows it resolves the command to whiteboard-mcp.cmd.
+exec "$HOME/.local/bin/whiteboard" mcp "$@"

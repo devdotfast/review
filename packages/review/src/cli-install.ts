@@ -31,7 +31,11 @@ import {
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 
-import { connectSetupPrompts, reviewMcpLaunch } from "./connect-prompts";
+import {
+  CLAUDE_WINDOWS_MCP_ADD,
+  connectSetupPrompts,
+  reviewMcpLaunch,
+} from "./connect-prompts";
 import { cursorInstallDeeplink } from "./cursor-deeplink";
 import { isDirectory, isFile } from "./fs-utils";
 import { removeLegacySkills, scanLegacySkills } from "./legacy-skills";
@@ -121,13 +125,18 @@ export async function resolveCliInstallStatus(input: {
 
   const granted = stamp?.consent === "granted";
 
+  const installerCommand = hasShim
+    ? undefined
+    : await windowsInstallerCommand(input.packageRoot, env);
+
+  const hasCommand = hasShim || installerCommand !== undefined;
+
   const status: ReviewCliInstallStatus = {
     fingerprint,
     stamp,
     stale: granted && stamp.fingerprint !== fingerprint,
     updateNeeded: legacySkills.length > 0 || (granted && !updated),
-    shim: (!hasShim &&
-      (await windowsInstallerCommand(input.packageRoot, env))) || {
+    shim: installerCommand ?? {
       path: shimPath,
       installed: hasShim,
       profileConfigured:
@@ -147,9 +156,9 @@ export async function resolveCliInstallStatus(input: {
         }
       : null,
     connect: {
-      ...reviewMcpLaunch(hasShim),
+      ...reviewMcpLaunch(hasCommand),
       prompts: connectSetupPrompts(),
-      plugins: connectPlugins(hasShim),
+      plugins: connectPlugins(hasCommand),
     },
     legacySkills: legacySkills.map((skillPath) => ({
       path: homeRelative(homeDir, skillPath),
@@ -167,7 +176,7 @@ export async function resolveCliInstallStatus(input: {
  * The Windows installer's "Add to PATH" task puts <install dir>\bin, which
  * holds a whiteboard.cmd, on the user or machine PATH.
  */
-async function windowsInstallerCommand(
+export async function windowsInstallerCommand(
   packageRoot: string,
   env: NodeJS.ProcessEnv,
 ): Promise<ReviewCliInstallStatus["shim"] | undefined> {
@@ -420,11 +429,17 @@ function connectPlugins(
   hasShim: boolean,
 ): ReviewCliInstallStatus["connect"]["plugins"] {
   return {
-    claude: {
-      label: "Install the Claude Code plugin",
-      command:
-        "/plugin marketplace add devdotfast/whiteboard\n/plugin install whiteboard@devfast",
-    },
+    claude:
+      process.platform === "win32"
+        ? {
+            label: "Add the Claude Code MCP server",
+            command: CLAUDE_WINDOWS_MCP_ADD,
+          }
+        : {
+            label: "Install the Claude Code plugin",
+            command:
+              "/plugin marketplace add devdotfast/whiteboard\n/plugin install whiteboard@devfast",
+          },
     codex: {
       label: "Install the Codex plugin",
       command:

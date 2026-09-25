@@ -10,7 +10,7 @@ export const REVIEW_MCP_LAUNCH = {
 /**
  * Windows has no sh, and Node-based harnesses cannot start a .cmd file
  * directly. cmd finds whiteboard.cmd on PATH, whether the first-run step or
- * the installer put it there.
+ * the installer put it there. The OpenCode plugin must match it on Windows.
  */
 export const WINDOWS_MCP_LAUNCH = {
   command: "cmd",

@@ -17,7 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         channel: [stable, preview]
-    runs-on: windows-2022
+    # Fork pull requests stay on the standard runner; review_big_boy_windows is a paid 16-core runner.
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'windows-2022' || 'review_big_boy_windows' }}
     timeout-minutes: 120
     defaults:
       run:

@@ -2142,7 +2142,7 @@ button {
 
 .review-topbar-context {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   align-items: center;
   margin-right: auto;
@@ -2241,6 +2241,7 @@ button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+  gap: 4px;
   height: var(--chrome-control-height);
   padding: 0 10px;
   border: 0;
@@ -2261,6 +2262,18 @@ button {
 .review-open-source-tree:focus-visible {
   outline: 2px solid var(--chrome-fg);
   outline-offset: -1px;
+}
+
+@container review-content (max-width: 720px) {
+  .review-open-source-tree-label {
+    display: none;
+  }
+
+  .review-open-source-tree {
+    width: var(--chrome-control-height);
+    justify-content: center;
+    padding: 0;
+  }
 }
 
 .review-view-region {

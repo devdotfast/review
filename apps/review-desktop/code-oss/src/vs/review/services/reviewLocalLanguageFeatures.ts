@@ -1,5 +1,5 @@
 import type { CancellationToken } from "../../base/common/cancellation.js";
-import { Disposable, DisposableStore, type IReference } from "../../base/common/lifecycle.js";
+import { Disposable, DisposableStore, RefCountedDisposable, toDisposable, type IDisposable, type IReference } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
 import { Position } from "../../editor/common/core/position.js";
 import type { Hover, LocationLink } from "../../editor/common/languages.js";
@@ -23,11 +23,13 @@ import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionServic
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
 import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 import { ReviewLanguageEnvironmentRequests } from "./reviewLanguageEnvironmentRequests.js";
+import { watchAttachedReviewModels, withRetainedSource } from "./reviewSourceModelLifecycle.js";
 
 interface LocalSource {
 	identity: string;
 	root: URI;
 	reference: IReference<IResolvedTextEditorModel>;
+	retain(): IDisposable | undefined;
 	dispose(): void;
 }
 
@@ -64,12 +66,10 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		this._register(files.onDidFilesChange(event => {
 			if ([...this.roots.keys()].some(root => event.affects(URI.parse(root)))) this.generation++;
 		}));
-		// Warm language servers while source is being displayed, not at the first click.
-		const warm = (model: ITextModel) => {
-			if ([REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) void this.localSource(model);
-		};
-		this._register(modelService.onModelAdded(warm));
-		modelService.getModels().forEach(warm);
+		// Diff models include off-screen files; only attached editors warm native models.
+		this._register(watchAttachedReviewModels(modelService, [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME],
+			model => { void this.localSource(model, true); },
+			model => this.releaseSource(model)));
 		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME]) {
 			const selector = { scheme, exclusive: true };
 			this._register(languages.hoverProvider.register(selector, { provideHover: (model, position, token) => this.hover(model, position, token) }));
@@ -81,9 +81,9 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			this._register(languages.typeDefinitionProvider.register(target, { provideTypeDefinition: (model, position, token) => this.locations(model, position, token, "type") }));
 			this._register(languages.implementationProvider.register(target, { provideImplementation: (model, position, token) => this.locations(model, position, token, "implementation") }));
 			this._register(languages.referenceProvider.register(target, {
-				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at, pinned) => {
+				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at, pinned, source) => {
 					const results = await Promise.all(languages.referenceProvider.ordered(local).map(provider => provider.provideReferences(local, at, context, token)));
-					return this.reviewLocations(pinned, results.flatMap(result => result ?? []), token);
+					return this.reviewLocations(pinned, results.flatMap(result => result ?? []), token, source);
 				}),
 			}));
 		}
@@ -104,12 +104,19 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}, validate);
 	}
 
-	private async localSource(model: ITextModel): Promise<LocalSource | undefined> {
-		if (new URLSearchParams(model.uri.query).has("empty")) return undefined;
+	private releaseSource(model: ITextModel): void {
+		const entry = this.sources.get(model);
+		if (!entry) return;
+		this.sources.delete(model);
+		void entry.pending.then(source => source?.dispose());
+	}
+
+	private async localSource(model: ITextModel, warming = false): Promise<LocalSource | undefined> {
+		if (this._store.isDisposed || model.isDisposed() || new URLSearchParams(model.uri.query).has("empty")) return undefined;
 		try {
 			const epoch = this.environments.generation;
 			const context = await this.environment(model);
-			if (epoch !== this.environments.generation || model.isDisposed()) return undefined;
+			if (epoch !== this.environments.generation || this._store.isDisposed || model.isDisposed() || (warming && !model.isAttachedToEditor())) return undefined;
 			const cached = this.sources.get(model);
 			if (cached && cached.identity === context?.identity && cached.rootPath === context.rootPath) return cached.pending;
 			if (cached) {
@@ -156,49 +163,67 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			});
 			const reference = owned.add(await this.models.createModelReference(resource));
 			owned.add(reference.object.textEditorModel.onDidChangeContent(() => this.generation++));
-			owned.add(model.onWillDispose(() => { this.sources.delete(model); owned.dispose(); }));
-			if (model.isDisposed()) { owned.dispose(); return undefined; }
+		if (model.isDisposed()) { owned.dispose(); return undefined; }
 			await this.extensions.activateByEvent(`onLanguage:${reference.object.textEditorModel.getLanguageId()}`);
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
-			return { root, reference, identity: context.identity, dispose: () => owned.dispose() };
+			const lifetime = new RefCountedDisposable(owned);
+			const owner = toDisposable(() => lifetime.release());
+			return {
+				root, reference, identity: context.identity,
+				retain: () => {
+					if (owned.isDisposed) return undefined;
+					lifetime.acquire();
+					return toDisposable(() => lifetime.release());
+				},
+				dispose: () => owner.dispose(),
+			};
 		} catch (error) { owned.dispose(); throw error; }
 	}
 
-	private async withSource<T>(model: ITextModel, position: Position, token: CancellationToken, run: (local: ITextModel, at: Position, review: ITextModel) => Promise<T>): Promise<T | undefined> {
+	private async withSource<T>(model: ITextModel, position: Position, token: CancellationToken, run: (local: ITextModel, at: Position, review: ITextModel, source: LocalSource | undefined) => Promise<T>): Promise<T | undefined> {
 		if (token.isCancellationRequested || model.isDisposed()) return undefined;
-		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model));
+		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model, undefined));
 		const epoch = this.environments.generation;
 		const source = await this.localSource(model);
-		if (!source || token.isCancellationRequested || model.isDisposed()) return undefined;
-		const local = source.reference.object.textEditorModel;
-		if (!await this.files.exists(local.uri)) { this.uncertainRoots.add(source.root.toString()); return undefined; }
-		if (this.uncertainRoots.has(source.root.toString())) {
-			// An open dependency can outlive a removed checkout and miss subsequent
-			// watcher updates. Until watcher readiness is authoritative, revalidate
-			// clean native buffers before querying; never replace a dirty buffer.
-			const prefix = source.root.path.replace(/\/$/, "") + "/";
-			await Promise.all(this.textFiles.files.models.filter(file => !file.isDirty() && file.resource.scheme === "file" && file.resource.path.startsWith(prefix))
-				.map(file => this.textFiles.files.resolve(file.resource, { reload: { async: false } })));
+		if (!source) return undefined;
+		// Detaching the editor can release its warm owner while a request awaits
+		// disk or an extension provider. Keep that request's model/root alive.
+		try {
+			return await withRetainedSource(source, async () => {
+				if (token.isCancellationRequested || model.isDisposed()) return undefined;
+				const local = source.reference.object.textEditorModel;
+				if (!await this.files.exists(local.uri)) { this.uncertainRoots.add(source.root.toString()); return undefined; }
+				if (this.uncertainRoots.has(source.root.toString())) {
+					// An open dependency can outlive a removed checkout and miss subsequent
+					// watcher updates. Until watcher readiness is authoritative, revalidate
+					// clean native buffers before querying; never replace a dirty buffer.
+					const prefix = source.root.path.replace(/\/$/, "") + "/";
+					await Promise.all(this.textFiles.files.models.filter(file => !file.isDirty() && file.resource.scheme === "file" && file.resource.path.startsWith(prefix))
+						.map(file => this.textFiles.files.resolve(file.resource, { reload: { async: false } })));
+				}
+				// Resolve current disk contents, preserving any unsaved local editor buffer.
+				await this.textFiles.files.resolve(local.uri, { reload: { async: false } });
+				return await withCurrentLocalContext([model, local], token, () => this.generation, async () => {
+					// The language server must see exactly the source displayed in the review.
+					if (!sameSource(model, local)) return undefined;
+					const result = await run(local, position, model, source);
+					const current = await this.environment(model, true).catch(() => undefined);
+					if (epoch === this.environments.generation && isSameRoot(current?.rootPath, source.root) && current?.identity === source.identity) return result;
+					// Failed validation must also release the old workspace/watchers. Keeping
+					// them after deletion can leave the language server blind to later edits.
+					const cached = this.sources.get(model);
+					if (cached?.identity === source.identity && isSameRoot(cached.rootPath, source.root)) {
+						this.uncertainRoots.add(source.root.toString());
+						this.sources.delete(model);
+						void cached.pending.then(value => value?.dispose());
+						this.generation++;
+					}
+					return undefined;
+				});
+			});
+		} finally {
+			if (!model.isAttachedToEditor()) this.releaseSource(model);
 		}
-		// Resolve current disk contents, preserving any unsaved local editor buffer.
-		await this.textFiles.files.resolve(local.uri, { reload: { async: false } });
-		return withCurrentLocalContext([model, local], token, () => this.generation, async () => {
-			// The language server must see exactly the source displayed in the review.
-			if (!sameSource(model, local)) return undefined;
-			const result = await run(local, position, model);
-			const current = await this.environment(model, true).catch(() => undefined);
-			if (epoch === this.environments.generation && isSameRoot(current?.rootPath, source.root) && current?.identity === source.identity) return result;
-			// Failed validation must also release the old workspace/watchers. Keeping
-			// them after deletion can leave the language server blind to later edits.
-			const cached = this.sources.get(model);
-			if (cached?.identity === source.identity && isSameRoot(cached.rootPath, source.root)) {
-				this.uncertainRoots.add(source.root.toString());
-				this.sources.delete(model);
-				void cached.pending.then(value => value?.dispose());
-				this.generation++;
-			}
-			return undefined;
-		});
 	}
 
 	private hover(model: ITextModel, position: Position, token: CancellationToken): Promise<Hover | undefined> {
@@ -212,18 +237,17 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	}
 
 	private async locations(model: ITextModel, position: Position, token: CancellationToken, kind: "definition" | "type" | "implementation"): Promise<LocationLink[] | undefined> {
-		return this.withSource(model, position, token, async (local, at, pinned) => {
+		return this.withSource(model, position, token, async (local, at, pinned, source) => {
 			const results = kind === "definition" ? await getDefinitionsAtPosition(this.languages.definitionProvider, local, at, false, token)
 				: kind === "type" ? await getTypeDefinitionsAtPosition(this.languages.typeDefinitionProvider, local, at, false, token)
 				: await getImplementationsAtPosition(this.languages.implementationProvider, local, at, false, token);
-			return this.reviewLocations(pinned, results, token);
+			return this.reviewLocations(pinned, results, token, source);
 		});
 	}
 
 	/** Keep navigation in the same saved version/side only when destination contents match. */
-	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken): Promise<T[]> {
+	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken, source?: LocalSource): Promise<T[]> {
 		if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(pinned.uri.scheme)) return locations;
-		const source = await this.sources.get(pinned)?.pending;
 		if (!source) return [];
 		const prefix = source.root.path.replace(/\/$/, "") + "/";
 		// References often share a file. Resolve and compare each destination once per request.

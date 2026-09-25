@@ -16,12 +16,17 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
+  closeSourceWindow,
   createReview,
-  dismissModalEditor,
   installExtensionGroup,
+  sourceWindowFor,
 } from "./harness.mjs";
 
 const exec = promisify(execFile);
+
+/** A tool's file name: Windows executables carry `.exe`. */
+const executableName = (tool) =>
+  process.platform === "win32" ? `${tool}.exe` : tool;
 
 /** The first directory on `search` with an executable `tool` in it. */
 function resolveTool(tool, search) {
@@ -29,7 +34,7 @@ function resolveTool(tool, search) {
     if (!entry) return false;
 
     try {
-      accessSync(path.join(entry, tool), constants.X_OK);
+      accessSync(path.join(entry, executableName(tool)), constants.X_OK);
 
       return true;
     } catch {
@@ -54,7 +59,10 @@ async function hideToolFromPath(ctx, hide, keep) {
   const directory = path.join(ctx.root, "toolchain");
 
   await mkdir(directory, { recursive: true });
-  await symlink(path.join(toolchain, keep), path.join(directory, keep));
+  await symlink(
+    path.join(toolchain, executableName(keep)),
+    path.join(directory, executableName(keep)),
+  );
 
   return [directory, kept].join(path.delimiter);
 }
@@ -155,7 +163,7 @@ export function lspOptions(id) {
 /** Skips the journey when `tool` is missing or cannot answer under the isolated HOME. */
 async function requireToolchain(ctx, tool) {
   for (const [command, ...args] of [
-    ["which", tool],
+    [process.platform === "win32" ? "where" : "which", tool],
     [tool, "version"],
   ])
     try {
@@ -214,7 +222,11 @@ async function serverNeverStarted(
 
 /** The same review, in the window a restart left behind. */
 async function reopenReview(ctx, review) {
-  const opened = await ctx.api(`/reviews-api/${review.reviewId}/open`, "POST", {});
+  const opened = await ctx.api(
+    `/reviews-api/${review.reviewId}/open`,
+    "POST",
+    {},
+  );
 
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 
@@ -229,7 +241,10 @@ const goToolPath = (ctx, tool) => path.join(ctx.home, "go/bin", tool);
 /** Nothing the Go extension downloads may exist before the reader consents to its group. */
 async function assertNothingInstalledYet(ctx, tool) {
   assert.equal(
-    await access(goToolPath(ctx, tool)).then(() => true, () => false),
+    await access(goToolPath(ctx, tool)).then(
+      () => true,
+      () => false,
+    ),
     false,
     `${tool} was installed before the Go group was consented to`,
   );
@@ -247,7 +262,11 @@ async function assertNothingInstalledYet(ctx, tool) {
 /** Waits for the consented-to Go extension to provision `tool` into the journey's GOPATH. */
 async function provisionLanguageServer(ctx, tool) {
   await ctx.until(
-    () => access(goToolPath(ctx, tool)).then(() => true, () => false),
+    () =>
+      access(goToolPath(ctx, tool)).then(
+        () => true,
+        () => false,
+      ),
     `${tool} to be installed into the journey's GOPATH`,
     300000,
   );
@@ -339,7 +358,7 @@ export async function runLspJourney(ctx, id) {
   }
 }
 
-/** The reader's half: from the open review to the modal editor Go to Definition opens. */
+/** The reader's half: from the open review to the Source window Go to Definition opens. */
 async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const page = canvas.page();
 
@@ -410,20 +429,14 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   await token.click({ position: await aim() });
   await page.keyboard.press("F12");
 
-  // Go to Definition opens the file in the modal editor, whose header carries the resolved label: the cross-file evidence.
-  const modalTitle = page
-    .locator(".monaco-modal-editor-block .modal-editor-title")
-    .first();
-
-  // The label is the file name, not its path in the repository.
-  const definitionName = path.basename(language.definitionFile);
-
-  await ctx.until(
-    async () => (await modalTitle.innerText().catch(() => "")).includes(definitionName),
-    `${id} Go to Definition to open ${language.definitionFile} in the modal editor`,
-    60000,
+  // Go to Definition opens the file in the native Source window, whose active tab is the cross-file evidence.
+  const source = await sourceWindowFor(
+    ctx,
+    path.basename(language.definitionFile),
+    `${language.definitionFile} after ${id} Go to Definition`,
   );
+
   ctx.check(`${id}: go to definition crosses files`);
 
-  await dismissModalEditor(ctx, page);
+  await closeSourceWindow(source);
 }

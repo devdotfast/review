@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 
-import { dismissModalEditor, openHome } from "../harness.mjs";
+import { closeSourceWindow, openHome, sourceWindowFor } from "../harness.mjs";
 import { readApplicationStorage } from "../storage.mjs";
 
 export const name = "tutorial";
@@ -51,9 +51,9 @@ export async function run(ctx) {
   await ctx.page.keyboard.press("F1");
   await ctx.page
     .locator(".quick-input-widget input")
-    .fill(">Review: Open Tutorial");
+    .fill(">Whiteboard: Open Tutorial");
   await ctx.page
-    .getByRole("option", { name: /Review: Open Tutorial/ })
+    .getByRole("option", { name: /Whiteboard: Open Tutorial/ })
     .click();
 
   const page = await apiCanvasFor(TITLE);
@@ -83,7 +83,7 @@ export async function run(ctx) {
   );
 
   const viewTab = (label) =>
-    page.locator(`[aria-label="Review views"] button[aria-label="${label}"]`);
+    page.locator(`[aria-label="Session views"] button[aria-label="${label}"]`);
 
   await guide.waitFor();
 
@@ -96,21 +96,32 @@ export async function run(ctx) {
 
   await editor.locator(".view-line").first().waitFor();
 
-  // `inline-hover` completes on non-empty hover contents, so this is a real tsserver test.
+  // Monaco's inner spans are its tokens; a whole identifier of three or more characters is something tsserver can describe.
   const tokens = editor
-    .locator(".view-line span")
+    .locator(".view-line span span")
     .filter({ hasText: /^[A-Za-z_]\w{2,}$/ });
 
-  // A hover widget outlives the hover it showed, so the step's own record is the only reliable signal.
+  const hover = page.locator(".monaco-hover-content:visible").first();
+
+  await editor.scrollIntoViewIfNeeded();
+
+  // A real tsserver hover, not the step's record: the record is what the known bug below never writes.
   await until(
     async () => {
       const count = await tokens.count();
 
-      for (let index = 0; index < Math.min(count, 12); index++) {
-        await tokens.nth(index).hover();
-        await page.waitForTimeout(600);
+      for (let index = 0; index < Math.min(count, 24); index++) {
+        const box = await tokens.nth(index).boundingBox();
 
-        if (progress(ctx).checked.includes("showHover")) return true;
+        if (!box) continue;
+
+        // Monaco shows a hover once the pointer rests, so each attempt comes in from off the line.
+        await page.mouse.move(box.x, box.y - 40);
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(1500);
+
+        if ((await hover.innerText({ timeout: 500 }).catch(() => "")).trim())
+          return true;
       }
 
       return false;
@@ -118,29 +129,57 @@ export async function run(ctx) {
     "tsserver hover in the Welcome editor",
     90000,
   );
-  await waitChecked(ctx, "showHover");
+  ctx.check("tutorial: the Welcome editor shows tsserver hovers");
 
   await page.keyboard.press("Escape");
 
-  // `totalCents` is declared and used inside the authored window, so tsserver can always resolve it.
-  await editor
-    .locator(".view-line span")
-    .filter({ hasText: /^totalCents$/ })
-    .first()
-    .click();
-  await page.keyboard.press("F12");
-  // `inline-navigation` completes on an actual navigation.
-  await waitChecked(ctx, "gotoDefinition");
+  // `totalCents` is declared and used inside the authored window, so tsserver can always resolve the use to the declaration.
+  const use = editor
+    .locator(".view-line")
+    .filter({ hasText: /paymentToken,\s*totalCents\);\s*$/ })
+    .first();
 
-  // `didNavigate` records the step before the modal editor opens, so wait for the modal rather than assume it is up.
-  // The References tree is the state the bug was found in: its own Escape used to eat the press.
-  await dismissModalEditor(
+  await use.scrollIntoViewIfNeeded();
+
+  const { x, y, height } = await use.boundingBox();
+
+  // The pointer only picks the line (a mouse click: Monaco's overflow guard fails a locator's hit test); the keyboard
+  // then puts the caret inside the name, so a drift between pointer and column cannot move it.
+  await page.mouse.click(x + 40, y + height / 2);
+  await page.keyboard.press("End");
+
+  for (let step = 0; step < "ts);".length + 1; step++)
+    await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("F12");
+
+  // Go to Definition opens the file in the native Source window.
+  const source = await sourceWindowFor(
     ctx,
-    page,
-    ".monaco-modal-editor-block .monaco-list[aria-label='References']",
+    "order-service.ts",
+    "order-service.ts after Go to Definition",
   );
-  ctx.check("one Escape closes the Go to Definition modal editor");
+
+  ctx.check("tutorial: Go to Definition opens the Source window");
+  await closeSourceWindow(source);
   await guide.waitFor();
+
+  // The code views stopped reporting hovers and navigations, so neither step completes on its own; see KNOWN_BUGS.md.
+  await page.waitForTimeout(3000);
+  assert.deepEqual(
+    progress(ctx).checked.filter((id) =>
+      ["showHover", "gotoDefinition"].includes(id),
+    ),
+    [],
+    "a hover or Go to Definition completed its tutorial step",
+  );
+  await ctx.knownBug(
+    "The tutorial's hover and Go to Definition steps never complete on their own",
+  );
+
+  for (const id of ["showHover", "gotoDefinition"]) {
+    await guide.getByRole("button", { name: "Next", exact: true }).click();
+    await waitChecked(ctx, id);
+  }
 
   await canvas
     .locator('[data-review-section="Welcome"] a[data-review-anchor-id]')
@@ -152,7 +191,7 @@ export async function run(ctx) {
   await waitChecked(ctx, "openCommits");
   await page.locator(".review-commit-open").first().click();
   await waitChecked(ctx, "openDiff");
-  await viewTab("Review").click();
+  await viewTab("Whiteboard").click();
 
   // The two `external` steps complete when the tour overlay mounts, not when the reader steps through it.
   await canvas
@@ -167,7 +206,7 @@ export async function run(ctx) {
 
   await viewTab("Map (Experimental)").click();
   await waitChecked(ctx, "openMap");
-  await viewTab("Review").click();
+  await viewTab("Whiteboard").click();
 
   await canvas
     .locator(
@@ -202,9 +241,19 @@ export async function run(ctx) {
   // The rail opens the first unfinished step, and only an open step renders its body.
   const expand = home.getByRole("button", { name: "Expand Take the tour" });
 
-  if (await expand.count()) await expand.click();
-  await home.getByRole("button", { name: "Reopen the tutorial" }).waitFor();
-  ctx.check("Welcome shows 11 of 11 and Reopen the tutorial");
+  // The later steps stay shut until the `whiteboard` command is installed, which this isolated home has not done.
+  if ((await expand.count()) && !(await expand.isEnabled())) {
+    await home
+      .getByRole("button", { name: "Install whiteboard in PATH" })
+      .waitFor();
+    ctx.check(
+      "Welcome shows 11 of 11 while the rail waits for the whiteboard command",
+    );
+  } else {
+    if (await expand.count()) await expand.click();
+    await home.getByRole("button", { name: "Reopen the tutorial" }).waitFor();
+    ctx.check("Welcome shows 11 of 11 and Reopen the tutorial");
+  }
 
   const status = async () => (await ctx.api("/tutorial/status")).value;
 

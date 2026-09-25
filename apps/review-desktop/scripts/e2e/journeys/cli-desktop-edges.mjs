@@ -1,7 +1,13 @@
 /** The CLI against a broken instance record: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -48,9 +54,36 @@ async function listing(command, args, why) {
   return result.stdout;
 }
 
-/** Pids of processes from an installed Review bundle whose environment names `home`: what this journey could have started. */
-async function installedDesktopPids(home) {
-  // LaunchServices can pick a bundle anywhere, so this only has to find a Review bundle; the two filters below narrow it.
+/** Every running pid mapped to its parent, from `ps` on macOS and Linux. */
+async function parentPids() {
+  const stdout = await listing(
+    "/bin/ps",
+    ["-A", "-o", "pid=,ppid="],
+    "no process is running",
+  );
+
+  const parents = new Map();
+
+  for (const line of stdout.split("\n")) {
+    const [, pid, ppid] = line.match(/^\s*(\d+)\s+(\d+)/) ?? [];
+
+    if (pid) parents.set(Number(pid), Number(ppid));
+  }
+
+  return parents;
+}
+
+/** True when `pid` is the journey's own Desktop or one of its descendants: those are expected, not strays. */
+function ownDesktop(pid, parents, desktopPid) {
+  for (let at = pid; at > 1; at = parents.get(at) ?? 0)
+    if (at === desktopPid) return true;
+
+  return false;
+}
+
+/** macOS: pids from an installed Whiteboard bundle whose environment names `home`. */
+async function installedMacPids(home) {
+  // LaunchServices can pick a bundle anywhere, so this only has to find a bundle; the two filters below narrow it.
   const stdout = await listing(
     "/usr/bin/pgrep",
     ["-f", "(Review|Whiteboard)\\.app/Contents"],
@@ -62,7 +95,7 @@ async function installedDesktopPids(home) {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  if (!pids.length) return new Set();
+  if (!pids.length) return [];
 
   // `comm` is the executable path alone, which is what separates an installed bundle from the one this checkout builds.
   const paths = await listing(
@@ -84,7 +117,7 @@ async function installedDesktopPids(home) {
       installed.push(pid);
   }
 
-  if (!installed.length) return new Set();
+  if (!installed.length) return [];
 
   // `ps -E` appends the environment, for this user's own processes, which is all this journey can produce.
   const environments = await listing(
@@ -93,7 +126,7 @@ async function installedDesktopPids(home) {
     "every installed-bundle pid has already exited",
   );
 
-  const owned = new Set();
+  const owned = [];
 
   const belongs = new RegExp(
     `DEV_REVIEW_HOME=${home.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}(\\s|$)`,
@@ -102,10 +135,63 @@ async function installedDesktopPids(home) {
   for (const line of environments.split("\n")) {
     const [, pid, command] = line.match(/^\s*(\d+)\s+(.*)$/) ?? [];
 
-    if (pid && belongs.test(command)) owned.add(Number(pid));
+    if (pid && belongs.test(command)) owned.push(Number(pid));
   }
 
   return owned;
+}
+
+/** Linux: pids whose environment names `home` and whose executable lies outside this checkout, read from /proc. */
+async function installedLinuxPids(home) {
+  const owned = [];
+
+  for (const entry of await readdir("/proc").catch(() => [])) {
+    if (!/^\d+$/.test(entry)) continue;
+
+    // Another user's process, or one that exited mid-scan, is unreadable and cannot be this journey's.
+    const environ = await readFile(`/proc/${entry}/environ`, "utf8").catch(
+      () => "",
+    );
+
+    if (!environ.split("\0").includes(`DEV_REVIEW_HOME=${home}`)) continue;
+
+    const executable = await readlink(`/proc/${entry}/exe`).catch(() => "");
+
+    // The journey's own node children (the CLI, git) carry the home too, so only a Desktop executable counts.
+    // Crashpad double-forks away from its Desktop, so ancestry cannot place it; it never opens a window.
+    if (
+      executable &&
+      !executable.startsWith(`${workspace}/`) &&
+      path.basename(executable) !== path.basename(process.execPath) &&
+      path.basename(executable) !== "chrome_crashpad_handler"
+    )
+      owned.push(Number(entry));
+  }
+
+  return owned;
+}
+
+/**
+ * Pids of processes from an installed Whiteboard whose environment names `home`, leaving out the journey's own
+ * Desktop tree: what this journey could have started. The CLI has no Windows launcher ("automatic launch is
+ * available only on macOS and Linux"), so there is nothing to find there.
+ */
+async function installedDesktopPids(ctx, home) {
+  if (process.platform === "win32") return new Set();
+
+  const candidates =
+    process.platform === "darwin"
+      ? await installedMacPids(home)
+      : await installedLinuxPids(home);
+
+  if (!candidates.length) return new Set();
+
+  // A packaged run's own Desktop is an installed bundle with this home, so it is excluded by ancestry, not by path.
+  const parents = await parentPids();
+
+  return new Set(
+    candidates.filter((pid) => !ownDesktop(pid, parents, ctx.desktopPid())),
+  );
 }
 
 export async function run(ctx) {
@@ -118,11 +204,11 @@ export async function run(ctx) {
 
   const original = await readFile(pointer, "utf8");
 
-  // `review info` is the CLI's only unconditional discovery read; `app pick` launches before it reads and swallows these errors.
+  // `whiteboard info` is the CLI's only unconditional discovery read; `app pick` launches before it reads and swallows these errors.
   const probe = async (contents) => {
     await writeFile(pointer, contents);
 
-    return ctx.cliRaw(["info", "--review", review.reviewId]);
+    return ctx.cliRaw(["info", "--session", review.reviewId]);
   };
 
   const output = (result) => `${result.stdout}${result.stderr}`;
@@ -167,7 +253,7 @@ export async function run(ctx) {
     );
     assert.match(
       result.stderr,
-      /Review Desktop discovery is unreadable at .*review-desktop\/instances\/.*\.json\./,
+      /Review Desktop discovery is unreadable at .*review-desktop[\\/]instances[\\/].*\.json\./,
       `a malformed pointer was not named: ${output(result)}`,
     );
     assert.match(
@@ -202,7 +288,7 @@ export async function run(ctx) {
       LOOKUP_ERROR,
       `an unreachable Desktop still answered: ${output(result)}`,
     );
-    ctx.check("a stale pointer tells the user to run review app launch");
+    ctx.check("a stale pointer tells the user to run whiteboard app launch");
 
     // The other half: dead pids with a url that still answers must not read as a stale pointer.
     result = await probe(
@@ -215,11 +301,11 @@ export async function run(ctx) {
       `dead pids were treated as a broken pointer: ${output(result)}`,
     );
 
-    assert.equal(result.code, 0, `review info: ${output(result)}`);
+    assert.equal(result.code, 0, `whiteboard info: ${output(result)}`);
     assert.match(
       result.stdout,
       new RegExp(review.reviewId),
-      `review info named no review: ${output(result)}`,
+      `whiteboard info named no review: ${output(result)}`,
     );
     ctx.check("dead pids in the pointer do not stop the CLI reaching Desktop");
 
@@ -230,7 +316,7 @@ export async function run(ctx) {
     assert.equal(result.code, 0, `app launch: ${output(result)}`);
     assert.match(
       result.stdout,
-      /Review Desktop is already running\./,
+      /Whiteboard Desktop is already running\./,
       `app launch did not recognise the attached Desktop: ${output(result)}`,
     );
     // The instance record is written once on listen, so the same instanceId proves the attached Desktop answered.
@@ -240,7 +326,7 @@ export async function run(ctx) {
       "app launch replaced the pointer of the Desktop it was meant to focus",
     );
     assert.deepEqual(
-      [...(await installedDesktopPids(ctx.home))],
+      [...(await installedDesktopPids(ctx, ctx.home))],
       [],
       "app launch started a Desktop from /Applications although one was attached",
     );
@@ -267,10 +353,10 @@ export async function run(ctx) {
     JSON.stringify({ ...JSON.parse(original), key: "stable", version: 999 }),
   );
 
-  const stray = async () => [...(await installedDesktopPids(probeHome))];
+  const stray = async () => [...(await installedDesktopPids(ctx, probeHome))];
 
   const picked = await ctx.cliRaw(
-    ["app", "pick", "--review", review.reviewId],
+    ["app", "pick", "--session", review.reviewId],
     ctx.repo,
     {
       timeout: 25000,
@@ -307,7 +393,7 @@ export async function run(ctx) {
 
     assert.ok(
       Date.now() < killDeadline,
-      `could not stop ${alive} started from an installed Review bundle`,
+      `could not stop ${alive} started from an installed Whiteboard`,
     );
     await sleep(250);
   }

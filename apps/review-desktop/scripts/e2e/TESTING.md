@@ -10,7 +10,8 @@ CDP. Run `telemetry-contract` alone with
 ## Prerequisites
 
 macOS or Linux, Node 24, and a built Desktop from
-`pnpm --filter @dev.fast/review-desktop app:build`. `go` and `cargo` are needed
+`pnpm --filter @dev.fast/review-desktop app:build`. Windows runs only against an
+installed build with `--app`: development mode launches `scripts/run.sh`. `go` and `cargo` are needed
 only for the phase-2 journeys.
 
 ## Staging the runtime
@@ -54,9 +55,11 @@ A journey module exports `name` (matching its basename), `phase`, `options`
 passed to `createHarness`, and `run(ctx)`. Useful `ctx` helpers: `until` for
 polling, `api` and `apiOk` for the JSON review API, `cli` and `cliRaw` for the
 installed CLI, `appLog` for the Desktop's output so far, `check` to record
-what the journey proved, plus `knownBug`, `restartDesktop` (`{ signal: "SIGKILL" }` for a crash),
+what the journey proved, plus `knownBug`, `restartDesktop` (`{ signal: "SIGKILL" }` for a crash, `beforeRelaunch` for
+changes that need the Desktop stopped), `desktopPid`,
 `quitAndRelaunchDesktop` (a real quit through the workbench), `createReview`,
-`openHome` and `pickReview`. Throw `Error("skip: ...")` when the machine cannot
+`openHome`, `pickReview` and `sourceWindowFor` (the native Source window that
+Go to Definition and Open file open). Throw `Error("skip: ...")` when the machine cannot
 run the journey.
 
 ## Known bugs

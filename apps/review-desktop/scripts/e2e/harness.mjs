@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -41,6 +42,12 @@ export async function instanceRecordPath(home) {
   return name && path.join(dir, name);
 }
 
+/** The community invitation a fresh profile shows (reviewCommunity.contribution.ts). */
+export const COMMUNITY_INVITATION = "Join the Whiteboard community";
+
+/** Playwright's name for the platform's primary modifier: Cmd on macOS, Ctrl on Linux and Windows. */
+export const PRIMARY_MODIFIER = "ControlOrMeta";
+
 /** Pages `watchPage` has instrumented; attaching twice doubles every page error and races two dialog handlers. */
 const watchedPages = new WeakSet();
 
@@ -63,6 +70,12 @@ export async function createHarness({
   beforeLaunch,
   disableCommunityHandler = false,
 }) {
+  // Development mode launches `scripts/run.sh`, which needs a POSIX shell and a code-oss checkout.
+  if (!packagedApp && process.platform === "win32")
+    throw new Error(
+      "development mode needs macOS or Linux; pass --app with an installed Whiteboard",
+    );
+
   // Required lazily so `run.mjs --list` works without code-oss/node_modules.
   const { chromium } = require("playwright-core");
 
@@ -92,6 +105,24 @@ export async function createHarness({
     DEV_FAST_REVIEW_TELEMETRY_ENV: "e2e",
     DEV_REVIEW_EXTENSIONS: extensions,
   };
+
+  // `whiteboard migrate apply` looks for (and may uninstall) global CLIs through each package manager's global root, so those point into the temp root.
+  const globals = path.join(root, "package-manager-globals");
+
+  Object.assign(env, {
+    npm_config_prefix: path.join(globals, "npm"),
+    PNPM_HOME: path.join(globals, "pnpm"),
+    YARN_GLOBAL_FOLDER: path.join(globals, "yarn"),
+    BUN_INSTALL: path.join(globals, "bun"),
+  });
+
+  // Node and most Windows tools find the profile through USERPROFILE and APPDATA, not HOME, so those move into the temp home too.
+  if (process.platform === "win32")
+    Object.assign(env, {
+      USERPROFILE: home,
+      APPDATA: path.join(home, "AppData", "Roaming"),
+      LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    });
 
   for (const key of [
     "DEV_FAST_AGENT_SESSION",
@@ -211,13 +242,10 @@ export async function createHarness({
 
     if (disableCommunityHandler) return;
 
-    // New workbench windows can show the isolated profile's community invitation.
+    // Once the profile holds two sessions a window can show the community invitation; any answer is final.
     await candidate.addLocatorHandler(
-      candidate.getByText("Join the Review community", { exact: true }),
+      candidate.getByText(COMMUNITY_INVITATION, { exact: true }),
       async () => {
-        await candidate
-          .getByRole("checkbox", { name: "Don't show again" })
-          .check();
         await candidate
           .getByRole("button", { name: "Not now", exact: true })
           .click();
@@ -226,6 +254,10 @@ export async function createHarness({
   }
 
   await mkdir(path.join(userData, "User"), { recursive: true });
+
+  if (process.platform === "win32")
+    for (const key of ["APPDATA", "LOCALAPPDATA"])
+      await mkdir(env[key], { recursive: true });
 
   await writeFile(
     path.join(userData, "User/settings.json"),
@@ -268,15 +300,22 @@ export async function createHarness({
           "--disable-telemetry",
           "--skip-welcome",
           `--user-data-dir=${userData}`,
-          `--extensions-dir=${profile}/extensions`,
+          `--extensions-dir=${path.join(profile, "extensions")}`,
           `--remote-debugging-port=${port}`,
         ]
       : [path.join(appRoot, "scripts/run.sh")];
 
+    // Detached on POSIX so the whole process group can be signalled; Windows stops the tree with taskkill instead.
     app = spawn(
       packagedApp ? packagedExecutable(packagedApp) : "bash",
       launchArgs,
-      { cwd: appRoot, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
+      {
+        cwd: appRoot,
+        env,
+        detached: process.platform !== "win32",
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
 
     app.on("exit", (code, signal) =>
@@ -324,11 +363,9 @@ export async function createHarness({
   async function dismissCommunityDialog(candidate) {
     if (disableCommunityHandler) return;
 
-    const dialog = candidate.getByText("Join the Review community", {
-      exact: true,
-    });
+    const dialog = candidate.getByText(COMMUNITY_INVITATION, { exact: true });
 
-    // A restarted profile has already stored the "don't show again" choice, so absence is normal.
+    // It needs two sessions and is asked once per profile, so absence is the usual case.
     const shown = await dialog
       .waitFor({ state: "visible", timeout: 20000 })
       .then(() => true)
@@ -337,17 +374,28 @@ export async function createHarness({
     if (!shown) return;
 
     await candidate
-      .getByRole("checkbox", { name: "Don't show again" })
-      .check()
-      .catch(() => {});
-    await candidate
       .getByRole("button", { name: "Not now", exact: true })
       .click()
       .catch(() => {});
     await dialog.waitFor({ state: "hidden", timeout: 30000 });
   }
 
-  function killGroup(signal) {
+  /** Stops the Desktop and everything it started: its POSIX process group, or its Windows process tree. */
+  async function killGroup(signal) {
+    if (process.platform === "win32") {
+      // Without /F taskkill asks the windows to close, the nearest Windows has to SIGTERM; /T takes the children too.
+      await exec("taskkill", [
+        "/pid",
+        String(app.pid),
+        "/T",
+        ...(signal === "SIGKILL" ? ["/F"] : []),
+      ]).catch(() => {
+        /* Already exited, or the tree is already gone. */
+      });
+
+      return;
+    }
+
     try {
       process.kill(-app.pid, signal);
     } catch {
@@ -366,9 +414,9 @@ export async function createHarness({
   } catch (error) {
     // The only chance to stop the detached Desktop and keep the log that says why it never attached.
     await closeBrowser();
-    killGroup("SIGTERM");
+    await killGroup("SIGTERM");
     await sleep(500);
-    killGroup("SIGKILL");
+    await killGroup("SIGKILL");
     await writeFile(path.join(root, "app.log"), appLog).catch(() => {});
 
     throw error;
@@ -523,25 +571,36 @@ export async function createHarness({
   }
 
   /** `signal: "SIGKILL"` stops the Desktop without letting it run any shutdown handler. */
-  async function restartDesktop({ signal = "SIGTERM" } = {}) {
+  async function restartDesktop({ signal = "SIGTERM", beforeRelaunch } = {}) {
     lifecycle(`Restarting with ${signal}`);
-    killGroup(signal);
+    await killGroup(signal);
 
     try {
       await waitForExit("Desktop shutdown");
     } catch {
       // A respawn while the old instance still holds the CDP port and its instance record would attach to the dying Desktop.
-      killGroup("SIGKILL");
+      await killGroup("SIGKILL");
       await waitForExit("Desktop shutdown after SIGKILL");
     }
 
+    // Anything that must happen while no Desktop holds the files, such as moving a repository on Windows.
+    await beforeRelaunch?.();
     await relaunch();
   }
 
-  /** Quits the way a reader does, through `workbench.action.quit` (Cmd/Ctrl+Q), then relaunches. */
+  /**
+   * Quits the way a reader does, then relaunches: `workbench.action.quit` (Cmd/Ctrl+Q) on macOS and Linux; Windows binds
+   * no quit key, so there closing the last window (`workbench.action.closeWindow`, Ctrl+Shift+W) is what quits.
+   */
   async function quitAndRelaunchDesktop() {
-    lifecycle("Quitting through workbench.action.quit");
-    await page.keyboard.press("ControlOrMeta+KeyQ");
+    const win = process.platform === "win32";
+
+    lifecycle(
+      `Quitting through ${win ? "workbench.action.closeWindow" : "workbench.action.quit"}`,
+    );
+    await page.keyboard.press(
+      win ? "Control+Shift+KeyW" : "ControlOrMeta+KeyQ",
+    );
     await waitForExit("Desktop quit");
     await relaunch();
   }
@@ -584,16 +643,18 @@ export async function createHarness({
       ).catch(() => {});
       await closeBrowser();
     } finally {
-      killGroup("SIGTERM");
+      await killGroup("SIGTERM");
 
       await sleep(500);
 
-      killGroup("SIGKILL");
+      await killGroup("SIGKILL");
     }
 
     console.log(JSON.stringify({ ...report, success }));
 
-    if (success && !keep) await rm(root, { recursive: true, force: true });
+    // Windows can hold a just-killed Desktop's files for a moment, so the removal retries.
+    if (success && !keep)
+      await rm(root, { recursive: true, force: true, maxRetries: 10 });
 
     return success;
   }
@@ -601,6 +662,8 @@ export async function createHarness({
   return Object.assign(ctx, {
     api,
     appLog: () => appLog,
+    /** The pid of the Desktop this harness launched; its descendants are this journey's own processes. */
+    desktopPid: () => app.pid,
     apiOk,
     apiCanvasFor,
     cli,
@@ -686,38 +749,44 @@ export const orderReviewBlocks = [
   },
 ];
 
-/** Closes with one Escape the modal editor Go to Definition opens; `focus` is what must hold focus when the key lands. */
-export async function dismissModalEditor(
-  ctx,
-  page = ctx.page,
-  focus = ".monaco-modal-editor-block",
-) {
-  const modalEditor = page.locator(".monaco-modal-editor-block").first();
+/**
+ * Waits for the native Source window (`<review> — Source — Whiteboard`) that Go to Definition and Open file now open,
+ * with `fileName` as its active editor, and returns that window's page.
+ */
+export async function sourceWindowFor(ctx, fileName, label = fileName) {
+  const source = await ctx.until(async () => {
+    for (const candidate of ctx.browser
+      .contexts()
+      .flatMap((context) => context.pages())) {
+      if (!(await candidate.title().catch(() => "")).includes(" — Source — "))
+        continue;
 
-  const opened = await modalEditor.waitFor({ timeout: 10000 }).then(
-    () => true,
-    () => false,
-  );
+      const active = await candidate
+        .locator(".tabs-container .tab.active")
+        .first()
+        .getAttribute("aria-label", { timeout: 1000 })
+        .catch(() => null);
 
-  if (!opened) return false;
+      if (active?.includes(fileName)) return candidate;
+    }
 
-  // Which element holds focus decides which Escape rule runs, so the press is measured only once it has settled.
-  await ctx.until(
-    () =>
-      page.evaluate(
-        (selector) => document.activeElement?.closest(selector) != null,
-        focus,
-      ),
-    `${focus} to take focus in the modal editor`,
-    10000,
-  );
-  await page.keyboard.press("Escape");
-  await modalEditor.waitFor({ state: "detached", timeout: 5000 });
+    return null;
+  }, `the Source window to open ${label}`);
 
-  return true;
+  await ctx.watchPage(source);
+
+  return source;
 }
 
-/** Opens a review the way a reader does, with `review app pick --review`. */
+/** Closes a Source window the way a reader does, with Close Window (Cmd/Ctrl+Shift+W). */
+export async function closeSourceWindow(source) {
+  const closed = source.waitForEvent("close", { timeout: 30000 });
+
+  await source.keyboard.press(`${PRIMARY_MODIFIER}+Shift+KeyW`);
+  await closed;
+}
+
+/** Opens a review the way a reader does, with `whiteboard app pick --session`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
     ["app", "pick", "--session", reviewId, "--json"],
@@ -728,7 +797,7 @@ export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   assert.equal(picked.code, 0, `app pick: ${picked.stdout}\n${picked.stderr}`);
 }
 
-/** Opens the Settings page on the current `ctx.page`; `Meta+,` repeats because a fresh profile reloads the workbench. */
+/** Opens the Settings page on the current `ctx.page`; Cmd/Ctrl+, repeats because a fresh profile reloads the workbench. */
 export async function openSettings(ctx) {
   const settings = ctx.page.locator(
     ".review-home-content.review-settings-page",
@@ -736,14 +805,14 @@ export async function openSettings(ctx) {
 
   await ctx.until(
     async () => {
-      await ctx.page.keyboard.press("Meta+,");
+      await ctx.page.keyboard.press(`${PRIMARY_MODIFIER}+Comma`);
 
       return await settings.waitFor({ state: "visible", timeout: 5000 }).then(
         () => true,
         () => false,
       );
     },
-    "the Settings page after Meta+,",
+    "the Settings page after Cmd/Ctrl+,",
     60000,
   );
 
@@ -811,5 +880,17 @@ export async function openHome(ctx) {
 
 /** `--app` names a macOS bundle, or the installed executable on Linux and Windows. */
 function packagedExecutable(app) {
-  return app.endsWith(".app") ? path.join(app, "Contents/MacOS/Review") : app;
+  if (!app.endsWith(".app")) return app;
+
+  // The bundle's one executable is named after the product (`Whiteboard` today), so it is found rather than spelled.
+  const macos = path.join(app, "Contents", "MacOS");
+
+  const [executable, ...others] = readdirSync(macos);
+
+  assert.ok(
+    executable && others.length === 0,
+    `${macos} should hold exactly one executable, found ${[executable, ...others].join(", ")}`,
+  );
+
+  return path.join(macos, executable);
 }

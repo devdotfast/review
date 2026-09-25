@@ -1,13 +1,6 @@
 name: Review Windows package CI
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/review-windows-*.yml"
-      - ".github/workflows/review-desktop-release.yml"
-      - ".github/workflows/review-desktop-preview.yml"
-      - "apps/review-desktop/**"
-      - "packages/review/**"
   workflow_dispatch:
     inputs:
       sign:
@@ -19,13 +12,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: review-windows-ci-${{ github.event.pull_request.number || github.ref }}
+  group: review-windows-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   packages:
-    # Fork pull requests would otherwise run on the paid 16-core runner.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +30,7 @@ jobs:
       id-token: write
     uses: ./.github/workflows/review-windows-build.yml
     with:
-      commit: ${{ github.event.pull_request.head.sha || github.sha }}
+      commit: ${{ github.sha }}
       version: ${{ matrix.version }}
       artifact_name: windows-packages-${{ matrix.channel }}
       sign: ${{ inputs.sign == true }}

@@ -1,4 +1,4 @@
-# Fedora packages and release repository
+# Linux packages and release repository
 
 Review supports Fedora Workstation 43/44 on x86-64. The stable package is
 `dev-fast-review-X.Y.Z-1.x86_64.rpm`, using the Review version and
@@ -38,8 +38,33 @@ install agent skills, change editor alternatives, or edit user profiles. The
 sandbox helper is root-owned with mode `4755`. Do not disable SELinux or Chromium
 sandboxing to make an installation work.
 
-The existing Ubuntu CI runner is a build host, not a supported installation target.
+The same build also produces `dev-fast-review_X.Y.Z-1_amd64.deb`; see
+[Debian package](#debian-package).
+
 The package installation tests use pinned Fedora 43 and 44 containers.
+
+## Debian package
+
+The deb is a download, not a channel: it is attached to the GitHub release and
+installed by hand. There is no apt repository, so it does not update itself and
+does not carry a repository signature. Fedora remains the supported target, and
+Ubuntu is not covered by the acceptance results below.
+
+`prepareReviewDebPackage` in `code-oss/build/linux/review-package.ts` stages the
+same `/usr` tree as the RPM and writes `DEBIAN/control` and the desktop/icon
+cache hooks. `dpkg-deb --root-owner-group` then installs the payload as root
+without a fakeroot session, keeping the setuid mode on the sandbox helper.
+
+Unlike rpmbuild, dpkg-deb discovers no ELF dependencies. `Depends` is therefore
+the generated Debian dependency list checked in for this Electron version
+(`code-oss/build/linux/debian/dep-lists.ts`) plus what the RPM requires on top of
+its own discovery. Updating Electron means refreshing that list.
+
+`verify-deb-package.sh` installs the built deb through apt in pinned Ubuntu 24.04
+and 26.04 containers, which is what proves those declared dependencies resolve on
+a real archive. It also checks that no system Node is pulled in, that the sandbox
+helper is `0:0:4755`, that the desktop entry and URL handler register, and that
+removing the package retains user data.
 
 ## Signing and rollout
 
@@ -87,7 +112,7 @@ verification failures stop DNF instead of silently skipping Review. Setup and up
 
 ## Validation gates
 
-The automated workflow builds the RPM and runs clean Fedora 43/44 installation,
+The automated workflow builds the RPM and the deb. It runs clean Fedora 43/44 installation,
 bundled CLI startup without system Node, sandbox permission checks, a fixture
 upgrade, retained-data uninstall, and rejection of altered RPMs, altered root/index
 metadata, and untrusted keys. The fixture is a minimal older package; it does not prove migration from an older
@@ -95,6 +120,9 @@ released runtime.
 Publication tests cover interrupted uploads, immutable collisions, stale reruns,
 and concurrent pointer promotion. Worker tests cover routing, conditional requests,
 range downloads, and refusal to expose removed distribution paths.
+
+It also runs clean Ubuntu 24.04/26.04 installation of the deb. That gate covers
+dependency resolution and file layout only; no Ubuntu native acceptance was run.
 
 Before the first public Fedora release, record these additional results:
 

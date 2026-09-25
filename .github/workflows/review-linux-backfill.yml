@@ -119,4 +119,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm linux-packages/*.deb

@@ -11,6 +11,7 @@ import { IDialogService } from "../../../platform/dialogs/common/dialogs.js";
 import type { ServicesAccessor } from "../../../platform/instantiation/common/instantiation.js";
 import { INativeHostService } from "../../../platform/native/common/native.js";
 import { INotificationService } from "../../../platform/notification/common/notification.js";
+import { IProductService } from "../../../platform/product/common/productService.js";
 import { Registry } from "../../../platform/registry/common/platform.js";
 import { IStorageService, StorageScope } from "../../../platform/storage/common/storage.js";
 import {
@@ -134,6 +135,7 @@ class UninstallReviewDesktopAction extends Action2 {
 	override async run(accessor: ServicesAccessor): Promise<void> {
 		const dialogService = accessor.get(IDialogService);
 		const environmentService = accessor.get(INativeWorkbenchEnvironmentService);
+		const productService = accessor.get(IProductService);
 		const nativeHostService = accessor.get(INativeHostService);
 		const desktopConnection = accessor.get(IReviewDesktopConnectionService);
 		const storageService = accessor.get(IStorageService);
@@ -191,12 +193,19 @@ class UninstallReviewDesktopAction extends Action2 {
 		}
 
 		if (isLinux) {
+			// Package names follow the channel; the AUR package ships stable only.
+			const preview = productService.quality === "preview";
 			await dialogService.info(
 				localize("review.uninstall.linuxDone", "Whiteboard’s user-installed integrations were removed."),
-				localize(
-					"review.uninstall.linuxFinish",
-					"To remove the app, quit Whiteboard and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your sessions and settings stay on disk.",
-				),
+				preview
+					? localize(
+						"review.uninstall.linuxFinishPreview",
+						"To remove the app, quit Whiteboard and run sudo apt remove dev-fast-review-preview on Ubuntu, or sudo dnf remove dev-fast-review-preview on Fedora. Your sessions and settings stay on disk.",
+					)
+					: localize(
+						"review.uninstall.linuxFinish",
+						"To remove the app, quit Whiteboard and run sudo apt remove dev-fast-review on Ubuntu, sudo dnf remove dev-fast-review on Fedora, or sudo pacman -R whiteboard-bin on Omarchy / Arch. Your sessions and settings stay on disk.",
+					),
 			);
 			return;
 		}

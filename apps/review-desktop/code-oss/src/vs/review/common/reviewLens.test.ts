@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { lensContextGaps } from './reviewLens.js';
+import { lensContextGaps, viewedContextGaps } from './reviewLens.js';
 import type { IDocumentDiff } from '../../editor/common/diff/documentDiffProvider.js';
 
 const plain: IDocumentDiff = { changes: [], moves: [], identical: false, quitEarly: false };
@@ -32,5 +32,18 @@ test('viewed folds never hide an unread counterpart, and do not overlap structur
 	const gaps = viewedContextGaps({ ...plain, contextGaps: [{ originalStart: 2, modifiedStart: 2, originalCount: 5, modifiedCount: 5, label: 'body' }] }, 10, 10, changed, changed);
 	assert.equal(gaps.length, 1);
 	assert.equal(gaps[0].label, 'Viewed');
+	assert.equal(gaps[0].modifiedCount, 3);
+});
+
+// Provider alignments can exceed V8's maximum function argument count for large files.
+test('viewed folds handle large source alignments without losing the final rows', () => {
+	const lineCount = 250_000;
+	const diff = { ...plain, sourceLineAlignment: Array.from({ length: lineCount }, (_, line) => [line, line] as const) };
+	const viewed = [{ side: 'head' as const, file: 'large.ts', fromLine: lineCount - 2, toLine: lineCount }];
+	const gaps = viewedContextGaps(diff, lineCount, lineCount, viewed, []);
+	assert.equal(gaps.length, 1);
+	assert.equal(gaps[0].originalStart, lineCount - 2);
+	assert.equal(gaps[0].modifiedStart, lineCount - 2);
+	assert.equal(gaps[0].originalCount, 3);
 	assert.equal(gaps[0].modifiedCount, 3);
 });

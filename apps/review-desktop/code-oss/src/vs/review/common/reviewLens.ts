@@ -57,7 +57,7 @@ export function lensContextGaps(diff: IDocumentDiff, originalCount: number, modi
 
 export function alignmentRows(diff: IDocumentDiff, originalCount: number, modifiedCount: number): (readonly [number | null, number | null])[] {
 	const rows: (readonly [number | null, number | null])[] = [];
-	if (diff.sourceLineAlignment) rows.push(...diff.sourceLineAlignment);
+	if (diff.sourceLineAlignment) return diff.sourceLineAlignment.slice();
 	else {
 		let left = 0, right = 0;
 		const append = (leftEnd: number, rightEnd: number) => {

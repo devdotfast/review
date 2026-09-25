@@ -41,6 +41,23 @@ describe("proseToMarkdown", () => {
     ).toBe("# Title\n\nHello **bold** and *soft* ``x`y``\n");
   });
 
+  it("keeps dollar signs and brackets in prose out of math", () => {
+    const prose = "Set $HOME/$USER, then read [1] and [2].";
+
+    const nodes = [
+      ...markdownNodes(
+        parseMarkdown(proseToMarkdown([el("p", [text(prose)])])),
+      ),
+    ];
+
+    expect(nodes.map((node) => node.type)).toEqual([
+      "root",
+      "paragraph",
+      "text",
+    ]);
+    expect(nodes[2].value).toBe(prose);
+  });
+
   it("turns inline AnchorLink components into review-source links", () => {
     const anchor = {
       __kind: "db-anchor-ref",

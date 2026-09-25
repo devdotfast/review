@@ -89,6 +89,7 @@ Direct third-party runtime/UI dependencies currently include:
 - `fuzzysort` (`MIT`)
 - `isomorphic-git` (`MIT`)
 - `kysely` (`MIT`)
+- `mathjax-full` (`Apache-2.0`)
 - `react` and `react-dom` (`MIT`)
 - `semver` (`ISC`)
 - `write-file-atomic` (`ISC`)

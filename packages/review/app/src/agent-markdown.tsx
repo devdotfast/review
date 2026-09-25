@@ -17,6 +17,7 @@ import { type MarkdownNode, parseMarkdown } from "../../src/markdown";
 import { RenderedCodeBlock } from "./code-block";
 import { HighlightedText } from "./highlighted-text";
 import { newTabLinkProps } from "./link-props";
+import { MarkdownMath } from "./markdown-math";
 
 type LinkRenderer = (href: string, children: ReactNode) => ReactNode;
 
@@ -213,6 +214,14 @@ function renderMarkdownNode(
           language={node.lang}
         />
       );
+    case "math":
+      return <MarkdownMath key={key} tex={node.value ?? ""} display />;
+    case "inlineMath":
+      // Like Pandoc, a `$` that opens before or closes after a space is prose,
+      // so "$5 and $10" stays text.
+      if (/^\s|\s$/.test(node.value ?? "")) return `$${node.value}$`;
+
+      return <MarkdownMath key={key} tex={node.value ?? ""} display={false} />;
     case "break":
       return <br key={key} />;
     case "thematicBreak":

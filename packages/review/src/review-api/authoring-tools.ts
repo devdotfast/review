@@ -18,14 +18,17 @@ export function authoringTools(
   const version = z.number().int().nonnegative().optional();
 
   // Anthropic rejects a top-level union, so publish one object; the host validates the union.
-  const uploadInput = z.strictObject({
-    ...Object.assign(
-      {},
-      ...uploadSchema.options.map((option) => option.partial().shape),
-    ),
-    ...uploadSchema.options[0].pick({ id: true, repositoryId: true }).shape,
-    kind: z.enum(uploadSchema.options.map((option) => option.shape.kind.value)),
-  });
+  const [image, trace, map] = uploadSchema.options;
+
+  const uploadInput = z
+    .strictObject({
+      ...image.shape,
+      ...trace.shape,
+      ...map.shape,
+      kind: z.enum(["image", "trace", "map"]),
+    })
+    .partial()
+    .required({ id: true, repositoryId: true, kind: true });
 
   const read = (name: keyof typeof readQuerySchemas) =>
     z.strictObject({ ...review, ...readQuerySchemas[name].shape });

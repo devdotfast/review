@@ -8,7 +8,9 @@
   <p><strong>an open-source canvas for thoughtful software design</strong></p>
   <p>
     <a href="https://install.dev.fast">Download for macOS</a> ·
-    <a href="https://install.dev.fast/linux">Download for Fedora</a> ·
+    <a href="https://install.dev.fast/windows">Windows</a> ·
+    <a href="https://install.dev.fast/linux/ubuntu">Ubuntu</a> ·
+    <a href="https://install.dev.fast/linux">Fedora</a> ·
     <a href="https://dev.fast">Website</a> ·
     <a href="https://discord.gg/wYvd2cpMQg">Discord</a>
   </p>

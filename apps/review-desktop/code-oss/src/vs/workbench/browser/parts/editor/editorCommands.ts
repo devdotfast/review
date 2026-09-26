@@ -9,31 +9,29 @@ import { Schemas, matchesScheme } from '../../../../base/common/network.js';
 import { extname, isEqual } from '../../../../base/common/resources.js';
 import { isNumber, isObject, isString, isUndefined } from '../../../../base/common/types.js';
 import { URI, UriComponents } from '../../../../base/common/uri.js';
-import { Codicon } from '../../../../base/common/codicons.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
-import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandHandler, ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { EditorResolution, IEditorOptions, IResourceEditorInput, ITextEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight, KeybindingsRegistry } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
-import { IListService, IOpenEvent, RawWorkbenchListFocusContextKey, WorkbenchTreeFindOpen, WorkbenchTreeStickyScrollFocused } from '../../../../platform/list/browser/listService.js';
+import { IListService, IOpenEvent } from '../../../../platform/list/browser/listService.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { ActiveGroupEditorsByMostRecentlyUsedQuickAccess } from './editorQuickAccess.js';
 import { SideBySideEditor } from './sideBySideEditor.js';
 import { TextDiffEditor } from './textDiffEditor.js';
-import { ActiveEditorCanSplitInGroupContext, ActiveEditorGroupEmptyContext, ActiveEditorGroupLockedContext, ActiveEditorStickyContext, EditorPartModalContext, EditorPartModalMaximizedContext, EditorPartModalNavigationContext, EditorPartModalSidebarContext, IsSessionsWindowContext, MultipleEditorGroupsContext, SideBySideEditorActiveContext, TextCompareEditorActiveContext } from '../../../common/contextkeys.js';
+import { ActiveEditorCanSplitInGroupContext, ActiveEditorGroupEmptyContext, ActiveEditorGroupLockedContext, ActiveEditorStickyContext, MultipleEditorGroupsContext, SideBySideEditorActiveContext, TextCompareEditorActiveContext } from '../../../common/contextkeys.js';
 import { CloseDirection, EditorInputCapabilities, EditorsOrder, IResourceDiffEditorInput, IUntitledTextResourceEditorInput, isDiffEditorInput, isEditorInputWithOptionsAndGroup } from '../../../common/editor.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { SideBySideEditorInput } from '../../../common/editor/sideBySideEditorInput.js';
 import { EditorGroupColumn, columnToEditorGroup } from '../../../services/editor/common/editorGroupColumn.js';
-import { EditorGroupLayout, GroupDirection, GroupLocation, GroupsOrder, IEditorGroup, IEditorGroupsService, IEditorReplacement, IModalEditorPart, preferredSideBySideGroupDirection } from '../../../services/editor/common/editorGroupsService.js';
-import { mainWindow } from '../../../../base/browser/window.js';
+import { EditorGroupLayout, GroupDirection, GroupLocation, GroupsOrder, IEditorGroup, IEditorGroupsService, IEditorReplacement, preferredSideBySideGroupDirection } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorResolverService } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
@@ -99,13 +97,6 @@ export const FOCUS_ABOVE_GROUP_WITHOUT_WRAP_COMMAND_ID = 'workbench.action.focus
 export const FOCUS_BELOW_GROUP_WITHOUT_WRAP_COMMAND_ID = 'workbench.action.focusBelowGroupWithoutWrap';
 
 export const OPEN_EDITOR_AT_INDEX_COMMAND_ID = 'workbench.action.openEditorAtIndex';
-
-export const CLOSE_MODAL_EDITOR_COMMAND_ID = 'workbench.action.closeModalEditor';
-export const MOVE_MODAL_EDITOR_TO_MAIN_COMMAND_ID = 'workbench.action.moveModalEditorToMain';
-export const TOGGLE_MODAL_EDITOR_MAXIMIZED_COMMAND_ID = 'workbench.action.toggleModalEditorMaximized';
-export const NAVIGATE_MODAL_EDITOR_PREVIOUS_COMMAND_ID = 'workbench.action.navigateModalEditorPrevious';
-export const NAVIGATE_MODAL_EDITOR_NEXT_COMMAND_ID = 'workbench.action.navigateModalEditorNext';
-export const TOGGLE_MODAL_EDITOR_SIDEBAR_COMMAND_ID = 'workbench.action.toggleModalEditorSidebar';
 
 export const API_OPEN_EDITOR_COMMAND_ID = '_workbench.open';
 export const API_OPEN_DIFF_EDITOR_COMMAND_ID = '_workbench.diff';
@@ -1438,211 +1429,6 @@ function registerOtherEditorCommands(): void {
 	});
 }
 
-function registerModalEditorCommands(): void {
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: MOVE_MODAL_EDITOR_TO_MAIN_COMMAND_ID,
-				title: localize2('moveToMainWindow', 'Open Modal Editor in Main Window'),
-				category: Categories.View,
-				f1: true,
-				icon: Codicon.openInProduct,
-				precondition: EditorPartModalContext,
-				menu: {
-					id: MenuId.ModalEditorTitle,
-					group: 'navigation',
-					order: 0,
-					when: IsSessionsWindowContext.negate()
-				}
-			});
-		}
-		async run(accessor: ServicesAccessor): Promise<void> {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					await part.close({ mergeAllEditorsToMainPart: true });
-					break;
-				}
-			}
-		}
-	});
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: TOGGLE_MODAL_EDITOR_SIDEBAR_COMMAND_ID,
-				title: localize2('toggleModalEditorSidebar', 'Toggle Modal Editor Sidebar'),
-				category: Categories.View,
-				f1: true,
-				precondition: ContextKeyExpr.and(EditorPartModalContext, EditorPartModalSidebarContext),
-			});
-		}
-		run(accessor: ServicesAccessor): void {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					part.toggleSidebar();
-					break;
-				}
-			}
-		}
-	});
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: TOGGLE_MODAL_EDITOR_MAXIMIZED_COMMAND_ID,
-				title: localize2('toggleModalEditorMaximized', 'Maximize Modal Editor'),
-				category: Categories.View,
-				f1: true,
-				precondition: EditorPartModalContext,
-				icon: Codicon.screenFull,
-				toggled: {
-					condition: EditorPartModalMaximizedContext,
-					title: localize('restoreModalEditorSize', "Restore Modal Editor")
-				},
-				menu: {
-					id: MenuId.ModalEditorTitle,
-					group: 'navigation',
-					order: 99
-				}
-			});
-		}
-		run(accessor: ServicesAccessor): void {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					part.toggleMaximized();
-					break;
-				}
-			}
-		}
-	});
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: CLOSE_MODAL_EDITOR_COMMAND_ID,
-				title: localize2('closeModalEditor', 'Close Modal Editor'),
-				category: Categories.View,
-				f1: true,
-				icon: Codicon.close,
-				precondition: EditorPartModalContext,
-				keybinding: [{
-					primary: KeyCode.Escape,
-					weight: KeybindingWeight.WorkbenchContrib + 10, // higher when no text editor or list/tree is focused...
-					when: ContextKeyExpr.and(EditorContextKeys.focus.toNegated(), RawWorkbenchListFocusContextKey.negate())
-				}, {
-					primary: KeyCode.Escape,
-					weight: KeybindingWeight.EditorContrib - 1, // ...lower to prevent accidental close when text editor is focused
-					when: EditorContextKeys.focus
-				}, {
-					primary: KeyCode.Escape,
-					// When a list/tree is focused, still close the modal, but yield to the
-					// list/tree's own `Escape` features that should close first (the find
-					// widget and sticky scroll). The selection is intentionally not cleared
-					// first so a single `Escape` closes the modal. Outranks
-					// `closeReferenceSearch` (referencesController.ts, WorkbenchContrib + 50),
-					// which would otherwise eat the first press on a peek hosted inside this
-					// modal and only move focus to the modal's editor.
-					weight: KeybindingWeight.WorkbenchContrib + 51,
-					when: ContextKeyExpr.and(RawWorkbenchListFocusContextKey, WorkbenchTreeFindOpen.negate(), WorkbenchTreeStickyScrollFocused.negate())
-				}],
-				menu: {
-					id: MenuId.ModalEditorTitle,
-					group: 'navigation',
-					order: 100
-				}
-			});
-		}
-		async run(accessor: ServicesAccessor): Promise<void> {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					await part.close();
-					break;
-				}
-			}
-		}
-	});
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: NAVIGATE_MODAL_EDITOR_PREVIOUS_COMMAND_ID,
-				title: localize2('navigateModalEditorPrevious', 'Navigate to Previous Item in Modal Editor'),
-				category: Categories.View,
-				precondition: ContextKeyExpr.and(EditorPartModalContext, EditorPartModalNavigationContext),
-				keybinding: {
-					primary: KeyMod.Alt | KeyCode.UpArrow,
-					weight: KeybindingWeight.WorkbenchContrib + 10,
-					when: ContextKeyExpr.and(EditorPartModalContext, EditorPartModalNavigationContext)
-				}
-			});
-		}
-		run(accessor: ServicesAccessor): void {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					const nav = part.navigation;
-					if (nav && nav.current > 0) {
-						nav.navigate(nav.current - 1);
-					}
-					break;
-				}
-			}
-		}
-	});
-
-	registerAction2(class extends Action2 {
-		constructor() {
-			super({
-				id: NAVIGATE_MODAL_EDITOR_NEXT_COMMAND_ID,
-				title: localize2('navigateModalEditorNext', 'Navigate to Next Item in Modal Editor'),
-				category: Categories.View,
-				precondition: ContextKeyExpr.and(EditorPartModalContext, EditorPartModalNavigationContext),
-				keybinding: {
-					primary: KeyMod.Alt | KeyCode.DownArrow,
-					weight: KeybindingWeight.WorkbenchContrib + 10,
-					when: ContextKeyExpr.and(EditorPartModalContext, EditorPartModalNavigationContext)
-				}
-			});
-		}
-		run(accessor: ServicesAccessor): void {
-			const editorGroupsService = accessor.get(IEditorGroupsService);
-
-			for (const part of editorGroupsService.parts) {
-				if (isModalEditorPart(part)) {
-					const nav = part.navigation;
-					if (nav && nav.current < nav.total - 1) {
-						nav.navigate(nav.current + 1);
-					}
-					break;
-				}
-			}
-		}
-	});
-}
-
-function isModalEditorPart(obj: unknown): obj is IModalEditorPart {
-	const part = obj as IModalEditorPart | undefined;
-
-	return !!part
-		&& typeof part.close === 'function'
-		&& typeof part.onWillClose === 'function'
-		&& typeof part.toggleMaximized === 'function'
-		&& typeof part.maximized === 'boolean'
-		&& typeof part.updateOptions === 'function'
-		&& !!part.modalElement
-		&& part.windowId === mainWindow.vscodeWindowId;
-}
-
 export function setup(): void {
 	registerEditorMoveCopyCommand();
 	registerEditorGroupsLayoutCommands();
@@ -1656,5 +1442,4 @@ export function setup(): void {
 	registerFocusEditorGroupAtIndexCommands();
 	registerSplitEditorCommands();
 	registerFocusEditorGroupWihoutWrapCommands();
-	registerModalEditorCommands();
 }

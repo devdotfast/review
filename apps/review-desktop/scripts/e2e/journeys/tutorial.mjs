@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 
-import { dismissModalEditor, openHome } from "../harness.mjs";
+import { openHome } from "../harness.mjs";
 import { readApplicationStorage } from "../storage.mjs";
 
 export const name = "tutorial";
@@ -129,17 +129,8 @@ export async function run(ctx) {
     .first()
     .click();
   await page.keyboard.press("F12");
-  // `inline-navigation` completes on an actual navigation.
+  // `inline-navigation` completes on an actual navigation, which stays on the canvas for a same-file definition.
   await waitChecked(ctx, "gotoDefinition");
-
-  // `didNavigate` records the step before the modal editor opens, so wait for the modal rather than assume it is up.
-  // The References tree is the state the bug was found in: its own Escape used to eat the press.
-  await dismissModalEditor(
-    ctx,
-    page,
-    ".monaco-modal-editor-block .monaco-list[aria-label='References']",
-  );
-  ctx.check("one Escape closes the Go to Definition modal editor");
   await guide.waitFor();
 
   await canvas

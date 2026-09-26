@@ -490,7 +490,7 @@ export class HistoryService extends Disposable implements IHistoryService {
 	async goBackToActiveEditorNavigation(): Promise<'none' | 'source' | 'destination'> {
 		const source = this.explicitNavigationSource;
 		const destination = this.explicitNavigationDestination;
-		const activeEditorPane = this.editorGroupService.activeModalEditorPart?.activeGroup.activeEditorPane ?? this.editorGroupService.activeGroup.activeEditorPane;
+		const activeEditorPane = this.editorGroupService.activeGroup.activeEditorPane;
 		const activeSelection = isEditorPaneWithSelection(activeEditorPane) ? activeEditorPane.getSelection() : undefined;
 		if (!source || !destination || !activeEditorPane?.input) {
 			this.explicitNavigationSource = undefined;

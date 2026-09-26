@@ -1455,11 +1455,9 @@ export class NavigateForwardAction extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const historyService = accessor.get(IHistoryService);
-		const editorGroupsService = accessor.get(IEditorGroupsService);
 		if (await historyService.goForwardToActiveEditorNavigation()) {
 			return;
 		}
-		await moveActiveModalEditorToMainPart(editorGroupsService);
 
 		await historyService.goForward(GoFilter.NONE);
 	}
@@ -1495,26 +1493,11 @@ export class NavigateBackwardsAction extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const historyService = accessor.get(IHistoryService);
-		const editorGroupsService = accessor.get(IEditorGroupsService);
-		const modalEditorPart = editorGroupsService.activeModalEditorPart;
-		const embeddedNavigation = await historyService.goBackToActiveEditorNavigation();
-		if (embeddedNavigation !== 'none') {
-			if (embeddedNavigation === 'source') {
-				await modalEditorPart?.close();
-			}
+		if (await historyService.goBackToActiveEditorNavigation() !== 'none') {
 			return;
 		}
-		await moveActiveModalEditorToMainPart(editorGroupsService);
 		await historyService.goBack(GoFilter.NONE);
 	}
-}
-
-async function moveActiveModalEditorToMainPart(editorGroupsService: IEditorGroupsService): Promise<boolean> {
-	const modalEditorPart = editorGroupsService.activeModalEditorPart;
-	if (modalEditorPart) {
-		return modalEditorPart.close({ mergeAllEditorsToMainPart: true });
-	}
-	return false;
 }
 
 export class NavigatePreviousAction extends Action2 {

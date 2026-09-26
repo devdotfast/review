@@ -25,7 +25,6 @@ import { IEditorGroup, IEditorGroupsService } from '../../../services/editor/com
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IWorkbenchLayoutService, Parts } from '../../../services/layout/browser/layoutService.js';
-import { isHTMLElement } from '../../../../base/browser/dom.js';
 
 /**
  * Tracks the id of the actively focused webview.
@@ -168,10 +167,7 @@ export class WebviewEditor extends EditorPane {
 			DOM.setParentFlowTo(input.webview.container, this._element);
 		}
 
-		// Check if this editor is inside a modal editor
-		const modalEditorContainer = this._editorGroupsService.activeModalEditorPart?.modalElement;
-		const isModal = isHTMLElement(modalEditorContainer) && this._element && modalEditorContainer.contains(this._element);
-		this._clippingContainer = isModal ? undefined : this._workbenchLayoutService.getContainer(this.window, Parts.EDITOR_PART);
+		this._clippingContainer = this._workbenchLayoutService.getContainer(this.window, Parts.EDITOR_PART);
 
 		this._webviewVisibleDisposables.clear();
 

@@ -55,6 +55,7 @@ dist
 # apps/review-desktop/scripts/curated-extensions.mjs from pinned Open VSX VSIXes.
 /extensions/vscodevim.vim/
 /extensions/tuttieee.emacs-mcx/
+/extensions/ms-vscode.sublime-keybindings/
 /extensions/rust-lang.rust-analyzer/
 /extensions/swiftlang.swift-vscode/
 /extensions/llvm-vs-code-extensions.lldb-dap/

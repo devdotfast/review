@@ -62,7 +62,8 @@ const BUNDLED_EXTENSIONS: readonly { id: string; label: string }[] = [
 	{ id: 'astral-sh.ty', label: localize('review.curated.ty', "Python type checking (ty)") },
 	{ id: 'charliermarsh.ruff', label: localize('review.curated.ruff', "Python lint and format (ruff)") },
 	{ id: 'vscodevim.vim', label: localize('review.curated.vim', "Vim keybindings") },
-	{ id: 'tuttieee.emacs-mcx', label: localize('review.curated.emacs', "Emacs keybindings") }
+	{ id: 'tuttieee.emacs-mcx', label: localize('review.curated.emacs', "Emacs keybindings") },
+	{ id: 'ms-vscode.sublime-keybindings', label: localize('review.curated.sublime', "Sublime Text keybindings") }
 ];
 
 const OPTIONAL_GROUPS: readonly { group: string; label: string; detail?: string }[] = [
@@ -90,10 +91,11 @@ type CuratedQuickPickItem = IQuickPickItem & (
 	| { kind: 'optional'; group: string }
 );
 
-/** The two keymaps fight over the same keys, so only one may be on at a time. */
+/** The keymaps fight over the same keys, so only one may be on at a time. */
 const KEYMAP_EXTENSION_IDS: Readonly<Record<Exclude<ReviewKeymap, 'none'>, string>> = {
 	vim: 'vscodevim.vim',
 	emacs: 'tuttieee.emacs-mcx',
+	sublime: 'ms-vscode.sublime-keybindings',
 };
 const KEYMAP_IDS = Object.values(KEYMAP_EXTENSION_IDS);
 
@@ -620,8 +622,8 @@ MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
 
 /**
  * Seeds the shipped keymap defaults once per profile. An imported review.keymap
- * selects Vim or Emacs; otherwise both remain off. After that the user's choice
- * in the picker wins.
+ * selects Vim, Emacs, or Sublime Text; otherwise all remain off. After that the
+ * user's choice in the picker wins.
  */
 class CuratedExtensionDefaults implements IWorkbenchContribution {
 	constructor(

@@ -20,6 +20,7 @@ const KEYMAP_LABELS: Record<ReviewKeymapChoice, string> = {
   none: "Default",
   vim: "Vim",
   emacs: "Emacs",
+  sublime: "Sublime Text",
 };
 
 /**
@@ -182,7 +183,7 @@ export function SettingsPage({
             </Row>
             <Row
               label="Keymap"
-              description="Vim and Emacs keys come from a bundled extension. A change needs a reload."
+              description="Vim, Emacs, and Sublime Text keys come from a bundled extension. A change needs a reload."
             >
               <Choice
                 label="Keymap"

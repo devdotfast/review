@@ -108,6 +108,7 @@ export const LS_GROUP = ["python", "go", "rust", "swift", "csharp"] as const;
 export const EXTENSION_ID = [
   "vscodevim.vim",
   "tuttieee.emacs-mcx",
+  "ms-vscode.sublime-keybindings",
   "ms-python.python",
   "astral-sh.ty",
   "charliermarsh.ruff",

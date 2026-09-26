@@ -61,6 +61,23 @@ export const curatedExtensions = Object.freeze([
     stripExtensionPack: false,
   },
   {
+    id: "ms-vscode.sublime-keybindings",
+    tier: "bundled",
+    namespace: "ms-vscode",
+    name: "sublime-keybindings",
+    version: "4.1.10",
+    group: "sublime",
+    label: "Sublime Text keybindings",
+    targets: {
+      universal: {
+        sha256:
+          "fe064eb9f0b83466ede5ed1c7b1a8289b11af8abba82005f7187d571fdb26a34",
+      },
+    },
+    executables: [],
+    stripExtensionPack: false,
+  },
+  {
     id: "rust-lang.rust-analyzer",
     tier: "optional",
     role: "primary",
@@ -311,6 +328,7 @@ export const curatedGroups = Object.freeze([
   "go",
   "vim",
   "emacs",
+  "sublime",
 ]);
 
 /** Extensions that release builds materialize and package. */
@@ -347,7 +365,7 @@ export const userFacingGroups = Object.freeze(
 );
 
 /** Keymaps conflict with each other, so at most one may be enabled at a time. */
-export const keymapGroups = Object.freeze(["vim", "emacs"]);
+export const keymapGroups = Object.freeze(["vim", "emacs", "sublime"]);
 
 /** Extensions that start out disabled on a fresh profile. */
 export const defaultDisabledIds = Object.freeze(

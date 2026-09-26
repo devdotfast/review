@@ -352,7 +352,8 @@ session with `outcome: "app_quit"`, the same as quitting.
 The `language` property is one of typescript, javascript, python, go, rust,
 swift, csharp, json, css, html, markdown, yaml, toml, shell, sql, or other.
 The allowlisted extension identifiers are `vscodevim.vim`,
-`tuttieee.emacs-mcx`, `ms-python.python`, `astral-sh.ty`,
+`tuttieee.emacs-mcx`, `ms-vscode.sublime-keybindings`, `ms-python.python`,
+`astral-sh.ty`,
 `charliermarsh.ruff`, `golang.go`, `rust-lang.rust-analyzer`,
 `swiftlang.swift-vscode`, `llvm-vs-code-extensions.lldb-dap`,
 `muhammad-sammy.csharp`, and `ms-dotnettools.vscode-dotnet-runtime`.

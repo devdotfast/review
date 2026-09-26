@@ -26,7 +26,7 @@ export const REVIEW_KEYMAP_SETTING = 'review.keymap';
 export const REVIEW_TELEMETRY_SETTING = 'review.telemetry.enabled';
 export const REVIEW_STRUCTURAL_DIFF_SETTING = 'review.experimental.structuralDiff.enabled';
 export const REVIEW_SOFTWARE_MAP_SETTING = 'review.experimental.softwareMap.enabled';
-export const REVIEW_KEYMAPS = ['none', 'vim', 'emacs'] as const;
+export const REVIEW_KEYMAPS = ['none', 'vim', 'emacs', 'sublime'] as const;
 export type ReviewKeymap = typeof REVIEW_KEYMAPS[number];
 
 export const reviewConfigurationDefaults = {
@@ -131,6 +131,8 @@ export const curatedExtensionConfigurationDefaults = {
 
 	// charliermarsh.ruff already defaults `ruff.showNotifications` to "off".
 	// astral-sh.ty, vscodevim.vim and tuttieee.emacs-mcx contribute no prompts.
+	// ms-vscode.sublime-keybindings asks once, on first activation, whether to
+	// import Sublime Text settings. It has no setting to turn that off.
 } as const;
 
 export const reviewAgentsWindowDefaultOverrides = {

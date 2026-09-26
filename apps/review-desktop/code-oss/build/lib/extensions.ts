@@ -313,6 +313,7 @@ const excludedExtensions = [
 	// the packaged app instead.
 	'vscodevim.vim',
 	'tuttieee.emacs-mcx',
+	'ms-vscode.sublime-keybindings',
 	'rust-lang.rust-analyzer',
 	'swiftlang.swift-vscode',
 	'llvm-vs-code-extensions.lldb-dap',

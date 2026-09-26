@@ -224,12 +224,9 @@ export function ApiDocument({
       {!hasTitle && !scratchpad && (
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
       )}
-      {(data.snapshot.target?.kind === "worktree" ||
-        data.snapshot.sourceUnavailable) && (
+      {data.snapshot.sourceUnavailable && (
         <p className="review-source-context">
-          {data.snapshot.sourceUnavailable
-            ? "Local checkout unavailable. Showing retained source."
-            : "Working tree"}
+          Local checkout unavailable. Showing retained source.
         </p>
       )}
       <DocumentBlocks

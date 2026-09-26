@@ -415,6 +415,10 @@ one of these entries:
   `scripts/curated-extensions.mjs` materializes under `extensions/`.
 - `src/vs/review/`: Review-owned workbench, protocol, and tests. These files
   carry a dev.fast copyright header rather than Microsoft's.
+- `extensions/review-files/`: Review-owned built-in extension for the source
+  window's file tree, compared with the Review's base checkout. Its entries in
+  `build/gulpfile.extensions.ts` (`compilations`) and `build/npm/dirs.ts` are
+  Review additions.
 - `src/vs/platform/agentHost/` planning documents (deleted): the upstream
   commit vendored internal phase plans and design notes
   (`node/claude/phase*-plan.md`, `roadmap.md`, `smoke.md`, `CONTEXT.md`,

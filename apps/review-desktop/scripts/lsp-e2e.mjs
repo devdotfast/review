@@ -1183,40 +1183,48 @@ try {
     console.log("SKIP rendered inline peeks: diffr is unavailable on PATH");
   }
 
+  // The source window shows a diff inline: one live head editor, with base
+  // lines drawn inside it. Hover works on the head source.
   await probe({ diff: { base: uri(review, "base"), head: uri(review) } });
   await headNavigator.page.bringToFront();
 
-  for (const side of ["original", "modified"]) {
-    const line = headNavigator.page
-      .locator(`.monaco-diff-editor:visible .editor.${side} .view-line`)
-      .filter({ hasText: "export const value = greet();" })
-      .first();
+  const diffLine = headNavigator.page
+    .locator(".monaco-diff-editor:visible .editor.modified .view-line")
+    .filter({ hasText: "export const value = greet();" })
+    .first();
 
-    await until(async () => {
-      await line.scrollIntoViewIfNeeded({ timeout: 2000 });
-      await clickGreet(line);
+  await until(async () => {
+    await diffLine.scrollIntoViewIfNeeded({ timeout: 2000 });
+    await clickGreet(diffLine);
 
-      return true;
-    }, `native diff ${side} source mounted`);
-    await probe({ command: "editor.action.showHover" }, headNavigator.page);
-    await headNavigator.page
-      .locator(".monaco-hover:visible")
-      .filter({ hasText: "greet" })
-      .first()
-      .waitFor();
-    await headNavigator.page.screenshot({
-      path: path.join(root, `diff-${side}-hover.png`),
-    });
-    await probe({ command: "editor.action.hideHover" }, headNavigator.page);
-    await until(
-      async () =>
-        (await headNavigator.page.locator(".monaco-hover:visible").count()) ===
-        0,
-      "previous pane hover dismissed",
-    );
-  }
+    return true;
+  }, "inline native diff source mounted");
 
-  await record("rendered full-file diff supports language hover on both sides");
+  // Inline mode keeps only a narrow original gutter beside the head editor.
+  const [originalBox, modifiedBox] = await Promise.all(
+    ["original", "modified"].map((side) =>
+      headNavigator.page
+        .locator(`.monaco-diff-editor:visible .editor.${side}`)
+        .first()
+        .boundingBox(),
+    ),
+  );
+
+  assert.ok(
+    originalBox && modifiedBox && originalBox.width < modifiedBox.width / 4,
+    `the source window renders diffs inline: ${JSON.stringify({ originalBox, modifiedBox })}`,
+  );
+  await probe({ command: "editor.action.showHover" }, headNavigator.page);
+  await headNavigator.page
+    .locator(".monaco-hover:visible")
+    .filter({ hasText: "greet" })
+    .first()
+    .waitFor();
+  await headNavigator.page.screenshot({
+    path: path.join(root, "diff-inline-hover.png"),
+  });
+  await probe({ command: "editor.action.hideHover" }, headNavigator.page);
+  await record("rendered inline full-file diff supports language hover");
 
   await stop();
   await launch();

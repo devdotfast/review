@@ -46,7 +46,7 @@ test("source tree, selected code, definitions and diffs hand off before creating
 		{ workspaceUri: URI.file("/navigator/base.code-workspace") },
 		{ fileUri: URI.file("/navigator/base/old-name.ts:42:3") },
 	]);
-	assert.deepEqual(windows[1].options, { forceNewWindow: true, gotoLineMode: true, diffMode: false });
+	assert.deepEqual(windows[1].options, { forceNewWindow: true, gotoLineMode: true });
 	assert.equal(requests[1].searchParams.get("version"), "7");
 	assert.equal(requests[1].searchParams.get("commit"), "selected-commit");
 	assert.equal(requests[1].searchParams.get("repositoryId"), "other-repository");
@@ -56,15 +56,16 @@ test("source tree, selected code, definitions and diffs hand off before creating
 	assert.deepEqual(windows[2].openables[1], { fileUri: URI.file(dependency.path) });
 	assert.equal(requests[2].searchParams.has("file"), false);
 	assert.equal(await resolver.resolveEditor({ original: { resource: base }, modified: { resource: head } }, undefined), ResolvedStatus.ABORT);
+	// The source window compares both sides itself, so a diff opens its head file.
 	assert.deepEqual(windows[3].openables, [
 		{ workspaceUri: URI.file("/navigator/head.code-workspace") },
-		{ fileUri: URI.file("/navigator/base/old-name.ts") },
 		{ fileUri: URI.file("/navigator/head/nested/source.ts") },
 	]);
-	assert.equal(windows[3].options.diffMode, true);
-	const empty = apiSourceUri({ view, side: "base", file: "added.ts" }, true);
-	await resolver.resolveEditor({ original: { resource: empty }, modified: { resource: head } }, undefined);
-	assert.equal(requests[5].searchParams.get("empty"), "true");
+	assert.equal(requests.length, 4);
+	const deleted = apiSourceUri({ view, side: "head", file: "old-name.ts" }, true);
+	await resolver.resolveEditor({ original: { resource: base }, modified: { resource: deleted } }, undefined);
+	assert.equal(requests[4].searchParams.get("side"), "head");
+	assert.equal(requests[4].searchParams.get("empty"), "true");
 	fail = true;
 	await assert.rejects(resolver.resolveEditor({ resource: head }, undefined), /Checkout unavailable/);
 	assert.equal(windows.length, 5);

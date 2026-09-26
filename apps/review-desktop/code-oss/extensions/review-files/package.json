@@ -1,0 +1,86 @@
+{
+  "name": "review-files",
+  "displayName": "Review Files",
+  "description": "Shows a source window's whole file tree, marking files added, modified or deleted since the Review's base.",
+  "version": "0.0.1",
+  "publisher": "dev-fast",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.67.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension",
+  "contributes": {
+    "configuration": {
+      "title": "Review Files",
+      "properties": {
+        "reviewFiles.base": {
+          "type": "string",
+          "scope": "window",
+          "description": "The base checkout this workspace's folder is compared with. Empty when every file is new. Written by Whiteboard."
+        },
+        "reviewFiles.review": {
+          "type": "object",
+          "scope": "window",
+          "description": "The Review whose structural diff from diffr the source window shows. Written by Whiteboard."
+        },
+        "reviewFiles.untracked": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "description": "Include untracked files that Git does not ignore. Written by Whiteboard for live Reviews."
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "reviewFiles.tree",
+          "name": "Files",
+          "when": "reviewFiles.enabled"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "reviewFiles.refresh",
+        "title": "Refresh",
+        "category": "Review Files",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "reviewFiles.refresh",
+          "when": "view == reviewFiles.tree",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "reviewFiles.refresh",
+          "when": "reviewFiles.enabled"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "gulp compile-extension:review-files",
+    "watch": "gulp watch-extension:review-files"
+  },
+  "devDependencies": {
+    "@types/node": "24.x"
+  }
+}

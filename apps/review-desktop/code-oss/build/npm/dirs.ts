@@ -23,6 +23,7 @@ export const dirs = [
 	'extensions/markdown-language-features',
 	'extensions/media-preview',
 	'extensions/references-view',
+	'extensions/review-files',
 	'extensions/typescript-language-features',
 ];
 

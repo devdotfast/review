@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { type FSWatcher, existsSync, watch } from "node:fs";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -307,7 +307,11 @@ export class LocalReviewData {
     return { snapshot, pins };
   }
 
-  /** Resolve a native workspace without replacing the selected source with today's HEAD. */
+  /**
+   * Resolve the native workspace for one comparison: the head checkout is its
+   * folder and the base checkout backs the window's diff view, so base and
+   * head files open in the same window.
+   */
   async navigatorWorkspace(
     snapshot: Snapshot,
     source: {
@@ -325,35 +329,27 @@ export class LocalReviewData {
     );
 
     const repository = this.store.repositoryPath(pins.repositoryId);
-    const side = source.side ?? "head";
-
-    const live =
-      !!pins.worktreeRevision &&
-      (side === "head" || (source.empty && pins[side] === EMPTY_SOURCE));
-
-    const checkoutSide =
-      pins[side] === EMPTY_SOURCE && source.empty ? "head" : side;
-
-    const ref = pins[checkoutSide];
+    const live = !!pins.worktreeRevision;
 
     if (source.file) checkRelativePath(source.file);
 
-    // Browse the Review's own base/head checkout. The window opens while
+    // Browse the Review's own base/head checkouts. The window opens while
     // preparation may still be installing dependencies beside the source.
-    const rootPath = live
-      ? await realpath(repository)
-      : (await this.workspaces.source(snapshot.reviewId, pins, checkoutSide))
-          .rootPath;
+    // A live Review never prepares a checkout, so its base only needs the
+    // pinned files.
+    const checkout = async (side: "base" | "head") => {
+      const rootPath = live
+        ? await ensureReviewPinnedCheckout({
+            rootPath: repository,
+            ref: pins[side],
+            reviewUuid: snapshot.reviewId,
+            role: side,
+          })
+        : (await this.workspaces.source(snapshot.reviewId, pins, side))
+            .rootPath;
 
-    const context = await resolveRepoContext(repository);
+      if (!rootPath) return null;
 
-    if (!rootPath || !context)
-      throw new ReviewInputError(
-        "Could not open the selected source checkout.",
-        409,
-      );
-
-    if (!live) {
       const { stdout } = await promisify(execFile)("git", [
         "-C",
         rootPath,
@@ -367,7 +363,23 @@ export class LocalReviewData {
           "The pinned checkout has local changes, possibly from devfast.prepare. Restore those files before browsing this pinned revision.",
           409,
         );
-    }
+
+      return rootPath;
+    };
+
+    // Without a base checkout the window still opens the head source, just
+    // without the comparison. An empty base compares every file as added.
+    const [headRoot, baseRoot, context] = await Promise.all([
+      live ? realpath(repository) : checkout("head"),
+      pins.base === EMPTY_SOURCE ? "" : checkout("base").catch(() => null),
+      resolveRepoContext(repository),
+    ]);
+
+    if (!headRoot || !context)
+      throw new ReviewInputError(
+        "Could not open the selected source checkout.",
+        409,
+      );
 
     // Name the workspace after the repository, not the registered checkout:
     // a linked worktree's directory is an arbitrary branch slug. This matches
@@ -380,7 +392,7 @@ export class LocalReviewData {
       reviewManagedCheckoutRoot(context.commonDir, snapshot.reviewId),
       "navigator",
       "workspaces",
-      live ? "worktree" : ref,
+      live ? "worktree" : `${pins.base}..${pins.head}`,
     );
 
     // VS Code labels a saved workspace by its file name and identifies its
@@ -407,17 +419,43 @@ export class LocalReviewData {
           ),
         ));
 
-      const title = `${snapshot.title} — ${live ? "Live source" : side === "base" ? "Base source" : "Source"} — Whiteboard`;
+      const title = `${snapshot.title} — ${live ? "Live source" : "Source"} — Whiteboard`;
 
       const workspace = previous ?? {
         folders: [],
         settings: { "files.readonlyInclude": { "**/*": true } },
       };
 
+      // The review-files extension compares the folder with this base.
+      const settings = Object.entries(workspace.settings).filter(
+        ([key]) => !key.startsWith("reviewFiles."),
+      );
+
+      settings.push(["window.title", title]);
+
+      // The window asks the server for this comparison's structural diff.
+      if (baseRoot !== null)
+        settings.push(
+          ["reviewFiles.base", baseRoot],
+          ["reviewFiles.untracked", live],
+          [
+            "reviewFiles.review",
+            // A round trip through JSON drops the view's unset fields.
+            JSON.parse(
+              JSON.stringify({
+                reviewId: snapshot.reviewId,
+                version: snapshot.version,
+                commit: source.commit,
+                pins: source.anchor,
+              }),
+            ),
+          ],
+        );
+
       const next = {
         ...workspace,
-        folders: [{ path: rootPath, name }, ...workspace.folders.slice(1)],
-        settings: { ...workspace.settings, "window.title": title },
+        folders: [{ path: headRoot, name }, ...workspace.folders.slice(1)],
+        settings: Object.fromEntries(settings),
       };
 
       if (JSON.stringify(next) !== JSON.stringify(current))
@@ -427,26 +465,24 @@ export class LocalReviewData {
     let filePath: string | undefined;
 
     if (source.file) {
-      if (source.empty) {
-        // Native diffs need a real empty file for an added/deleted side.
-        filePath = path.join(
-          path.dirname(workspacePath),
-          "empty",
-          path.basename(source.file),
+      // An added or deleted file exists only on the other side. The window
+      // compares it with an empty file either way.
+      const base = (source.side === "base") !== !!source.empty;
+      const root = base ? baseRoot || null : headRoot;
+
+      const unavailable = () =>
+        new ReviewInputError(
+          "File is unavailable at the selected revision.",
+          404,
         );
-        await mkdir(path.dirname(filePath), { recursive: true });
-        await writeFile(filePath, "", { mode: 0o600 });
-      } else {
-        try {
-          filePath = await localSourcePath(rootPath, source.file);
-        } catch (error) {
-          if (isMissingFileError(error))
-            throw new ReviewInputError(
-              "File is unavailable at the selected revision.",
-              404,
-            );
-          throw error;
-        }
+
+      if (!root) throw unavailable();
+
+      try {
+        filePath = await localSourcePath(root, source.file);
+      } catch (error) {
+        if (isMissingFileError(error)) throw unavailable();
+        throw error;
       }
     }
 

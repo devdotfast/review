@@ -88,6 +88,54 @@ describe("agent markdown", () => {
     expect(html).toContain("run this");
   });
 
+  it("typesets inline and display TeX math as SVG", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        source:
+          "Euler: $e^{i\\pi} + 1 = 0$\n\n$$\n\\sum_{k=1}^n k = \\frac{n(n+1)}{2}\n$$",
+      }),
+    );
+
+    expect(html).toContain('<span class="markdown-math-inline" role="math"');
+    expect(html).toContain('<span class="markdown-math-display" role="math"');
+    expect(html.match(/<svg/g)).toHaveLength(2);
+    expect(html).not.toContain("$");
+  });
+
+  it("typesets LaTeX \\(…\\) and \\[…\\] delimiters", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: [
+          String.raw`Inline \( \{x : x^2 < 1\} \) and display`,
+          String.raw`\[`,
+          String.raw`a \\ b`,
+          String.raw`\]`,
+          "",
+          String.raw`An unclosed \( stays a parenthesis, as does \\(.`,
+          "",
+          String.raw`Escaped brackets such as \[1\] stay brackets.`,
+        ].join("\n"),
+      }),
+    );
+
+    expect(html).toContain('aria-label="\\{x : x^2 &lt; 1\\}"');
+    expect(html).toContain('<span class="markdown-math-display" role="math"');
+    expect(html.match(/<svg/g)).toHaveLength(2);
+    expect(html).toContain("An unclosed ( stays a parenthesis, as does \\(.");
+    expect(html).toContain("Escaped brackets such as [1] stay brackets.");
+  });
+
+  it("keeps dollar amounts as prose and drops links from math", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: 'It costs $5 and $10.\n\n$\\href{javascript:alert("x")}{x}$',
+      }),
+    );
+
+    expect(html).toContain("It costs $5 and $10.");
+    expect(html).not.toContain("href=");
+  });
+
   it("renders local filesystem links as non-clickable code references", () => {
     const html = renderToStaticMarkup(
       createElement(AgentMarkdown, {

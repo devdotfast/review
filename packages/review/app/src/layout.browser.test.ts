@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { page } from "vitest/browser";
 
 import { scopeReviewCanvasCss } from "../desktop-css-scope";
 import { softwareMapOverlayClassName } from "./software-map/software-map-keyboard-navigation";
 
 import mapCss from "./software-map/styles.css?raw";
 import canvasCss from "./styles.css?raw";
+import whiteboardCss from "./whiteboard.css?raw";
 import "./styles.css";
 import "./api-document.css";
 import "./software-map/styles.css";
@@ -156,5 +158,53 @@ describe("Review layout", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it("keeps the contents rail clear of the ring on the section the agent is editing", async () => {
+    const styles = document.createElement("style");
+    styles.textContent = whiteboardCss;
+    const app = document.createElement("div");
+    app.className = "review-app";
+    app.style.cssText = "position: fixed; inset: 0";
+    app.innerHTML = `
+      <main class="review-document-shell">
+        <header class="review-topbar"></header>
+        <nav class="review-toc review-toc--rail review-toc--open"></nav>
+        <section class="review-view-region review-view-region--review">
+          <div class="review-document-view">
+            <article class="review-document">
+              <header class="review-document-header"><h1>Title</h1></header>
+              <div class="api-document-node" data-region="writing">
+                <section class="review-section">
+                  <div class="review-section-header"><h2>Failure modes</h2></div>
+                </section>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>`;
+    document.body.append(styles, app);
+
+    try {
+      // The narrowest shell that shows the rail, and one wide enough that
+      // the rail follows the prose instead of the shell edge.
+      for (const width of [1360, 1600]) {
+        await page.viewport(width, 900);
+        const rail = app.querySelector(".review-toc")!.getBoundingClientRect();
+
+        const section = app.querySelector(".review-section")!;
+
+        // The ring is the section's ::before, inset past its left edge.
+        const ringLeft =
+          section.getBoundingClientRect().left +
+          parseFloat(getComputedStyle(section, "::before").left);
+
+        expect(rail.right).toBeLessThan(ringLeft);
+      }
+    } finally {
+      await page.viewport(1280, 900);
+      styles.remove();
+      app.remove();
+    }
   });
 });
